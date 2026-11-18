@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { GO_OTEL_TAB } from './_snippets/go-otel-tab'
 
 export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -31,16 +32,17 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install posthog openai
+                                    pip install posthog~=8.0 openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node openai
+                                    npm install @posthog/ai@8 posthog-node@6 openai
                                 `,
                             },
+                            GO_OTEL_TAB,
                         ]}
                     />
                 </>

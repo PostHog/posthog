@@ -2,7 +2,7 @@ import re
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.core.cache import cache
 
@@ -10,11 +10,25 @@ import pytz
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.printer.events_json_document import json_document_sql, json_value_sql
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
+
+from products.access_control.backend.property_access_control import (
+    get_restricted_property_names,
+    strip_restricted_properties,
+)
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -53,6 +67,7 @@ class SessionTimestamps:
     min_timestamp: datetime
     max_timestamp: datetime
     expiry_time: datetime
+    retention_period_days: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +135,7 @@ def _filter_to_diagnostic_properties(properties: dict) -> dict:
     }
 
 
-def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
+def get_latest_session_event_properties(session_id: str, team: Team, user: Optional["User"] = None) -> Optional[dict]:
     """The most recent event's recording-diagnostic properties for a session, for the capture diagnostics panel.
 
     Bounded by a window derived from the UUIDv7 session id so the events sort key
@@ -135,21 +150,56 @@ def get_latest_session_event_properties(session_id: str, team: Team) -> Optional
         # lower_bound is embedded_start - slack; sessions last at most a day,
         # so embedded_start + 1d + slack closes the window symmetrically.
         upper_bound = lower_bound + 2 * SESSION_ID_CLOCK_SKEW_SLACK + timedelta(days=1)
-        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound)
+        properties = _latest_session_event_properties_between(session_id, team, user, lower_bound, upper_bound)
         if properties is not None:
             return properties
     now = datetime.now(pytz.UTC)
     return _latest_session_event_properties_between(
-        session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
+        session_id, team, user, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
     )
 
 
 def _latest_session_event_properties_between(
-    session_id: str, team: Team, date_from: datetime, date_to: datetime
+    session_id: str, team: Team, user: Optional["User"], date_from: datetime, date_to: datetime
 ) -> Optional[dict]:
     from posthog.hogql_queries.hogql_query_runner import (
         HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
     )
+
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+    restricted_properties = get_restricted_property_names(
+        team_id=team.pk, user=user, property_type=PropertyDefinition.Type.EVENT
+    )
+    if use_new_events_schema(team.pk):
+        property_names = sorted(_DIAGNOSTIC_PROPERTIES - {"$session_recording_remote_config"} - restricted_properties)
+        fields = ", ".join(json_value_sql(f"properties.{escape_clickhouse_identifier(key)}") for key in property_names)
+        # The open-ended SDK debug prefix requires the temporary bag, limited to one event.
+        native_query = f"""
+            SELECT {fields}, {json_document_sql("temporary_properties")}
+            FROM {DISTRIBUTED_EVENTS_JSON_TABLE}
+            WHERE team_id = %(team_id)s
+                AND properties.`$session_id` = %(session_id)s
+                AND timestamp >= %(date_from)s
+                AND timestamp <= %(date_to)s
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """
+        rows = sync_execute(
+            native_query,
+            {"team_id": team.pk, "session_id": session_id, "date_from": date_from, "date_to": date_to},
+            team_id=team.pk,
+            ch_user=ClickHouseUser.APP,
+        )
+        if not rows:
+            return None
+        properties = {key: json.loads(value) for key, value in zip(property_names, rows[0][:-1]) if value is not None}
+        properties = {key: value for key, value in properties.items() if value is not None and value != ""}
+        properties.update(
+            strip_restricted_properties(
+                _filter_to_diagnostic_properties(json.loads(rows[0][-1])), restricted_properties
+            )
+        )
+        return properties
 
     query = HogQLQuery(
         query="""
@@ -163,8 +213,7 @@ def _latest_session_event_properties_between(
         """,
         values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
     )
-    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-    result = HogQLQueryRunner(team=team, query=query).calculate()
+    result = HogQLQueryRunner(team=team, user=user, query=query).calculate()
     if not result.results:
         return None
     row = result.results[0][0]
@@ -239,6 +288,12 @@ class SessionReplayEvents:
                     cache.set(cache_key, True, timeout=ttl_seconds)
 
         return results
+
+    def get_session_timestamps(self, session_ids: list[str], team: Team) -> dict[str, SessionTimestamps]:
+        """Time bounds per session ID. Sessions that are not found or past retention are left out."""
+        if not session_ids:
+            return {}
+        return {found.session_id: found for found in self._find_with_timestamps(session_ids, team)}
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
@@ -378,7 +433,13 @@ class SessionReplayEvents:
             return []
         # Query columns: session_id, min_timestamp, max_timestamp, retention_period_days, expiry_time.
         return [
-            SessionTimestamps(session_id=row[0], min_timestamp=row[1], max_timestamp=row[2], expiry_time=row[4])
+            SessionTimestamps(
+                session_id=row[0],
+                min_timestamp=row[1],
+                max_timestamp=row[2],
+                expiry_time=row[4],
+                retention_period_days=row[3],
+            )
             for row in result.results
         ]
 
@@ -507,16 +568,12 @@ class SessionReplayEvents:
         self,
         session_id: str,
         team: Team,
-        recording_start_time: Optional[datetime] = None,
         ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> Optional[RecordingMetadata]:
-        if recording_start_time is not None:
-            return self._get_metadata_from(session_id, team, recording_start_time, ch_user=ch_user)
-
-        # Most callers don't know the recording's start time (it is only persisted
-        # for pinned recordings); derive a lower bound from the session id instead.
-        # Unlike a real start time it carries clock-skew slack, so on a miss fall
-        # back to the unbounded scan rather than reporting not-found.
+        # Derive the lower bound from the session id, not from a persisted start time: a replay block
+        # that arrives after the start time was stored can start earlier, and a strict bound would then
+        # drop the session once ClickHouse merges its rows. The derived bound carries clock-skew slack,
+        # so on a miss fall back to the unbounded scan rather than reporting not-found.
         derived_lower_bound = uuidv7_session_lower_bound(session_id)
         metadata = self._get_metadata_from(session_id, team, derived_lower_bound, ch_user=ch_user)
         if metadata is None and derived_lower_bound is not None:
@@ -788,17 +845,18 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def count_soon_to_expire_sessions_query(
-        format: Optional[str] = None,
-    ):
+    def count_soon_to_expire_sessions_by_team_query() -> str:
+        """Count the sessions about to expire for every team in a [team_id_start, team_id_end) range.
+
+        Parameters: team_id_start, team_id_end, python_now, ttl_threshold.
+        Teams without expiring sessions return no row.
         """
-        Helper function to build a query for counting all sessions that are about to expire
-        """
-        query = """
+        return """
                 WITH
                     expiring_sessions
                 AS (
                     SELECT
+                        team_id,
                         session_id,
                         min(min_first_timestamp) as start_time,
                         max(retention_period_days) as retention_period_days,
@@ -807,24 +865,21 @@ class SessionReplayEvents:
                     FROM
                         session_replay_events
                     PREWHERE
-                        team_id = %(team_id)s
+                        team_id >= %(team_id_start)s
+                        AND team_id < %(team_id_end)s
                         AND min_first_timestamp <= %(python_now)s
                     GROUP BY
-                        session_id
+                        team_id, session_id
                     HAVING
                         expiry_time >= %(python_now)s
                         AND recording_ttl <= %(ttl_threshold)s
-                    ORDER BY recording_ttl ASC
                 )
                 SELECT
+                    team_id,
                     count(session_id) as recording_count
                 FROM expiring_sessions
-                {optional_format_clause}
+                GROUP BY team_id
                 """
-        query = query.format(
-            optional_format_clause=(f"FORMAT {format}" if format else ""),
-        )
-        return query
 
 
 def get_person_emails_for_session_ids(

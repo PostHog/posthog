@@ -1,0 +1,6 @@
+{
+    "id": "VB20",
+    "real": true,
+    "source": "reused-KA9",
+    "reasoning": "Adopted from sol-experiment KA9 (real=true, high confidence), whose cluster issue is this exact claim; spot-confirmed in the frozen tree. products/tasks/backend/facade/api.py:508-509 returns None when task.internal; products/signals/backend/auto_start.py:261 creates every auto-started self-driving implementation task with internal=True; products/review_hog/backend/receivers.py:104 bails on the same task.internal check. So the receiver leg gives no initial review and the facade gives the stamphog carve-out (products/stamphog/backend/tasks/tasks.py:191-200) no match, dead-ending both legs for real self-driving PRs. KA9 found no production path making these tasks internal=False; tests hand-build internal=False tasks (test_webhooks.py:1246-1256). Merged fix abef3d7a59 switched to ai_stage=='implementation' and deleted the receiver guard, confirming the defect."
+}

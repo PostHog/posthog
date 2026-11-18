@@ -6,7 +6,7 @@ activities through these re-exports rather than importing ``backend.temporal``
 directly.
 """
 
-from ..temporal import (
+from ..temporal.registry import (
     ACTIVITIES as ACTIVITIES,
     WORKFLOWS as WORKFLOWS,
 )

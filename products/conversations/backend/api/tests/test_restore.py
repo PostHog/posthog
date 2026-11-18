@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -727,7 +728,7 @@ class TestRestoreAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestBuildRestoreUrl(BaseTest):
+class TestBuildRestoreUrl(SimpleTestCase):
     """Tests for _build_restore_url helper function."""
 
     def test_build_restore_url_simple(self):

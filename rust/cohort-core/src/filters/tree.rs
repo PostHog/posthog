@@ -1,7 +1,5 @@
 //! Filter-tree types and parser.
 
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -69,7 +67,6 @@ pub struct BehavioralLeafConfig {
     pub explicit_datetime_to: Option<String>,
     pub leaf_state_key: LeafStateKey,
     pub state_variant: Option<StateVariant>,
-    pub bytecode: Arc<Vec<Value>>,
     /// Excluded from [`LeafStateKey`] -- state is shared between positive and negated instances.
     pub negated: bool,
 }
@@ -92,8 +89,6 @@ impl BehavioralLeafConfig {
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
     pub leaf_state_key: LeafStateKey,
-    pub bytecode: Arc<Vec<Value>>,
-    pub raw: Value,
     pub negated: bool,
 }
 
@@ -136,15 +131,6 @@ impl CohortLeaf {
             Self::CohortRef(_) => None,
         }
     }
-
-    /// The leaf's inline bytecode, or `None` for a cohort reference.
-    pub fn bytecode(&self) -> Option<&Arc<Vec<Value>>> {
-        match self {
-            Self::PersonProperty(leaf) => Some(&leaf.bytecode),
-            Self::Behavioral(leaf) => Some(&leaf.bytecode),
-            Self::CohortRef(_) => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,12 +158,14 @@ pub struct CohortTree {
 
 /// Receives the indexable side effects of a parse.
 pub trait LeafSink {
+    /// Record one kept, state-keyed leaf. `bytecode` is the leaf's stored array, already accepted
+    /// by `ConditionProgram::has_valid_stored_header`, so loading it cannot fail.
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
-        bytecode: &Arc<Vec<Value>>,
+        bytecode: &[Value],
     );
 
     fn record_cohort_ref(&mut self, cohort_id: CohortId);
@@ -223,12 +211,10 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
     }
 
     match classify_leaf(node) {
-        LeafClass::Keep(leaf) => {
-            if let (Some(hash), Some(lsk), Some(bytecode)) = (
-                leaf.condition_hash(),
-                leaf.leaf_state_key(),
-                leaf.bytecode(),
-            ) {
+        LeafClass::Keep(leaf, bytecode) => {
+            if let (Some(hash), Some(lsk), Some(bytecode)) =
+                (leaf.condition_hash(), leaf.leaf_state_key(), bytecode)
+            {
                 sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
             }
             Some(FilterNode::Leaf(leaf))
@@ -273,7 +259,7 @@ mod tests {
             cohort_id: CohortId,
             hash: [u8; 16],
             lsk: LeafStateKey,
-            _bytecode: &Arc<Vec<Value>>,
+            _bytecode: &[Value],
         ) {
             self.state_keyed.push((cohort_id, hash, lsk));
         }

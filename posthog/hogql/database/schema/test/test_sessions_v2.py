@@ -1,9 +1,11 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from time import time_ns
 from typing import cast
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -182,28 +184,42 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
     #         "Paid Search",
     #     )
 
-    def test_session_dot_channel_type(self):
+    @parameterized.expand(
+        [
+            ("channel_type_only", "session.$channel_type", True),
+            ("with_another_session_field", "session.$channel_type, session.$session_duration", False),
+        ]
+    )
+    def test_session_dot_channel_type(self, _name: str, select: str, expect_global_join: bool):
         session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
 
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
+            timestamp=now,
+            properties={"utm_source": "newsletter", "utm_medium": "email", "$session_id": session_id},
+        )
+        # A separate insert stores the session as two rows, with the later event in the first row.
+        flush_persons_and_events()
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            timestamp=now - timedelta(minutes=1),
             properties={"gad_source": "1", "$session_id": session_id},
         )
 
         response = self.__execute(
             parse_select(
-                "select session.$channel_type from events where $session_id = {session_id}",
+                f"select {select} from events where $session_id = {{session_id}}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
         )
 
-        result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert {row[0] for row in response.results or []} == {"Paid Search"}
+        assert ("GLOBAL LEFT JOIN" in (response.clickhouse or "")) == expect_global_join
 
     def test_persons_and_sessions_on_events(self):
         p1 = _create_person(distinct_ids=["d1"], team=self.team)
@@ -877,6 +893,25 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v2(None)
         for prop in results:
             get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
+
+    @parameterized.expand([(None,), ("tub",)])
+    def test_values_query_samples_raw_rows(self, search_term):
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            self.capture_select_queries() as queries,
+        ):
+            get_lazy_session_table_values_v2(key="$entry_utm_source", team=self.team, search_term=search_term)
+
+        assert len(queries) == 1
+        sql = " ".join(queries[0].split())
+        assert "FROM raw_sessions" in sql
+        assert "finalizeAggregation(raw_sessions.initial_utm_source)" in sql
+        assert "ORDER BY raw_sessions.session_id_v7 DESC" in sql
+        assert "LIMIT 100000" in sql
+        # The `sessions` lazy table would merge every row of the team first.
+        assert "argMinMerge" not in sql
+        assert sql.count("GROUP BY") == 1
+        assert ("ilike(" in sql) == (search_term is not None)
 
     def test_custom_channel_types(self):
         self.team.modifiers = {

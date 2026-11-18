@@ -12,6 +12,9 @@ use crate::leaf_state::key::LeafStateKey;
 pub struct CohortParseFlags {
     /// Number of kept, state-keyed leaves in the parsed tree.
     pub state_keyed_leaf_count: u32,
+    /// Number of leaves dropped because the HogVM could not load their bytecode. Reported at
+    /// freeze; [`classify`] reads `has_dropped_leaf` instead, which any drop reason sets.
+    pub malformed_leaf_count: u32,
     /// The cohort has ≥1 cohort-reference leaf.
     pub has_cohort_ref: bool,
     /// The cohort lost ≥1 leaf during parse.
@@ -227,9 +230,6 @@ fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use serde_json::Value;
 
     use super::*;
     use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
@@ -247,8 +247,6 @@ mod tests {
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: hash,
             leaf_state_key: LeafStateKey::for_person_property(&hash),
-            bytecode: Arc::new(Vec::new()),
-            raw: Value::Null,
             negated,
         }))
     }

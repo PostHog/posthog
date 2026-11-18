@@ -1,0 +1,168 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "MCP tool-calls scout record",
+    "description": "One measurement the MCP tool-calls scout records per run. Two kinds: a per-category roll-up of the run's numbers, and a per-tool session-share row for the called-too-much lens.",
+    "type": "object",
+    "oneOf": [
+        {
+            "title": "category_rollup",
+            "description": "One record per category with traffic in the window, healthy ones included, plus the project-wide baseline under category `all`. Subject is `category:<category>`.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "mcp_record_kind",
+                "mcp_metrics_version",
+                "mcp_regime",
+                "mcp_window_days",
+                "mcp_category",
+                "mcp_calls",
+                "mcp_errors",
+                "mcp_sessions",
+                "mcp_users",
+                "mcp_error_rate_pct",
+                "mcp_struggle_session_pct",
+                "mcp_p95_duration_ms",
+                "mcp_problem_tools",
+                "mcp_share_of_project_calls_pct",
+                "mcp_report_action"
+            ],
+            "properties": {
+                "mcp_record_kind": { "const": "category_rollup", "description": "Discriminator." },
+                "mcp_metrics_version": {
+                    "const": "1",
+                    "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+                },
+                "mcp_regime": {
+                    "enum": ["hono", "external_sdk"],
+                    "description": "Which telemetry regime the numbers came from (query 0)."
+                },
+                "mcp_window_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90,
+                    "description": "Length of the measured window in days."
+                },
+                "mcp_category": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Owning product category. `Uncategorized` for the no-category bucket, `all` for the project-wide baseline record."
+                },
+                "mcp_calls": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Calls to the category's tools in the window."
+                },
+                "mcp_errors": { "type": "integer", "minimum": 0, "description": "Errored calls in the window." },
+                "mcp_sessions": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Distinct sessions that called the category's tools."
+                },
+                "mcp_users": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Distinct users that called the category's tools."
+                },
+                "mcp_error_rate_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Errors as a percentage of calls."
+                },
+                "mcp_struggle_session_pct": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Percentage of the category's sessions with hammering or fail-then-retry (query 11). Null when none of the category's calls carry a session id."
+                },
+                "mcp_p95_duration_ms": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "description": "p95 call duration in milliseconds (query 11). Null when none of the category's calls carry a duration."
+                },
+                "mcp_problem_tools": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Distinct tools in the category that cleared any lens's per-tool bar this run, session share included."
+                },
+                "mcp_share_of_project_calls_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "The category's share of all $mcp_tool_call volume in the window."
+                },
+                "mcp_report_action": {
+                    "enum": ["authored", "edited", "skipped_live_report", "below_bar", "none"],
+                    "description": "What the scout did with this category this run."
+                }
+            }
+        },
+        {
+            "title": "tool_session_share",
+            "description": "One record per tool per source for the top tools by session share — the called-too-much lens (query 10). Subject is `tool:<tool>:<source>`.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "mcp_record_kind",
+                "mcp_metrics_version",
+                "mcp_tool",
+                "mcp_source",
+                "mcp_category",
+                "mcp_sessions_with_call",
+                "mcp_sessions_total",
+                "mcp_session_share_pct",
+                "mcp_calls_per_session",
+                "mcp_share_pct_prior_window"
+            ],
+            "properties": {
+                "mcp_record_kind": { "const": "tool_session_share", "description": "Discriminator." },
+                "mcp_metrics_version": {
+                    "const": "1",
+                    "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+                },
+                "mcp_tool": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Inner tool name, with the exec dispatcher unwrapped as the cookbook does."
+                },
+                "mcp_source": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Calling surface, for example self_driving, mcp, posthog_code, slack, posthog_ai, wizard."
+                },
+                "mcp_category": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "The tool's owning product category, or `Uncategorized`."
+                },
+                "mcp_sessions_with_call": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Sessions with at least one call to this tool."
+                },
+                "mcp_sessions_total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "All MCP sessions for that source in the window."
+                },
+                "mcp_session_share_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Sessions with a call as a percentage of all sessions for the source."
+                },
+                "mcp_calls_per_session": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Mean calls per session that used the tool."
+                },
+                "mcp_share_pct_prior_window": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "The same share over the preceding window, for a step-change read. Null when the source had fewer than 20 sessions in the prior window."
+                }
+            }
+        }
+    ]
+}

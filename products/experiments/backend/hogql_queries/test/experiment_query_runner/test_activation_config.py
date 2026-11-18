@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.forms.models import model_to_dict
@@ -116,7 +116,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 3)
         self.assertEqual(test_variant.sum, 6)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_anchors_exposure_on_activation_event(self):
         feature_flag = self.create_feature_flag()
@@ -129,7 +129,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self._seed_mean_scenario(feature_flag)
         self._assert_mean_scenario_results(experiment, metric)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_team_precomputation_does_not_change_activation_results(self):
         self._setup_precomputation_test(True)
 
@@ -147,7 +147,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self._assert_mean_scenario_results(experiment, metric)
         self.assertEqual(PreaggregationJob.objects.count(), 0)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_counts_conversions_after_activation_only(self):
         feature_flag = self.create_feature_flag()
@@ -188,7 +188,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 1)  # success_count
         self.assertEqual(test_variant.sum, 1)  # success_count
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposures_timeseries_counts_users_on_activation_day(self):
         feature_flag = self.create_feature_flag()

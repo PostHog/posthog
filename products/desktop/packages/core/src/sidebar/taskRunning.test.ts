@@ -27,6 +27,7 @@ describe("isTaskActivelyRunning", () => {
     environment: "local" | "cloud" | undefined;
     status: TaskRunStatus | undefined;
     isGenerating: boolean;
+    runMode?: TaskData["runMode"];
     expected: boolean;
   }>([
     // The regression: local runs stay "in_progress" forever, so this must NOT
@@ -60,11 +61,27 @@ describe("isTaskActivelyRunning", () => {
       expected: false,
     },
     {
-      name: "cloud run in progress",
+      name: "background cloud run in progress",
       environment: "cloud",
       status: "in_progress",
       isGenerating: false,
+      runMode: "background",
       expected: true,
+    },
+    {
+      name: "idle interactive cloud run",
+      environment: "cloud",
+      status: "in_progress",
+      isGenerating: false,
+      runMode: "interactive",
+      expected: false,
+    },
+    {
+      name: "idle cloud run from an older server",
+      environment: "cloud",
+      status: "in_progress",
+      isGenerating: false,
+      expected: false,
     },
     {
       name: "queued cloud run",
@@ -102,10 +119,11 @@ describe("isTaskActivelyRunning", () => {
       expected: false,
     },
     {
-      name: "cloud run generating",
+      name: "interactive cloud run generating",
       environment: "cloud",
       status: "in_progress",
       isGenerating: true,
+      runMode: "interactive",
       expected: true,
     },
     {
@@ -124,13 +142,14 @@ describe("isTaskActivelyRunning", () => {
     },
   ])(
     "$name -> $expected",
-    ({ environment, status, isGenerating, expected }) => {
+    ({ environment, status, isGenerating, runMode, expected }) => {
       expect(
         isTaskActivelyRunning(
           task({
             taskRunEnvironment: environment,
             taskRunStatus: status,
             isGenerating,
+            runMode,
           }),
         ),
       ).toBe(expected);

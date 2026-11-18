@@ -79,7 +79,7 @@ Use when the product area already has a widget and you need another visualizatio
 - [ ] Reuse sibling **`groupId`** exactly; label comes from `DASHBOARD_WIDGET_GROUP_LABELS[groupId]`
 - [ ] Distinct **`label`**, **`description`**, **`defaultConfig`**, **`defaultLayout`** (and usually `headerTitle`)
 - [ ] Full backend stack: new `widget_specs/configs.py` model, `widgets/<widget_type>.py`, `registry.py` `WidgetSpec` entry
-- [ ] Full frontend stack: new component (same `widgets/<product>/` dir), edit modal + kea logic, preview in `widgets/previews/` + `DASHBOARD_WIDGET_PREVIEWS` in `catalog.ts`, registry entry in `registry.tsx`, extend `DashboardWidgetProductAccess` + `WIDGET_PRODUCT_ACCESS_CHECKS` in `widgetProductAccess.ts` when RBAC-gated
+- [ ] Full frontend stack: new component (same `widgets/<product>/` dir), edit modal + kea logic, preview in `widgets/previews/` + `DASHBOARD_WIDGET_PREVIEWS` in `widgets/previews/dashboardWidgetPreviews.ts`, registry entry in `registry.tsx`, extend `DashboardWidgetProductAccess` + `WIDGET_PRODUCT_ACCESS_CHECKS` in `widgetProductAccess.ts` when RBAC-gated
 - [ ] Tests: assert shared `groupId` in `registry.test.tsx` like existing ET variants
 
 ### 4c. First widget in a new product area
@@ -113,7 +113,7 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 - [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
 - [ ] **Adoption CTA on the "no entities yet" empty state** — when the product has nothing to show yet (no surveys, no experiments), render a primary `LemonButton` (`targetBlank`) to the product's create flow and fire `posthog.capture('dashboard widget create <product> clicked', { widget_type, tile_id })` on click. Measures adoption driven _from_ the widget, distinct from the platform `dashboard widget added` event. See [§ Product-adoption tracking](#product-adoption-tracking).
 - [ ] **List widgets:** follow [list-widget-patterns.md](list-widget-patterns.md) — `hasMore`, footer, tile filter bar, `titleHref`
-- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`liveWidgetStream`, `LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
+- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:
@@ -178,7 +178,7 @@ Repo rule: presentational widget components belong in Storybook (see `.cursor/ru
 - [ ] Spread shared kea **actions** from `editWidgetModalBuilders.ts`; **inline reducers** (typegen breaks on spread); inline typed `fieldErrors` / `activeFieldErrors` / `saveDisabledReason`
 - [ ] Date-filtered widgets: date range select from `WIDGET_DATE_RANGE_SELECT_OPTIONS` in `widgetConfigShared.ts`
 - [ ] Wire per-type API error parsing: export `parse*WidgetConfigApiError` from `*WidgetConfigValidation.ts` and set **`parseConfigApiError`** on the `DASHBOARD_WIDGET_REGISTRY` entry (`parseDashboardWidgetConfigApiError` in `registry.tsx` → `updateDashboardWidgetTile`)
-- [ ] Preview: component in `widgets/previews/`; register in `DASHBOARD_WIDGET_PREVIEWS` in `widget_types/catalog.ts` (reuse sample data from `widgetOverviewStoryFixtures.ts` when possible)
+- [ ] Preview: component in `widgets/previews/`; register in `DASHBOARD_WIDGET_PREVIEWS` in `widgets/previews/dashboardWidgetPreviews.ts` (not in the catalog: the catalog is on the app shell's import path, previews must stay off it) (reuse sample data from `widgetOverviewStoryFixtures.ts` when possible)
 
 ## 7. Frontend registry
 

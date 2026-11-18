@@ -10,7 +10,6 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
-import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 async function authedClient() {
   const client = await getAuthenticatedClient();
@@ -36,7 +35,9 @@ export class UiGithubConnectClient implements GithubConnectClient {
   }
 
   async launchUrl(url: string): Promise<void> {
-    openExternalUrl(url);
+    await resolveService<HostTrpcClient>(
+      HOST_TRPC_CLIENT,
+    ).os.openExternal.mutate({ url });
   }
 
   async startTeamFlow(input: {

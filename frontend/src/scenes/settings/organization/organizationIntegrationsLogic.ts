@@ -16,6 +16,8 @@ export interface organizationIntegrationsLogicValues {
     getOrganizationIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'apple-ads'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -25,6 +27,7 @@ export interface organizationIntegrationsLogicValues {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'
@@ -36,6 +39,7 @@ export interface organizationIntegrationsLogicValues {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -43,6 +47,7 @@ export interface organizationIntegrationsLogicValues {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'motherduck'
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
@@ -55,6 +60,7 @@ export interface organizationIntegrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -84,12 +90,15 @@ export interface organizationIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -99,6 +108,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -110,6 +120,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -117,6 +128,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
@@ -129,8 +141,10 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: any
     ) => {
@@ -140,12 +154,15 @@ export interface organizationIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -155,6 +172,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -166,6 +184,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -173,6 +192,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
@@ -185,8 +205,10 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: any
     }
@@ -201,6 +223,8 @@ export interface organizationIntegrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'apple-ads'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -210,6 +234,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -221,6 +246,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -228,6 +254,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
@@ -240,6 +267,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]

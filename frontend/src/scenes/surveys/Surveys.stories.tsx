@@ -21,6 +21,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import type { ActivityLogPaginatedResponseApi } from 'products/surveys/frontend/generated/api.schemas'
+
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
@@ -175,6 +177,44 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     user_access_level: AccessControlLevel.Editor,
 }
 
+const MOCK_DRAFT_SURVEY: Survey = {
+    ...MOCK_BASIC_SURVEY,
+    id: '0187c279-bcae-0000-34f5-4f121921f007',
+    name: 'Checkout feedback',
+    description: '',
+    questions: [
+        {
+            type: SurveyQuestionType.Rating,
+            question: 'How easy was it to check out?',
+            display: 'number',
+            scale: 5,
+            lowerBoundLabel: 'Hard',
+            upperBoundLabel: 'Easy',
+        },
+        { type: SurveyQuestionType.Open, question: 'What almost stopped you from buying?' },
+        {
+            type: SurveyQuestionType.SingleChoice,
+            question: 'How did you hear about us?',
+            choices: ['Search', 'A friend', 'Social media', 'Other'],
+        },
+    ],
+    conditions: {
+        url: 'https://shop.example.com/checkout/complete',
+        events: { values: [{ name: 'order placed' }] },
+        actions: { values: [] },
+        seenSurveyWaitPeriodInDays: 14,
+    },
+    appearance: {
+        backgroundColor: 'white',
+        submitButtonColor: '#2C2C2C',
+        displayThankYouMessage: true,
+        thankYouMessageHeader: 'Thanks for the feedback',
+    },
+    schedule: SurveySchedule.Recurring,
+    iteration_count: 12,
+    iteration_frequency_days: 365,
+}
+
 const MOCK_SURVEY_SHOWN = {
     clickhouse:
         "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
@@ -294,18 +334,19 @@ const MOCK_SURVEY_AGGREGATE_RESULTS = {
 
 // Rows from the base-stats query: [event_name, total_count, unique_persons, first_seen, last_seen].
 const MOCK_SURVEY_BASE_STATS = {
-    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen'],
+    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen', 'outcome_counts'],
     types: [
         ['event_name', 'String'],
         ['total_count', 'UInt64'],
         ['unique_persons', 'UInt64'],
         ['first_seen', "Nullable(DateTime64(6, 'UTC'))"],
         ['last_seen', "Nullable(DateTime64(6, 'UTC'))"],
+        ['outcome_counts', 'Tuple(UInt64, UInt64, UInt64)'],
     ],
     results: [
-        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z'],
-        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z'],
-        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z'],
+        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z', [0, 0, 0]],
+        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z', [40, 30, 5]],
+        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z', [0, 0, 0]],
     ],
 }
 
@@ -334,6 +375,7 @@ const meta: Meta = {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/`]: MOCK_DRAFT_SURVEY,
                 '/api/projects/:team_id/surveys/998FE805-F9EF-4F25-A5D1-B9549C4E2143/':
                     MOCK_SURVEY_WITH_MULTIPLE_OPTIONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
@@ -345,8 +387,19 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const body = (await request.json()) as any
+                    if (body?.query?.query?.includes(MOCK_SURVEY_WITH_RESULTS.id)) {
+                        switch (body.query.tags?.name) {
+                            case 'survey_results_aggregate':
+                                return MOCK_SURVEY_AGGREGATE_RESULTS
+                            case 'survey_base_stats':
+                                return MOCK_SURVEY_BASE_STATS
+                            case 'survey_dismissed_sent_overlap':
+                                return { results: [[5]] }
+                        }
+                        return { results: [] }
+                    }
                     if (body.kind == 'EventsQuery') {
                         return [200, MOCK_SURVEY_RESULTS]
                     }
@@ -549,6 +602,64 @@ export const SurveyView: Story = {
     },
 }
 
+const MOCK_DRAFT_SURVEY_ACTIVITY: ActivityLogPaginatedResponseApi = {
+    results: [
+        {
+            id: 'draft-survey-updated',
+            user: { first_name: 'Alex Example', email: 'alex@example.com' },
+            activity: 'updated',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            created_at: '2023-06-27T15:20:00Z',
+            is_system: false,
+            was_impersonated: false,
+            client: null,
+        },
+        {
+            id: 'draft-survey-created',
+            user: { first_name: 'Employee 427', email: 'test2@posthog.com' },
+            activity: 'created',
+            scope: 'Survey',
+            item_id: MOCK_DRAFT_SURVEY.id,
+            detail: {
+                id: MOCK_DRAFT_SURVEY.id,
+                name: MOCK_DRAFT_SURVEY.name,
+                short_id: '',
+                type: '',
+                trigger: {
+                    job_type: 'agent',
+                    job_id: '',
+                    payload: { intent: 'Find out what makes checkout hard for first-time buyers.' },
+                },
+            },
+            created_at: '2023-04-27T10:04:37Z',
+            is_system: false,
+            was_impersonated: false,
+            client: 'mcp',
+        },
+    ],
+    next: null,
+    previous: null,
+    total_count: 2,
+}
+
+export const SurveyDraftReview: Story = {
+    parameters: {
+        pageUrl: urls.survey(MOCK_DRAFT_SURVEY.id),
+        testOptions: {
+            waitForSelector: '[data-attr="launch-survey"]',
+            snapshotBrowsers: [],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/activity/`]: MOCK_DRAFT_SURVEY_ACTIVITY,
+            },
+        }),
+    ],
+}
+
 export const SurveyResults: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RESULTS.id),
@@ -567,24 +678,20 @@ export const SurveyResults: Story = {
                 },
                 '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
             },
-            post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as any
-                    const sql: string = body?.query?.query ?? ''
-                    if (sql.includes('question_id, label, cnt')) {
-                        return MOCK_SURVEY_AGGREGATE_RESULTS
-                    }
-                    if (sql.includes('BASE STATS')) {
-                        return MOCK_SURVEY_BASE_STATS
-                    }
-                    if (sql.includes('DISMISSED AND SENT COUNT')) {
-                        return { results: [[60]] }
-                    }
-                    return { results: [] }
-                },
-            },
         }),
     ],
+}
+
+export const SurveySummaryExport: Story = {
+    ...SurveyResults,
+    parameters: {
+        ...SurveyResults.parameters,
+        pageUrl: `${urls.survey(MOCK_SURVEY_WITH_RESULTS.id)}?tab=summary`,
+        testOptions: {
+            waitForSelector: '#survey-responses-export',
+            viewport: { width: 560, height: 800 },
+        },
+    },
 }
 
 export const SurveyNotFound: Story = {

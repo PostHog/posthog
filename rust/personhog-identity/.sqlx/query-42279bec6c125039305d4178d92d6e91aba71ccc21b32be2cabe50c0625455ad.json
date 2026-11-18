@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_seal' */ \n        UPDATE lifecycle_op_person_tmp lop\n        SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)\n        FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)\n        WHERE lop.op_id = $1 AND lop.person_id = u.person_id\n          AND lop.mark_active\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "42279bec6c125039305d4178d92d6e91aba71ccc21b32be2cabe50c0625455ad"
+}

@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -22,6 +24,9 @@ const channel = (id: string, name: string): SlackChannelType => ({
     is_member: true,
     is_private_without_access: false,
 })
+
+// The channel someone picks before inviting the PostHog app to it.
+const notJoinedChannel: SlackChannelType = { ...channel('C7', 'launch-plans'), is_member: false }
 
 const channels: SlackChannelType[] = [
     channel('C1', 'alerts'),
@@ -70,20 +75,61 @@ function OrderingScene({ recentlySubscribedChannelIds }: { recentlySubscribedCha
     )
 }
 
+function MultipleSelectionScene(): JSX.Element {
+    const [selectedChannels, setSelectedChannels] = useState(['C1|#alerts', 'C5|#incidents'])
+
+    return (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                mode="multiple"
+                value={selectedChannels}
+                onChange={setSelectedChannels}
+            />
+        </div>
+    )
+}
+
+function PastedChannelIdScene(): JSX.Element {
+    const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+    const response = { channels: [channel('C1234567890', 'release-updates')] }
+    useStorybookMocks({
+        get: {
+            '/api/projects/:id/integrations/:intId/channels': response,
+            '/api/environments/:id/integrations/:intId/channels': response,
+        },
+    })
+
+    return (
+        <div className="p-4 max-w-2xl">
+            <SlackChannelPicker
+                integration={integration}
+                value={selectedChannel ?? undefined}
+                onChange={setSelectedChannel}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Slack channel picker',
     parameters: { layout: 'fullscreen', viewMode: 'story' },
-    render: ({ recentlySubscribedChannelIds }) => {
-        useStorybookMocks({
-            get: {
-                '/api/projects/:id/integrations/:intId/channels': { channels },
-                '/api/environments/:id/integrations/:intId/channels': { channels },
-            },
-        })
-        return <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
-    },
+    decorators: [
+        function MocksDecorator(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels },
+                    '/api/environments/:id/integrations/:intId/channels': { channels },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: ({ recentlySubscribedChannelIds }) => (
+        <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
+    ),
 }
 export default meta
 
@@ -98,4 +144,74 @@ export const Alphabetical: Story = {
 // (most recent first); everything else stays alphabetical below them.
 export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
+}
+
+export const MultipleSelection: Story = {
+    render: () => <MultipleSelectionScene />,
+}
+
+export const PastedChannelId: Story = {
+    render: () => <PastedChannelIdScene />,
+    play: async ({ canvasElement }) => {
+        const input = await within(canvasElement).findByRole('textbox')
+        await userEvent.click(input)
+        await userEvent.paste('C1234567890')
+        await within(document.body).findByText('#release-updates')
+    },
+}
+
+// The app is not in the picked channel yet. "Check again" re-reads that one channel from Slack,
+// so the warning clears as soon as someone runs the invite.
+export const MissingAppInChannel: Story = {
+    decorators: [
+        function NotJoinedMocks(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels: [...channels, notJoinedChannel] },
+                    '/api/environments/:id/integrations/:intId/channels': {
+                        channels: [...channels, notJoinedChannel],
+                    },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                value={`${notJoinedChannel.id}|#${notJoinedChannel.name}`}
+                onChange={() => {}}
+            />
+        </div>
+    ),
+    // The warning renders only once the membership lookup lands, so settle it before the
+    // screenshot rather than racing the banner into frame.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Check again')
+    },
+}
+
+// Typing a channel name and clicking away drops the search, because the picker takes an option
+// rather than free text. The state below is what tells the user their channel is still unset.
+export const SearchDroppedOnBlur: Story = {
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker integration={integration} onChange={() => {}} />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        // WebKit can start the play phase before React commits the first render, so wait for
+        // the input instead of reading it straight out of the canvas.
+        const input = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')
+            if (!element) {
+                throw new Error('Channel input not yet rendered')
+            }
+            return element
+        })
+        await userEvent.type(input, 'general')
+        await userEvent.click(canvasElement)
+        await within(canvasElement).findByText('No channel selected. Pick one from the list.')
+    },
 }

@@ -5,12 +5,13 @@ export type FetchImplementation = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export type ApiFetcherConfig = {
+type ApiFetcherConfig = {
   getAccessToken: () => Promise<string>;
   refreshAccessToken: () => Promise<string>;
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
+  taskClientProvenance?: string;
 };
 
 /**
@@ -71,6 +72,9 @@ export const buildApiFetcher: (
     headers.set("Content-Type", "application/json");
     if (userAgent) {
       headers.set("User-Agent", userAgent);
+    }
+    if (config.taskClientProvenance) {
+      headers.set("X-PostHog-Client-Provenance", config.taskClientProvenance);
     }
 
     if (input.urlSearchParams) {

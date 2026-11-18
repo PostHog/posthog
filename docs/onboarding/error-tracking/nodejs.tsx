@@ -80,7 +80,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             language: 'javascript',
                             file: 'Node.js',
                             code: dedent`
-                                posthog.captureException(e, 'user_distinct_id', additionalProperties)
+                                posthog.captureException(e, { distinctId: 'user_distinct_id', properties: additionalProperties })
                             `,
                         },
                     ]}
@@ -103,7 +103,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 {dedent`
                     Confirm exception events are being captured and sent to PostHog. You should see events appear in the activity feed.
 
-                    [Check for exceptions in PostHog](https://app.posthog.com/activity/explore)
+                    [Check for exceptions in PostHog](https://app.posthog.com/activity/events)
                 `}
             </Markdown>
         ),

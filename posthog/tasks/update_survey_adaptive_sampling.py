@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from products.feature_flags.backend.facade.api import update_flag
-from products.feature_flags.backend.facade.filters import set_first_release_condition_rollout
+from products.feature_flags.backend.facade.filters import set_release_condition_rollout
 from products.surveys.backend.models import Survey
 
 
@@ -36,8 +36,8 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         update_flag(
             internal_response_sampling_flag,
             {
-                "filters": set_first_release_condition_rollout(
-                    internal_response_sampling_flag.get_filters(), today_entry["rollout_percentage"]
+                "filters": set_release_condition_rollout(
+                    internal_response_sampling_flag.get_filters(), 0, today_entry["rollout_percentage"]
                 )
             },
             team=survey.team,

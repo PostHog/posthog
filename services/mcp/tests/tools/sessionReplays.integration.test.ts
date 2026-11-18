@@ -95,8 +95,12 @@ describe('Session Replays', { concurrent: false }, () => {
         })
 
         describe('session-recording-get tool', () => {
-            it('should throw for a non-existent ID', async () => {
-                await expect(getTool.handler(context, { id: 'nonexistent-session-id' })).rejects.toThrow()
+            it('returns an ordinary missing result for a non-existent ID', async () => {
+                await expect(getTool.handler(context, { id: 'nonexistent-session-id' })).resolves.toMatchObject({
+                    found: false,
+                    id: 'nonexistent-session-id',
+                    reason: 'recording_not_found',
+                })
             })
         })
     })

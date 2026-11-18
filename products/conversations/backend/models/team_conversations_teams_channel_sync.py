@@ -16,7 +16,7 @@ class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
     writes don't contend with the settings blob and survive channel add/remove.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     teams_team_id = models.CharField(max_length=255)
     channel_id = models.CharField(max_length=255)
 
@@ -28,6 +28,7 @@ class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
 
     last_polled_at = models.DateTimeField(null=True, blank=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    denied_until = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

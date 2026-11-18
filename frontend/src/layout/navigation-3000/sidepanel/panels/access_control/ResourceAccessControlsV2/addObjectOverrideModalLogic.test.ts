@@ -3,7 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { parseObjectRuleUrl } from './accessDetailLogic'
 import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
+
+it.each(['/feature_flags/8', '/feature-flags/8'])('resolves a pasted feature flag URL at %s', (path) => {
+    expect(parseObjectRuleUrl(`https://us.posthog.com/project/997${path}`)).toEqual({
+        resource: 'feature_flag',
+        id: '8',
+    })
+})
 
 describe('addObjectOverrideModalLogic', () => {
     let logic: ReturnType<typeof addObjectOverrideModalLogic.build>

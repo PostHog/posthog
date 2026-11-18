@@ -1,0 +1,526 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "On-call responder profile ingestion",
+  "scenario": "Northstar, a multi-tenant on-call incident-response platform, ingests a new responder's one-page bio during onboarding: it OCRs the PDF, extracts a structured profile with gpt-6-luna, then embeds the extracted job title, employers, and credentials with text-embedding-3-small and asks the model to resolve each one against Northstar's internal role-taxonomy, employer-watchlist, and certification-catalog knowledge bases, citing the matched internal record.",
+  "summary": {
+    "events": {
+      "$ai_generation": 5,
+      "$ai_span": 2,
+      "$ai_trace": 1,
+      "$ai_embedding": 3
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai",
+      "posthog-node-mcp"
+    ],
+    "providers": [
+      "mistral",
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-6-luna",
+      "mistral-ocr-4-1",
+      "text-embedding-3-small"
+    ],
+    "content_types": [
+      "reasoning",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "app": "profile-ingest",
+        "$ai_request_url": "https://api.mistral.ai/v1/ocr",
+        "$ai_total_cost_usd": 0.008,
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$lib": "posthog-node-mcp",
+        "$ai_model": "mistral-ocr-4-1",
+        "$ai_span_id": "867d35e4-162e-7ff9-8639-85277caf2246",
+        "documentSizeInBytes": 203138,
+        "$ai_base_url": "https://api.mistral.ai/v1",
+        "$ai_request_cost_usd": 0.008,
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_span_name": "ocr-request",
+        "costEstimateUsd": 0.004,
+        "operation": "ocr_8a37a51f2c9",
+        "$ai_trace_name": "cv-intake",
+        "docId": "13ab8eeb-10b0-79e8-2755-8f28091a20f8",
+        "$ai_http_status": 200,
+        "$ai_is_error": false,
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "inputPageCount": 2,
+        "$ai_provider": "mistral",
+        "$geoip_disable": true,
+        "$lib_version": "0.12.0",
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$ai_latency": 3.912,
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$ai_parent_id": "867d35e4-162e-7ff9-8639-85277caf2246",
+        "$ai_span_name": "document-loading",
+        "$ai_provider": "mistral",
+        "$ai_trace_name": "cv-intake",
+        "$ai_model": "mistral-ocr-4-1",
+        "stateSizeBytes": 192851,
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "isStateCaptured": true,
+        "docId": "13ab8eeb-10b0-79e8-2755-8f28091a20f8",
+        "operation": "ocr_8a37a51f2c9",
+        "$lib": "posthog-node-mcp",
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "app": "profile-ingest",
+        "$lib_version": "0.12.0",
+        "$geoip_disable": true,
+        "$ai_span_id": "8b8b0e21-a10e-7898-a012-4ba8281d9ce7",
+        "$ai_is_error": false,
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_input_state": {
+          "document": {
+            "document_url": "data:application/pdf;base64,⟦media:vercel_mcp_mistral_embeddings__M3592310.pdf⟧",
+            "type": "document_url"
+          },
+          "pageIndex": 0
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "stateSizeBytes": 3648,
+        "$ai_parent_id": "867d35e4-162e-7ff9-8639-85277caf2246",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$ai_span_name": "ocr-text-extraction",
+        "$ai_model": "mistral-ocr-4-1",
+        "docId": "13ab8eeb-10b0-79e8-2755-8f28091a20f8",
+        "isStateCaptured": true,
+        "$lib_version": "0.12.0",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_span_id": "21885b02-8d37-75c1-f3ee-a00c98faf18d",
+        "$ai_is_error": false,
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$geoip_disable": true,
+        "$lib": "posthog-node-mcp",
+        "$ai_provider": "mistral",
+        "$ai_trace_name": "cv-intake",
+        "operation": "ocr_8a37a51f2c9",
+        "app": "profile-ingest",
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_output_state": "# Dana Whitfield\n\n**Email:** d.whitfield@example.com  **Phone:** +1-555-0148\n**LinkedIn:** https://profiles.example.com/in/dwhit\n\n## Senior SRE II\n\nSenior site reliability engineer with eight years of experience running production infrastructure for payments and data platforms, specializing in Kubernetes, Terraform, and incident command for distributed systems.\n\n## Experience\n\n### Senior SRE II — Fenwick Cloud Systems, Inc.\n*Sep 2022 – Present*\n\nOwns platform reliability for a fintech-adjacent payments company, leading on-call\nresponse and infrastructure automation across AWS.\n\n- Led the response to a three-hour checkout-service outage caused by a misconfigured connection pool limit.\n- Rebuilt the on-call escalation policy after a paging gap let a database failover alert sit unacknowledged for twenty minutes during a release.\n- Automated the quarterly disaster-recovery failover drill, cutting the manual runbook from four hours to under forty minutes.\n- Introduced error-budget dashboards that let three product teams self-serve their own SLO burn-rate alerts.\n\nTools: Kubernetes (EKS), AWS SA Associate, CKA Certified, Python/Go/Bash, Terraform, Helm, Prometheus/Grafana\n\n### Reliability Eng II — Brindlewave\n*Feb 2023 – Jul 2023*\n\nShort tenure reliability role focused on stabilizing streaming infrastructure during a\nrapid hiring phase.\n\n- Joined during a hypergrowth phase and stabilized a flapping Kafka consumer group that was dropping order events.\n- Wrote the first incident-command runbook the company had, used within a week during a payment-webhook outage.\n- Left after a round of layoffs eliminated the entire platform team two months into the role.\n\nTools: Kubernetes & Helm, Datadog dashboards, Terraform, Golang, Python and TypeScript\n\n### Site Reliability Engineer — Harborlight Data Co.\n*Sep 2018 – Aug 2022*\n\nLongest-tenured role; grew from individual contributor to de facto SRE lead across a\nfour-year stretch.\n\n- Migrated the core data pipeline off a single-region Postgres primary to a multi-region setup, eliminating a recurring weekend outage.\n- Built the company's first Terraform module library, cutting new-environment provisioning from two days to two hours.\n- Served as incident commander for eleven Sev-1 incidents over four years, writing the postmortem for each one.\n- Trained six junior engineers through the on-call rotation, halving the average time-to-acknowledge across the team.\n\nTools: Kubernetes (EKS), Vault, HashiCorp Vault/Nomad, Python/Go/Bash, Ansible playbooks, Jenkins & GitHub CI\n\n### Incident Response Contractor — Vantage Systems\n*Mar 2022 – Mar 2022*\n\nOne-month contract covering an on-call gap during a corporate acquisition.\n\n- Covered a one-month gap in the on-call rotation during acquisition.\n- Triaged and closed a backlog of forty open alerts.\n- Documented the escalation paths for three services with no existing runbook.\n\nTools: PagerDuty, OpsGenie\n\n### Incident Response Contractor — Northgate Cloud Ops\n*Sep 2020 – Aug 2021*\n\nOne-month contract stabilizing on-call coverage during a leadership transition.\n\n- Filled in during a leadership transition after two SREs resigned.\n- Wrote a shared glossary so support and engineering used the same severity terms.\n- Ran a tabletop incident drill for the newly hired on-call engineers.\n\nTools: Datadog APM, Incident command & postmortems, On-call tooling\n\n## Education\n\n**Arlington State University** — Bachelor of Science in Computer Science, minor in Mathematics\nJul 2022 – Nov 2022 · Field: Computer Science, Systems Track\n\n**Linux Foundation, Certified Kubernetes Administrator program** — Certified Kubernetes Administrator (CKA), issued by the Cloud Native Computing Foundation\nAug 2018 – Aug 2022 · Field: Container orchestration and site reliability engineering\n\n## Languages\n\nEnglish (native), German, French\n\n\n## Northstar internal registry — role taxonomy catalog (excerpt)\n\nNorthstar's on-call product keys every paging policy, escalation chain, and search\nfilter off a single controlled vocabulary of responder roles rather than letting each\ncustomer org invent its own free-text titles. The taxonomy has three tiers: Primary\nResponder (full-time, owns a service's error budget), On-Call Responder (Contract)\n(short-term coverage brought in for a specific gap, no standing headcount), and\nEscalation Contact (subject-matter expert who is paged only after a Primary Responder\nacknowledges and needs help). Profile-Ingest resolves every extracted job title against\nthis taxonomy so that a search for \"who has covered payments on-call before\" returns\ncontractors and full-time engineers alike, tagged correctly by tier. New taxonomy rows\nare added by the platform team only after a customer org's People Ops lead requests one\nthrough the standard intake form; ad-hoc titles are never added automatically, which is\nwhy the resolution step is allowed to return \"unmatched\" instead of inventing a row."
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 19558,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_provider": "openai",
+        "$ai_cache_read_input_tokens": 3751,
+        "$ai_model": "gpt-6-luna",
+        "$ai_framework_version": "5",
+        "$ai_base_url": "",
+        "$lib_version": "0.12.0",
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "docId": "13ab8eeb-10b0-79e8-2755-8f28091a20f8",
+        "$ai_framework": "vercel",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$ai_tokens_source": "sdk",
+        "$ai_lib_version": "7.13.1",
+        "operation": "doc_vmLFX7QHul",
+        "$lib": "posthog-node-mcp",
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$ai_reasoning_tokens": 277,
+        "$ai_model_parameters": {},
+        "$ai_latency": 19.565,
+        "$ai_input_tokens": 4692,
+        "app": "profile-ingest",
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_output_tokens": 2397,
+        "$geoip_disable": true,
+        "$ai_http_status": 200,
+        "$ai_lib": "posthog-ai",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_trace_name": "cv-intake",
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the Profile-Ingest structured-extraction step of Northstar's internal knowledge base pipeline. Northstar indexes engineer bios so that on-call responders can search prior incident experience during a live incident, and so People Ops can flag anything that needs a closer look before a new responder joins the rotation.\n\nYou receive the raw OCR text of a one-page engineer bio PDF that a new responder submitted during onboarding. Your only job is to convert that raw text into the exact JSON schema below. Do not invent facts that are not supported by the text. If a field is not present, use null (or an empty array for list fields) rather than guessing.\n\nReturn a single JSON object with these top-level fields:\n- name: the person's full name as written.\n- email: their email address exactly as written.\n- phone: their phone number as written, or null.\n- headline: their current job title/headline, as a short string.\n- location: their current city/region if stated, or null.\n- summary: a 1-2 sentence professional summary in your own words.\n- urls: an object with \"linkedin\" (their most prominent profile link), and the reserved fields \"github\", \"portfolio\", \"other\" which you should leave null/empty unless present.\n- professionalTags: leave as an empty array; a downstream step fills it.\n- coreSkills: an array of up to 6 short skill or technology tags that appear most often across the document.\n- employmentHistory: an array of prior roles, most recent first. Each item has: company, title, department (usually null), startDate and endDate in YYYY-MM-01 format, current (boolean, default false unless the text explicitly says \"present\" or \"ongoing\"), employmentType (null unless the text explicitly says contractor/intern/temp), sourceId (leave null), summary (one sentence), highlights (array of 2-4 short notable-incident bullets), and skills (array of {name, category, subcategory, source} — category is \"platform\" for infrastructure/tooling or \"language\" for programming languages, subcategory is only set for certification-style entries, source is \"resume\" unless you are inferring the skill from a highlight rather than an explicit skills line, in which case use \"inferred\").\n- education: an array of {institution, degree, programType, fieldOfStudy, startDate, endDate, current, version}. programType is \"degree\" for a formal degree or \"training\" for a bootcamp/certification program. version is the string \"1.1\" for the most recently revised entry and \"1\" otherwise.\n- languages: an array of {language, level} for any spoken languages mentioned; level is null if not stated.\n- affiliations: leave as an empty array.\n- verificationNotes: leave null; a downstream step fills it after cross-checking employers and credentials against Northstar's internal registries.\n\nNever fabricate a company, school, or date. Preserve capitalization exactly as written for proper nouns. Output valid JSON and nothing else, with no markdown fencing around it.\n\n## Northstar internal registry — role taxonomy catalog (excerpt)\n\nNorthstar's on-call product keys every paging policy, escalation chain, and search\nfilter off a single controlled vocabulary of responder roles rather than letting each\ncustomer org invent its own free-text titles. The taxonomy has three tiers: Primary\nResponder (full-time, owns a service's error budget), On-Call Responder (Contract)\n(short-term coverage brought in for a specific gap, no standing headcount), and\nEscalation Contact (subject-matter expert who is paged only after a Primary Responder\nacknowledges and needs help). Profile-Ingest resolves every extracted job title against\nthis taxonomy so that a search for \"who has covered payments on-call before\" returns\ncontractors and full-time engineers alike, tagged correctly by tier. New taxonomy rows\nare added by the platform team only after a customer org's People Ops lead requests one\nthrough the standard intake form; ad-hoc titles are never added automatically, which is\nwhy the resolution step is allowed to return \"unmatched\" instead of inventing a row.\n\n## Northstar internal registry — employer watchlist policy (excerpt)\n\nThe employer watchlist exists so that People Ops can catch a conflict of interest before\na new responder is granted access to a customer's incident channel. Three categories of\nemployer land on the watchlist: current enterprise customers of the hiring org, vendors\nunder an active security review, and any company named in a signed non-compete on file.\nA watchlist hit does not automatically block onboarding — it routes the profile to a\nPeople Ops reviewer, who has five business days to clear it or request more information.\nBecause a false positive costs a real reviewer's time, the resolution prompt is written\nto require a similarity score above 0.7 before treating two company names as the same\nentity, and reasoning must name the specific watchlist row that was considered and\nrejected, not just assert that no match exists.\n\n## Northstar internal registry — certifications & institutions catalog (excerpt)\n\nThe reimbursement-eligible institution list and the recognized-certification list are\nmaintained jointly by People Ops and the learning-and-development team, and both are\nre-synced quarterly from the finance system that actually pays out tuition and exam-fee\nreimbursements. A credential only \"matches\" the catalog when the issuing body is the\nsame organization, not merely a similar-sounding one — Northstar's own postmortems show\ntwo prior incidents where a fuzzy match on institution name approved a reimbursement for\nthe wrong school. The similarity floor for an automatic credential match is set higher\nthan for the employer watchlist (0.85 versus 0.7) precisely because a false positive\nhere has a direct dollar cost rather than only a review-queue cost.\n\n## Runbook — on-call responder onboarding (excerpt)\n\nEvery new responder submits a one-page bio before their first shift. The bio is OCR'd,\nparsed into a structured profile, and cross-checked against the three internal\nregistries above before the responder is added to any paging schedule. This exists\nbecause more than one customer org has asked, after an incident, \"who is this person\nand have they done this before\" — Profile-Ingest exists so that question has an answer\nthat does not depend on someone's memory. A responder whose profile has an open\nwatchlist flag can still be scheduled, but the schedule owner sees a banner explaining\nwhy, and the flag has to be cleared or explicitly accepted before the responder can be\npaged for a Sev-1.\n\n## Postmortem excerpt — SEV1-2026-0311, checkout-service outage\n\nAt 14:02 UTC the checkout service began returning 5xx errors for roughly 40% of\nrequests. The proximate cause was a connection pool limit left at its default value\nafter a routine dependency bump quietly changed the pooling library's defaults. The\non-call engineer noticed the correlation between the deploy marker and the error-rate\ngraph within six minutes but spent over two hours narrowing the fix because the pool\nexhaustion manifested as a generic timeout in three unrelated downstream services\nfirst. The follow-up action items included raising the pool limit explicitly in\nconfiguration rather than relying on a library default, and adding a dashboard panel\nthat plots active connections against the configured limit so the next on-call\nengineer sees the ceiling before they hit it.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "# Dana Whitfield\n\n**Email:** d.whitfield@example.com  **Phone:** +1-555-0148\n**LinkedIn:** https://profiles.example.com/in/dwhit\n\n## Senior SRE II\n\nSenior site reliability engineer with eight years of experience running production infrastructure for payments and data platforms, specializing in Kubernetes, Terraform, and incident command for distributed systems.\n\n## Experience\n\n### Senior SRE II — Fenwick Cloud Systems, Inc.\n*Sep 2022 – Present*\n\nOwns platform reliability for a fintech-adjacent payments company, leading on-call\nresponse and infrastructure automation across AWS.\n\n- Led the response to a three-hour checkout-service outage caused by a misconfigured connection pool limit.\n- Rebuilt the on-call escalation policy after a paging gap let a database failover alert sit unacknowledged for twenty minutes during a release.\n- Automated the quarterly disaster-recovery failover drill, cutting the manual runbook from four hours to under forty minutes.\n- Introduced error-budget dashboards that let three product teams self-serve their own SLO burn-rate alerts.\n\nTools: Kubernetes (EKS), AWS SA Associate, CKA Certified, Python/Go/Bash, Terraform, Helm, Prometheus/Grafana\n\n### Reliability Eng II — Brindlewave\n*Feb 2023 – Jul 2023*\n\nShort tenure reliability role focused on stabilizing streaming infrastructure during a\nrapid hiring phase.\n\n- Joined during a hypergrowth phase and stabilized a flapping Kafka consumer group that was dropping order events.\n- Wrote the first incident-command runbook the company had, used within a week during a payment-webhook outage.\n- Left after a round of layoffs eliminated the entire platform team two months into the role.\n\nTools: Kubernetes & Helm, Datadog dashboards, Terraform, Golang, Python and TypeScript\n\n### Site Reliability Engineer — Harborlight Data Co.\n*Sep 2018 – Aug 2022*\n\nLongest-tenured role; grew from individual contributor to de facto SRE lead across a\nfour-year stretch.\n\n- Migrated the core data pipeline off a single-region Postgres primary to a multi-region setup, eliminating a recurring weekend outage.\n- Built the company's first Terraform module library, cutting new-environment provisioning from two days to two hours.\n- Served as incident commander for eleven Sev-1 incidents over four years, writing the postmortem for each one.\n- Trained six junior engineers through the on-call rotation, halving the average time-to-acknowledge across the team.\n\nTools: Kubernetes (EKS), Vault, HashiCorp Vault/Nomad, Python/Go/Bash, Ansible playbooks, Jenkins & GitHub CI\n\n### Incident Response Contractor — Vantage Systems\n*Mar 2022 – Mar 2022*\n\nOne-month contract covering an on-call gap during a corporate acquisition.\n\n- Covered a one-month gap in the on-call rotation during acquisition.\n- Triaged and closed a backlog of forty open alerts.\n- Documented the escalation paths for three services with no existing runbook.\n\nTools: PagerDuty, OpsGenie\n\n### Incident Response Contractor — Northgate Cloud Ops\n*Sep 2020 – Aug 2021*\n\nOne-month contract stabilizing on-call coverage during a leadership transition.\n\n- Filled in during a leadership transition after two SREs resigned.\n- Wrote a shared glossary so support and engineering used the same severity terms.\n- Ran a tabletop incident drill for the newly hired on-call engineers.\n\nTools: Datadog APM, Incident command & postmortems, On-call tooling\n\n## Education\n\n**Arlington State University** — Bachelor of Science in Computer Science, minor in Mathematics\nJul 2022 – Nov 2022 · Field: Computer Science, Systems Track\n\n**Linux Foundation, Certified Kubernetes Administrator program** — Certified Kubernetes Administrator (CKA), issued by the Cloud Native Computing Foundation\nAug 2018 – Aug 2022 · Field: Container orchestration and site reliability engineering\n\n## Languages\n\nEnglish (native), German, French\n\n\n## Northstar internal registry — role taxonomy catalog (excerpt)\n\nNorthstar's on-call product keys every paging policy, escalation chain, and search\nfilter off a single controlled vocabulary of responder roles rather than letting each\ncustomer org invent its own free-text titles. The taxonomy has three tiers: Primary\nResponder (full-time, owns a service's error budget), On-Call Responder (Contract)\n(short-term coverage brought in for a specific gap, no standing headcount), and\nEscalation Contact (subject-matter expert who is paged only after a Primary Responder\nacknowledges and needs help). Profile-Ingest resolves every extracted job title against\nthis taxonomy so that a search for \"who has covered payments on-call before\" returns\ncontractors and full-time engineers alike, tagged correctly by tier. New taxonomy rows\nare added by the platform team only after a customer org's People Ops lead requests one\nthrough the standard intake form; ad-hoc titles are never added automatically, which is\nwhy the resolution step is allowed to return \"unmatched\" instead of inventing a row.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "The document is a single-page bio with a clear header block (name, email, phone) followed by a reverse-chronological work history and a short education section. I mapped each role's date range directly from the printed month/year pairs, used false for the current flag whenever the OCR text did not explicitly say \"present\" or \"ongoing\", and only set employmentType to contractor where the text literally used that word. Tool and language mentions were split by whether they came from an explicit skills line (resume) or were only implied by a highlight bullet (inferred).",
+                "type": "reasoning"
+              },
+              {
+                "text": "{\"name\": \"Dana Whitfield\", \"email\": \"d.whitfield@example.com\", \"phone\": \"+1-555-0148\", \"location\": null, \"headline\": \"Senior SRE II\", \"summary\": \"Senior site reliability engineer with eight years of experience running production infrastructure for payments and data platforms, specializing in Kubernetes, Terraform, and incident command for distributed systems.\", \"urls\": {\"linkedin\": \"https://example.com/dwhit\", \"github\": null, \"portfolio\": null, \"other\": []}, \"professionalTags\": [], \"coreSkills\": [\"Golang\", \"Incident Response Ops\", \"Terraform\", \"Kubernetes & Helm\", \"Observability\", \"PagerDuty\"], \"employmentHistory\": [{\"company\": \"Fenwick Cloud Systems, Inc.\", \"title\": \"Senior SRE II\", \"employmentType\": null, \"startDate\": \"2022-09-24\", \"endDate\": \"2025-10-24\", \"current\": false, \"location\": \"Remote\", \"sourceId\": null, \"summary\": \"Owns platform reliability for a fintech-adjacent payments company, leading on-call response and infrastructure automation across AWS.\", \"highlights\": [\"Led the response to a three-hour checkout-service outage caused by a misconfigured connection pool limit.\", \"Rebuilt the on-call escalation policy after a paging gap let a database failover alert sit unacknowledged for twenty minutes.\", \"Automated the quarterly disaster-recovery failover drill, cutting the runbook from four hours to under forty minutes.\", \"Introduced error-budget dashboards that let three product teams self-serve their own SLO burn-rate alerts.\"], \"skills\": [{\"name\": \"Kubernetes (EKS)\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"AWS SA Associate\", \"category\": \"credential\", \"subcategory\": \"cloud\", \"source\": \"inferred\"}, {\"name\": \"CKA Certified\", \"category\": \"credential\", \"subcategory\": \"cloud\", \"source\": \"inferred\"}, {\"name\": \"Python, Go, and Bash\", \"category\": \"language\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"SQL and shell scripting\", \"category\": \"language\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Terraform, Helm\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Prometheus/Grafana\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}]}, {\"company\": \"Brindlewave\", \"title\": \"Reliability Eng II\", \"employmentType\": null, \"startDate\": \"2023-02-22\", \"endDate\": \"2023-07-25\", \"current\": false, \"location\": null, \"sourceId\": null, \"summary\": \"Short tenure reliability role focused on stabilizing streaming infrastructure during a rapid hiring phase.\", \"highlights\": [\"Joined during a hypergrowth phase and stabilized a flapping Kafka consumer group that dropped order events.\", \"Wrote the first incident-command runbook the company had, used within a week during a payment-webhook outage.\", \"Left after a round of layoffs eliminated the entire platform team two months into the role.\"], \"skills\": [{\"name\": \"Kubernetes & Helm\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"inferred\"}, {\"name\": \"Datadog dashboards\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Terraform\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Golang\", \"category\": \"language\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Python and TypeScript\", \"category\": \"language\", \"subcategory\": null, \"source\": \"inferred\"}]}, {\"company\": \"Harborlight Data Co.\", \"title\": \"Site Reliability Engineer\", \"employmentType\": null, \"startDate\": \"2018-09-24\", \"endDate\": \"2022-08-24\", \"current\": false, \"location\": null, \"sourceId\": null, \"summary\": \"Longest-tenured role; grew from individual contributor to de facto SRE lead across a four-year stretch.\", \"highlights\": [\"Migrated the core data pipeline off a single-region Postgres primary, eliminating a recurring weekend outage.\", \"Built the company's first Terraform module library, cutting new-environment provisioning from two days to two hours.\", \"Served as incident commander for eleven Sev-1 incidents over four years, writing the postmortem for each one.\", \"Trained six junior engineers through the on-call rotation, halving the average time-to-acknowledge across the team.\"], \"skills\": [{\"name\": \"Kubernetes (EKS)\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Vault\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"HashiCorp Vault/Nomad\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Python, Go, and Bash\", \"category\": \"language\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Ansible playbooks\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Jenkins & GitHub CI\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}]}, {\"company\": \"Vantage Systems\", \"title\": \"Incident Response Contractor\", \"employmentType\": \"contractor\", \"startDate\": \"2022-03-24\", \"endDate\": \"2022-03-24\", \"current\": false, \"location\": null, \"sourceId\": null, \"summary\": \"One-month contract covering an on-call gap during a corporate acquisition.\", \"highlights\": [\"Covered a one-month gap in the on-call rotation during acquisition.\", \"Triaged and closed a backlog of forty open alerts.\", \"Documented the escalation paths for three services with no existing runbook.\"], \"skills\": [{\"name\": \"PagerDuty\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"OpsGenie\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}]}, {\"company\": \"Northgate Cloud Ops\", \"title\": \"Incident Response Contractor\", \"employmentType\": \"contractor\", \"startDate\": \"2020-09-24\", \"endDate\": \"2021-08-24\", \"current\": false, \"location\": null, \"sourceId\": null, \"summary\": \"One-month contract stabilizing on-call coverage during a leadership transition.\", \"highlights\": [\"Filled in during a leadership transition after two SREs resigned.\", \"Wrote a shared glossary so support and engineering used the same severity terms.\", \"Ran a tabletop incident drill for the newly hired on-call engineers.\"], \"skills\": [{\"name\": \"Datadog APM\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"Incident command & postmortems\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}, {\"name\": \"On-call tooling\", \"category\": \"platform\", \"subcategory\": null, \"source\": \"resume\"}]}], \"education\": [{\"institution\": \"Arlington State University\", \"degree\": \"Bachelor of Science in Computer Science, minor in Mathematics\", \"programType\": \"degree\", \"fieldOfStudy\": \"Computer Science, Systems Track\", \"startDate\": \"2022-07-25\", \"endDate\": \"2022-11-24\", \"current\": false, \"version\": \"1.1\"}, {\"institution\": \"Linux Foundation, Certified Kubernetes Administrator program\", \"degree\": \"Certified Kubernetes Administrator (CKA), issued by the Cloud Native Computing Foundation\", \"programType\": \"training\", \"fieldOfStudy\": \"Container orchestration and site reliability engineering\", \"startDate\": \"2018-08-24\", \"endDate\": \"2022-08-24\", \"current\": false, \"version\": \"1\"}], \"affiliations\": [], \"languages\": [{\"language\": \"English\", \"level\": null}, {\"language\": \"German\", \"level\": null}, {\"language\": \"French\", \"level\": null}], \"verificationNotes\": null}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 19559,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_name": "cv-intake",
+        "$lib": "posthog-node-mcp",
+        "$lib_version": "0.12.0",
+        "$geoip_disable": true,
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c"
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 27041,
+      "distinct_id": "user-1",
+      "properties": {
+        "app": "profile-ingest",
+        "$ai_input_tokens": 5,
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$lib": "posthog-node-mcp",
+        "$ai_model": "text-embedding-3-small",
+        "vectorBytes": 609,
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$ai_provider": "openai",
+        "$ai_latency": 0.337,
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_trace_name": "cv-intake",
+        "vectorCount": 1,
+        "operation": "title_01dd294cd20bc",
+        "$geoip_disable": true,
+        "$lib_version": "0.12.0",
+        "$ai_input": [
+          "Incident Response Contractor"
+        ]
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 27130,
+      "distinct_id": "user-1",
+      "properties": {
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "vectorBytes": 609,
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$geoip_disable": true,
+        "$ai_latency": 0.195,
+        "$ai_provider": "openai",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "vectorCount": 4,
+        "$ai_model": "text-embedding-3-small",
+        "app": "profile-ingest",
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_trace_name": "cv-intake",
+        "$ai_input_tokens": 20,
+        "$lib": "posthog-node-mcp",
+        "operation": "entity_2qPgFgAfW",
+        "$lib_version": "0.12.0",
+        "$ai_input": [
+          "Fenwick Cloud Systems, Inc.",
+          "Harborlight Data Co.",
+          "Vantage Systems",
+          "Northgate Cloud Ops"
+        ]
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 28286,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_name": "cv-intake",
+        "$ai_latency": 1.874,
+        "app": "profile-ingest",
+        "$geoip_disable": true,
+        "$ai_model": "text-embedding-3-small",
+        "vectorBytes": 609,
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_provider": "openai",
+        "$lib": "posthog-node-mcp",
+        "$lib_version": "0.12.0",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "operation": "section_RwBkPO7nt",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_input_tokens": 22,
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "vectorCount": 2,
+        "$ai_input": [
+          "Bachelor of Science in Computer Science from Arlington State University",
+          "Certified Kubernetes Administrator (CKA) credential from Cloud Native Computing Foundation, cloud track"
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 29557,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_output_tokens": 105,
+        "$ai_lib_version": "7.13.1",
+        "$ai_http_status": 200,
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_framework_version": "5",
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "$lib": "posthog-node-mcp",
+        "$ai_reasoning_tokens": 19,
+        "$ai_framework": "vercel",
+        "$ai_model": "gpt-6-luna",
+        "$geoip_disable": true,
+        "$ai_latency": 1.903,
+        "$ai_lib": "posthog-ai",
+        "app": "profile-ingest",
+        "$ai_base_url": "",
+        "$ai_model_parameters": {},
+        "$lib_version": "0.12.0",
+        "operation": "title_4b36bd72d399950919",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_tokens_source": "sdk",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "$ai_trace_name": "cv-intake",
+        "resultCount": 1,
+        "$ai_provider": "openai",
+        "$ai_input_tokens": 813,
+        "round": 1,
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the title-resolution step of Northstar's Profile-Ingest pipeline. A new responder's bio has just been parsed, and you are given one extracted job-title string plus the nearest candidates from Northstar's internal on-call role taxonomy (a controlled vocabulary the incident-response product uses so search and paging rules work the same way across every customer org).\n\nFor the given title, decide whether it maps cleanly onto one existing taxonomy entry. Return JSON: {\"citations\": [{\"queryText\": \"<the exact title text>\", \"verdict\": \"match\" | \"unmatched\", \"canonicalRecordId\": \"<taxonomy uuid or null>\", \"reasoning\": \"<one sentence>\"}]}.\n\nOnly return \"match\" when the title is a close synonym of a taxonomy entry (for example \"Incident Response Contractor\" maps to the \"On-Call Responder (Contract)\" taxonomy row). Otherwise return \"unmatched\" with a null id. Do not merge multiple titles into one citation. Keep reasoning to one plain sentence a People Ops reviewer can read without extra context.\n\nThe taxonomy exists because Northstar's paging engine keys escalation rules, search\nfilters, and the customer-facing \"who has covered this service before\" report off a\nsingle controlled vocabulary rather than the free-text titles every resume writer\ninvents for themselves. A responder whose title is left \"unmatched\" is still onboarded\nnormally, but their profile will not surface in a taxonomy-filtered search until a\nPeople Ops reviewer either adds a new taxonomy row or manually assigns an existing one.\nThat manual step is intentionally rare, so lean toward \"unmatched\" whenever you are not\nconfident, rather than forcing a low-confidence match onto the taxonomy.\n\nDo not consider seniority modifiers (Senior, Staff, Lead, II, III) when comparing a\ntitle against the taxonomy — the taxonomy tracks the kind of on-call responsibility, not\ncareer level, and a separate seniority field elsewhere in the profile already captures\nthat distinction. Likewise, ignore any team or product name embedded in the title\n(for example \"Payments SRE\" and \"SRE\" should be compared as if the team name were not\nthere at all), since the taxonomy is deliberately org-agnostic across every customer\ntenant Northstar serves.\n\nIf the extracted title is ambiguous, prefer the candidate matching the surrounding\nemployment dates: a role lasting a year or more should not resolve to a contract-\ncoverage row even if the words line up, and a short role should not resolve to a\npermanent row even if the title omits \"contract\".",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Extracted title: \"Incident Response Contractor\"\n\nCandidate taxonomy rows (top 3 by embedding similarity):\n1. On-Call Responder (Contract) — short-term coverage for incident response rotations, no permanent headcount.\n2. Site Reliability Engineer — permanent IC role owning production reliability.\n3. Support Engineer (Tier 2) — customer-facing escalation role, not on-call for infra.\n\nResolve the extracted title against these candidates and return the citation JSON.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "text": "{\"citations\": [{\"queryText\": \"Incident Response Contractor\", \"verdict\": \"match\", \"canonicalRecordId\": \"a0603c0d-bc1d-7a33-19ac-07d08d2f308b\", \"reasoning\": \"The phrase \\\"Incident Response Contractor\\\" is a near-exact synonym for the taxonomy's contract on-call coverage role, so it resolves cleanly to that entry.\"}]}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 32238,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_tokens_source": "sdk",
+        "$ai_lib": "posthog-ai",
+        "$ai_provider": "openai",
+        "app": "profile-ingest",
+        "$ai_framework": "vercel",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "resultCount": 1,
+        "$ai_model": "gpt-6-luna",
+        "$ai_model_parameters": {},
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$lib_version": "0.12.0",
+        "$geoip_disable": true,
+        "$ai_input_tokens": 1379,
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "$ai_http_status": 200,
+        "operation": "entity_f1DfIAWCKVWpRG",
+        "$ai_output_tokens": 255,
+        "$ai_base_url": "",
+        "$lib": "posthog-node-mcp",
+        "$ai_reasoning_tokens": 37,
+        "$ai_lib_version": "7.13.1",
+        "$ai_latency": 3.249,
+        "round": 1,
+        "$ai_framework_version": "5",
+        "$ai_trace_name": "cv-intake",
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the employer-resolution step of Northstar's Profile-Ingest pipeline. A new responder's bio lists prior employers, and your job is to check each one against Northstar's internal registry: current enterprise customers, vendors under an active security review, and any company on the standing conflicts-of-interest watchlist maintained by People Ops.\n\nYou will be given the employer name exactly as extracted, plus its nearest embedding matches from that internal registry. Decide, per employer, whether it should be flagged.\n\nReturn JSON: {\"citations\": [{\"queryText\": \"<employer name>\", \"verdict\": \"match\" | \"unmatched\", \"canonicalRecordId\": \"<registry uuid or null>\", \"reasoning\": \"<one sentence>\"}]}.\n\nUse \"match\" only when the employer name (accounting for punctuation, \"Inc.\"/\"Co.\" suffixes, and obvious abbreviations) corresponds to a registry row. Otherwise return \"unmatched\" with a null id and a one-sentence reasoning explaining why nothing in the registry corresponds to it. Never guess a match on partial word overlap alone — a false positive triggers an unnecessary compliance review.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Extracted employers, most recent first:\n\n1. \"Fenwick Cloud Systems, Inc.\" — nearest registry matches: none above the 0.7 similarity floor.\n2. \"Harborlight Data Co.\" — nearest registry matches: \"Harborview Analytics Ltd.\" (0.61), \"Harbor Freight Data Systems\" (0.58).\n3. \"Vantage Systems\" — nearest registry matches: \"Vantage Point Security\" (0.64).\n4. \"Northgate Cloud Ops\" — nearest registry matches: \"Northgate Payments Group\" (0.66), \"North Star Cloud\" (0.55).\n\nNone of the retrieved matches clear the 0.7 similarity floor Northstar requires before flagging an employer as a registry hit, and none of the four employer names appear verbatim anywhere in the registry export. Resolve each of the four employers and return the citation JSON, one entry per employer, in the order given above.\n\nRemember that the registry is re-synced weekly from three upstream sources — the CRM's\nlist of active enterprise accounts, the vendor-security team's tracker of companies\nunder an open review, and the signed non-compete list People Ops keeps on file — and\nthat a stale sync is a known failure mode, not a hypothetical one. If a name looks close\nenough that you would normally call it a match but the similarity score is below the\n0.7 floor, do not round up: a missed hit routes to a human reviewer next quarter when\nthe sync catches up, while a false positive today wastes a reviewer's time immediately\nand can needlessly delay a new responder's first on-call shift.\n\nWhen you write the reasoning field, name the specific registry row you considered and\nexplain why it does or does not correspond to the extracted employer — \"no similar\nname\" is not sufficient if a candidate was retrieved at all, since retrieval already\nfound partial lexical overlap. A reviewer reading only your reasoning, with no access to\nthe registry export itself, should understand exactly why each employer was flagged or\ncleared without asking a follow-up question.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "text": "{\"citations\": [{\"queryText\": \"Fenwick Cloud Systems, Inc.\", \"verdict\": \"unmatched\", \"canonicalRecordId\": null, \"reasoning\": \"No registry entry with any meaningful name overlap was retrieved, and the similarity floor was not cleared, so this employer is not on file.\"}, {\"queryText\": \"Harborlight Data Co.\", \"verdict\": \"unmatched\", \"canonicalRecordId\": null, \"reasoning\": \"The closest registry rows share only the generic word \\\"data\\\" or \\\"analytics\\\" with this employer name and fall below the similarity floor, so it does not match.\"}, {\"queryText\": \"Vantage Systems\", \"verdict\": \"unmatched\", \"canonicalRecordId\": null, \"reasoning\": \"\\\"Vantage Point Security\\\" shares the word \\\"Vantage\\\" but is a different company in a different line of business, so this does not count as a registry match.\"}, {\"queryText\": \"Northgate Cloud Ops\", \"verdict\": \"unmatched\", \"canonicalRecordId\": null, \"reasoning\": \"\\\"Northgate Payments Group\\\" and \\\"North Star Cloud\\\" both fall short of the similarity floor and describe unrelated businesses, so this employer is unmatched.\"}]}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 35183,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_latency": 4.577,
+        "$ai_http_status": 200,
+        "$lib": "posthog-node-mcp",
+        "$ai_input_tokens": 1039,
+        "sessionId": "a169c376-8165-7206-369f-a0ead0b9a30a",
+        "$ai_framework_version": "5",
+        "operation": "section_igOxCrViz4M6hV",
+        "$ai_lib_version": "7.13.1",
+        "$ai_provider": "openai",
+        "$ai_reasoning_tokens": 125,
+        "$ai_tokens_source": "sdk",
+        "$lib_version": "0.12.0",
+        "$ai_base_url": "",
+        "$ai_trace_name": "cv-intake",
+        "$ai_model_parameters": {},
+        "round": 1,
+        "$ai_lib": "posthog-ai",
+        "$ai_trace_id": "profile-ingest_cv-intake_0fe2b609de56aa8a73214bb21d1b08d51115c",
+        "$ai_output_tokens": 283,
+        "orgId": "org_kN0tswMVjnJ64vkd0nv1eH5pVd",
+        "runId": "982a0a44-9d37-77cd-3de6-7ad7dac7c3b9",
+        "$ai_model": "gpt-6-luna",
+        "$geoip_disable": true,
+        "resultCount": 1,
+        "$ai_framework": "vercel",
+        "app": "profile-ingest",
+        "$groups": {
+          "organization": "a8268681-07aa-7c27-c84f-8461ff46c0fc"
+        },
+        "$group_0": "a8268681-07aa-7c27-c84f-8461ff46c0fc",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the credential-resolution step of Northstar's Profile-Ingest pipeline. A new responder's bio lists degrees and certifications, and your job is to check each one against Northstar's internal catalog of recognized institutions and certifications — the same catalog People Ops uses to approve tuition and exam-fee reimbursement requests.\n\nYou will be given the extracted credential text plus its nearest embedding matches from the catalog. Decide, per credential, whether it corresponds to a catalog entry.\n\nReturn JSON: {\"citations\": [{\"queryText\": \"<credential text>\", \"verdict\": \"match\" | \"unmatched\", \"canonicalRecordId\": \"<catalog uuid or null>\", \"reasoning\": \"<one sentence>\"}]}.\n\nA \"match\" means the institution or certifying body is unambiguously the same organization as a catalog row, even if the wording differs slightly. Cite the specific catalog row you matched against in your reasoning.\n\nThe catalog backs two separate People Ops workflows: tuition reimbursement for a formal\ndegree, and exam-fee reimbursement for a certification, and both workflows check the\nsame catalog rather than maintaining separate lists. Because a match here has a direct\ndollar cost — an approved reimbursement is money leaving the company — the similarity\nfloor for an automatic match is set higher than the employer-watchlist floor (0.85\ninstead of 0.7), and you should still require the issuing organization to be\nunambiguous even when the score clears that floor. A university's satellite campus, an\nonline-extension program under a different brand name, or a training vendor that merely\nprepares candidates for a certification exam (rather than issuing the certification\nitself) should not be treated as the same organization as the catalog row.\n\nWhen a credential lists both an institution and a separate certifying body, resolve it\nagainst whichever one actually appears in the catalog, and say so explicitly rather than\nsilently picking one. If the extracted text is genuinely ambiguous about who issued the\ncredential, prefer \"unmatched\" over guessing, since People Ops would rather review one\nextra case than approve a reimbursement against the wrong row.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Extracted credentials:\n\n1. \"Bachelor of Science in Computer Science, minor in Mathematics\" from Arlington State University — nearest catalog match: \"Arlington State University — accredited four-year institution, reimbursement-eligible\" (0.88 similarity).\n2. \"Certified Kubernetes Administrator (CKA), issued by the Cloud Native Computing Foundation\" — nearest catalog match: \"CNCF — Certified Kubernetes Administrator (CKA), exam-fee reimbursement approved\" (0.91 similarity).\n\nBoth retrieved rows clear Northstar's 0.85 similarity floor for an automatic credential match. Resolve each credential against its catalog row and return the citation JSON, one entry per credential, in the order given above.\n\nFor context, both catalog rows were added after a People Ops review last quarter:\nArlington State University was added when its first reimbursement request came through\nand a reviewer confirmed its accreditation status directly with the institution, and the\nCNCF's Kubernetes certification track was added at the same time after three separate\nengineers requested exam-fee reimbursement for it within the same month. Neither catalog\nrow has an expiration date attached, so a match should not be withheld on the theory\nthat the catalog entry might be stale — that staleness question is handled by the\nquarterly re-sync, not by this resolution step.\n\nDouble check that the certifying body named in the extracted text is the organization\nthat actually appears in the catalog row, not a training vendor or bootcamp that merely\nhelped the candidate prepare for it, and note that check explicitly in your reasoning\nrather than assuming the more generous interpretation.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "text": "{\"citations\": [{\"queryText\": \"Bachelor of Science in Computer Science, minor in Mathematics\", \"verdict\": \"match\", \"canonicalRecordId\": \"33cd74d1-7dd8-7c61-64ff-c2a8f06a1323\", \"reasoning\": \"Arlington State University is listed verbatim in the reimbursement-eligible institution catalog, so the degree resolves to that catalog row.\"}, {\"queryText\": \"Certified Kubernetes Administrator (CKA), issued by the Cloud Native Computing Foundation\", \"verdict\": \"match\", \"canonicalRecordId\": \"2b3c5a69-d7f1-7843-68be-f2f0e25bce19\", \"reasoning\": \"The CNCF's Certified Kubernetes Administrator program is the exact certification named in the catalog entry, so this credential resolves to that row.\"}]}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

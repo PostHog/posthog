@@ -2,7 +2,8 @@
 
 The skill bundle is one zip of the skills a user created or owns in the team skills store.
 A consumer unpacks it into a skills directory (`~/.claude/skills`, `~/.agents/skills`) so a harness discovers the skills natively.
-The first consumer is the agent server in a task sandbox, which fetches the bundle at session start.
+It is for consumers outside a task sandbox, such as a local install into a developer's own skills directory.
+A task sandbox does not download it: the task worker runs the same stub selection (`select_skill_stubs`) when it builds the run's processing context and writes the result into `TaskRun.state["store_skills"]`, and the sandbox agent renders one pointer `SKILL.md` per entry from that state, so session start makes no extra request.
 
 Viewset: `products/skills/backend/api/skills.py` (`LLMSkillViewSet.bundle`).
 Walk and caps: `products/skills/backend/marketplace/adapters.py` (`build_skill_bundle`).
@@ -17,7 +18,7 @@ GET /api/projects/{team_id}/llm_skills/bundle/?content=stub|full&limit=N
 | Param     | Default | Behavior                                                                                                                                       |
 | --------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `content` | `stub`  | `stub` writes one `SKILL.md` per skill with its name, description and instructions to fetch the skill over MCP. `full` writes the whole skill. |
-| `limit`   | `20`    | Maximum skills in the zip, newest first, at most `100`. Every skill in the zip costs the agent prompt context on each turn, so keep it small.  |
+| `limit`   | `50`    | Maximum skills in the zip, newest first, at most `100`. Every skill in the zip costs the agent prompt context on each turn, so keep it small.  |
 
 The response is `application/zip` with `Content-Disposition: attachment; filename="skills-bundle.zip"`.
 Each skill sits under `<name>/`.
@@ -66,3 +67,20 @@ Its body tells the agent to:
 
 Pinning the version keeps a publish that lands mid-fetch from mixing two versions of the skill.
 Skill content only crosses the MCP server when a skill is invoked; the bundle itself carries discovery metadata only.
+
+## The `phs` bridge in task sandboxes
+
+A task sandbox lists only the user's own skills as stubs, so it also gets a fixed `phs` skill that runs any store skill the user can read, such as a teammate's.
+`/phs <name> [arguments]` fetches the skill with `skill-get`, pages through the body and pins the version, the same way a stub does.
+`/phs` or `/phs list [keyword]` calls `skill-list`, and a name `skill-get` cannot find triggers a `skill-list` search for close matches.
+The bridge reads and runs skills only.
+
+The task worker sets `TaskRun.state["store_skills_bridge"]` from the same `skills-store-in-sandbox` evaluation as `store_skills`.
+`store_skills` is empty both when the flag is off and when the user owns no skills, so it cannot carry this switch.
+The sandbox agent writes the bridge in `syncStoreSkills` (`packages/agent/packages/harness/src/extensions/skills-store/store-skills.ts`), so the Claude, Codex and Pi servers share it:
+
+- It is written even when `store_skills` is empty, because a user with no skills of their own needs it most.
+- It carries the store marker and `metadata.role: bridge`. Pruning keeps it while the switch is on and removes it when the switch is off. It is not counted in the prompt's number of the user's skills.
+- A null run state leaves the bridge on disk as it is, the same as stubs.
+- A team skill named `phs` in `store_skills` replaces it, including on a resumed sandbox. A non-store skill named `phs` is never replaced.
+- `skill-get` resolves in the run's project, so the bridge cannot fetch skills from another project.

@@ -1,39 +1,55 @@
 # Rendering tool cards in a thread
 
-Register a renderer and your product's tool calls display as a real card instead of the generic MCP fallback. The seam is `registerToolRenderers` from `api/tools` — a module-level side effect, no hooks and no dynamic registration.
+Export a typed declaration list from `products/<product>/frontend/posthogAiToolRenderers.tsx`.
+Add one direct import and one spread to `frontend/src/posthogAiToolRenderers.ts` for your product.
+Keep individual entries with their product; import no scenes or broad component barrels from declaration modules.
+Use **type-only** imports from `api/tools` for the contract, so declarations cannot create a runtime cycle with the registry.
+
+The registry initializes synchronously from built-ins and this manifest before rendering.
+The manifest is the sole extension mechanism: there is no runtime registration, subscription, or asynchronous initialization.
+`toolRegistry.lookup` and `lookupToolRenderer` remain available; keep headless `api/logics` and `api/types` free of registry imports.
 
 ```tsx
-import { registerToolRenderers } from 'products/posthog_ai/frontend/api/tools'
+import { IconBolt } from '@posthog/icons'
 
-registerToolRenderers([
+import { lazyWithRetry } from 'lib/utils/retryImport'
+
+import type { ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+
+export const posthogAiToolRenderers: ToolRegistryEntry[] = [
   {
     key: 'cdp-functions-partial-update',
     displayName: 'Update function',
     icon: <IconBolt />,
-    renderPermissionPreview: renderPartialUpdatePreview,
+    PermissionPreview: lazyWithRetry(() =>
+      import('./HogFunctionPermissionPreview').then((m) => ({ default: m.HogFunctionPermissionPreview }))
+    ),
     requiresPostHogOrigin: true,
   },
-])
+]
 ```
 
-Real caller: `frontend/src/scenes/hog-functions/configuration/registerHogFunctionToolPreviews.tsx`.
+Reference lists: `products/posthog_ai/frontend/posthogAiToolRenderers.tsx` for data widgets,
+`products/error_tracking/frontend/posthogAiToolRenderers.tsx` for product-owned error-tracking widgets,
+and `products/cdp/frontend/posthogAiToolRenderers.tsx` for a lazy permission preview.
+Declaration lists live at the product frontend root, outside `api/`. Implementations that use another
+product’s internals belong with that product. Use PostHog AI’s public `api/tools` helpers for the tool-card
+contract and generic output parsing; shared `frontend` dependencies are allowed.
+Implementations stay product-owned and load only on use through `lazyWithRetry`.
 
 ## The entry
 
-| Field                     | Meaning                                                                 |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `key`                     | The inner exec tool name, or the wire tool name for a built-in.         |
-| `displayName`             | Card title text.                                                        |
-| `icon`                    | Card icon.                                                              |
-| `Renderer`                | Draws the **result** card. Optional — omit it for a preview-only entry. |
-| `renderPermissionPreview` | Draws the approval prompt shown **before** a write runs.                |
-| `requiresPostHogOrigin`   | Only match calls that came through the trusted PostHog server.          |
+| Field                   | Meaning                                                        |
+| ----------------------- | -------------------------------------------------------------- |
+| `key`                   | Inner exec tool name, or the wire name for a built-in.         |
+| `displayName`           | Card title text.                                               |
+| `icon`                  | Card icon.                                                     |
+| `Renderer`              | Result card component. Omit for a preview-only entry.          |
+| `PermissionPreview`     | Approval evidence component receiving `{ request, fallback }`. |
+| `requiresPostHogOrigin` | Match only calls from the trusted PostHog server.              |
 
-Set `requiresPostHogOrigin: true` for anything that renders PostHog entities. Without it, a tool of the same name from another MCP server would render through your card.
-
-Registration is by import, so call it once from your scene's entrypoint (or a small `register*.tsx` module the entrypoint imports for its side effect). Re-registering the same `key` overwrites. Wrap a heavy `Renderer` in `lazyWithRetry` so it does not weigh down the chunk that registers it.
-
-The built-in PostHog widgets — insights, dashboards, recordings, error tracking issues, notebooks, query results — live in `products/posthog_ai/frontend/components/tool/widgets/` and self-register the same way. Read `registerDataToolRenderers.tsx` there as the reference implementation; it is the same public seam, not a privileged path.
+Set `requiresPostHogOrigin: true` for PostHog entities. A colliding tool name from another server must keep generic rendering.
+Unknown tools and preview-only entries use the generic result card.
 
 ## A card is two header lines plus an accordion
 
@@ -48,7 +64,16 @@ Reserve `children` (always visible) for genuinely interactive payloads that woul
 
 ## Permission previews
 
-`renderPermissionPreview` runs at the approval prompt, before the tool executes, and receives the pending request record. It is worth writing for any destructive or hard-to-reverse write: show _what will change_, not just the tool name, so the user approves a real thing rather than a label. An entry can carry a preview and no `Renderer` at all.
+`PermissionPreview` receives `{ request, fallback }`, typed as `PermissionPreviewProps` from `api/tools`.
+Return `fallback` when there is no available matching mounted configuration or no changes to show.
+Do not mount or fetch a product scene to produce a preview.
+`PermissionInput` supplies its evidence block as fallback, and wraps the preview in `Suspense` and `PostHogErrorBoundary`.
+Both boundaries use that evidence fallback; approval controls remain outside them and stay usable during loading or failure.
+Errors retain the `posthog_ai_permission_preview` feature tag, and a new permission request resets the error boundary.
+
+Verify declarations are available from a registry-only import and do not evaluate lazy implementations.
+Render a matching card to check its skeleton resolves. Exercise preview loading, errors, missing/mismatched state,
+and successful diffs while keeping approvals usable. Keep trusted-origin and unknown-tool fallback coverage.
 
 ## Not to be confused with MCP UI apps
 

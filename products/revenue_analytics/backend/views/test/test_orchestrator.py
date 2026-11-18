@@ -14,6 +14,7 @@ from products.revenue_analytics.backend.views import (
 )
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.revenue_analytics.backend.views.sources.helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
+from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -96,6 +97,19 @@ class TestRevenueAnalyticsViews(BaseTest):
         mrr_views = [v for v in source_views if isinstance(v, RevenueAnalyticsMRRView)]
         self.assertEqual(len(mrr_views), 1)
         self.assertEqual(mrr_views[0].name, "stripe.mrr_revenue_view")
+
+    def test_unresolvable_test_account_filter_keeps_source_views(self):
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 987654321}]
+        self.team.save()
+        self.team.revenue_analytics_config.filter_test_accounts = True
+        self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        self.team.revenue_analytics_config.save()
+
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+        self.assertEqual(len(source_views), 6)
+        self.assertEqual([v for v in views if v.source_id is None], [])
 
     def test_revenue_view_with_disabled_source(self):
         """Test that the orchestrator returns None for disabled sources"""

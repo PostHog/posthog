@@ -1,6 +1,7 @@
 import json
 import uuid
-from datetime import timedelta
+from collections.abc import Collection
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -8,25 +9,34 @@ from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from dateutil.rrule import DAILY, rrule
-from django_deprecate_fields import deprecate_field
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
-from products.actions.backend.models.action import Action
-
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
 # NB this is enforced in the UI too
 MAX_ITERATION_COUNT = 500
+MAX_ITERATION_FREQUENCY_DAYS = 365
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class SurveyMatchType(models.TextChoices):
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
 
 
 class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
@@ -259,6 +269,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    repeat_until_stopped = models.BooleanField(
+        default=False,
+        null=True,
+        help_text=(
+            "For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. "
+            "When true, iteration_count is ignored and the survey never closes on its own after a final repeat."
+        ),
+    )
     schedule = models.CharField(
         max_length=40,
         choices=Schedule,
@@ -286,7 +304,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # The SDK does not read this field — base text is always the rendering fallback when no translation matches.
     base_language = models.CharField(max_length=20, default="en")
     # Translations for multi-language support
-    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, introScreenHeader: string, introScreenDescription: string, introScreenButtonText: string, backButtonText: string, ... } }
     # Language codes must be canonical BCP-47-ish strings (e.g. "es", "es-MX"). Aliases like "english" or "default" are rejected by the API.
     translations = models.JSONField(blank=True, null=True)
 
@@ -299,7 +317,19 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         ),
     )
 
-    actions = models.ManyToManyField(Action)
+    # Not sealed: the resource transfer graph walks reverse descriptors, so hiding
+    # survey_set would silently drop the survey link from Action-rooted duplications
+    # (test_relation_fields_Action locks the field list).
+    actions = models.ManyToManyField("actions.Action")
+
+    @property
+    def repeats_on_schedule(self) -> bool:
+        if not self.iteration_frequency_days:
+            return False
+        # Stale iteration_count values have always repeated on their own; the newer flag only counts on a recurring schedule.
+        return bool(self.iteration_count) or (
+            bool(self.repeat_until_stopped) and self.schedule == self.Schedule.RECURRING
+        )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
@@ -310,7 +340,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     def get_internal_flag_ids(
         cls,
         *,
-        team_id: int | None = None,
+        team_ids: Collection[int] | None = None,
         project_id: int | None = None,
         using: str = "default",
     ) -> set[int]:
@@ -325,19 +355,19 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         Note: The user-created `linked_flag` is NOT included since it's user-managed.
 
         Args:
-            team_id: Filter by team ID (use for team-scoped queries)
+            team_ids: Filter by a batch of team IDs (use for batched jobs like health checks)
             project_id: Filter by project ID (use for project-scoped queries)
             using: Database alias to use (e.g., "default" or "replica")
 
         Returns:
             Set of feature flag IDs linked to surveys
         """
-        if team_id is not None:
-            queryset = cls.objects.db_manager(using).filter(team_id=team_id)
+        if team_ids is not None:
+            queryset = cls.objects.db_manager(using).filter(team_id__in=team_ids)
         elif project_id is not None:
             queryset = cls.objects.db_manager(using).filter(team__project_id=project_id)
         else:
-            raise ValueError("Either team_id or project_id must be provided")
+            raise ValueError("Either team_ids or project_id must be provided")
 
         return {
             flag_id
@@ -434,15 +464,7 @@ def ensure_question_ids(instance):
 
 
 def update_survey_iterations(sender, instance, *args, **kwargs):
-    iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
-    iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
-
-    if (
-        instance.iteration_count is None
-        or instance.iteration_frequency_days is None
-        or instance.iteration_count == 0
-        or instance.iteration_frequency_days == 0
-    ):
+    if not instance.repeats_on_schedule:
         instance.iteration_start_dates = []
         instance.current_iteration = None
         instance.current_iteration_start_date = None
@@ -452,18 +474,27 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.iteration_start_dates = None
         return
 
+    if instance.repeat_until_stopped:
+        # An open-ended schedule has no last window, so store only the current and the next one.
+        # update_survey_iteration refreshes them on every run.
+        current = open_ended_iteration(instance.start_date, instance.iteration_frequency_days, timezone.now())
+        dtstart = instance.start_date + timedelta(days=(current - 1) * instance.iteration_frequency_days)
+        window_count = 2
+    else:
+        dtstart = instance.start_date
+        window_count = min(instance.iteration_count, MAX_ITERATION_COUNT)
+
     instance.iteration_start_dates = list(
-        rrule(
-            DAILY,
-            count=min(iteration_count, MAX_ITERATION_COUNT),
-            interval=iteration_frequency_dates,
-            dtstart=instance.start_date,
-        )
+        rrule(DAILY, count=window_count, interval=instance.iteration_frequency_days, dtstart=dtstart)
     )
 
-    if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
+    if instance.current_iteration is None or instance.current_iteration == 0:
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
+
+
+def open_ended_iteration(start_date: datetime, frequency_days: int, now: datetime) -> int:
+    return max((now - start_date).days // frequency_days + 1, 1)
 
 
 def _get_surveys_response(team: "Team") -> dict:

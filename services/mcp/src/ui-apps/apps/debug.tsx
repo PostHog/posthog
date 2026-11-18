@@ -40,7 +40,8 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { AppErrorState, AppLoadingState } from '../components/AppWrapper'
+import { AppErrorState } from '../components/AppErrorState'
+import { AppLoadingState } from '../components/AppLoadingState'
 import { useToolResult } from '../hooks/useToolResult'
 import type { UseToolResultReturn } from '../hooks/useToolResult'
 
@@ -682,7 +683,9 @@ function ShowcaseTab(): JSX.Element {
 // -- App --
 
 function DebugApp(): JSX.Element {
-    const toolResult = useToolResult<unknown>({ appName: 'MCP Apps Debug' })
+    // This view exists to watch host traffic, so it waits indefinitely instead of
+    // reporting a timeout over the raw state it is there to show.
+    const toolResult = useToolResult<unknown>({ appName: 'MCP Apps Debug', waitTimeoutMs: 0 })
     const hostMessages = useHostMessageLog()
     const debugState = useDebugTabState(toolResult.app, hostMessages.length)
 
@@ -718,7 +721,7 @@ function DebugApp(): JSX.Element {
                     <AppLoadingState />
                 </TabsContent>
                 <TabsContent value="error">
-                    <AppErrorState message="Something went wrong" />
+                    <AppErrorState message="This app didn't get any results. Re-run the tool to try again." />
                 </TabsContent>
             </Tabs>
         </div>

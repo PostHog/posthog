@@ -1,0 +1,204 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Boolean minimum-experience eligibility check",
+  "scenario": "A small LangChain step in a resume-screening pipeline asks a Gemini model a strict yes/no question - whether a candidate summary shows at least four years of professional backend engineering experience - and gets back a single boolean structured-output field.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_trace": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "google_genai"
+    ],
+    "frameworks": [
+      "langchain"
+    ],
+    "models": [
+      "gemini-3-flash-preview"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "feature": "candidate-prescreen-bot",
+        "$groups": {
+          "org_id": "1"
+        },
+        "$ai_framework": "langchain",
+        "$ai_span_name": "BooleanOutputParser",
+        "$ai_span_id": "fef84932-d1d3-7069-d360-928e87db6f15",
+        "$lib": "posthog-node",
+        "$session_id": "87c8d22c-bdc9-7043-3101-62e8f759d798",
+        "$ai_lib_version": "7.12.8",
+        "$ai_latency": 0,
+        "$ai_session_id": "sess-90a1c7e0f2",
+        "$lib_version": "5.28.11",
+        "$ai_trace_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$ai_parent_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$geoip_disable": true,
+        "$ai_lib": "posthog-ai",
+        "$group_0": "1",
+        "$ai_input_state": {
+          "id": [
+            "langchain_core",
+            "messages",
+            "AIMessage"
+          ],
+          "kwargs": {
+            "additional_kwargs": {
+              "google_genai_response_candidate_safety_meta": {},
+              "finishReason": "STOP",
+              "index": 0
+            },
+            "content": "{\"meets_criteria\": true}",
+            "id": "run-b2f9c1a7d0e3central4tag8",
+            "invalid_tool_calls": [],
+            "response_metadata": {
+              "finishReason": "STOP",
+              "index": 0,
+              "tokenUsage": {
+                "completionTokens": 7,
+                "promptTokens": 246,
+                "totalTokens": 253
+              }
+            },
+            "tool_calls": [],
+            "usage_metadata": {
+              "input_tokens": 246,
+              "output_tokens": 7,
+              "total_tokens": 253
+            }
+          },
+          "lc": 1,
+          "type": "constructor"
+        },
+        "$ai_output_state": {
+          "meets_criteria": true
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_latency": 1.158,
+        "$lib": "posthog-node",
+        "$groups": {
+          "org_id": "1"
+        },
+        "$ai_span_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$geoip_disable": true,
+        "$ai_session_id": "sess-90a1c7e0f2",
+        "$ai_trace_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$ai_framework": "langchain",
+        "$ai_lib": "posthog-ai",
+        "feature": "candidate-prescreen-bot",
+        "$ai_lib_version": "7.12.8",
+        "$session_id": "87c8d22c-bdc9-7043-3101-62e8f759d798",
+        "$ai_span_name": "RunnableSequence",
+        "$lib_version": "5.28.11",
+        "$group_0": "1",
+        "$ai_input_state": {
+          "input": [
+            {
+              "id": [
+                "langchain_core",
+                "messages",
+                "SystemMessage"
+              ],
+              "kwargs": {
+                "additional_kwargs": {},
+                "content": "You are a strict eligibility screener for REQ-5210, Senior Backend\nEngineer.\n\nYou are given a short candidate summary. Decide only one thing: does the\ncandidate meet the minimum requirement of at least 4 years of\nprofessional backend engineering experience.\n\nRules:\n- Count only professional, paid backend engineering roles.\n- Internships and academic projects do not count toward the minimum.\n- If the summary states a number of years directly, use that number.\n- If years are not stated but can be computed from listed role dates,\n  compute the total instead of guessing.\n- If there is not enough information to tell either way, answer false\n  rather than assuming the candidate qualifies.\n\nRespond with a single boolean field only. Do not add any explanation,\ncaveat, or extra text - the structured output field is the entire\nanswer.",
+                "response_metadata": {}
+              },
+              "lc": 1,
+              "type": "constructor"
+            },
+            {
+              "id": [
+                "langchain_core",
+                "messages",
+                "HumanMessage"
+              ],
+              "kwargs": {
+                "additional_kwargs": {},
+                "content": "5 years backend experience, Go, Kafka pipelines.",
+                "response_metadata": {}
+              },
+              "lc": 1,
+              "type": "constructor"
+            }
+          ]
+        },
+        "$ai_output_state": {
+          "meets_criteria": true
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 148,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_lib_version": "7.12.8",
+        "$ai_provider": "google_genai",
+        "$ai_input_tokens": 246,
+        "$ai_trace_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$ai_lib": "posthog-ai",
+        "$ai_session_id": "sess-90a1c7e0f2",
+        "$session_id": "87c8d22c-bdc9-7043-3101-62e8f759d798",
+        "$ai_output_tokens": 7,
+        "$ai_http_status": 200,
+        "$ai_latency": 1.156,
+        "$groups": {
+          "org_id": "1"
+        },
+        "$geoip_disable": true,
+        "$ai_framework": "langchain",
+        "feature": "candidate-prescreen-bot",
+        "$ai_parent_id": "4172a25a-0da5-757b-8773-9f65dd717e7e",
+        "$ai_span_id": "90c96797-5640-76db-7076-2f4895591fd8",
+        "$ai_model": "gemini-3-flash-preview",
+        "$ai_span_name": "generation",
+        "$ai_model_parameters": {},
+        "$lib": "posthog-node",
+        "$lib_version": "5.28.11",
+        "$group_0": "1",
+        "$ai_input": [
+          {
+            "content": "You are a strict eligibility screener for REQ-5210, Senior Backend\nEngineer.\n\nYou are given a short candidate summary. Decide only one thing: does the\ncandidate meet the minimum requirement of at least 4 years of\nprofessional backend engineering experience.\n\nRules:\n- Count only professional, paid backend engineering roles.\n- Internships and academic projects do not count toward the minimum.\n- If the summary states a number of years directly, use that number.\n- If years are not stated but can be computed from listed role dates,\n  compute the total instead of guessing.\n- If there is not enough information to tell either way, answer false\n  rather than assuming the candidate qualifies.\n\nRespond with a single boolean field only. Do not add any explanation,\ncaveat, or extra text - the structured output field is the entire\nanswer.",
+            "role": "system"
+          },
+          {
+            "content": "5 years backend experience, Go, Kafka pipelines.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "google_genai_response_candidate_safety_meta": {},
+            "content": "{\"meets_criteria\": true}",
+            "finishReason": "STOP",
+            "index": 0,
+            "role": "assistant",
+            "tool_calls": []
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

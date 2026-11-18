@@ -3,12 +3,13 @@
 
 use std::collections::HashMap;
 
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::AttachOutcome;
+use personhog_common::query_tag;
 
 /// Fresh inserts get version 1, like a stub's extra distinct ids: with no
 /// personless table there is no proof the id never sent events, and 1 is
@@ -17,19 +18,20 @@ use crate::storage::types::AttachOutcome;
 /// Callers dedupe; sorted insert order keeps row locks deadlock-free.
 ///
 /// Two guards keep a racing lifecycle op from acquiring a mapping it can
-/// no longer sweep. The join on a live person row rejects committed
-/// deletions. The mark check rejects persons held by a live op: the
-/// destructive transaction sweeps the person's distinct ids before it
-/// tombstones the person, so an attach overlapping it would insert a row
-/// the sweep already missed — a live mapping onto a tombstoned person.
-/// The saga commits its mark before any destructive statement, so an
-/// attach that could land in that window always observes the mark.
+/// no longer sweep: the join rejects committed deletions, and the mark
+/// check rejects persons held by a live op. The rare statement that slips
+/// both leaves an orphaned mapping the next resolve treats as absent.
+///
+/// With outbox writes on, the same statement also queues one publish
+/// outbox row per mapping it wrote, through a data-modifying CTE, so the
+/// mapping and its row commit together without a transaction.
 pub(super) async fn attach_distinct_ids(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     team_id: i64,
     person_id: i64,
     distinct_ids: &[String],
+    outbox_writes: OutboxWrites,
 ) -> StorageResult<HashMap<String, AttachOutcome>> {
     if distinct_ids.is_empty() {
         return Ok(HashMap::new());
@@ -37,7 +39,7 @@ pub(super) async fn attach_distinct_ids(
     let mut sorted: Vec<String> = distinct_ids.to_vec();
     sorted.sort_unstable();
 
-    let insert_sql = format!(
+    let insert = format!(
         r#"
         INSERT INTO {pdi} (distinct_id, person_id, team_id, version)
         SELECT u.d, p.id, p.team_id, 1
@@ -45,9 +47,9 @@ pub(super) async fn attach_distinct_ids(
         JOIN {person} p
           ON p.team_id = $3 AND p.id = $2 AND p.is_deleted = false
         WHERE NOT EXISTS (
-            SELECT 1 FROM lifecycle_op_person m
+            SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
-              AND m.status IN ('marked', 'sealed')
+              AND m.mark_active
         )
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
@@ -58,12 +60,37 @@ pub(super) async fn attach_distinct_ids(
         "#,
         pdi = tables.person_distinct_id,
         person = tables.person,
+        lop = tables.lifecycle_op_person,
     );
-    let written = sqlx::query(&insert_sql)
+    let insert_sql = match outbox_writes {
+        OutboxWrites::Enabled => format!(
+            r#"
+            WITH written AS ({insert}),
+            queued AS (
+                INSERT INTO {outbox} (team_id, kind, person_uuid, distinct_id, version)
+                SELECT $3, 'attach', p.uuid, w.distinct_id, w.version
+                FROM written w
+                JOIN {person} p ON p.team_id = $3 AND p.id = $2
+            )
+            SELECT distinct_id, version FROM written
+            "#,
+            outbox = tables.person_publish_outbox,
+            person = tables.person,
+        ),
+        OutboxWrites::Disabled => insert,
+    };
+    let mut conn = pools.acquire(Lane::Heavy).await?;
+    // Tagged apart so the statement that also writes the outbox is
+    // attributable on its own in query statistics.
+    let tagged = match outbox_writes {
+        OutboxWrites::Enabled => query_tag!("attach_mappings_with_outbox", insert_sql),
+        OutboxWrites::Disabled => query_tag!("attach_mappings", insert_sql),
+    };
+    let written = sqlx::query(&tagged)
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
     let mut outcomes: HashMap<String, AttachOutcome> = HashMap::new();
@@ -91,10 +118,10 @@ pub(super) async fn attach_distinct_ids(
         "#,
         pdi = tables.person_distinct_id,
     );
-    let rows = sqlx::query(&losers_sql)
+    let rows = sqlx::query(&query_tag!("attach_losers", losers_sql))
         .bind(team_id as i32)
         .bind(&losers)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     for row in rows {
         let distinct_id: String = row.try_get("distinct_id")?;

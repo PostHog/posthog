@@ -71,6 +71,7 @@ def _trends_alert(condition_type: AlertConditionType, check_ongoing: bool = Fals
     alert = MagicMock()
     alert.config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": check_ongoing}
     alert.condition = {"type": condition_type}
+    alert.evaluation_delay_intervals = 0
     threshold = MagicMock()
     threshold.configuration = {"type": "absolute", "bounds": {"upper": 100}}
     alert.threshold = threshold
@@ -87,6 +88,24 @@ def _clipped_trends_query() -> dict:
 
 
 class TestTrendsExtractorIncompletePeriods(TestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_evaluation_delay_skips_empty_completed_buckets(self, already_complete: bool) -> None:
+        alert = _trends_alert(AlertConditionType.ABSOLUTE_VALUE)
+        alert.evaluation_delay_intervals = 2
+        query = _clipped_trends_query()
+        query["interval"] = "hour"
+        query["dateRange"]["excludeIncompletePeriods"] = already_complete
+        row = {
+            "data": [40.0, 42.0, 0.0, 0.0] + ([] if already_complete else [0.0]),
+            "dates": [f"2026-01-15T{hour:02d}:00:00Z" for hour in range(6, 10 if already_complete else 11)],
+            "label": "Orders",
+        }
+        with patch(TRENDS_CALC_PATH, return_value=MagicMock(result=[row])):
+            result = TrendsExtractor().extract(alert, MagicMock(), query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        selected = result.series[0].points[result.series[0].current_index]
+        self.assertEqual(selected.value, 42.0)
+        self.assertEqual(selected.date, "2026-01-15T07:00:00Z")
+
     @parameterized.expand(
         [
             ("absolute", AlertConditionType.ABSOLUTE_VALUE),

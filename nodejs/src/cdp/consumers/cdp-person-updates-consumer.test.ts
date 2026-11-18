@@ -23,6 +23,7 @@ describe('CDP Person Updates Consumer', () => {
     let hub: Hub
     let team: Team
     let hogFunction: HogFunctionType
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -39,6 +40,7 @@ describe('CDP Person Updates Consumer', () => {
 
         const mockJobQueue = createMockJobQueue()
         processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
+        mockQueueInvocations = mockJobQueue.queueInvocations
         await processor.start()
 
         hogFunction = createHogFunction({
@@ -71,6 +73,53 @@ describe('CDP Person Updates Consumer', () => {
             const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(999999, {}))])
             expect(events).toHaveLength(0)
         })
+
+        it('should ignore a message for a team with no person-updates destination', async () => {
+            jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam').mockResolvedValue([
+                { ...hogFunction, filters: { ...hogFunction.filters, source: 'events' } },
+            ])
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(team.id, {}))])
+            expect(events).toHaveLength(0)
+        })
+
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
+        it.each([
+            {
+                lookup: 'the team lookup',
+                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+            },
+            {
+                lookup: 'the hog function lookup',
+                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+            },
+        ])(
+            'should fail the batch when $lookup throws, and queue the person when the batch is read again',
+            async ({ spy }) => {
+                spy().mockRejectedValueOnce(lookupError)
+                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createClickhousePerson(team.id, {}))]
+
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            }
+        )
+
+        it.each([
+            { name: 'properties that are not JSON', person: { properties: '{' } },
+            { name: 'an out-of-range team_id', person: { team_id: 3_000_000_000 } },
+        ])('should skip a person with $name and keep the rest', async ({ person }) => {
+            const events = await processor._parseKafkaBatch([
+                createKafkaMessage({ ...createClickhousePerson(team.id, {}), ...person }),
+                createKafkaMessage(createClickhousePerson(team.id, {})),
+            ])
+            expect(events).toHaveLength(1)
+        })
+
         it('should parse a valid message with an existing team and hog function ', async () => {
             const event = createClickhousePerson(team.id, {
                 id: 'person-id-1',

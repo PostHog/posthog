@@ -42,7 +42,7 @@ export function FeedQueryHighlight({
 
 function renderSegment(segment: FeedQuerySegment): ReactNode {
   if (segment.kind !== "token" || !segment.token) {
-    return <span className="text-(--gray-12)">{segment.raw}</span>;
+    return <span className="text-foreground">{segment.raw}</span>;
   }
   const { token, raw } = segment;
   const negPrefix = raw.startsWith("-") ? "-" : "";
@@ -60,23 +60,29 @@ function renderSegment(segment: FeedQuerySegment): ReactNode {
     <span
       className={cn(
         "rounded-[3px]",
-        negated ? "bg-(--red-a3)" : "bg-(--gray-a3)",
+        negated ? "bg-destructive" : "bg-fill-hover",
       )}
     >
-      {negPrefix && <span className="text-(--red-11)">{negPrefix}</span>}
-      <span className={negated ? "text-(--red-11)" : "text-(--blue-11)"}>
+      {negPrefix && (
+        <span className="text-destructive-foreground">{negPrefix}</span>
+      )}
+      <span
+        className={negated ? "text-destructive-foreground" : "text-primary"}
+      >
         {keyText}
       </span>
-      {notPrefix && <span className="text-(--red-11)">{notPrefix}</span>}
+      {notPrefix && (
+        <span className="text-destructive-foreground">{notPrefix}</span>
+      )}
       <span
         className={cn(
           token.invalid
-            ? "text-(--red-11) underline decoration-(--red-8) decoration-wavy underline-offset-2"
+            ? "text-destructive-foreground underline decoration-destructive-foreground decoration-wavy underline-offset-2"
             : token.unsupported
-              ? "text-(--amber-11) underline decoration-(--amber-8) decoration-dotted underline-offset-2"
+              ? "text-warning-foreground underline decoration-warning-foreground decoration-dotted underline-offset-2"
               : negated
-                ? "text-(--red-12)"
-                : "text-(--gray-12)",
+                ? "text-destructive-foreground"
+                : "text-foreground",
         )}
       >
         {valueText}
@@ -226,8 +232,8 @@ export function FeedQueryInput({
           className={cn(
             "absolute inset-0 w-full bg-transparent px-2.5 outline-none",
             EDITOR_TEXT_CLASS,
-            "text-transparent caret-(--gray-12) placeholder:text-(--gray-9)",
-            "selection:bg-(--blue-a4) selection:text-transparent",
+            "text-transparent caret-foreground placeholder:text-subtle-foreground",
+            "selection:bg-primary/25 selection:text-transparent",
           )}
           onChange={(e) => {
             onChange(e.target.value);

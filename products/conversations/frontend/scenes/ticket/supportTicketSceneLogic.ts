@@ -19,41 +19,59 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import api from '~/lib/api'
+import {
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
+import { TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
-import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    AvailableFeature,
+    PropertyFilterType,
+    PropertyOperator,
+    Region,
+} from '~/types'
 
 import {
-    businessKnowledgeGapSuggestionsDismissCreate,
-    businessKnowledgeGapSuggestionsList,
-} from 'products/business_knowledge/frontend/generated/api'
-import {
+    conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsDestroy,
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsMacrosUsedCreate,
 } from 'products/conversations/frontend/generated/api'
-import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
+import type {
+    PatchedTicketUpdateRequestApi,
+    TicketMacroApi,
+} from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -63,13 +81,17 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
+import { macroContextFromTicket, renderMacro } from '../../components/Macros/renderMacro'
+import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
     AiReplyFeedbackRating,
     ChatMessage,
-    KnowledgeGapSuggestion,
+    MessageDeliveryStatus,
     Ticket,
+    TicketChannel,
     TicketPriority,
     TicketStatus,
 } from '../../types'
@@ -81,6 +103,7 @@ const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
+const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
 
 /**
  * How a failed send request should be treated. `null` means the send definitely did not happen:
@@ -123,6 +146,47 @@ function regionFromUrl(url?: string): Region | undefined {
         }
     }
     return undefined
+}
+
+// A verified ticket on these channels holds an attested identity that the admin user search matches:
+// the signed distinct ID of a widget request, or the sender's address. A GitHub ticket holds a GitHub
+// login in distinct_id, which matches no PostHog user.
+const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
+
+export function getImpersonationTicketContext(
+    ticket: Pick<
+        Ticket,
+        | 'id'
+        | 'channel_source'
+        | 'distinct_id'
+        | 'identity_verified'
+        | 'anonymous_traits'
+        | 'email_from'
+        | 'session_context'
+    >
+): ImpersonationTicketContext {
+    // The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
+    const traitEmail = ticket.anonymous_traits?.email
+    // email_from is the customer's address on email tickets, and it's the only
+    // place it lives on tickets whose traits were never populated.
+    const email = (typeof traitEmail === 'string' && traitEmail) || ticket.email_from || ''
+    // An outbound email ticket keeps the recipient's analytics ID in distinct_id. A later authenticated
+    // reply from email_from verifies the ticket, so email_from is the attested identity on email tickets.
+    const attestedIdentity =
+        ticket.channel_source === 'email' ? ticket.email_from || ticket.distinct_id : ticket.distinct_id
+    const verifiedDistinctId =
+        ticket.identity_verified === true && ATTESTED_LOOKUP_CHANNELS.includes(ticket.channel_source)
+            ? attestedIdentity || undefined
+            : undefined
+    return {
+        ticketId: ticket.id,
+        email,
+        region: regionFromUrl(ticket.session_context?.current_url),
+        // The widget form supplies the traits email, so the sender can enter the address of another
+        // account. The email counts as verified only when it is the attested identity.
+        isEmailUnverified: !verifiedDistinctId || email.toLowerCase() !== verifiedDistinctId.toLowerCase(),
+        verifiedDistinctId,
+    }
 }
 
 function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
@@ -217,28 +281,23 @@ export function getEmailReplyBlockedReason(
     return null
 }
 
-/**
- * An AI draft the pipeline saved as an internal note, i.e. one the customer never received.
- * Gated behind PRODUCT_SUPPORT_AI_NOTES because agents who don't want the drafts read them as
- * noise. A published AI reply is not one of these: hiding what the customer already got would
- * make the thread misrepresent the conversation.
- */
-export function isAiPrivateNote(message: Pick<CommentType, 'item_context'>): boolean {
-    return message.item_context?.author_type === 'AI' && message.item_context?.is_private === true
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
+    aiDraftApplying: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    composerInsertAt: number
+    composerPrefillAt: number
+    deleteDisabledReason: string | undefined
+    deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
     discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
@@ -248,11 +307,13 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
+    fullEmailContent: string | null
+    fullEmailContentLoading: boolean
+    fullEmailMessageId: string | null
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
-    knowledgeGaps: KnowledgeGapSuggestion[]
-    knowledgeGapsLoading: boolean
+    latestAiDraftId: string | null
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -260,6 +321,7 @@ export interface supportTicketSceneLogicValues {
     messages: CommentType[]
     messagesLoading: boolean
     olderMessagesLoading: boolean
+    pendingComposerInsert: string | null
     person: PersonType | null
     personLoading: boolean
     previousTickets: Ticket[]
@@ -273,19 +335,35 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
+    todayRecent: TodayPeopleRecent | null
     unsavedTicketChanges: string[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface supportTicketSceneLogicActions {
-    loadTickets: () => {
-        value: true
+    setTicketContext: (context: ImpersonationTicketContext | null) => {
+        context: ImpersonationTicketContext | null
+    } // impersonationNoticeLogic
+    recordMacroUsed: (id: string) => {
+        id: string
+    } // supportMacrosLogic
+    loadTickets: (debounce?: boolean | undefined) => {
+        debounce: boolean
     } // supportTicketsSceneLogic
-    loadTags: () => any // tagsModel
     appendMessage: (message: CommentType) => {
         message: CommentType
+    }
+    applyAiDraft: (message: ChatMessage) => {
+        message: ChatMessage
+    }
+    bumpComposerInsert: () => {
+        value: true
+    }
+    bumpComposerPrefill: () => {
+        value: true
     }
     cancelEditingMessage: () => {
         value: true
@@ -293,35 +371,39 @@ export interface supportTicketSceneLogicActions {
     clearEditingMessage: () => {
         value: true
     }
+    closeFullEmail: () => {
+        value: true
+    }
     deleteMessage: (messageId: string) => {
         messageId: string
     }
-    dismissKnowledgeGap: (suggestionId: string) => {
-        suggestionId: string
+    deleteTicket: () => {
+        value: true
     }
     incrementUnreadCustomerCount: () => {
         value: true
     }
-    loadKnowledgeGaps: () => {
-        value: true
+    insertMacro: (
+        macro: Pick<TicketMacroApi, 'body' | 'id' | 'visibility'>,
+        source: 'button' | 'slash'
+    ) => {
+        macro: Pick<TicketMacroApi, 'body' | 'id' | 'visibility'>
+        source: 'button' | 'slash'
     }
-    loadKnowledgeGapsFailure: (
+    loadFullEmail: (messageId: string) => string
+    loadFullEmailFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadKnowledgeGapsSuccess: (
-        knowledgeGaps: KnowledgeGapSuggestion[],
-        payload?: {
-            value: true
-        }
+    loadFullEmailSuccess: (
+        fullEmailContent: string,
+        payload?: string
     ) => {
-        knowledgeGaps: KnowledgeGapSuggestion[]
-        payload?: {
-            value: true
-        }
+        fullEmailContent: string
+        payload?: string
     }
     loadLinkedReports: () => {
         value: true
@@ -418,6 +500,9 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
     }
+    setAiDraftApplying: (applying: boolean) => {
+        applying: boolean
+    }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
@@ -448,6 +533,9 @@ export interface supportTicketSceneLogicActions {
     setOlderMessagesLoading: (loading: boolean) => {
         loading: boolean
     }
+    setPendingComposerInsert: (content: string | null) => {
+        content: string | null
+    }
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
@@ -462,6 +550,9 @@ export interface supportTicketSceneLogicActions {
     }
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
+    }
+    setTicketDeleting: (deleting: boolean) => {
+        deleting: boolean
     }
     setTicketLoading: (loading: boolean) => {
         loading: boolean
@@ -502,6 +593,7 @@ export interface supportTicketSceneLogicProps {
 export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
+        todayRecent: (ticket: Ticket | null) => TodayPeopleRecent | null
         breadcrumbs: (id: number | string) => Breadcrumb[]
         emailReplyBlockedReason: (
             ticket: Ticket | null,
@@ -510,6 +602,10 @@ export interface supportTicketSceneLogicMeta {
         discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
         sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
+        deleteDisabledReason: (
+            ticket: Ticket | null,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+        ) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
             assignee: TicketAssignee,
@@ -524,14 +620,15 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null) => ChatMessage[]
+        deliveryStatusByMessageId: (
+            chatMessages: ChatMessage[],
+            ticket: Ticket | null
+        ) => Map<string, MessageDeliveryStatus>
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        latestAiDraftId: (chatMessages: ChatMessage[]) => string | null
     }
 }
 
@@ -547,7 +644,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
+        actions: [
+            supportTicketsSceneLogic,
+            ['loadTickets'],
+            impersonationNoticeLogic,
+            ['setTicketContext'],
+            supportMacrosLogic,
+            ['recordMacroUsed'],
+        ],
         values: [
             teamLogic,
             ['currentTeam'],
@@ -557,10 +661,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['draftModeDefault'],
             assigneeSelectLogic,
             ['resolveAssignee'],
-            tagsModel,
-            ['tags as availableTags'],
             userLogic,
-            ['user'],
+            ['user', 'hasAvailableFeature'],
         ],
     })),
     actions({
@@ -577,6 +679,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         appendMessage: (message: CommentType) => ({ message }),
 
         pollDiscussionThread: true,
+
+        applyAiDraft: (message: ChatMessage) => ({ message }),
+        setAiDraftApplying: (applying: boolean) => ({ applying }),
+        bumpComposerPrefill: true,
+        insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body' | 'visibility'>, source: 'button' | 'slash') => ({
+            macro,
+            source,
+        }),
+        setPendingComposerInsert: (content: string | null) => ({ content }),
+        bumpComposerInsert: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -609,10 +721,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPreviousTickets: true,
         loadLinkedReports: true,
 
-        // Knowledge gap suggestions
-        loadKnowledgeGaps: true,
-        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
-
         // Draft message state (persists across tab switches)
         setDraftContent: (content: string | JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
@@ -624,6 +732,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         clearEditingMessage: true,
         stashDraftForEdit: (content: string | JSONContent | null, isPrivate: boolean) => ({ content, isPrivate }),
         deleteMessage: (messageId: string) => ({ messageId }),
+        deleteTicket: true,
+        setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
@@ -634,6 +744,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             messageId,
             rating,
         }),
+        closeFullEmail: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -730,23 +841,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
-        knowledgeGaps: [
-            [] as KnowledgeGapSuggestion[],
+        fullEmailContent: [
+            null as string | null,
             {
-                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                loadFullEmail: async (messageId: string, breakpoint): Promise<string> => {
                     const ticket = values.ticket
                     if (!ticket) {
-                        return []
+                        throw new Error('Ticket is not loaded')
                     }
-                    try {
-                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
-                            ticket_id: ticket.id,
-                        })
-                        const data = Array.isArray(response) ? response : (response.results ?? [])
-                        return data as unknown as KnowledgeGapSuggestion[]
-                    } catch {
-                        return []
-                    }
+                    const response = await conversationsTicketsMessagesFullEmailRetrieve(
+                        String(getCurrentTeamId()),
+                        ticket.id,
+                        messageId
+                    )
+                    breakpoint()
+                    return response.content
                 },
             },
         ],
@@ -774,6 +883,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        fullEmailMessageId: [
+            null as string | null,
+            {
+                loadFullEmail: (_, messageId) => messageId,
+                loadFullEmailFailure: () => null,
+                closeFullEmail: () => null,
             },
         ],
         status: [
@@ -854,6 +971,37 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        ticketDeleting: [
+            false,
+            {
+                setTicketDeleting: (_, { deleting }) => deleting,
+            },
+        ],
+        aiDraftApplying: [
+            false,
+            {
+                applyAiDraft: () => true,
+                setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        composerPrefillAt: [
+            0,
+            {
+                bumpComposerPrefill: (state) => state + 1,
+            },
+        ],
+        composerInsertAt: [
+            0,
+            {
+                bumpComposerInsert: (state) => state + 1,
+            },
+        ],
+        pendingComposerInsert: [
+            null as string | null,
+            {
+                setPendingComposerInsert: (_, { content }) => content,
+            },
+        ],
         draftContent: [
             null as string | JSONContent | null,
             {
@@ -905,6 +1053,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): TodayPeopleRecent | null =>
+                ticket?.ticket_number
+                    ? {
+                          type: 'ticket',
+                          name: `Ticket #${ticket.ticket_number}`,
+                          href: urls.supportTicketDetail(ticket.ticket_number),
+                      }
+                    : null,
+        ],
         breadcrumbs: [
             (_, p) => [p.id],
             (id: number | string): Breadcrumb[] => {
@@ -974,6 +1133,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return 'the customer'
                 }
             },
+        ],
+        // Without the access control add-on there is no manager role, so the backend lets editors delete.
+        deleteDisabledReason: [
+            (s) => [s.ticket, s.hasAvailableFeature],
+            (
+                ticket: Ticket | null,
+                hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            ): string | undefined =>
+                hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+                    ? (getAccessControlDisabledReason(
+                          AccessControlResourceType.Ticket,
+                          AccessControlLevel.Manager,
+                          ticket?.user_access_level
+                      ) ?? undefined)
+                    : undefined,
         ],
         // Human-readable list of unsaved edits other than status, shown in the send-and-set-status
         // confirmation. Status is excluded because that action overrides it anyway.
@@ -1049,63 +1223,109 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
         ],
         chatMessages: [
-            (s) => [s.messages, s.ticket, s.featureFlags],
-            (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet): ChatMessage[] => {
-                const showAiNotes = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]
-                return messages
-                    .filter((message) => showAiNotes || !isAiPrivateNote(message))
-                    .map((message) => {
-                        const authorType = message.item_context?.author_type || 'customer'
-                        let displayName = 'Anonymous user'
-                        if (message.created_by) {
+            (s) => [s.messages, s.ticket],
+            (messages: CommentType[], ticket: Ticket | null): ChatMessage[] => {
+                return messages.map((message) => {
+                    const authorType = message.item_context?.author_type || 'customer'
+                    let displayName = 'Anonymous user'
+                    if (message.created_by) {
+                        displayName =
+                            [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
+                            message.created_by.email ||
+                            'Support'
+                    } else if (authorType === 'AI') {
+                        displayName = 'PostHog Assistant'
+                    } else {
+                        // Per-message author identity (e.g. Zendesk import stores each comment's own
+                        // author) takes precedence over the ticket-level requester, so a reply from a
+                        // second requester or an agent shows the real name instead of the ticket owner.
+                        const messageAuthorName =
+                            message.item_context?.author_name ||
+                            message.item_context?.author_email ||
+                            message.item_context?.slack_author_name ||
+                            message.item_context?.teams_author_name ||
+                            message.item_context?.teams_author_email ||
+                            message.item_context?.github_login ||
+                            message.item_context?.email_from_name
+                        if (messageAuthorName) {
+                            displayName = messageAuthorName
+                        } else if (authorType === 'customer') {
                             displayName =
-                                [message.created_by.first_name, message.created_by.last_name]
-                                    .filter(Boolean)
-                                    .join(' ') ||
-                                message.created_by.email ||
-                                'Support'
-                        } else if (authorType === 'AI') {
-                            displayName = 'PostHog Assistant'
+                                ticket?.person?.properties?.name ||
+                                ticket?.person?.properties?.email ||
+                                ticket?.anonymous_traits?.name ||
+                                ticket?.anonymous_traits?.email ||
+                                'Anonymous user'
                         } else {
-                            // Per-message author identity (e.g. Zendesk import stores each comment's own
-                            // author) takes precedence over the ticket-level requester, so a reply from a
-                            // second requester or an agent shows the real name instead of the ticket owner.
-                            const messageAuthorName =
-                                message.item_context?.author_name ||
-                                message.item_context?.author_email ||
-                                message.item_context?.slack_author_name ||
-                                message.item_context?.teams_author_name ||
-                                message.item_context?.teams_author_email ||
-                                message.item_context?.email_from_name
-                            if (messageAuthorName) {
-                                displayName = messageAuthorName
-                            } else if (authorType === 'customer') {
-                                displayName =
-                                    ticket?.person?.properties?.name ||
-                                    ticket?.person?.properties?.email ||
-                                    ticket?.anonymous_traits?.name ||
-                                    ticket?.anonymous_traits?.email ||
-                                    'Anonymous user'
-                            } else {
-                                // Staff message with no resolvable author (e.g. deleted ex-agent).
-                                displayName = 'Support'
-                            }
+                            // Staff message with no resolvable author (e.g. deleted ex-agent).
+                            displayName = 'Support'
                         }
+                    }
 
-                        return {
-                            id: message.id,
-                            content: message.content || '',
-                            richContent: message.rich_content,
-                            authorType: authorType === 'support' ? 'human' : authorType,
-                            authorName: displayName,
-                            createdBy: message.created_by,
-                            createdAt: message.created_at,
-                            isPrivate: message.item_context?.is_private || false,
-                            version: message.version,
-                            emailDeliveryStatus: message.item_context?.email_delivery_status,
-                            fromZendesk: message.item_context?.from_zendesk === true,
-                        }
-                    })
+                    return {
+                        id: message.id,
+                        content: message.content || '',
+                        richContent: message.rich_content,
+                        authorType: authorType === 'support' || authorType === 'workflow' ? 'human' : authorType,
+                        authorName: displayName,
+                        createdBy: message.created_by,
+                        createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
+                        automatedUpdate: !!message.item_context?.automated_update_key,
+                        version: message.version,
+                        emailDeliveryStatus: message.item_context?.email_delivery_status,
+                        fromExternalImport:
+                            message.item_context?.from_zendesk === true ||
+                            message.item_context?.from_intercom === true ||
+                            message.item_context?.from_pylon === true,
+                        fromGithub: message.item_context?.from_github === true,
+                        hasFullEmailContent: message.item_context?.has_full_email_content === true,
+                        citations: Array.isArray(message.item_context?.citations)
+                            ? message.item_context.citations.filter(
+                                  (item: unknown): item is string => typeof item === 'string' && !!item
+                              )
+                            : undefined,
+                        confidence:
+                            typeof message.item_context?.confidence === 'number'
+                                ? message.item_context.confidence
+                                : undefined,
+                        persistAs:
+                            message.item_context?.persist_as === 'reply' ||
+                            message.item_context?.persist_as === 'findings' ||
+                            message.item_context?.persist_as === 'clarification'
+                                ? message.item_context.persist_as
+                                : undefined,
+                        clarifyingQuestions: Array.isArray(message.item_context?.clarifying_questions)
+                            ? message.item_context.clarifying_questions.filter(
+                                  (item: unknown): item is string => typeof item === 'string'
+                              )
+                            : undefined,
+                    }
+                })
+            },
+        ],
+        deliveryStatusByMessageId: [
+            (s) => [s.chatMessages, s.ticket],
+            (chatMessages: ChatMessage[], ticket: Ticket | null): Map<string, MessageDeliveryStatus> => {
+                if (ticket?.channel_source !== 'widget') {
+                    return EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID
+                }
+
+                const statusMap = new Map<string, MessageDeliveryStatus>()
+                let unreadRemaining = ticket.unread_customer_count ?? 0
+                for (let i = chatMessages.length - 1; i >= 0; i--) {
+                    const message = chatMessages[i]
+                    if (message.authorType === 'customer' || message.isPrivate) {
+                        continue
+                    }
+                    if (unreadRemaining > 0) {
+                        statusMap.set(message.id, 'sent')
+                        unreadRemaining--
+                    } else {
+                        statusMap.set(message.id, 'read')
+                    }
+                }
+                return statusMap
             },
         ],
         eventsQuery: [
@@ -1131,11 +1351,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (s) => [s.chatMessages],
             (chatMessages: ChatMessage[]): ChatMessage | null => {
                 for (let i = chatMessages.length - 1; i >= 0; i--) {
-                    if (chatMessages[i].authorType === 'AI') {
+                    if (chatMessages[i].authorType === 'AI' && !chatMessages[i].automatedUpdate) {
                         return chatMessages[i]
                     }
                 }
                 return null
+            },
+        ],
+        latestAiDraftId: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): string | null => {
+                let latestDraft: ChatMessage | null = null
+                for (const message of chatMessages) {
+                    if (
+                        aiDraftAction(message) !== null &&
+                        (!latestDraft || new Date(message.createdAt) >= new Date(latestDraft.createdAt))
+                    ) {
+                        latestDraft = message
+                    }
+                }
+                return latestDraft?.id ?? null
             },
         ],
     }),
@@ -1161,17 +1396,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
-                impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
-                    ticketId: ticket.id,
-                    // email_from is the customer's address on email tickets, and it's the only
-                    // place it lives on tickets whose traits were never populated.
-                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
-                    region: regionFromUrl(ticket.session_context?.current_url),
-                })
+                actions.setTicketContext(getImpersonationTicketContext(ticket))
 
                 // Load session context data
                 actions.loadPerson()
-                actions.loadKnowledgeGaps()
                 actions.loadLinkedReports()
 
                 // Refresh the unread count since viewing a ticket marks it as read
@@ -1202,6 +1430,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
+        },
+        loadFullEmailFailure: () => {
+            lemonToast.error("Couldn't load the full email. Try again.")
+            actions.closeFullEmail()
         },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {
@@ -1235,10 +1467,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
-                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
-                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
-                    actions.loadTags()
-                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
@@ -1375,6 +1603,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             let alreadySent = false
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
                     content,
                     rich_content: richContent,
@@ -1460,6 +1689,59 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             actions.loadTickets()
         },
+        applyAiDraft: async ({ message }) => {
+            try {
+                if (values.editingMessageId) {
+                    cache.noteEditActive = false
+                    actions.clearEditingMessage()
+                }
+                actions.setDraftIsPrivate(false)
+                actions.setDraftContent(aiDraftComposerHtml(message))
+                actions.bumpComposerPrefill()
+                if (!values.ticket?.id) {
+                    return
+                }
+                try {
+                    await conversationsTicketsAiHumanOutcomeCreate(String(getCurrentTeamId()), values.ticket.id, {
+                        message_id: message.id,
+                        outcome: 'used',
+                    })
+                    const ticket = values.ticket
+                    if (ticket) {
+                        actions.setTicket({
+                            ...ticket,
+                            ai_triage: { ...ticket.ai_triage, human_outcome: 'used' },
+                        })
+                    }
+                } catch (error: unknown) {
+                    if (!(error instanceof ApiError && error.status === 409)) {
+                        lemonToast.error("Couldn't record that you used the draft.")
+                    }
+                }
+            } finally {
+                actions.setAiDraftApplying(false)
+            }
+        },
+        insertMacro: ({ macro, source }) => {
+            if (values.editingMessageId) {
+                actions.cancelEditingMessage()
+            }
+            // Keep the draft's visibility: switching a private note to public would publish the text already in it.
+            actions.setPendingComposerInsert(
+                renderMacro(macro.body, macroContextFromTicket(values.ticket, values.user))
+            )
+            actions.bumpComposerInsert()
+            posthog.capture('support macro inserted', { macro_id: macro.id, source, visibility: macro.visibility })
+            const teamId = getCurrentTeamId()
+            if (!teamId) {
+                return
+            }
+            void conversationsMacrosUsedCreate(String(teamId), macro.id)
+                .then(() => {
+                    actions.recordMacroUsed(macro.id)
+                })
+                .catch(() => undefined)
+        },
         startEditingMessage: ({ message }) => {
             // Only stash the composer draft on first enter; switching notes keeps the original stash.
             if (!cache.noteEditActive) {
@@ -1484,6 +1766,45 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.editingMessageId && !messages.some((m) => m.id === values.editingMessageId)) {
                 actions.cancelEditingMessage()
             }
+        },
+        deleteTicket: () => {
+            const ticket = values.ticket
+            if (!ticket || values.ticketDeleting) {
+                return
+            }
+            LemonDialog.open({
+                title: `Delete ticket #${ticket.ticket_number}?`,
+                description:
+                    'The ticket and its messages disappear for your team and the customer right away, and are permanently deleted after 14 days. Messages already sent to Slack, Teams, email, or GitHub stay there.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        if (values.ticketDeleting) {
+                            return
+                        }
+                        actions.setTicketDeleting(true)
+                        try {
+                            await conversationsTicketsDestroy(String(getCurrentTeamId()), ticket.id)
+                            const listLogic = supportTicketsSceneLogic.findMounted()
+                            if (listLogic) {
+                                listLogic.actions.setTickets(
+                                    listLogic.values.tickets.filter((item) => item.id !== ticket.id)
+                                )
+                            }
+                            lemonToast.success('Ticket deleted')
+                            // The ticket is gone, so unsaved edits on it can no longer be saved.
+                            cache.skipUnsavedChangesPrompt = true
+                            router.actions.push(urls.supportTickets())
+                        } catch {
+                            lemonToast.error('Failed to delete ticket. Try again.')
+                        } finally {
+                            actions.setTicketDeleting(false)
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
         deleteMessage: async ({ messageId }) => {
             if (!values.ticket?.id) {
@@ -1515,14 +1836,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 secondaryButton: { children: 'Cancel' },
             })
         },
-        dismissKnowledgeGap: async ({ suggestionId }) => {
-            try {
-                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
-                actions.loadKnowledgeGaps()
-            } catch {
-                lemonToast.error('Failed to dismiss suggestion')
-            }
-        },
         submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
             const ticket = values.ticket
             if (!ticket) {
@@ -1533,7 +1846,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (rating !== 'bad') {
                         return
                     }
-                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                         message_id: messageId,
                         rating,
                         feedback_text: feedbackText,
@@ -1543,7 +1856,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.feedbackByMessageId[messageId]) {
                     return
                 }
-                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                     message_id: messageId,
                     rating,
                 })
@@ -1561,12 +1874,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadTicket()
         }
     }),
-    beforeUnmount(() => {
+    beforeUnmount(({ actions }) => {
         // The message poller is registered through cache.disposables, which the plugin tears down.
-        impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
+        actions.setTicketContext(null)
     }),
-    beforeUnload(({ values, actions }) => ({
+    beforeUnload(({ values, actions, cache }) => ({
         enabled: (newLocation) => {
+            if (cache.skipUnsavedChangesPrompt) {
+                cache.skipUnsavedChangesPrompt = false
+                return false
+            }
             if (!values.hasPendingWork) {
                 return false
             }

@@ -1,0 +1,212 @@
+{
+    "GB1": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "GB2": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "adjudicated:3/3"
+    },
+    "GB3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 8,
+        "source": "adjudicated:3/3"
+    },
+    "GB4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 22,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB7": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 13,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 10,
+        "source": "adjudicated:0/3"
+    },
+    "GB9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB10": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 29,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "GB11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 51,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB12": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB13": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB15": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-3-skeptics:2/3"
+    },
+    "GB16": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "GB17": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "adjudicated:0/3"
+    },
+    "GB18": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 27,
+        "source": "adjudicated:3/3"
+    },
+    "GB19": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:3/3"
+    },
+    "GB20": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB21": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "source": "adjudicated:2/3"
+    },
+    "GB22": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB23": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 5,
+        "source": "adjudicated:3/3"
+    },
+    "GB24": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 72,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB25": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB26": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:1/3"
+    },
+    "GB27": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3"
+    },
+    "GB28": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 7,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB29": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 65,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB30": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 23,
+        "source": "adjudicated:0/3"
+    },
+    "GB31": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 41,
+        "source": "adjudicated:0/3"
+    },
+    "GB32": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB33": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB34": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "GB35": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

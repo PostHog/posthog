@@ -2,31 +2,42 @@ from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.signals import secret_api_token_rotated
+from posthog.models.signals import secret_api_token_backup_deleted, secret_api_token_rotated
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item_registry import content_type_for
 
-from .cache import invalidate_messages_cache, invalidate_tickets_cache
-from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, SigningSecret, Ticket
-from .models.constants import Channel
-from .tasks import (
-    post_reply_to_github,
-    post_reply_to_slack,
-    post_reply_to_teams,
-    post_reply_to_teams_via_graph,
-    send_email_reply,
+from .ai.human_outcome import maybe_record_human_outcome
+from .cache import invalidate_identity_tickets_cache, invalidate_tickets_cache
+from .events import (
+    build_ticket_tag_added_event,
+    capture_message_received,
+    capture_message_sent,
+    capture_private_message_sent,
+    capture_ticket_created,
 )
+from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
+from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
+from .services.delivery import enqueue_slack_body_delivery
+from .services.messages import visible_ticket_messages
+from .tasks.email import send_email_reply
+from .tasks.github import post_reply_to_github
+from .tasks.slack import wake_delivery_part
+from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
+from .tasks.ticket_events import emit_ticket_tag_added
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
@@ -57,12 +68,39 @@ def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> 
     author_type = item_context.get("author_type")
     if created_by_id and author_type != "customer":
         return True
-    if author_type == "AI":
+    # No created_by: only these authors are team replies. A workflow message with any other
+    # type would be stored and never delivered.
+    if author_type in ("AI", WORKFLOW_AUTHOR_TYPE):
         return True
     return False
 
 
+def _unattributed_author_name(item_context: dict | None) -> str:
+    """Name shown to the customer when a reply has no PostHog user.
+
+    A workflow reply is not the assistant. Using the AI bot name here would tell the
+    customer the assistant wrote a message a workflow sent.
+    """
+    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+    if author_type == WORKFLOW_AUTHOR_TYPE:
+        return "Support"
+    return AI_BOT_DISPLAY_NAME
+
+
 AI_BOT_DISPLAY_NAME = "AI assistant"
+
+
+def _clear_awaiting_clarification(*, team_id: int, ticket_id: str) -> None:
+    # Lock so a follow-up persist cannot read awaiting and post after a human took the ticket.
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
+        if ticket is None:
+            return
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else None
+        if not triage or triage.get("status") != "awaiting_clarification":
+            return
+        ticket.ai_triage = {**triage, "status": "done"}
+        ticket.save(update_fields=["ai_triage", "updated_at"])
 
 
 @receiver(post_save, sender=Ticket)
@@ -73,7 +111,7 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     being emitted uniformly for all sources.
 
     Deferred via `transaction.on_commit` so we don't emit phantom events for tickets
-    rolled back by the email duplicate-race `IntegrityError` in `email_events.py` (or
+    rolled back by the email duplicate-race `IntegrityError` in `mailgun_events.py` (or
     any future caller that wraps creation in `transaction.atomic`).
 
     Note: `Ticket.objects.bulk_create` does NOT trigger this signal. All current callers
@@ -92,6 +130,54 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
             capture_exception(e, {"ticket_id": str(instance.id)})
 
     transaction.on_commit(do_emit)
+
+
+@receiver(post_save, sender=TaggedItem)
+def emit_ticket_tag_added_event(
+    sender: type[TaggedItem], instance: TaggedItem, created: bool, raw: bool, **kwargs: Any
+) -> None:
+    """
+    Fire `$conversation_ticket_tag_added` when a tag is newly attached to a ticket, so a
+    workflow can trigger on one tag. TaggedItem is unique per object and tag, so a tag the
+    ticket already has never creates a row and emits nothing.
+
+    `TaggedItem.objects.bulk_create` does not trigger this signal, so the Zendesk import
+    tags its tickets without starting workflows on historical tags. The event describes the
+    ticket as committed with the tag, and a Celery task sends it, so a bulk tag request makes
+    no capture call on its own thread.
+    """
+    ticket_id = instance.object_uuid
+    if not created or raw or ticket_id is None or instance.content_type_id != content_type_for(Ticket).id:
+        return
+
+    # Read the actor and the workflow trigger now. The request middleware and
+    # ActivityTriggerContext clear them when they end, which can be before the commit.
+    actor: User | None = get_current_user()
+    trigger = get_current_trigger()
+    workflow_id = trigger.job_id if trigger is not None and trigger.job_type == "hog_flow" else None
+    tag_id, tag_name, event_uuid = str(instance.tag_id), instance.tag.name, str(instance.id)
+
+    def enqueue() -> None:
+        try:
+            # No team filter: a tag row holds the project's root team, but a ticket in a child
+            # environment keeps the environment's team. The UUID alone identifies the ticket.
+            ticket = Ticket.objects.select_related("team").filter(id=ticket_id).first()
+            if ticket is None:
+                return
+            event = build_ticket_tag_added_event(
+                ticket,
+                tag_id,
+                tag_name,
+                actor=actor,
+                actor_type="user" if actor else "system",
+                workflow_id=workflow_id,
+            )
+            timestamp = timezone.now().isoformat()
+            cast(Any, emit_ticket_tag_added).delay(event=event, event_uuid=event_uuid, timestamp=timestamp)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket_id)})
+
+    transaction.on_commit(enqueue)
 
 
 @receiver(post_save, sender=Comment)
@@ -116,6 +202,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     if not created:
         return
 
+    if (
+        instance.created_by_id is None
+        and isinstance(instance.item_context, dict)
+        and instance.item_context.get("author_type") == "AI"
+        and instance.item_context.get("automated_update_key")
+    ):
+        return
+
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
@@ -137,6 +231,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if not (created_by_id and author_type != "customer"):
                 return
             try:
+                if author_type != "AI":
+                    _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
                 ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
                 author = User.objects.filter(id=created_by_id).first()
                 capture_private_message_sent(ticket, comment_id, author=author)
@@ -148,7 +244,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         # New message: update denormalized stats
         is_team_message = (created_by_id and author_type != "customer") or (
-            author_type == "AI" and not _is_private_message(item_context)
+            author_type in ("AI", WORKFLOW_AUTHOR_TYPE) and not _is_private_message(item_context)
         )
 
         update_fields = {
@@ -166,18 +262,40 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         # Emit analytics events and invalidate cache
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
-            # Invalidate widget caches so list and messages reflect the new message
+            # Invalidate widget caches so the ticket list reflects the new message
+            invalidate_identity_tickets_cache(team_id)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
-            invalidate_messages_cache(team_id, item_id)
 
-            # Customer-facing analytics (to customer's project)
-            if is_team_message:
+            if is_team_message and created_by_id:
+                try:
+                    if author_type != "AI":
+                        _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
+                    maybe_record_human_outcome(
+                        team_id=team_id,
+                        ticket_id=item_id,
+                        comment_id=comment_id,
+                        human_content=content or "",
+                    )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": item_id})
+
+            # Customer-facing analytics (to customer's project). A workflow reply is a team
+            # message with no User, so author stays unset and the team-level report below still runs.
+            author = None
+            if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
-            else:
-                author = None
-                capture_message_received(ticket, comment_id, content or "")
+            elif not is_team_message:
+                capture_message_received(
+                    ticket,
+                    comment_id,
+                    content or "",
+                    # The comments API stores the request's item_context, and a thread reply copies its
+                    # parent's item_context. Only channel handlers write a customer comment with no
+                    # created_by, so only those comments can attest the message author.
+                    item_context=item_context if isinstance(item_context, dict) and created_by_id is None else None,
+                )
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
@@ -254,7 +372,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
             # (private messages weren't counted in the first place)
             if not is_private:
                 author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-                is_team_message = created_by_id and author_type != "customer"
+                is_team_message = (created_by_id and author_type != "customer") or author_type == WORKFLOW_AUTHOR_TYPE
 
                 # Use Greatest to prevent negative counts from race conditions or data inconsistencies
                 update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
@@ -264,18 +382,8 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
             # Recalculate last_message from remaining non-private messages
-            # Use exclude + isnull to match _is_private_message() identity check:
-            # - Exclude only exact boolean True
-            # - Include everything else (False, None, missing key, weird values)
-            # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
             last_comment = (
-                Comment.objects.filter(
-                    team_id=team_id,
-                    scope="conversations_ticket",
-                    item_id=item_id,
-                    deleted=False,
-                )
-                .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+                visible_ticket_messages(team_id, item_id)
                 .exclude(pk=comment_pk)  # Exclude the one being deleted
                 .order_by("-created_at")
                 .first()
@@ -298,8 +406,8 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 @receiver(post_save, sender=Comment)
 def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member or AI bot replies to a Slack-sourced ticket, post the reply
-    back to the Slack thread via a Celery task.
+    When a team member or AI bot replies to a Slack-sourced ticket, persist a
+    durable delivery row with the comment, then wake a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
@@ -322,51 +430,20 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
     if isinstance(item_context, dict) and item_context.get("from_slack"):
         return
 
-    # Capture values for the deferred callback
-    team_id = instance.team_id
+    part = enqueue_slack_body_delivery(instance)
+    if part is None or part.status in ConversationDeliveryPart.TERMINAL_STATUSES:
+        return
+
+    part_id = str(part.id)
     item_id = instance.item_id
-    content = instance.content or ""
-    rich_content = instance.rich_content
-    created_by = instance.created_by
 
-    def do_post_to_slack():
+    def do_wake_slack_delivery():
         try:
-            ticket = Ticket.objects.filter(
-                id=item_id,
-                team_id=team_id,
-                channel_source=Channel.SLACK,
-            ).first()
-
-            if not ticket or not ticket.slack_channel_id or not ticket.slack_thread_ts:
-                return
-
-            team = ticket.team
-            settings_dict = team.conversations_settings or {}
-            if not settings_dict.get("slack_enabled"):
-                return
-
-            author_name = ""
-            author_email = ""
-            if created_by:
-                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
-                author_email = created_by.email
-            else:
-                author_name = settings_dict.get("slack_bot_display_name") or AI_BOT_DISPLAY_NAME
-
-            cast(Any, post_reply_to_slack).delay(
-                ticket_id=str(ticket.id),
-                team_id=team_id,
-                content=content,
-                rich_content=rich_content,
-                author_name=author_name,
-                author_email=author_email,
-                slack_channel_id=ticket.slack_channel_id,
-                slack_thread_ts=ticket.slack_thread_ts,
-            )
+            wake_delivery_part(ConversationDeliveryPart(id=part_id))
         except Exception:
             logger.exception("slack_reply_signal_failed", item_id=item_id)
 
-    transaction.on_commit(do_post_to_slack)
+    transaction.on_commit(do_wake_slack_delivery)
 
 
 @receiver(post_save, sender=Comment)
@@ -496,7 +573,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
             else:
-                author_name = AI_BOT_DISPLAY_NAME
+                author_name = _unattributed_author_name(item_context)
 
             # Shared channels are written to via Graph (the bot connector can't post
             # there); standard channels keep using the bot connector reply path.
@@ -584,7 +661,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
             else:
-                author_name = AI_BOT_DISPLAY_NAME
+                author_name = _unattributed_author_name(item_context)
 
             cast(Any, post_reply_to_github).delay(
                 ticket_id=str(ticket.id),
@@ -603,11 +680,47 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
 def sync_signing_secret_on_rotation(sender, team, **kwargs):
     """Mirror the rotated legacy token into the conversations signing secret.
 
-    Never breaks rotation: while both stores exist, widget identity verification
-    falls back to the legacy token, so a failed sync degrades to current behavior.
+    Runs inside the rotation's transaction (Team.rotate_secret_token_and_save), so a
+    failure here rolls the whole rotation back: the two stores can never diverge.
+    A secret rotated independently via the conversations endpoint is its own authority
+    and must not be clobbered by a legacy-token rotation.
     """
-    try:
-        SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
-    except Exception as e:
-        logger.exception("conversations_signing_secret_sync_failed", team_id=team.id)
-        capture_exception(e)
+    # Locked get_or_create: a plain select_for_update().first() holds no lock when the row
+    # doesn't exist yet, letting a concurrent independent rotation be overwritten.
+    row, created = (
+        SigningSecret.objects.for_team(team.id)
+        .select_for_update()
+        .get_or_create(team=team, defaults={"secret": team.secret_api_token})
+    )
+    if created:
+        return
+    # A second legacy rotation retires the old backup for good (expired_token). An
+    # independent row may still hold that credential as its grace copy from the
+    # rotation that decoupled it; a revoked key must not keep verifying through it.
+    expired_token = kwargs.get("expired_token")
+    if expired_token and row.previous_secret == expired_token:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
+    if row.rotated_independently:
+        return
+    # No grace here: for a legacy rotation the backup column is the grace mechanism
+    # (the old key keeps working until the backup is deleted or expires on the next
+    # rotation). A previous_secret copy would outlive or duplicate those semantics,
+    # so a mirroring row never carries one.
+    row.previous_secret = None
+    row.previous_secret_rotated_at = None
+    row.secret = team.secret_api_token
+    row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])
+
+
+@receiver(secret_api_token_backup_deleted)
+def revoke_signing_secret_grace_on_backup_deletion(sender, team, deleted_token, **kwargs):
+    """Deleting the legacy backup is an explicit revocation: the same credential must not
+    keep verifying through the signing secret's grace copy. Runs inside the deletion's
+    transaction (Team.delete_secret_token_backup_and_save)."""
+    row = SigningSecret.objects.for_team(team.id).select_for_update().first()
+    if row and row.previous_secret == deleted_token:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])

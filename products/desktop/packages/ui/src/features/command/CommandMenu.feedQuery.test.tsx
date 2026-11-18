@@ -7,6 +7,9 @@ let taskResultsComplete = true;
 
 // The palette pulls half the app in; everything irrelevant to the feed-query
 // mode is stubbed to its empty state.
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
@@ -14,7 +17,10 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { uuid: "user-1" } }),
 }));
-vi.mock("@posthog/di/container", () => ({ resolveService: () => ({}) }));
+vi.mock("@posthog/di/container", () => ({
+  resolveService: () => ({}),
+  resolveServiceOptional: () => null,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => false,
 }));
@@ -33,6 +39,7 @@ vi.mock("@posthog/ui/features/archive/useTaskArchive", () => ({
 }));
 vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: [], isFetched: true }),
+  useWorkspace: () => undefined,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [], isLoading: false }),
@@ -73,6 +80,30 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 }));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false, prUrl: null }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
+  useTaskStatusInput: () => null,
+  useChannelTaskStatus: () => null,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: (query: string | undefined) => ({
+    canvases: query
+      ? [
+          {
+            id: "canvas-1",
+            channelId: "space-1",
+            name: "Revenue overview",
+            kind: "freeform",
+            description: "",
+            templateId: "freeform",
+            createdBy: "Moshe Katz",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ]
+      : [],
+    isLoading: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: (query: string | undefined) => ({
@@ -138,6 +169,42 @@ describe("CommandMenu feed queries", () => {
     expect(
       await screen.findByText("Save search", { selector: "h2" }),
     ).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
+  });
+
+  it("clears the query after a save closes the palette", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "created-by:@me ",
+    );
+    await user.keyboard("{Meta>}s{/Meta}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    // The parent owns `open`, so the Dialog never runs its own close handler.
+    rerender(
+      <Theme>
+        <CommandMenu open={false} onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+    rerender(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    expect(
+      await screen.findByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
   });
 
   it("shows a selected command in the recent section", async () => {
@@ -276,5 +343,27 @@ describe("CommandMenu feed queries", () => {
         { timeout: 2000 },
       ),
     ).toBeTruthy();
+  });
+
+  it("lists canvases instead of tasks with type:canvas", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "type:canvas created-by:moshe ",
+    );
+    expect(
+      await screen.findByText("Revenue overview", {}, { timeout: 2000 }),
+    ).toBeTruthy();
+    expect(screen.getByText("1 matching canvas")).toBeTruthy();
+    expect(screen.queryByText("Fix billing address validation")).toBeNull();
+    expect(screen.queryByText("Actions")).toBeNull();
+    // Saved searches are task feeds, so a canvas query offers no save shortcut.
+    expect(screen.queryByText(/save search/)).toBeNull();
   });
 });

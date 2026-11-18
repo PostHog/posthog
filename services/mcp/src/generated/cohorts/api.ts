@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const CohortsListParams = /* @__PURE__ */ zod.object({
+export const CohortsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,14 @@ export const CohortsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
+export const CohortsListQueryParams = () => zod.object({
     basic: zod
         .boolean()
         .optional()
         .describe(
             'Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id\/name\/count.'
         ),
+    created_by_id: zod.number().optional().describe('Optional. Return only cohorts created by the user with this id.'),
     hide_behavioral_cohorts: zod
         .boolean()
         .optional()
@@ -37,9 +38,13 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error."
         ),
+    type: zod
+        .enum(['dynamic', 'static'])
+        .optional()
+        .describe('Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.'),
 })
 
-export const CohortsCreateParams = /* @__PURE__ */ zod.object({
+export const CohortsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -56,8 +61,9 @@ export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault =
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
 export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
+export const cohortsCreateBodyCreateStaticPersonIdsMax = 1000
 
-export const CohortsCreateBody = /* @__PURE__ */ zod.object({
+export const CohortsCreateBody = () => zod.object({
     name: zod.string().max(cohortsCreateBodyNameMax).nullish(),
     description: zod.string().max(cohortsCreateBodyDescriptionMax).optional(),
     filters: zod
@@ -182,10 +188,14 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
             'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .max(cohortsCreateBodyCreateStaticPersonIdsMax)
+        .default(cohortsCreateBodyCreateStaticPersonIdsDefault)
+        .describe('Person UUIDs to add to a new static cohort.'),
 })
 
-export const CohortsRetrieveParams = /* @__PURE__ */ zod.object({
+export const CohortsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
         .string()
@@ -194,7 +204,7 @@ export const CohortsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CohortsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const CohortsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
         .string()
@@ -211,8 +221,9 @@ export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDe
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
+export const cohortsPartialUpdateBodyCreateStaticPersonIdsMax = 1000
 
-export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CohortsPartialUpdateBody = () => zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
     description: zod.string().max(cohortsPartialUpdateBodyDescriptionMax).optional(),
     deleted: zod.boolean().optional(),
@@ -344,10 +355,14 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .max(cohortsPartialUpdateBodyCreateStaticPersonIdsMax)
+        .optional()
+        .describe('Person UUIDs to add to a new static cohort.'),
 })
 
-export const CohortsAddPersonsToStaticCohortPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const CohortsAddPersonsToStaticCohortPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
         .string()
@@ -356,11 +371,19 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateParams = /* @__PURE__ *
         ),
 })
 
-export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
-    person_ids: zod.array(zod.string()).optional().describe('List of person UUIDs to add to the cohort'),
+export const cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax = 1000
+
+export const CohortsAddPersonsToStaticCohortPartialUpdateBody = () => zod.object({
+    person_ids: zod
+        .array(zod.string())
+        .max(cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax)
+        .optional()
+        .describe(
+            'Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.'
+        ),
 })
 
-export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
         .string()
@@ -369,6 +392,6 @@ export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = /* @__PURE
         ),
 })
 
-export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = () => zod.object({
     person_id: zod.string().optional().describe('Person UUID to remove from the cohort'),
 })

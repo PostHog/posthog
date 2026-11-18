@@ -22,6 +22,7 @@ async def connect(
     client_key: str | None = None,
     runtime: Runtime | None = None,
     server_root_ca_cert: str | None = None,
+    tls_domain: str | None = None,
     settings: Any | None = django_settings,
     use_pydantic_converter: bool = False,
     add_otel_tracing_interceptor: bool = True,
@@ -29,9 +30,13 @@ async def connect(
 ) -> Client:
     tls: TLSConfig | bool = False
     if client_cert and client_key:
+        # `tls_domain` names the server the certificate is checked against, for a caller that
+        # dials an address rather than the name the certificate was issued for. Unset, the
+        # certificate is checked against the host that was dialled.
         tls = TLSConfig(
             client_cert=bytes(client_cert, "utf-8"),
             client_private_key=bytes(client_key, "utf-8"),
+            domain=tls_domain,
         )
 
         if server_root_ca_cert:

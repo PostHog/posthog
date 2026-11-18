@@ -7,9 +7,8 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
-from posthog.cdp.validation import compile_hog as compile_hog_for_check
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog as compile_hog_for_check
 
 # The powerplatform branch the migration must splice into stale Microsoft Teams functions.
 POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows"
@@ -386,7 +385,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Failed: 1", output)
         self.assertIn(str(bad_function.id), output)
 
-    @patch("posthog.cdp.validation.compile_hog")
+    @patch("products.cdp.backend.validation.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
         """Test handling of invalid replace key."""
         out = StringIO()
@@ -406,7 +405,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("Invalid replace key provided: None", output)
 
-    @patch("posthog.cdp.validation.compile_hog")
+    @patch("products.cdp.backend.validation.compile_hog")
     def test_no_matching_functions(self, mock_compile_hog):
         """Test when no functions match the criteria."""
         # Delete all LinkedIn functions
@@ -547,3 +546,76 @@ class TestUpdateHogFunctionCode(BaseTest):
         function.refresh_from_db()
         assert POWERPLATFORM_BRANCH not in function.hog
         self.assertIn("Updated: 0", out.getvalue())
+
+    def test_openai_ads_numeric_external_id_migration(self):
+        stale_hog = (
+            "let userData := {}\n"
+            "if (not empty(inputs.externalId)) {\n"
+            "    userData.external_ids_sha256 := [sha256Hex(trim(inputs.externalId))]\n"
+            "}\n"
+        )
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            function = HogFunction.objects.create(
+                team=self.team,
+                name="OpenAI Ads Function",
+                type="destination",
+                template_id="template-openai-ads",
+                hog=stale_hog,
+                enabled=True,
+            )
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            for expected in ("Updated: 1", "Updated: 0"):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="openai-ads-numeric-external-id", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        function.refresh_from_db()
+        assert "sha256Hex(trim(toString(inputs.externalId)))" in function.hog
+        compile_hog_for_check(function.hog, "destination")
+
+    def test_microsoft_ads_capi_normalization_migration(self) -> None:
+        identifier_checks = (
+            "if (not empty(inputs.email)) {\n"
+            "    userData.em := sha256Hex(lower(trim(inputs.email)))\n"
+            "}\n"
+            "if (not empty(inputs.phone)) {\n"
+            "    userData.ph := sha256Hex(lower(trim(inputs.phone)))\n"
+            "}\n"
+        )
+        send = "let conversion := {'userData': userData}\nlet res := fetch(inputs.url, {'method': 'POST', 'body': {\n        'data': [conversion]\n    }})\n"
+        stale_hog = "let userData := {}\n" + identifier_checks + send
+        edited_hog = "let userData := {'em': sha256Hex(inputs.email)}\n" + send.replace("[conversion]", "[userData]")
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            stale, edited = (
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Microsoft Ads Function",
+                    type="destination",
+                    template_id="template-microsoft-ads",
+                    hog=hog,
+                    enabled=True,
+                )
+                for hog in (stale_hog, edited_hog)
+            )
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            for expected in ("Updated: 1", "Updated: 0"):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="microsoft-ads-capi-normalization", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        stale.refresh_from_db()
+        edited.refresh_from_db()
+        assert "userData.em := em" in stale.hog
+        assert "userData.ph := ph" in stale.hog
+        assert "sha256Hex(lower(trim(inputs.phone)))" not in stale.hog
+        assert "'dataProvider': 'posthog'" in stale.hog
+        assert edited.hog == edited_hog
+        compile_hog_for_check(stale.hog, "destination")

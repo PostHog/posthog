@@ -47,7 +47,7 @@ def create_user(email: str, password: str, organization: Organization):
 def create_destination() -> BatchExportDestination:
     """Create a test batch export destination."""
     return BatchExportDestination.objects.create(
-        type="S3",
+        type="AwsS3",
         config={
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

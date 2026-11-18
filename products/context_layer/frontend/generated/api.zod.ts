@@ -140,3 +140,39 @@ export const ContextLayerAgentPagesUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for creating or replacing one wiki page.')
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Propose a shared wiki edit for human review
+ */
+export const contextLayerAgentProposalsCreateBodyPathMax = 512
+
+export const contextLayerAgentProposalsCreateBodyContentMax = 1000000
+
+export const contextLayerAgentProposalsCreateBodyBaseHeadMax = 64
+
+export const ContextLayerAgentProposalsCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(contextLayerAgentProposalsCreateBodyPathMax)
+            .describe(
+                "Repo-relative Markdown path inside the wiki's structure, for example `projects\/12\/spaces\/general.md`."
+            ),
+        content: zod
+            .string()
+            .max(contextLayerAgentProposalsCreateBodyContentMax)
+            .describe('The complete Markdown content for the page.'),
+        base_head: zod
+            .string()
+            .max(contextLayerAgentProposalsCreateBodyBaseHeadMax)
+            .describe('The head_sha returned when reading the page. Required to bind the proposed edit.'),
+    })
+    .describe('Request body for creating or replacing one wiki page.')

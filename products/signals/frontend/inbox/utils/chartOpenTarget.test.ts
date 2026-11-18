@@ -9,6 +9,11 @@ describe('chartOpenTarget', () => {
         source: { kind: NodeKind.TrendsQuery, series: [] },
     } as unknown as Node
 
+    const funnelChart = {
+        kind: NodeKind.InsightVizNode,
+        source: { kind: NodeKind.FunnelsQuery, series: [] },
+    } as unknown as Node
+
     const sqlChart = {
         kind: NodeKind.DataVisualizationNode,
         source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
@@ -43,7 +48,8 @@ describe('chartOpenTarget', () => {
     })
 
     it.each([
-        ['a trends chart', trendsChart, 'Open as new insight'],
+        ['a trends chart', trendsChart, 'Open insight'],
+        ['a funnel chart', funnelChart, 'Open insight'],
         ['a SQL chart', sqlChart, 'Open in SQL editor'],
     ])('labels %s by where it actually lands', (_name, query: Node, label: string) => {
         expect(chartOpenTarget(query)?.label).toBe(label)

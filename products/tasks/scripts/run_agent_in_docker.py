@@ -24,8 +24,10 @@ django.setup()
 
 from django.db import transaction
 
-from posthog.models import Integration, PersonalAPIKey, Team, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.accessible_teams import AccessibleTeams
+from posthog.integrations import IntegrationManager
+from posthog.models import PersonalAPIKey, Team, User
+from posthog.personal_api_key_minting import mint_personal_api_key
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
@@ -59,9 +61,11 @@ def create_test_task(repository=None):
             feature_flag.active = True
             feature_flag.save()
 
-        github_integration, _ = Integration.objects.get_or_create(
-            team=team, kind="github", defaults={"config": {"organization": org, "repositories": [repo]}}
-        )
+        github_integration = IntegrationManager.github.oauth.find(team.id)
+        if github_integration is None:
+            github_integration = IntegrationManager.github.oauth.create(
+                team.id, external_id=None, config={"organization": org, "repositories": [repo]}
+            )
 
         github_token = (
             github_integration.sensitive_config.get("access_token") if github_integration.sensitive_config else None
@@ -74,17 +78,15 @@ def create_test_task(repository=None):
             title="Add a joke to the README.md file",
             description="Add a joke to the README.md file",
             origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=github_integration,
+            github_integration_id=github_integration.id,
             repository=repository,
         )
 
         task_run = TaskRun.objects.create(task=task, team=team)
 
-        api_key_value = generate_random_token_personal()
-        api_key = PersonalAPIKey.objects.create(
-            user=user,
+        minted = mint_personal_api_key(
+            user,
             label="Test runAgent",
-            secure_value=hash_key_value(api_key_value),
             scopes=[
                 "error_tracking:read",
                 "user:read",
@@ -93,8 +95,10 @@ def create_test_task(repository=None):
                 "task:read",
                 "task:write",
             ],
-            scoped_teams=[team.id],
+            teams=AccessibleTeams.for_user(user, [team.id]),
         )
+        api_key = minted.key
+        api_key_value = minted.value
 
         print(f"✓ Created test task: {task.id}")
         print(f"  - Run ID: {task_run.id}")

@@ -72,8 +72,8 @@ export const taskHistoryLogic = kea<taskHistoryLogicType>([
 
     reducers({
         history: {
-            // The full-list surface archives via `tasksLogic.deleteTask` and dispatches this to keep
-            // this independent list in sync without re-fetching.
+            // `tasksLogic` dispatches this after any surface archives a task, so this independent
+            // list stays in sync without re-fetching.
             taskArchived: (state, { taskId }) => state.filter((task) => task.id !== taskId),
         },
         historyError: [

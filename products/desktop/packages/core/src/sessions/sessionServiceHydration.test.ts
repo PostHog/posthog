@@ -33,7 +33,11 @@ function agentMessage(text: string, ts: number): AcpMessage {
   };
 }
 
-function agentMessageChunk(text: string, ts: number): AcpMessage {
+function agentMessageChunk(
+  text: string,
+  ts: number,
+  parentToolCallId?: string,
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -44,6 +48,9 @@ function agentMessageChunk(text: string, ts: number): AcpMessage {
         update: {
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text },
+          ...(parentToolCallId
+            ? { _meta: { claudeCode: { parentToolCallId } } }
+            : {}),
         },
       },
     },
@@ -82,6 +89,31 @@ function turnComplete(ts: number): AcpMessage {
   };
 }
 
+function consoleLog(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/console",
+      params: { level: "debug", message: "diagnostic" },
+    },
+  };
+}
+
+function refreshSessionCall(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "_posthog/refresh_session",
+      params: { mcpServers: [] },
+    },
+  };
+}
+
 function storedEntry(event: AcpMessage): StoredLogEntry {
   return {
     type: "notification",
@@ -111,6 +143,36 @@ describe("resume hydration reconciliation", () => {
       ),
     ).toEqual([]);
   });
+
+  it.each([
+    { label: "a server-internal notification", interloper: consoleLog(20) },
+    { label: "a host control call", interloper: refreshSessionCall(20) },
+  ])(
+    "discards both halves of a chunk run split by $label",
+    ({ interloper }) => {
+      // The writer keeps one chunk buffer across these, so the durable log holds
+      // one message where the live tail holds two chunk runs.
+      const completion = turnComplete(40);
+      const hydratedEvents = [
+        prompt(1, "ask", 10),
+        interloper,
+        agentMessage("dashboards still use that filter", 30),
+        completion,
+      ];
+
+      expect(
+        reconcileLiveEventsWithHydratedEvents(
+          [
+            agentMessageChunk("dashboards still", 21),
+            { ...interloper, ts: 22 },
+            agentMessageChunk(" use that filter", 23),
+            { ...completion, ts: 41 },
+          ],
+          hydratedEvents,
+        ),
+      ).toEqual([]);
+    },
+  );
 
   it("preserves a new assistant response after an overlapping tool boundary", () => {
     const boundary = toolCall("tool-1", 30);
@@ -193,5 +255,21 @@ describe("resume hydration reconciliation", () => {
     expect(
       reconcileLiveEventsWithHydratedEvents(staleLiveTail, hydratedEvents),
     ).toEqual([]);
+  });
+
+  it("keeps a second subagent's live chunks when history holds only the first", () => {
+    // The writer stores each subagent's chunk run as its own message, so a
+    // history with only A's message has not stored B's text yet.
+    const chunkA = agentMessageChunk("from A", 20, "task-a");
+    const chunkB = agentMessageChunk("from B", 21, "task-b");
+    const hydratedEvents = [prompt(1, "ask", 10), agentMessage("from A", 22)];
+
+    const reconciled = reconcileLiveEventsWithHydratedEvents(
+      [prompt(1, "ask", 10), chunkA, chunkB],
+      hydratedEvents,
+    );
+
+    expect(reconciled).toContainEqual(chunkB);
+    expect(reconciled).not.toContainEqual(chunkA);
   });
 });

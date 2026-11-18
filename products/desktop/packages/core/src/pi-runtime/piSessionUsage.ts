@@ -1,8 +1,8 @@
-import type { PiSessionStats } from "@posthog/agent/pi/types";
+import type { PiUsageStats } from "@posthog/agent/pi/types";
 import type { ContextUsage } from "../sessions/contextUsage";
 
 export function toPiContextUsage(
-  stats: PiSessionStats | undefined,
+  stats: PiUsageStats | undefined,
 ): ContextUsage | null {
   const usage = stats?.contextUsage;
   if (!usage || usage.tokens === null) {
@@ -18,7 +18,6 @@ export function toPiContextUsage(
           ? (usage.tokens / usage.contextWindow) * 100
           : 0),
     ),
-    cost: stats.cost > 0 ? { amount: stats.cost, currency: "USD" } : null,
     breakdown: null,
     breakdownAvailable: false,
   };

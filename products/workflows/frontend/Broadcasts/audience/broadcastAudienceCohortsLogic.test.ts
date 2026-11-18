@@ -1,0 +1,106 @@
+import { ApiError } from 'lib/api-error'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+
+import { broadcastWizardLogic } from '../broadcastWizardLogic'
+import { broadcastAudienceCohortsLogic } from './broadcastAudienceCohortsLogic'
+
+jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
+
+const cohort = (isCalculating: boolean): any => ({
+    id: 42,
+    name: 'Spring sale recipients',
+    is_static: true,
+    is_calculating: isCalculating,
+    errors_calculating: 0,
+    count: isCalculating ? null : 2,
+})
+
+describe('broadcastAudienceCohortsLogic', () => {
+    let audienceSizeRequests: number
+
+    beforeEach(() => {
+        audienceSizeRequests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => {
+                    audienceSizeRequests += 1
+                    return [200, { affected: 2, total: 10 }]
+                },
+            },
+        })
+        initKeaTests()
+    })
+
+    it('keeps a matching cohort through a failed poll and refreshes the audience size when matching ends', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(cohortsRetrieve)
+                .mockResolvedValueOnce(cohort(true))
+                .mockRejectedValueOnce(new ApiError('Server error', 500))
+                .mockResolvedValueOnce(cohort(false))
+
+            const wizard = broadcastWizardLogic({ id: 'new' })
+            wizard.mount()
+            wizard.actions.setAudienceProperties([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
+            const logic = broadcastAudienceCohortsLogic({ id: 'new' })
+            logic.mount()
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(logic.values.audienceCohorts[42]).toMatchObject({ isCalculating: true })
+            const requestsWhileMatching = audienceSizeRequests
+
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(cohortsRetrieve).toHaveBeenCalledTimes(2)
+            expect(logic.values.audienceCohorts[42]).toMatchObject({ isCalculating: true })
+
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(cohortsRetrieve).toHaveBeenCalledTimes(3)
+            expect(logic.values.audienceCohorts[42]).toMatchObject({ isCalculating: false, count: 2 })
+            expect(audienceSizeRequests).toBeGreaterThan(requestsWhileMatching)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    const excluded: AnyPropertyFilter = {
+        type: PropertyFilterType.Cohort,
+        key: 'id',
+        value: 42,
+        operator: PropertyOperator.NotIn,
+    }
+
+    it.each([
+        ['not_in', excluded],
+        ['negation', { ...excluded, operator: PropertyOperator.In, negation: true } as AnyPropertyFilter],
+    ])(
+        'shows a cohort excluded by %s as a "not in" condition rather than a recipient card, and still blocks launch while it matches',
+        async (_, condition) => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(cohortsRetrieve).mockResolvedValue(cohort(true))
+
+                const wizard = broadcastWizardLogic({ id: 'new' })
+                wizard.mount()
+                wizard.actions.setAudienceProperties([condition])
+                const logic = broadcastAudienceCohortsLogic({ id: 'new' })
+                logic.mount()
+
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(logic.values.includedCohortIds).toEqual([])
+                expect(logic.values.nonCohortAudience).toEqual([excluded])
+                expect(wizard.values.audienceCohortLaunchErrors).toEqual([
+                    { cohortId: 42, message: expect.stringContaining('still matching people') },
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
+})

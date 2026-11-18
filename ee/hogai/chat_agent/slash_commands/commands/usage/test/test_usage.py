@@ -42,7 +42,7 @@ class TestUsage(BaseTest):
         """Test that teams without custom limits get the default free tier."""
         mock_region.return_value = "EU"
         mock_payload.return_value = None
-        credits = get_ai_free_tier_credits(team_id=999)
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
@@ -50,8 +50,8 @@ class TestUsage(BaseTest):
     def test_get_ai_free_tier_credits_custom_eu(self, mock_region, mock_payload):
         """Test that EU internal team gets custom free tier limit from feature flag."""
         mock_region.return_value = "EU"
-        mock_payload.return_value = {"EU": {"1": 9999999}, "US": {"2": 9999999}}
-        credits = get_ai_free_tier_credits(team_id=1)
+        mock_payload.return_value = {"EU": {str(self.team.id): 9999999}, "US": {str(self.team.id + 1): 9999999}}
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, 9999999)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
@@ -59,8 +59,8 @@ class TestUsage(BaseTest):
     def test_get_ai_free_tier_credits_custom_us(self, mock_region, mock_payload):
         """Test that US internal team gets custom free tier limit from feature flag."""
         mock_region.return_value = "US"
-        mock_payload.return_value = {"EU": {"1": 9999999}, "US": {"2": 9999999}}
-        credits = get_ai_free_tier_credits(team_id=2)
+        mock_payload.return_value = {"EU": {str(self.team.id + 1): 9999999}, "US": {str(self.team.id): 9999999}}
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, 9999999)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
@@ -68,8 +68,8 @@ class TestUsage(BaseTest):
     def test_get_ai_free_tier_credits_fallback_when_region_unknown(self, mock_region, mock_payload):
         """Test that unknown regions fall back to default."""
         mock_region.return_value = None
-        mock_payload.return_value = {"EU": {"1": 9999999}}
-        credits = get_ai_free_tier_credits(team_id=1)
+        mock_payload.return_value = {"EU": {str(self.team.id): 9999999}}
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
@@ -77,8 +77,8 @@ class TestUsage(BaseTest):
     def test_get_ai_free_tier_credits_team_not_in_payload(self, mock_region, mock_payload):
         """Test that teams not in the payload get default credits."""
         mock_region.return_value = "EU"
-        mock_payload.return_value = {"EU": {"1": 9999999}}
-        credits = get_ai_free_tier_credits(team_id=999)
+        mock_payload.return_value = {"EU": {str(self.team.id + 1): 9999999}}
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
@@ -87,8 +87,53 @@ class TestUsage(BaseTest):
         """Test that invalid payloads fall back to default."""
         mock_region.return_value = "EU"
         mock_payload.return_value = "invalid"
-        credits = get_ai_free_tier_credits(team_id=1)
+        credits = get_ai_free_tier_credits(self.team)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
+
+    @parameterized.expand(
+        [
+            ("free_plan_limit", False, {"ai_credits": {"usage": 400, "limit": 500}}, None, 500),
+            (
+                "subscription_spend_limit",
+                True,
+                {"ai_credits": {"usage": 400, "limit": 15500}},
+                None,
+                DEFAULT_FREE_TIER_CREDITS,
+            ),
+            (
+                "subscription_unknown",
+                None,
+                {"ai_credits": {"usage": 400, "limit": 500}},
+                None,
+                DEFAULT_FREE_TIER_CREDITS,
+            ),
+            ("no_ai_credits_entry", False, {"events": {"usage": 10, "limit": 100}}, None, DEFAULT_FREE_TIER_CREDITS),
+            ("no_usage", False, None, None, DEFAULT_FREE_TIER_CREDITS),
+            ("limit_none", False, {"ai_credits": {"usage": 400, "limit": None}}, None, DEFAULT_FREE_TIER_CREDITS),
+            ("limit_zero", False, {"ai_credits": {"usage": 400, "limit": 0}}, None, DEFAULT_FREE_TIER_CREDITS),
+            ("flag_override_wins", False, {"ai_credits": {"usage": 400, "limit": 500}}, 9999999, 9999999),
+        ]
+    )
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
+    def test_get_ai_free_tier_credits_from_organization_plan(
+        self,
+        _name,
+        has_active_subscription,
+        usage,
+        override,
+        expected,
+        mock_region,
+        mock_payload,
+    ):
+        mock_region.return_value = "EU"
+        mock_payload.return_value = {"EU": {str(self.team.id): override}} if override is not None else None
+        self.organization.has_active_subscription = has_active_subscription
+        self.organization.usage = usage
+
+        credits = get_ai_free_tier_credits(self.team)
+
+        self.assertEqual(credits, expected)
 
     @parameterized.expand(
         [
@@ -235,7 +280,6 @@ class TestUsage(BaseTest):
             },
             "billing_plan": "paid",
             "has_active_subscription": True,
-            "is_deactivated": False,
             "products": [],
             "settings": {"autocapture_on": True, "active_destinations": 0},
             "subscription_level": "paid",
@@ -310,6 +354,15 @@ class TestUsage(BaseTest):
                 "You cannot call this from an async context - use a thread or sync_to_async."
             )
 
+        def free_tier_credits_guarded(*args, **kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return 2000
+            raise SynchronousOnlyOperation(
+                "You cannot call this from an async context - use a thread or sync_to_async."
+            )
+
         with (
             patch(
                 "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_usage_period",
@@ -325,7 +378,7 @@ class TestUsage(BaseTest):
             ),
             patch(
                 "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_free_tier_credits",
-                return_value=2000,
+                side_effect=free_tier_credits_guarded,
             ),
         ):
             result = async_to_sync(UsageCommand(self.team, self.user).execute)(config, state)

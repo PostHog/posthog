@@ -15,6 +15,9 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { useThreadSkin } from '../../hooks/useThreadSkin'
+import { QuillModePicker } from '../quill/QuillModePicker'
+
 interface ModeStyle {
     icon: JSX.Element
     className: string
@@ -83,6 +86,22 @@ export interface ComposerModePickerProps {
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
     // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
     const offered = modes ?? getModesForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)
+    const skin = useThreadSkin()
+    if (skin === 'quill') {
+        return <QuillModePicker selectedMode={selectedMode} onModeChange={onModeChange} modes={offered} />
+    }
+    return <SelectModePicker selectedMode={selectedMode} onModeChange={onModeChange} offered={offered} />
+}
+
+function SelectModePicker({
+    selectedMode,
+    onModeChange,
+    offered,
+}: {
+    selectedMode: PermissionMode
+    onModeChange: (mode: PermissionMode) => void
+    offered: PermissionMode[]
+}): JSX.Element {
     const options = offered.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedOption = getModeOption(selectedMode)
     // The mode the description strip shows. Base UI highlights the selected item on open, which

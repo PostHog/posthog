@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../../frontend/src/types'
@@ -54,7 +54,7 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
     reducers({
         debugLogsEnabled: [
             false,
-            { persist: true, storageKey: 'posthog_ai.debugLogsEnabled' },
+            { persist: true, storageKey: 'posthog_ai.debugLogsOptIn' },
             {
                 setDebugLogsEnabled: (_, { enabled }) => enabled,
             },

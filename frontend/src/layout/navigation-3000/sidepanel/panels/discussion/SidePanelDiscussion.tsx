@@ -1,32 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconChat } from '@posthog/icons'
+import * as stopPng from '@posthog/brand/hoggies/png/stop'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { WarningHog } from 'lib/components/hedgehogs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
-import { CommentComposer } from 'scenes/comments/CommentComposer'
-import { CommentsList } from 'scenes/comments/CommentsList'
-import { CommentsLogicProps, commentsLogic } from 'scenes/comments/commentsLogic'
+import { CommentComposer } from 'lib/components/Comments/CommentComposer'
+import { CommentsList } from 'lib/components/Comments/CommentsList'
+import { CommentsLogicProps, commentsLogic } from 'lib/components/Comments/commentsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 
-export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Element => {
-    const { commentCount } = useValues(sidePanelDiscussionLogic)
-
-    return (
-        <IconWithCount count={commentCount} {...props}>
-            <IconChat />
-        </IconWithCount>
-    )
-}
+const HedgehogStop = pngHoggie(stopPng)
 
 export const SidePanelDiscussion = (): JSX.Element => {
-    const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
+    const { commentsLogicProps, sceneSidePanelContext } = useValues(sidePanelDiscussionLogic)
+    const disabledReason = sceneSidePanelContext.discussions_disabled_reason
     const { scope, item_id } = commentsLogicProps ?? {}
 
     const discussionTitle = (
@@ -52,10 +44,12 @@ export const SidePanelDiscussion = (): JSX.Element => {
                     <DiscussionContent logicProps={commentsLogicProps}>
                         <SidePanelPaneHeader title={discussionTitle} />
                     </DiscussionContent>
+                ) : disabledReason ? (
+                    <p className="m-0 p-4 text-secondary">{disabledReason}</p>
                 ) : (
                     <div className="mx-auto p-8 max-w-160 mt-8 ">
                         <div className="max-w-24 mx-auto">
-                            <WarningHog className="w-full h-full" />
+                            <HedgehogStop className="w-full h-full" />
                         </div>
                         <h2>Discussions aren't supported here yet...</h2>
                         <p>

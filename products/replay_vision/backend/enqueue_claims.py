@@ -187,10 +187,6 @@ def pending_enqueue_claims_for_team(team_id: int) -> int:
     return _pending(_team_key(team_id))
 
 
-def pending_enqueue_claims_for_backfill(backfill_id: UUID) -> int:
-    return _pending(_backfill_key(backfill_id))
-
-
 def pending_enqueue_claims_for_scanner(scanner_id: UUID) -> int:
     return _pending(_scanner_key(scanner_id))
 

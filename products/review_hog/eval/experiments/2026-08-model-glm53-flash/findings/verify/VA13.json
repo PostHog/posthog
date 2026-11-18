@@ -1,0 +1,6 @@
+{
+    "id": "VA13",
+    "real": true,
+    "source": "reused-LA19",
+    "reasoning": "Identical claim verified as LA19 (must_fix, high confidence) in 2026-08-validator-model-sol. Confirmed in frozen tree: review_local.py:321 sets self_driving=bool(context.get('self_driving_review')); :324 skips the bot-author refusal on the flag alone; review_pr.py:590 skips the draft gate likewise. The hosted trigger process_inbox_pr_review (products/stamphog/backend/tasks/tasks.py:1130-1176, 1220-1229) checks only state==open and a head sha before stamping inbox_review — no _is_bot_authored, no head.repo.full_name fork check, no facade linkage. output.pr_url is caller-writable (products/tasks/backend/facade/api.py:1770 protects only pr_merged), so a linked task can point an unrelated human or fork PR at the relaxed path and get a real APPROVE."
+}

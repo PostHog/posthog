@@ -3,9 +3,11 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { captureScoutFleetViewed } from '../../../inboxAnalytics'
+import { captureScoutFleetViewed, captureScratchpadLinkClicked } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { CardSkeleton } from '../../cards/CardSkeleton'
@@ -15,6 +17,7 @@ import { ScoutsEmptyState } from './ScoutsEmptyState'
 import { ScoutsRosterFilters } from './ScoutsRosterFilters'
 import { ScoutsRosterList } from './ScoutsRosterList'
 import { ScoutsRosterStats } from './ScoutsRosterStats'
+import { ScoutSuggestionsStrip } from './ScoutSuggestionsStrip'
 
 // The same centered column as the Reports tab, so the two tabs line up when switching between them.
 const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3'
@@ -25,19 +28,34 @@ const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col g
  * stays in the scene header, so it is reachable even when the filters narrow the roster to nothing.
  */
 export function ScoutsRoster(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const {
+        scoutConfigs,
+        scoutConfigsLoading,
+        scoutFleetSynced,
+        scoutFleetSyncOutcome,
+        enabledCount,
+        customScoutCount,
+    } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, materializeScoutFleet, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
 
     useEffect(() => {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
 
+    // Opening the roster is what materializes the fleet, so a project the coordinator never reached
+    // still gets its scouts. The logic decides whether a sync is actually owed.
+    useEffect(() => {
+        materializeScoutFleet()
+    }, [materializeScoutFleet])
+
     // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
-    // and reports nothing — an unreachable scout API isn't an empty troop.
+    // and reports nothing — an unreachable scout API isn't an empty troop. The report waits for the
+    // materialization either way: an empty troop that is about to arrive is never counted as no
+    // troop, and `sync_outcome` only means something once the sync has settled.
     const fleetViewedFiredRef = useRef(false)
     useEffect(() => {
-        if (scoutConfigs === null || fleetViewedFiredRef.current) {
+        if (scoutConfigs === null || !scoutFleetSynced || fleetViewedFiredRef.current) {
             return
         }
         fleetViewedFiredRef.current = true
@@ -46,8 +64,9 @@ export function ScoutsRoster(): JSX.Element {
             enabledCount,
             customCount: customScoutCount,
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+            syncOutcome: scoutFleetSyncOutcome,
         })
-    }, [scoutConfigs, enabledCount, customScoutCount])
+    }, [scoutConfigs, scoutFleetSynced, scoutFleetSyncOutcome, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return (
@@ -75,10 +94,13 @@ export function ScoutsRoster(): JSX.Element {
         )
     }
 
+    // An empty fleet before the first sync settles is a troop still being assembled, not an empty
+    // one — showing the empty state here would tell people to create a scout moments before their
+    // canonical fleet lands.
     if (scoutConfigs.length === 0) {
         return (
             <div className={ROSTER_COLUMN_CLASS}>
-                <ScoutsEmptyState />
+                {scoutFleetSynced ? <ScoutsEmptyState /> : <CardSkeleton count={3} variant="cards" dashed={false} />}
             </div>
         )
     }
@@ -86,6 +108,7 @@ export function ScoutsRoster(): JSX.Element {
     return (
         <div className={ROSTER_COLUMN_CLASS}>
             <ScoutAlphaBanner />
+            <ScoutSuggestionsStrip />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <ScoutsRosterFilters />
                 <ScoutsRosterStats />
@@ -93,13 +116,31 @@ export function ScoutsRoster(): JSX.Element {
             <ScoutsRosterList />
             <div className="flex flex-col gap-1 pt-1">
                 <span className="text-xs text-muted">
-                    The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
-                    {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
-                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.{' '}
+                    <FlaggedFeature
+                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
+                        fallback={<span>The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. </span>}
+                    >
+                        <span>
+                            Run and report totals cover the {SCOUT_ROSTER_WINDOW_LABEL}. Usage covers the last 30
+                            days.{' '}
+                        </span>
+                    </FlaggedFeature>
+                    Each scout's run strip shows its {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay
+                    comparable. New scouts are created as skills in your PostHog project, under the name you give them.{' '}
                     <Link to={urls.inboxRuns()} data-attr="inbox-open-runs">
                         See every recent run
+                    </Link>{' '}
+                    or{' '}
+                    <Link
+                        to={urls.inboxScratchpad()}
+                        onClick={() =>
+                            captureScratchpadLinkClicked({ entryPoint: 'roster_footer', surface: 'fleet_list' })
+                        }
+                        data-attr="inbox-open-scratchpad"
+                    >
+                        see what your scouts have learned
                     </Link>
+                    .
                 </span>
                 <ScoutHelperSkillLinks />
             </div>

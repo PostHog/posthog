@@ -166,6 +166,26 @@ def test_absolutize_relative_imports(source: str, package: str, expected: str) -
             "@shared_task(expires=timedelta(hours=1))\ndef expiring():\n    pass\n",
             '@shared_task(expires=timedelta(hours=1), name="products.logs.backend.tasks.expiring")',
         ),
+        # a multi-line decorator ends its args with a trailing comma; joining must not produce ",,"
+        (
+            "@shared_task(\n    ignore_result=True,\n    time_limit=330,\n)\ndef slow_task():\n    pass\n",
+            '@shared_task(ignore_result=True,\n    time_limit=330, name="products.logs.backend.tasks.slow_task")',
+        ),
+        # a stray '(' inside a trailing comment must not defeat paren balancing
+        (
+            '@shared_task(\n    queue="foo",  # (for compatibility\n)\ndef commented_task():\n    pass\n',
+            '@shared_task(queue="foo", name="products.logs.backend.tasks.commented_task")',
+        ),
+        # a quote and a ')' inside a triple-quoted argument must not end the args early
+        (
+            '@shared_task(description="""A quote: " and a close paren )""")\ndef quoted_task():\n    pass\n',
+            '@shared_task(description="""A quote: " and a close paren )""", name="products.logs.backend.tasks.quoted_task")',
+        ),
+        # a '#' line inside a triple-quoted argument is string content, not a comment
+        (
+            '@shared_task(\n    description="""first\n# kept line\n""",  # note\n)\ndef documented_task():\n    pass\n',
+            '@shared_task(description="""first\n# kept line\n""", name="products.logs.backend.tasks.documented_task")',
+        ),
     ],
 )
 def test_pin_task_names(source: str, expected_fragment: str) -> None:
@@ -186,6 +206,16 @@ def test_pin_task_names_warns_when_not_directly_above_def() -> None:
     result, warnings = pin_task_names(text, "products.logs.backend.tasks")
     assert result == text
     assert len(warnings) == 1
+
+
+def test_pin_task_names_preserves_hash_in_quoted_arguments() -> None:
+    # Test that '#' inside quoted decorator arguments is preserved correctly
+    source = '@shared_task(queue="jobs#priority", time_limit=3600)\ndef prioritized_task():\n    pass\n'
+    result, warnings = pin_task_names(source, "products.logs.backend.tasks")
+    # The hash should be preserved in the queue argument, not treated as a comment
+    assert 'queue="jobs#priority"' in result
+    assert 'name="products.logs.backend.tasks.prioritized_task"' in result
+    assert warnings == []
 
 
 # ---------------------------------------------------------------------------

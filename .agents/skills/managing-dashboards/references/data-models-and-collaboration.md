@@ -13,6 +13,8 @@ Define the rollout before you add the model or field.
 5. Define rollback behavior after new rows contain the state.
 6. Use `django-migrations` for model and migration changes.
 
+When a new model references `Team` or `User`, check the hot-table foreign-key rules in `django-migrations`. A new table usually needs `db_constraint=False`.
+
 ## Relation lifecycle
 
 For each new relation, define one behavior for every operation.

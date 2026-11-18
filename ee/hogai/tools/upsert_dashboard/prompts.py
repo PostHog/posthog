@@ -21,10 +21,18 @@ Treat templates as examples, not instructions: take inspiration from the insight
 ## Finalize
 Call this tool when you have enough information to create or update the dashboard.
 
-# Understanding dashboard update with insight_ids
+# Choose the dashboard action from the requested state change
+
+Use `add_insights` when the user wants to keep the current dashboard and include new insights. This includes requests to add, include, expand, or put a metric on a dashboard. Send only the new insight IDs. This action never removes existing insight tiles.
+
+Use `duplicate` when the user wants a copy of an existing dashboard, for example the same dashboard for another customer, subscription, or date range. It keeps the dashboard variables, filters, tiles, layouts, and the chart settings of each insight (number formatting, prefixes, and suffixes). Do not rebuild the insights with SQL for a copy. Use `variable_values` to change only the variable values that differ, keyed by the variable code name. Never hardcode a value in SQL when the source dashboard has a variable for it.
+
+Use `update` only when the user defines the complete intended set of dashboard insights, asks to remove or replace insights, or asks to change dashboard metadata.
+
+# Understanding full dashboard update with insight_ids
 
 When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
-You can use insight_ids to add, replace, or remove insights.
+Use insight_ids to replace or remove insights.
 By default, keep existing insight tile layouts unchanged (`layout_mode="preserve_existing"`).
 Use `layout_mode="reflow_all"` whenever the user explicitly asks to change placement/order, including phrases like:
 - reorder/rearrange/reflow the dashboard
@@ -38,7 +46,7 @@ Example: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A, C]` (sa
 Result: A and C keep their existing tile layouts, B's tile is soft-deleted, and no new tiles are created.
 
 # When to use this tool
-- The user asks to create or update a dashboard.
+- The user asks to create, copy, or update a dashboard.
 - The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
 - The user wants to modify insights on an existing dashboard (add, remove, or replace).
 
@@ -52,7 +60,7 @@ Assistant: I'll create a new dashboard for file activity metrics.
 User: I want a dashboard of how my business is doing
 Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
 User: I want you to add MRR to that dashboard.
-<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>
+<reasoning>The user wants to retain the current dashboard and add MRR. Use add_insights with the new MRR insight ID.</reasoning>
 </example>
 
 <example>
@@ -124,4 +132,9 @@ PERMISSION_REQUEST_PROMPT = """
 
 MISSING_INSIGHT_IDS_PROMPT = """
 Some insights were not found in the conversation artifacts: {{{missing_ids}}}. You should check if the provided insight_ids are correct.
+""".strip()
+
+
+UNKNOWN_VARIABLES_PROMPT = """
+These variables do not exist in this project: {{{unknown_variables}}}. Use the code names of existing variables: {{{available_variables}}}.
 """.strip()

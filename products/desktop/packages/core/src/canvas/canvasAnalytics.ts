@@ -2,6 +2,8 @@ import type {
   CanvasPromptSentProperties,
   CanvasPromptSurface,
   ContextActionProperties,
+  SpaceContextMode,
+  TaskCreateProperties,
 } from "@posthog/shared/analytics-events";
 
 /** The dashboardId a canvas thread persists to ("dashboard:<id>" → "<id>"). */
@@ -44,5 +46,24 @@ export function buildContextSaveProps(opts: {
     channel_id: opts.channelId,
     is_first_version: !opts.hasInstructions,
     success: opts.success,
+  };
+}
+
+export function buildTaskSpaceContextProps(opts: {
+  channelId?: string;
+  channelContextId?: string;
+  channelContext?: string;
+  channelContextPath?: string;
+}): Pick<TaskCreateProperties, "channel_id" | "space_context_mode"> {
+  const channelId = opts.channelContextId ?? opts.channelId;
+  const spaceContextMode: SpaceContextMode = opts.channelContextPath
+    ? "context_wiki_reference"
+    : opts.channelContext?.trim()
+      ? "legacy_inline"
+      : "none";
+
+  return {
+    ...(channelId ? { channel_id: channelId } : {}),
+    space_context_mode: spaceContextMode,
   };
 }

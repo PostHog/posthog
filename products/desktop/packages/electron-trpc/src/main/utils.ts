@@ -1,4 +1,4 @@
-export function isObject(value: unknown): value is Record<string, unknown> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && !Array.isArray(value) && typeof value === "object";
 }
 
@@ -20,7 +20,7 @@ export function isAsyncIterable<TValue>(
  * @param dispose Async function to call when disposing the resource
  * @returns The original value with Symbol.asyncDispose method added
  */
-export function makeAsyncResource<T>(
+function makeAsyncResource<T>(
   thing: T,
   dispose: () => Promise<void>,
 ): T & AsyncDisposable {

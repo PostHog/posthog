@@ -33,14 +33,11 @@ export function SignalCardDisclosureProvider({
 export function SignalCardHeader({
     signal,
     label,
-    rightSlot,
     disclosure,
 }: {
     signal: SignalNode
     /** Optional bold title shown after the source line (e.g. an entity name). */
     label?: React.ReactNode
-    /** Optional content rendered at the end of the header (e.g. a severity badge). */
-    rightSlot?: React.ReactNode
     disclosure?: SignalCardDisclosureState | null
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
@@ -52,6 +49,7 @@ export function SignalCardHeader({
             ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
             : undefined
     const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
+    const sourceLine = scoutName ? `Scout · ${scoutName}` : signalCardSourceLine(signal)
 
     return (
         <div
@@ -64,20 +62,23 @@ export function SignalCardHeader({
             ) : (
                 <span className="size-2.5 rounded-full shrink-0 bg-border" />
             )}
-            <span className="text-xs font-medium text-tertiary whitespace-nowrap">
-                {scoutName && typeof scoutSkillName === 'string' ? (
-                    <>
-                        Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
-                    </>
-                ) : (
-                    signalCardSourceLine(signal)
-                )}
-                {' · '}
-                <TZLabel time={signal.timestamp} />
+            <span className="flex min-w-0 items-center text-xs font-medium text-tertiary">
+                <span className="truncate" title={sourceLine}>
+                    {scoutName && typeof scoutSkillName === 'string' ? (
+                        <>
+                            Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : (
+                        sourceLine
+                    )}
+                </span>
+                <span className="shrink-0 whitespace-pre">
+                    {' · '}
+                    <TZLabel time={signal.timestamp} />
+                </span>
             </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
-            {rightSlot}
             {disclosure ? (
                 <LemonButton
                     type="tertiary"
@@ -96,19 +97,17 @@ export function SignalCardHeader({
 export function SignalCardShell({
     signal,
     label,
-    rightSlot,
     children,
 }: {
     signal: SignalNode
     label?: React.ReactNode
-    rightSlot?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
     const disclosure = useContext(SignalCardDisclosureContext)
 
     return (
         <LemonCard hoverEffect={false} className={disclosure ? 'p-2 shadow-none' : 'p-3 shadow-sm'}>
-            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} disclosure={disclosure} />
+            <SignalCardHeader signal={signal} label={label} disclosure={disclosure} />
             {!disclosure || disclosure.expanded ? children : null}
         </LemonCard>
     )

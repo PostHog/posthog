@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { PANEL_LOAD_TIMEOUT_MS } from '../../../utils/panelLoadTimeout'
 import { ScoutNotesPanel } from './ScoutNotesPanel'
 
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -30,7 +31,10 @@ describe('ScoutNotesPanel', () => {
         initKeaTests()
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+    })
 
     it('shows the opening of a long note until it is expanded', async () => {
         const { findByText, getByText, queryByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
@@ -43,5 +47,48 @@ describe('ScoutNotesPanel', () => {
         fireEvent.click(getByText('Show more'))
 
         expect(getByText(new RegExp(TAIL))).toBeTruthy()
+    })
+
+    it('folds fleet-wide notes away below the notes for this scout', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/signals/scout/notes/': [
+                    {
+                        id: 'note-fleet',
+                        content: 'Ignore traffic from the staging domain.',
+                        origin: 'human',
+                        skill_name: '',
+                        created_by_name: 'Someone',
+                        created_at: '2026-08-20T10:00:00Z',
+                        expires_at: null,
+                    },
+                ],
+            },
+        })
+
+        const { findByText, getByText, queryByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
+
+        expect(await findByText('It also reads 1 note left for every scout')).toBeTruthy()
+        expect(getByText(/Nothing has been told to this scout yet/)).toBeTruthy()
+        expect(queryByText('Ignore traffic from the staging domain.')).toBeNull()
+
+        fireEvent.click(getByText('It also reads 1 note left for every scout'))
+
+        expect(getByText('Ignore traffic from the staging domain.')).toBeTruthy()
+    })
+
+    it('offers a retry once a load that never settles times out', async () => {
+        useMocks({ get: { '/api/projects/:team/signals/scout/notes/': () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+
+        const { findByText, getByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
+
+        expect(getByText('Loading notes…')).toBeTruthy()
+
+        await act(async () => {
+            jest.advanceTimersByTime(PANEL_LOAD_TIMEOUT_MS)
+        })
+
+        expect(await findByText('Try again')).toBeTruthy()
     })
 })

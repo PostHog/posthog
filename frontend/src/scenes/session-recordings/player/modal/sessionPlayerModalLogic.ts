@@ -1,5 +1,7 @@
-import { MakeLogicType, actions, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { closeTraceDialogUnderModal } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 
 import { SessionRecordingId, SessionRecordingType } from '~/types'
 
@@ -85,6 +87,11 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        openSessionPlayer: () => {
+            closeTraceDialogUnderModal()
+        },
+    })),
     actionToUrl(({ values }) => {
         const buildURL = (): [
             string,

@@ -22,13 +22,7 @@ from dagster import (
 from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import (
-    ClickHouseUser,
-    NodeRole,
-    Workload,
-    get_http_client,
-    get_kwargs_for_client,
-)
+from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole, Workload, get_http_client, get_http_kwargs
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.cloud_utils import is_cloud
@@ -742,9 +736,7 @@ def _do_experimental_backfill(
     if debug_url := metabase_debug_query_url(context.run_id):
         context.log.info(f"Debug query: {debug_url}")
 
-    kwargs = get_kwargs_for_client(
-        workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
-    )
+    kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT)
     # The experimental cluster uses the non-sharded table name (raw_sessions_v3),
     # and is a standalone node not in the main ClickHouse cluster
     target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()

@@ -10,9 +10,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
 
-DASHBOARD_WIDGETS_FLAG = "dashboard-widgets"
-DASHBOARD_CUSTOMIZATION_FLAG = "dashboard-customization"
-
 
 def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
     """Match the existing in-app widget flag evaluation."""
@@ -33,11 +30,3 @@ def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> b
             send_feature_flag_events=False,
         )
     )
-
-
-def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
-    return widget_flag_enabled(DASHBOARD_WIDGETS_FLAG, team=team, user=user)
-
-
-def dashboard_customization_enabled(*, team: Team, user: User | None = None) -> bool:
-    return widget_flag_enabled(DASHBOARD_CUSTOMIZATION_FLAG, team=team, user=user)

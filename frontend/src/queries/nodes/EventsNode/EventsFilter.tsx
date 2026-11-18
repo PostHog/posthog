@@ -13,9 +13,11 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 interface EventsFilterProps {
     query: EventsQuery
     setQuery?: (query: EventsQuery) => void
+    /** See `QueryContext.includeHiddenEvents`. The hosting surface decides, not this component. */
+    includeHiddenEvents?: boolean
 }
 
-export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Element {
+export function EventsFilter({ query, setQuery, includeHiddenEvents }: EventsFilterProps): JSX.Element {
     const events = query.events || []
     const [adding, setAdding] = useState(false)
 
@@ -54,6 +56,7 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
                     onUpdate={(value) => handleUpdateEvent(index, value)}
                     onRemove={() => handleRemoveEvent(index)}
                     disabled={!setQuery}
+                    includeHiddenEvents={includeHiddenEvents}
                 />
             ))}
             <Popover
@@ -66,6 +69,7 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
                         onChange={(_group, value) => handleAddEvent(String(value))}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                         excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
+                        includeHiddenEvents={includeHiddenEvents}
                         selectedProperties={{ [TaxonomicFilterGroupType.Events]: events }}
                     />
                 }
@@ -91,9 +95,19 @@ interface EventChipProps {
     onUpdate: (value: string) => void
     onRemove: () => void
     disabled?: boolean
+    includeHiddenEvents?: boolean
 }
 
-function EventChip({ event, selectedEvents, onUpdate, onRemove, disabled }: EventChipProps): JSX.Element {
+// Kept in step with the "Select events" popover above: a surface that can add a hidden event has to
+// let you find it again when swapping this chip, or the edit list silently drops the pick.
+function EventChip({
+    event,
+    selectedEvents,
+    onUpdate,
+    onRemove,
+    disabled,
+    includeHiddenEvents,
+}: EventChipProps): JSX.Element {
     const [editing, setEditing] = useState(false)
 
     return (
@@ -110,6 +124,7 @@ function EventChip({ event, selectedEvents, onUpdate, onRemove, disabled }: Even
                     }}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                     excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
+                    includeHiddenEvents={includeHiddenEvents}
                     selectedProperties={{ [TaxonomicFilterGroupType.Events]: selectedEvents }}
                 />
             }

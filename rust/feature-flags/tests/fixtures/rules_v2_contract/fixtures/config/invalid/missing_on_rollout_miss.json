@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "99999999-9999-4999-8999-999999999999",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": true,
+      "rollout_percentage": 25,
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "missing-policy"
+    }
+  ]
+}

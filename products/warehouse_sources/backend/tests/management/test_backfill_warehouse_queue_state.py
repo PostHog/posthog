@@ -9,15 +9,12 @@ from django.core.management import call_command
 
 import psycopg
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    STATUS_TABLE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _BATCH_DEFAULTS,
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, STATUS_TABLE
+from products.warehouse_sources_queue.backend.testing import (
+    BATCH_DEFAULTS as _BATCH_DEFAULTS,
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+    truncate_queue_tables as _truncate_tables,
 )
 
 pytestmark = [pytest.mark.django_db]

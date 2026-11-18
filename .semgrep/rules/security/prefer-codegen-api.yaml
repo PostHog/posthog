@@ -1,34 +1,87 @@
 rules:
     - id: prefer-codegen-api
       message: >-
-          Manual `api.<verb>(...)` call in product frontend code. Prefer the generated
-          client in `products/<product>/frontend/generated/api.ts`.
+          Raw `api.<verb>(...)` call outside the API layer. It puts a hand-written URL
+          and an unchecked response type at the call site, so a backend change breaks it
+          at runtime instead of at compile time. Call the generated function instead:
+          `products/<product>/frontend/generated/api.ts` for a product endpoint,
+          `frontend/src/generated/core/api.ts` for a core endpoint.
 
           Agents: invoke the `adopting-generated-api-types` skill
           (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration
           workflow. Humans: run `hogli product:maturity --codegen <product>` to see
           the suggested generated function per call site.
 
-          If no generated equivalent is available yet (endpoint missing OpenAPI tags,
-          dynamic URL, etc.), add `// nosemgrep: prefer-codegen-api` above this line —
-          the maturity tooling continues to track tagged sites.
+          If no generated function covers the endpoint, add its OpenAPI schema
+          (`/improving-drf-endpoints`) and run `hogli build:openapi`. Only a URL that the
+          server returns (a pagination `next` link, an export download) or a route
+          outside the API may stay raw. Mark it with
+          `// nosemgrep: prefer-codegen-api -- <reason>` on the line above.
       severity: ERROR
       languages: [typescript, javascript]
+      # Namespaced calls (api.signalReports.list()) are a different AST shape and
+      # have a backlog in the hundreds, so they live in the WARNING-severity
+      # .semgrep/rules/devex/prefer-codegen-api-namespaced.yaml, where the devex
+      # job's --baseline-commit pass blocks only the ones a pull request adds.
       pattern-either:
           - pattern: api.get(...)
+          - pattern: api.getResponse(...)
+          - pattern: api.stream(...)
           - pattern: api.post(...)
+          - pattern: api.create(...)
+          - pattern: api.createResponse(...)
+          - pattern: api.createWithUploadProgress(...)
           - pattern: api.put(...)
           - pattern: api.patch(...)
-          - pattern: api.delete(...)
-          - pattern: api.create(...)
           - pattern: api.update(...)
+          - pattern: api.delete(...)
+          - pattern: api.loadPaginatedResults(...)
           # Semgrep's TypeScript parser treats generic-typed calls (api.create<T>())
           # as a different AST shape that AST-level patterns above don't match,
           # so fall back to a regex. Bounds the type args by `(` rather than `>` so
           # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
-          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\('
+          - pattern-regex: '\bapi\.(get|getResponse|stream|post|create|createResponse|createWithUploadProgress|put|patch|update|delete|loadPaginatedResults)<[^(]*>\s*\('
       paths:
           include:
+              - '/frontend/src/'
               - '/products/*/frontend/'
           exclude:
               - '**/generated/**'
+              # The API layer itself: the transport, the mutator the generated
+              # functions call, and the SSE reconnect wrapper over api.stream.
+              - '/frontend/src/lib/api.ts'
+              - '/frontend/src/lib/api-orval-mutator.ts'
+              - '/frontend/src/lib/api-stream.ts'
+              # Tests exercise the transport on purpose (retries, re-authentication),
+              # and a test is not where the frontend's API contract lives.
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+
+    - id: prefer-codegen-api-reason
+      message: >-
+          A `prefer-codegen-api` suppression needs a reason. Write it after ` -- ` on the
+          same line, for example
+          `// nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.`
+          The reason tells the next reader whether the raw call is a real exception or
+          debt to migrate.
+      severity: ERROR
+      languages: [typescript, javascript]
+      # Semgrep matches a nosemgrep id exactly, so the bare marker that silences
+      # prefer-codegen-api on this line does not silence this rule.
+      pattern-regex: '(?://|/\*)\s*nosemgrep:[^\n]*?prefer-codegen-api(?![\w-])(?![^\n]*?\s--\s*[^\s*])'
+      # Same scope as prefer-codegen-api.
+      paths:
+          include:
+              - '/frontend/src/'
+              - '/products/*/frontend/'
+          exclude:
+              - '**/generated/**'
+              - '/frontend/src/lib/api.ts'
+              - '/frontend/src/lib/api-orval-mutator.ts'
+              - '/frontend/src/lib/api-stream.ts'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'

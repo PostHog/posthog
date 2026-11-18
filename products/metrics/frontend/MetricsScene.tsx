@@ -1,7 +1,13 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -12,36 +18,42 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MetricsAlertingSection } from './alerting/MetricsAlertingSection'
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
-import { MetricsFundamentals } from './components/MetricsFundamentals'
+import { MetricsDashboardActions } from './components/MetricsDashboardActions'
 import { MetricsOverview } from './components/MetricsOverview'
-import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { QuillMetricsDashboardActions } from './components/QuillMetricsDashboardActions'
+import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
+import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
-import { metricsIngestionLogic } from './metricsIngestionLogic'
-import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { MetricsPrometheusConnectModal } from './prometheusConnect/MetricsPrometheusConnectModal'
 
 export const METRICS_LOGIC_KEY = 'metrics'
+
+const METRICS_FEEDBACK_SURVEY_ID = '01a07c35-6be3-0000-16b3-4cd66a6873f3'
 
 const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[] = [
     { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
-    { key: 'fundamentals', label: 'Fundamentals', 'data-attr': 'metrics-scene-tab-fundamentals' },
+    { key: 'alerts', label: 'Alerts', 'data-attr': 'metrics-scene-tab-alerts' },
 ]
 
 export const scene: SceneExport = {
     component: MetricsScene,
     logic: metricsSceneLogic,
     productKey: ProductKey.METRICS,
+    emptyState: metricsEmptyState,
 }
 
 export function MetricsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
-            <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
                 <MetricsSceneContent />
             </SceneContent>
         </FeaturePreviewSceneGate>
@@ -51,7 +63,6 @@ export function MetricsScene(): JSX.Element {
 const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
-    const { teamHasMetricsCheckFailed } = useValues(metricsIngestionLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
@@ -64,14 +75,34 @@ const MetricsSceneContent = (): JSX.Element => {
         overview: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
-        fundamentals: metricsViewerDisabledReason,
+        alerts: metricsViewerDisabledReason,
     }
+    // The platform serves metrics alerts only when its own flag is on as well.
+    const platformAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS')
+    const metricsAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS_SOURCE_METRICS')
+    const alertsEnabled = platformAlertsEnabled && metricsAlertsEnabled
+    const tabs = alertsEnabled ? TABS : TABS.filter((tab) => tab.key !== 'alerts')
+    // A shared link to the alerts tab falls back to the default tab for someone without the flag.
+    const shownTab = alertsEnabled || activeTab !== 'alerts' ? activeTab : DEFAULT_ACTIVE_TAB
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
     // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
     // races the has_metrics check instead of waiting on the setup prompt to resolve.
     useMountedLogic(metricNamePickerLogic)
+    const { primeItems } = useActions(metricNamePickerLogic)
+    useOnMountEffect(() => {
+        primeItems()
+    })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const prometheusApiEnabled = useFeatureFlag('LOGS_METRICS_SNUFFLE_API')
+    // The connect modal mounts its logic (and the personal API key logic, which loads every project) only once opened.
+    const [isConnectModalMounted, setIsConnectModalMounted] = useState(false)
+    const openConnectModal = (): void => setIsConnectModalMounted(true)
+
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
+    }
 
     return (
         <>
@@ -81,41 +112,90 @@ const MetricsSceneContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
+                actions={
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <QuillMetricsDashboardActions />
+                            </div>
+                            {prometheusApiEnabled && (
+                                <Button
+                                    variant="outline"
+                                    onClick={openConnectModal}
+                                    data-attr="metrics-prometheus-connect"
+                                >
+                                    Connect Grafana
+                                </Button>
+                            )}
+                            <Button variant="outline" onClick={onFeedbackClick}>
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            {/* In a narrow scene, the tab bar has no space for the import menu. */}
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <MetricsDashboardActions />
+                            </div>
+                            {prometheusApiEnabled && (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={openConnectModal}
+                                    data-attr="metrics-prometheus-connect"
+                                >
+                                    Connect Grafana
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={onFeedbackClick}
+                            >
+                                Feedback
+                            </LemonButton>
+                        </>
+                    )
+                }
             />
-            {teamHasMetricsCheckFailed && (
-                <LemonBanner
-                    type="info"
-                    dismissKey="metrics-setup-hint-banner"
-                    action={{
-                        to: 'https://posthog.com/docs/metrics',
-                        targetBlank: true,
-                        children: 'Setup guide',
-                    }}
-                >
-                    Unable to verify metrics setup. If you haven't configured metrics yet, check out our setup guide.
-                </LemonBanner>
-            )}
+            <LemonBanner
+                type="warning"
+                dismissKey="metrics-alpha-notice"
+                action={{
+                    icon: <IconFeedback />,
+                    children: 'Share feedback',
+                    onClick: onFeedbackClick,
+                }}
+            >
+                Metrics is in alpha. Please share feedback on how to improve the product.
+            </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
-                activeKey={activeTab}
+                activeKey={shownTab}
                 onChange={(tab) => {
                     if (!tabDisabledReasons[tab]) {
                         setActiveTab(tab)
                     }
                 }}
-                tabs={TABS.map((tab) => ({
+                tabs={tabs.map((tab) => ({
                     ...tab,
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
+                rightSlot={<MetricsDashboardActions />}
+                rightSlotClassName="hidden @min-[48rem]/metrics-scene:flex"
             />
-            <MetricsSetupPrompt>
-                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    {activeTab === 'overview' && <MetricsOverview />}
-                    {activeTab === 'viewer' && <MetricsViewer />}
-                    {activeTab === 'sql' && <MetricsSqlEditor />}
-                    {activeTab === 'fundamentals' && <MetricsFundamentals />}
-                </div>
-            </MetricsSetupPrompt>
+            <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                {shownTab === 'overview' && <MetricsOverview />}
+                {shownTab === 'viewer' && <MetricsViewer />}
+                {shownTab === 'sql' && <MetricsSqlEditor />}
+                {shownTab === 'alerts' && <MetricsAlertingSection />}
+            </div>
+            <MetricsDashboardImportModal />
+            {prometheusApiEnabled && isConnectModalMounted && (
+                <MetricsPrometheusConnectModal onClose={() => setIsConnectModalMounted(false)} />
+            )}
         </>
     )
 }

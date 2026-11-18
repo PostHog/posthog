@@ -31,6 +31,7 @@ class CISignalsConfigMixin(EngineeringAnalyticsViewSetBase):
         responses={200: CISignalsConfigSerializer},
         description="Return the atomic CI Signals configuration and aggregate GitHub warehouse sync status.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="ci-signals-config", pagination_class=None)
     def ci_signals_config(self, request: Request, **kwargs) -> Response:
         result = api.get_ci_signals_config(team=self.team, user_access_control=self.user_access_control)

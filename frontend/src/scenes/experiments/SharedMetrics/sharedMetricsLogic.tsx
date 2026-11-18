@@ -114,6 +114,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                         offset: (values.page - 1) * PAGE_SIZE,
                         search: values.searchTerm || undefined,
                     })
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsList() from 'products/experiments/frontend/generated/api' instead.
                     const response: CountedPaginatedResponse<SharedMetric> = await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )
@@ -136,6 +137,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         },
         updateSharedMetricTags: async ({ metricId, tags }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentProjectId}/experiment_saved_metrics/${metricId}`, {
                     tags,
                 })
@@ -147,6 +149,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         },
         deleteSharedMetric: async ({ metricId }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentSavedMetricsDestroy() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/projects/${values.currentProjectId}/experiment_saved_metrics/${metricId}`)
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()

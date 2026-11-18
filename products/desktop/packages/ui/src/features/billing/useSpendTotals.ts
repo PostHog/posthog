@@ -12,7 +12,6 @@ import {
 } from "@posthog/core/billing/spendLimits";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
@@ -51,20 +50,30 @@ function fetchSpendWindow(
   });
 }
 
+export interface SpendTotalsState {
+  totals: SpendSnapshot | null;
+  /** True while the first read is in flight, so a surface can tell waiting from unavailable. */
+  isLoading: boolean;
+}
+
 /**
  * Today's and this month's personal spend in this app, or null while the
  * data hasn't loaded (or the endpoint is unavailable).
  */
 export function useSpendTotals(): SpendSnapshot | null {
+  return useSpendTotalsState().totals;
+}
+
+/** The same totals, with the loading flag a rendering surface needs. */
+export function useSpendTotalsState(): SpendTotalsState {
   const client = useOptionalAuthenticatedClient();
-  const enabled = useSpendAnalysisEnabled();
   const query = useQuery({
     queryKey: SPEND_TOTALS_QUERY_KEY,
     queryFn: () => {
       if (!client) throw new Error("Not authenticated");
       return fetchSpendWindow(client);
     },
-    enabled: client !== null && enabled,
+    enabled: client !== null,
     refetchInterval: POLL_INTERVAL_MS,
     staleTime: 60_000,
     retry: false,
@@ -73,11 +82,14 @@ export function useSpendTotals(): SpendSnapshot | null {
     meta: AUTH_SCOPED_QUERY_META,
   });
   const days = query.data?.by_day?.items;
-  return useMemo(() => {
+  const totals = useMemo(() => {
     if (!days) return null;
     return {
       ...spendTotalsFromDays(days, utcDayIso()),
       avgDailyUsd: averageDailySpend(days, WINDOW_DAYS),
     };
   }, [days]);
+  // A query disabled before auth is not idle, it is waiting: react-query
+  // reports isLoading false there, which would read as "unavailable".
+  return { totals, isLoading: client === null || query.isLoading };
 }

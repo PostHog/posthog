@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { ReactNode } from 'react'
 
 import { IconDownload } from '@posthog/icons'
@@ -13,7 +12,10 @@ import { pluralize } from 'lib/utils/strings'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { getNextPreviewPageIndex } from 'scenes/surveys/surveyPreviewNavigation'
 import {
+    clampPreviewPageIndex,
+    getIntroScreenPageOptions,
     getRecurringSurveyScheduleInfo,
     getSurveyCollectionLimitSummary,
     getSurveyDisplayConditionsSummary,
@@ -24,7 +26,6 @@ import {
     AccessControlResourceType,
     ExporterFormat,
     Survey,
-    SurveyQuestionBranchingType,
     SurveySchedule as SurveyScheduleEnum,
     SurveyType,
 } from '~/types'
@@ -83,6 +84,7 @@ export function SurveyDetailsPanel(): JSX.Element {
     const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
     const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
     const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+    const effectivePageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
 
     return (
         <div className="flex flex-col gap-6">
@@ -93,29 +95,22 @@ export function SurveyDetailsPanel(): JSX.Element {
                         <div className="flex justify-center">
                             <SurveyAppearancePreview
                                 survey={survey as Survey}
-                                previewPageIndex={selectedPageIndex || 0}
+                                previewPageIndex={effectivePageIndex}
                                 onPreviewSubmit={(response) => {
-                                    const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
-                                    if (
-                                        nextStep === SurveyQuestionBranchingType.End &&
-                                        !survey.appearance?.displayThankYouMessage
-                                    ) {
-                                        return
+                                    const nextPageIndex = getNextPreviewPageIndex(survey, effectivePageIndex, response)
+                                    if (nextPageIndex !== null) {
+                                        setSelectedPageIndex(nextPageIndex)
                                     }
-                                    setSelectedPageIndex(
-                                        nextStep === SurveyQuestionBranchingType.End
-                                            ? survey.questions.length
-                                            : nextStep
-                                    )
                                 }}
                             />
                         </div>
                         <LemonSelect
                             size="xsmall"
                             fullWidth
-                            value={selectedPageIndex || 0}
+                            value={effectivePageIndex}
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             options={[
+                                ...getIntroScreenPageOptions(survey),
                                 ...survey.questions.map((question, index) => ({
                                     label: `${index + 1}. ${question.question ?? ''}`,
                                     value: index,
@@ -208,7 +203,7 @@ export function SurveyDetailsPanel(): JSX.Element {
 }
 
 export function SurveyExportPanel(): JSX.Element {
-    const { survey, dataTableQuery } = useValues(surveyLogic)
+    const { survey, responsesExportQuery } = useValues(surveyLogic)
     const { startExport } = useActions(exportsLogic)
 
     // Creating an export requires editor access to the export resource.
@@ -218,13 +213,14 @@ export function SurveyExportPanel(): JSX.Element {
     )
 
     const handleExport = (format: ExporterFormat): void => {
-        if (!dataTableQuery) {
+        if (!responsesExportQuery) {
             return
         }
         startExport({
             export_format: format,
             export_context: {
-                source: dataTableQuery,
+                source: responsesExportQuery,
+                columns: responsesExportQuery.columns,
                 filename: `survey-${survey.name}-responses`,
             },
         })
@@ -232,7 +228,7 @@ export function SurveyExportPanel(): JSX.Element {
 
     return (
         <PanelSection title="Export" description="Download survey responses">
-            {dataTableQuery ? (
+            {responsesExportQuery ? (
                 <LemonMenu
                     items={[
                         {

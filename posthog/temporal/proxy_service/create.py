@@ -25,8 +25,10 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
+from posthog.cloud_utils import is_cloud
 from posthog.dns_utils import async_dnssec_resolver
 from posthog.models import ProxyRecord
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
@@ -35,6 +37,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     create_custom_hostname,
     get_custom_hostname_by_domain,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -121,6 +124,11 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
+
+    if is_cloud() and (oob_domain := matched_oob_domain(inputs.domain)) is not None:
+        logger.info("security.oob_domain_seen", host=inputs.domain, domain=oob_domain, guard="proxy_create_dns")
+        # Waiting cannot change the answer, so the workflow stops instead of retrying.
+        raise ApplicationError(OOB_DOMAIN_REFUSAL, non_retryable=True)
 
     try:
         resolver = async_dnssec_resolver()
@@ -295,7 +303,7 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
 
     try:
-        result = await asyncio.to_thread(create_custom_hostname, inputs.domain, record.root_redirect_url)
+        result = await asyncio.to_thread(create_custom_hostname, inputs.domain)
         logger.info(
             "Created Cloudflare Custom Hostname %s for domain %s with status %s",
             result.id,
@@ -306,11 +314,19 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         if any(err.get("code") == 1406 for err in e.errors):
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
-            return
-        if e.is_rate_limited():
+        elif e.is_rate_limited():
             # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
             raise
-        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+        else:
+            raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+    if record.root_redirect_url:
+        try:
+            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, record.root_redirect_url)
+        except CloudflareAPIError as e:
+            if e.is_rate_limited():
+                raise
+            raise NonRetriableException(f"Cloudflare KV error: {e}") from e
 
 
 @activity.defn

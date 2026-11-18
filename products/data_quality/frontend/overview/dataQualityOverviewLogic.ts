@@ -5,7 +5,7 @@ import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { DataQualitySubjectRef, apiErrorDetail, checksApi } from 'products/data_quality/frontend/checksApi'
+import { apiErrorDetail, checksApi } from 'products/data_quality/frontend/checksApi'
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
@@ -16,19 +16,25 @@ import type {
     DataQualityCheckRunApi,
     DataQualityOverviewCheckApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
+import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { openFailingRowsInSqlEditor } from 'products/data_quality/frontend/openFailingRows'
 import {
     isTerminalSuiteRun,
     suiteRunOutcome,
     suiteRunPollListeners,
-    suiteRunSummary,
+    SUITE_RUN_TOAST_DISPOSABLE,
+    suiteRunToastId,
+    suiteRunToastMessage,
 } from 'products/data_quality/frontend/suiteRuns'
 
-const CHECKS_LIMIT = 500
+export const CHECKS_LIMIT = 500
 
 export type OverviewStatusFilter = 'all' | 'failing' | 'never_run'
+
+export type OverviewChecksStatus = 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
 
 export interface OverviewFilters {
     search: string
@@ -40,6 +46,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { search: '', status: '
 /** Checks and rollups from one refresh, committed together so rows and health always agree. */
 export interface OverviewSnapshot {
     checks: DataQualityOverviewCheckApi[]
+    totalCheckCount: number
     health: DataQualitySubjectHealthApi[]
 }
 
@@ -50,7 +57,7 @@ export type OverviewRunTarget = { kind: 'all' } | { kind: 'subject'; subjectKey:
 export interface SubjectGroup {
     /** Composite: a table and a view can hold the same uuid, and do collide in practice. */
     subjectKey: string
-    subjectType: string
+    subjectType: SubjectTypeEnumApi
     subjectUuid: string
     subjectName: string
     detailUrl: string | null
@@ -71,14 +78,17 @@ export function subjectKeyOf(subjectType: string, subjectUuid: string | null | u
     return `${subjectType}:${subjectUuid ?? ''}`
 }
 
-function subjectRefOf(check: DataQualityOverviewCheckApi): DataQualitySubjectRef {
-    return { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' }
-}
-
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
+    if (check.subject_type === 'posthog_table') {
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id) : null
+    }
+    if (check.subject_type === 'metric') {
+        // The catalog addresses a metric by name, so a row that came without one has no route.
+        return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'data-quality') : null
+    }
     if (check.subject_type === 'view') {
-        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'tests') : null
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'data-quality') : null
     }
     if (check.subject_source_id && check.subject_schema_id) {
         return urls.dataWarehouseSourceSchema(check.subject_source_id, check.subject_schema_id)
@@ -88,9 +98,37 @@ export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | n
     return check.subject_uuid ? urls.dataWarehouseSource(`self-managed-${check.subject_uuid}`) : null
 }
 
+export function groupChecksBySubject(
+    checks: DataQualityOverviewCheckApi[],
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+): SubjectGroup[] {
+    const groups = new Map<string, SubjectGroup>()
+    for (const check of checks) {
+        const subjectKey = subjectKeyOf(check.subject_type, check.subject_uuid)
+        const group = groups.get(subjectKey) ?? {
+            subjectKey,
+            subjectType: check.subject_type,
+            subjectUuid: check.subject_uuid ?? '',
+            subjectName: check.subject_name,
+            detailUrl: subjectDetailUrl(check),
+            checks: [],
+            health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
+            checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
+            checksTotal: healthBySubjectKey[subjectKey]?.checks_total ?? 0,
+        }
+        group.checks.push(check)
+        groups.set(subjectKey, group)
+    }
+    return [...groups.values()].sort(
+        (left, right) =>
+            (HEALTH_ORDER[left.health] ?? 9) - (HEALTH_ORDER[right.health] ?? 9) ||
+            left.subjectName.localeCompare(right.subjectName)
+    )
+}
+
 export const ROW_ACTIONS_ID_PREFIX = 'data-quality-check-actions-'
 export const SUBJECT_DISCLOSURE_ID_PREFIX = 'data-quality-subject-disclosure-'
-export const BROWSE_ACTION_ID = 'data-quality-browse-subjects'
+export const NEW_CHECK_ACTION_ID = 'data-quality-overview-new-check'
 
 export function rowActionsId(checkId: string): string {
     return `${ROW_ACTIONS_ID_PREFIX}${checkId}`
@@ -120,7 +158,7 @@ export function focusCandidatesAfterDelete(groups: SubjectGroup[], subjectKey: s
         ...(siblings.length ? [subjectDisclosureId(subjectKey)] : []),
         ...(groups[groupIndex + 1] ? [subjectDisclosureId(groups[groupIndex + 1].subjectKey)] : []),
         ...(groupIndex > 0 ? [subjectDisclosureId(groups[groupIndex - 1].subjectKey)] : []),
-        BROWSE_ACTION_ID,
+        NEW_CHECK_ACTION_ID,
     ]
 }
 
@@ -134,6 +172,8 @@ export interface dataQualityOverviewLogicValues {
     allSubjectKeys: string[]
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityOverviewCheckApi[]
+    checksStatus: OverviewChecksStatus
+    checksTruncated: boolean
     deletingCheckIds: Record<string, boolean>
     expandedSubjectKeys: string[]
     expansionInitialized: boolean
@@ -152,14 +192,18 @@ export interface dataQualityOverviewLogicValues {
     overviewLoading: boolean
     overviewSummary: string | null
     pollTimedOut: boolean
+    runCheckIds: string[]
     runError: string | null
     runTarget: OverviewRunTarget | null
     runningSubjectKey: string | null
     runsLoadingByCheckId: Record<string, boolean>
+    scheduleBySubjectKey: Record<string, DataQualitySubjectScheduleApi>
     snapshotLoaded: boolean
     startingRun: boolean
     subjectGroups: SubjectGroup[]
     subjectHealth: DataQualitySubjectHealthApi[]
+    subjectSchedules: DataQualitySubjectScheduleApi[]
+    subjectSchedulesLoading: boolean
     unhealthySubjectKeys: string[]
 }
 
@@ -186,13 +230,30 @@ export interface dataQualityOverviewLogicActions {
         overview: {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
+            totalCheckCount: number
         },
         payload?: any
     ) => {
         overview: {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
+            totalCheckCount: number
         }
+        payload?: any
+    }
+    loadSubjectSchedules: () => any
+    loadSubjectSchedulesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSubjectSchedulesSuccess: (
+        subjectSchedules: DataQualitySubjectScheduleApi[],
+        payload?: any
+    ) => {
+        subjectSchedules: DataQualitySubjectScheduleApi[]
         payload?: any
     }
     openFailingRows: (check: DataQualityOverviewCheckApi) => {
@@ -203,6 +264,9 @@ export interface dataQualityOverviewLogicActions {
     }
     removeCheck: (checkId: string) => {
         checkId: string
+    }
+    retryRun: () => {
+        value: true
     }
     runChecks: (
         target: OverviewRunTarget,
@@ -266,6 +330,10 @@ export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
         subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        checksStatus: (checks: DataQualityOverviewCheckApi[]) => OverviewChecksStatus
+        scheduleBySubjectKey: (
+            subjectSchedules: DataQualitySubjectScheduleApi[]
+        ) => Record<string, DataQualitySubjectScheduleApi>
         healthBySubjectKey: (subjectHealth: DataQualitySubjectHealthApi[]) => {
             [k: string]: DataQualitySubjectHealthApi
         }
@@ -280,6 +348,7 @@ export interface dataQualityOverviewLogicMeta {
             checks: DataQualityOverviewCheckApi[],
             filters: OverviewFilters
         ) => DataQualityOverviewCheckApi[]
+        checksTruncated: (overview: OverviewSnapshot | null) => boolean
         failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
         failingSubjectCount: (checks: DataQualityOverviewCheckApi[]) => number
         overviewSummary: (
@@ -316,6 +385,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
         setCheckRuns: (checkId: string, runs: DataQualityCheckRunApi[]) => ({ checkId, runs }),
         setRunsLoading: (checkId: string, loading: boolean) => ({ checkId, loading }),
         runChecks: (target: OverviewRunTarget, checkIds: string[] = []) => ({ target, checkIds }),
+        retryRun: true,
         setStartingRun: (starting: boolean) => ({ starting }),
         setActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi | null) => ({ suiteRun }),
         scheduleSuiteRunPoll: true,
@@ -339,8 +409,14 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                         dataQualityChecksList(projectId(), { limit: CHECKS_LIMIT }),
                         dataQualityChecksHealthList(projectId()),
                     ])
-                    return { checks: checks.results, health }
+                    return { checks: checks.results, totalCheckCount: checks.count, health }
                 },
+            },
+        ],
+        subjectSchedules: [
+            [] as DataQualitySubjectScheduleApi[],
+            {
+                loadSubjectSchedules: async () => checksApi.schedules(),
             },
         ],
     })),
@@ -396,6 +472,12 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 runChecks: (_, { target }) => target,
             },
         ],
+        runCheckIds: [
+            [] as string[],
+            {
+                runChecks: (_, { checkIds }) => checkIds,
+            },
+        ],
         runError: [
             null as string | null,
             {
@@ -446,6 +528,28 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
     selectors({
         checks: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.checks ?? []],
         subjectHealth: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.health ?? []],
+        checksStatus: [
+            (s) => [s.checks],
+            (checks: DataQualityOverviewCheckApi[]): OverviewChecksStatus => {
+                if (checks.length === 0) {
+                    return 'none'
+                }
+                if (!checks.every((check) => check.last_status === 'passed')) {
+                    return 'some-not-passed'
+                }
+                return checks.length < CHECKS_LIMIT ? 'all-passed' : 'unknown'
+            },
+        ],
+        scheduleBySubjectKey: [
+            (s) => [s.subjectSchedules],
+            (subjectSchedules: DataQualitySubjectScheduleApi[]): Record<string, DataQualitySubjectScheduleApi> =>
+                Object.fromEntries(
+                    subjectSchedules.map((schedule) => [
+                        subjectKeyOf(schedule.subject_type, schedule.subject_uuid),
+                        schedule,
+                    ])
+                ),
+        ],
         healthBySubjectKey: [
             (s) => [s.subjectHealth],
             (subjectHealth: DataQualitySubjectHealthApi[]) =>
@@ -487,6 +591,10 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 })
             },
         ],
+        checksTruncated: [
+            (s) => [s.overview],
+            (overview: OverviewSnapshot | null): boolean => (overview?.totalCheckCount ?? 0) > CHECKS_LIMIT,
+        ],
         failingCheckCount: [
             (s) => [s.checks],
             (checks: DataQualityOverviewCheckApi[]) =>
@@ -518,7 +626,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     return null
                 }
                 if (failingCheckCount > 0) {
-                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables and views.`
+                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables, views, and metrics.`
                 }
                 const passed = checks.filter((check) => check.last_status === 'passed').length
                 if (passed === checks.length) {
@@ -536,30 +644,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             (
                 filteredChecks: DataQualityOverviewCheckApi[],
                 healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
-            ): SubjectGroup[] => {
-                const groups = new Map<string, SubjectGroup>()
-                for (const check of filteredChecks) {
-                    const subjectKey = subjectKeyOf(check.subject_type, check.subject_uuid)
-                    const group = groups.get(subjectKey) ?? {
-                        subjectKey,
-                        subjectType: check.subject_type,
-                        subjectUuid: check.subject_uuid ?? '',
-                        subjectName: check.subject_name,
-                        detailUrl: subjectDetailUrl(check),
-                        checks: [],
-                        health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
-                        checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
-                        checksTotal: healthBySubjectKey[subjectKey]?.checks_total ?? 0,
-                    }
-                    group.checks.push(check)
-                    groups.set(subjectKey, group)
-                }
-                return [...groups.values()].sort(
-                    (left, right) =>
-                        (HEALTH_ORDER[left.health] ?? 9) - (HEALTH_ORDER[right.health] ?? 9) ||
-                        left.subjectName.localeCompare(right.subjectName)
-                )
-            },
+            ): SubjectGroup[] => groupChecksBySubject(filteredChecks, healthBySubjectKey),
         ],
         allSubjectKeys: [
             (s) => [s.checks],
@@ -587,6 +672,9 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             setActiveSuiteRun: poll.setActiveSuiteRun,
             scheduleSuiteRunPoll: poll.scheduleSuiteRunPoll,
             pollActiveSuiteRun: poll.pollActiveSuiteRun,
+            loadOverview: () => {
+                actions.loadSubjectSchedules()
+            },
             loadOverviewSuccess: () => {
                 if (!values.expansionInitialized) {
                     actions.setExpandedSubjects(values.unhealthySubjectKeys)
@@ -606,7 +694,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 }
                 actions.setRunsLoading(check.id, true)
                 try {
-                    actions.setCheckRuns(check.id, await checksApi.runs(subjectRefOf(check), check.id))
+                    actions.setCheckRuns(check.id, await checksApi.runs(check.id))
                 } catch (error) {
                     lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
                 } finally {
@@ -616,9 +704,14 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             openFailingRows: async ({ check }) => {
                 await openFailingRowsInSqlEditor({
                     cachedRuns: values.checkRunsByCheckId[check.id],
-                    fetchRuns: () => checksApi.runs(subjectRefOf(check), check.id),
+                    fetchRuns: () => checksApi.runs(check.id),
                     onRunsFetched: (runs) => actions.setCheckRuns(check.id, runs),
                 })
+            },
+            retryRun: () => {
+                if (values.runTarget) {
+                    actions.runChecks(values.runTarget, values.runCheckIds)
+                }
             },
             runChecks: async ({ checkIds }) => {
                 try {
@@ -636,10 +729,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 }
                 actions.setCheckDeleting(check.id, true)
                 try {
-                    await checksApi.destroy(
-                        { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' },
-                        check.id
-                    )
+                    await checksApi.destroy(check.id)
                     actions.removeCheck(check.id)
                     actions.loadOverview()
                     lemonToast.success('Check deleted')
@@ -665,14 +755,30 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 const outcome = suiteRunOutcome(suiteRun)
                 if (outcome === 'empty') {
                     lemonToast.info('No enabled checks to run')
-                } else if (outcome === 'errored') {
+                    return
+                }
+                if (outcome === 'errored') {
                     // An inline banner rather than a toast: this page has a retry control for it.
                     actions.setRunError(suiteRun.error || "Couldn't run checks. Try again.")
-                } else if (outcome === 'warning') {
-                    lemonToast.warning(suiteRunSummary(suiteRun))
-                } else {
-                    lemonToast.success(suiteRunSummary(suiteRun))
+                    return
                 }
+                const message = suiteRunToastMessage(suiteRun)
+                if (outcome === 'success') {
+                    lemonToast.success(message)
+                    return
+                }
+                const toastId = suiteRunToastId(suiteRun)
+                lemonToast.warning(message, {
+                    toastId,
+                    button: {
+                        label: 'Show failing',
+                        action: () => actions.setFilters({ status: 'failing' }),
+                        dataAttr: 'data-quality-toast-show-failing',
+                    },
+                })
+                cache.disposables.add(() => () => lemonToast.dismiss(toastId), SUITE_RUN_TOAST_DISPOSABLE, {
+                    pauseOnPageHidden: false,
+                })
             },
         }
     }),

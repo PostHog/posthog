@@ -169,6 +169,17 @@ jobs:
                           if (c.author?.login !== author) {
                               continue;
                           }
+                          const messageLines = (c.commit?.message || '').split(/\r?\n/).map((line) => line.trim());
+                          const isDesktopCloudCommit =
+                              c.committer?.login === 'web-flow' &&
+                              (c.commit?.committer?.email || '').toLowerCase() === 'noreply@github.com' &&
+                              c.commit?.verification?.verified === true &&
+                              messageLines.includes('Generated-By: PostHog Desktop') &&
+                              messageLines.some((line) => /^Task-Id:\s+\S+$/.test(line));
+                          if (isDesktopCloudCommit) {
+                              console.log(`Skipping PostHog Desktop cloud commit ${c.sha}.`);
+                              continue;
+                          }
                           const email = (c.commit?.author?.email || '').toLowerCase();
                           // Skip GitHub noreply addresses (`id+user@users.noreply.github.com`):
                           // the commit stays attributable to a real account, and it's a
@@ -183,7 +194,7 @@ jobs:
                       }
 
                       if (offendingEmails.size === 0) {
-                          console.log('All author commits use a @posthog.com email — nothing to nudge.');
+                          console.log('No actionable non-PostHog author emails found — nothing to nudge.');
                           return;
                       }
 

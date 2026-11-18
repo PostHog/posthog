@@ -361,6 +361,10 @@ export function updateNotebookCodeBlockText(node: NotebookCodeBlockNode, nextTex
     return { ...node, text: nextText, refs: refs.length ? refs : undefined }
 }
 
+export function isMermaidCodeBlock(node: NotebookCodeBlockNode): boolean {
+    return node.language?.toLowerCase() === 'mermaid'
+}
+
 export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG
 }
@@ -809,7 +813,8 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
 }
 
 // Props whose value is an execution result object that can hold cached base64 media. `result` is
-// the PythonV2/SQLV2 shape; the others are the legacy in-browser-kernel Python and SQL cells.
+// the PythonV2/SQLV2 shape. The legacy in-browser-kernel keys stay because stored notebooks still
+// hold legacy cells, which keep their tag and their media.
 const MEDIA_BEARING_PROP_KEYS = ['result', 'pythonExecution', 'duckExecution', 'hogqlExecution']
 
 // Remove cached media (e.g. base64 chart images) from component results so notebook markdown fits

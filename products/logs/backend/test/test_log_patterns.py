@@ -1,6 +1,8 @@
 import re
+import json
 import datetime as dt
 from itertools import zip_longest
+from urllib.parse import quote
 
 from unittest import TestCase
 
@@ -18,10 +20,13 @@ from products.logs.backend.log_patterns import (
     _PLACEHOLDER_PATTERNS,
     _WHITESPACE_RE,
     LogSample,
+    MinedPattern,
     _prepare_body,
     _prepare_json_body,
     compile_match_regex,
     extract_match_literal,
+    group_stored_patterns,
+    merge_split_templates,
     mine_patterns,
     pattern_fingerprint,
 )
@@ -100,6 +105,82 @@ def _sample(
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
         truncated=truncated,
     )
+
+
+class TestStoredPatternGroups(TestCase):
+    @parameterized.expand(
+        [
+            ("agree", "^queue drained$", "^queue drained$", "^queue drained$"),
+            ("one_withheld", "^queue drained$", None, None),
+            ("differ", "^queue drained$", r"^queue\\u0020drained$", None),
+        ]
+    )
+    def test_merged_split_templates_keep_a_regex_only_when_both_agree(
+        self, _name: str, first: str | None, second: str | None, expected: str | None
+    ) -> None:
+        timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)
+        split = [
+            MinedPattern(
+                pattern="queue drained",
+                count=10,
+                volume_share_pct=0,
+                error_count=0,
+                first_seen=timestamp,
+                last_seen=timestamp,
+                examples=[],
+                services=["api"],
+                bucket_counts=[10],
+                severity_counts={"info": 10},
+                match_regex=regex,
+                match_literal="queue drained",
+            )
+            for regex in (first, second)
+        ]
+
+        [merged] = merge_split_templates(split)
+
+        assert merged.count == 20
+        assert merged.match_regex == expected
+
+    @parameterized.expand([(51, "job"), (8, "🦔" * 100), (1, "🦔" * 1024)])
+    def test_bounded_members_preserve_exact_aggregates(self, count: int, identifier: str) -> None:
+        timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)
+        canonical = [
+            MinedPattern(
+                pattern=f"Archive {identifier}{index} batch completed",
+                count=index + 1,
+                volume_share_pct=0,
+                error_count=index + 1,
+                first_seen=timestamp,
+                last_seen=timestamp,
+                examples=[],
+                services=["api"],
+                bucket_counts=[index + 1],
+                severity_counts={"error": index + 1},
+                match_regex=None,
+                match_literal=None,
+                match_patterns=[f"Archive {identifier}{index} batch completed"],
+                pattern_version=5,
+            )
+            for index in range(count)
+        ]
+        total = sum(pattern.count for pattern in canonical)
+
+        groups = group_stored_patterns(canonical, total_count=total)
+
+        assert sum(group.count for group in groups) < total
+        assert bool(groups) == (count > 1)
+        counts = {pattern.pattern: pattern.count for pattern in canonical}
+        for group in groups:
+            assert len(group.match_patterns) <= 50
+            assert (
+                len(quote(json.dumps(group.match_patterns, ensure_ascii=False, separators=(",", ":")), safe="")) <= 3072
+            )
+            expected = sum(counts[member] for member in group.match_patterns)
+            assert group.count == group.error_count == expected
+            assert group.bucket_counts == [expected]
+            assert group.severity_counts == {"error": expected}
+            assert group.volume_share_pct == round(expected / total * 100, 2)
 
 
 class TestMinePatterns(TestCase):
@@ -527,6 +608,8 @@ class TestCompileMatchRegex(TestCase):
         [
             ("longest_run_wins", "at <uuid> failed to charge card for team <num>", "failed to charge card for team"),
             ("too_thin", "<*> ab <num>", None),
+            ("ingestion_placeholders_are_literal", "At <ID> sent to <EMAIL>", "At <ID> sent to <EMAIL>"),
+            ("ingestion_array_is_literal", "<JSON_ARRAY>", "<JSON_ARRAY>"),
         ]
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
@@ -540,6 +623,23 @@ class TestCompileMatchRegex(TestCase):
         # prepared form (here: whitespace-collapsed) would silently match nothing.
         assert extract_match_literal("job done ok", ["job   done\n\nok"]) is None
         assert extract_match_literal("Job Done OK", ["prefix job done ok suffix"]) == "Job Done OK"
+
+    @parameterized.expand(
+        [
+            ("<ID>", "abc_123"),
+            ("<TIMESTAMP>", "2026-09-01T12:00:00Z"),
+            ("<HOST>", "worker.example.com"),
+            ("<JSON_ARRAY>", "[1,2,3]"),
+            ("<JSON:key>", '{"key":1}'),
+        ]
+    )
+    def test_ingestion_tokens_are_literal_in_body_predicates(self, token: str, value: str) -> None:
+        template = f"payload {token}"
+        predicate = _compile_prose(template, [template])
+        assert predicate is not None
+        assert re.search(predicate, template)
+        assert re.search(predicate, f"payload {value}") is None
+        assert _compile_prose(template, [f"payload {value}"]) is None
 
 
 class TestPrepareJsonBody(TestCase):
@@ -557,6 +657,25 @@ class TestPrepareJsonBody(TestCase):
             ("empty_message_is_not_a_message", '{"message": "", "a": 1}', None),
             ("non_string_message_is_not_a_message", '{"message": 42}', None),
             ("no_message_key", '{"user_id": 1, "ok": true}', None),
+            (
+                "tracing_fields_message",
+                '{"level": "ERROR", "fields": {"message": "upstream refused"}, "target": "svc::auth"}',
+                "upstream refused",
+            ),
+            ("error_key", '{"error": "connection refused", "code": 7}', "connection refused"),
+            ("fields_error_key", '{"fields": {"error": "frame too large"}, "level": "WARN"}', "frame too large"),
+            (
+                "fields_message_wins_over_error",
+                '{"error": "eof", "fields": {"message": "read failed", "error": "eof"}}',
+                "read failed",
+            ),
+            (
+                "top_level_message_wins_over_fields_message",
+                '{"fields": {"message": "nested"}, "message": "top level"}',
+                "top level",
+            ),
+            ("fields_not_an_object", '{"fields": "message", "level": "INFO"}', None),
+            ("empty_fields_message_falls_through", '{"fields": {"message": " "}, "error": "boom"}', "boom"),
             # A producer controls the body, and an integer past sys.get_int_max_str_digits()
             # raises a bare ValueError from the number parser rather than a JSONDecodeError.
             ("integer_past_the_digit_limit", '{"message": "hi", "n": ' + "9" * 5000 + "}", None),
@@ -597,6 +716,30 @@ class TestJsonBodyMining(TestCase):
 
         assert len(patterns) == 1
         assert patterns[0].match_regex is None
+
+    def test_tracing_bodies_cluster_by_fields_message_and_regex_matches_the_raw_line(self) -> None:
+        raws = [
+            json.dumps(
+                {
+                    "timestamp": f"2026-06-23T12:00:0{i}.000000Z",
+                    "level": "ERROR",
+                    "fields": {"message": message},
+                    "target": "svc::decode",
+                    "span": {"content_length": str(100 + i), "name": "export"},
+                }
+            )
+            for i, message in enumerate(
+                ["upstream refused", "upstream refused", "frame 12 too large", "frame 345 too large"]
+            )
+        ]
+        patterns = {p.pattern: p for p in mine_patterns([_sample(raw) for raw in raws])}
+
+        assert set(patterns) == {"upstream refused", "frame <num> too large"}
+        assert patterns["upstream refused"].count == 2
+        for template, own_rows in (("upstream refused", raws[:2]), ("frame <num> too large", raws[2:])):
+            regex = patterns[template].match_regex
+            assert regex is not None
+            assert [raw for raw in raws if re.search(regex, raw)] == own_rows
 
     def test_message_less_json_keeps_a_predicate_that_matches_the_raw_row(self) -> None:
         # Rewriting these bodies into a canonical shape collapses them into one template, but

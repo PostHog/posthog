@@ -67,7 +67,7 @@ export const playlistFiltersLogic = kea<playlistFiltersLogicType>([
     }),
     urlToAction(({ actions }) => ({
         [urls.replay(ReplayTabs.Home)]: (_, searchParams) => {
-            if (searchParams.filtersTab && ['filters', 'saved'].includes(searchParams.filtersTab)) {
+            if (searchParams.filtersTab && ['filters', 'saved', 'templates'].includes(searchParams.filtersTab)) {
                 actions.setActiveFilterTab(searchParams.filtersTab)
             }
             if (searchParams.showFilters) {

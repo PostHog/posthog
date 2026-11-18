@@ -1,6 +1,15 @@
-import { PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
+import { delay, PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
 
 describe('async utils', () => {
+    describe('delay()', () => {
+        it('rejects immediately when the signal is already aborted', async () => {
+            const controller = new AbortController()
+            controller.abort()
+
+            await expect(delay(10000, controller.signal)).rejects.toThrow('Aborted')
+        })
+    })
+
     describe('withTimeout()', () => {
         beforeEach(() => {
             jest.useFakeTimers()
@@ -138,6 +147,39 @@ describe('async utils', () => {
 
                 // After 2000ms (initialDelayMs * 2^1), third attempt
                 await jest.advanceTimersByTimeAsync(2000)
+                expect(fn).toHaveBeenCalledTimes(3)
+
+                await expect(promise).resolves.toBe('success')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('waits the delay getDelayMs gives, and the backoff when it gives none', async () => {
+            jest.useFakeTimers()
+            try {
+                const fn = jest
+                    .fn()
+                    .mockRejectedValueOnce(new Error('wait 5000'))
+                    .mockRejectedValueOnce(new Error('no wait given'))
+                    .mockResolvedValue('success')
+
+                const promise = retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 1000,
+                    backoffMultiplier: 2,
+                    getDelayMs: (error) => ((error as Error).message === 'wait 5000' ? 5000 : undefined),
+                })
+
+                await jest.advanceTimersByTimeAsync(4999)
+                expect(fn).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(1)
+                expect(fn).toHaveBeenCalledTimes(2)
+
+                // initialDelayMs * 2^1 after the second failure
+                await jest.advanceTimersByTimeAsync(1999)
+                expect(fn).toHaveBeenCalledTimes(2)
+                await jest.advanceTimersByTimeAsync(1)
                 expect(fn).toHaveBeenCalledTimes(3)
 
                 await expect(promise).resolves.toBe('success')

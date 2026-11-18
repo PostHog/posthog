@@ -26,6 +26,21 @@ describe('MetadataHeader', () => {
         expect(screen.getByText('GPT-4o')).toBeInTheDocument()
     })
 
+    const lenientTokenCounts: [string, unknown, unknown][] = [
+        ['string counts', '12', '512'],
+        ['an object-shaped output count', 12, { total: 512, noCache: 512, cacheRead: 0 }],
+    ]
+
+    it.each(lenientTokenCounts)('renders token usage for %s', (_label, inputTokens, outputTokens) => {
+        render(
+            <Provider>
+                <MetadataHeader inputTokens={inputTokens} outputTokens={outputTokens} />
+            </Provider>
+        )
+
+        expect(screen.getByText('12 prompt tokens → 512 completion tokens (∑ 524)')).toBeInTheDocument()
+    })
+
     const nonStringModels: [string, unknown][] = [
         ['number', 4],
         ['boolean', true],

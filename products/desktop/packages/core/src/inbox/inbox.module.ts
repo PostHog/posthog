@@ -7,10 +7,16 @@ import {
   SIGNAL_REPORT_TASK_SERVICE,
   SIGNAL_SOURCE_SERVICE,
 } from "./identifiers";
+import {
+  REPORT_IMPLEMENTATION_SERVICE,
+  ReportImplementationService,
+} from "./reportImplementationService";
 import { SignalReportTaskService } from "./signalReportTaskService";
 import { SignalSourceService } from "./signalSourceService";
 
 export const inboxCoreModule = new ContainerModule(({ bind }) => {
+  bind(ReportImplementationService).toSelf().inSingletonScope();
+  bind(REPORT_IMPLEMENTATION_SERVICE).toService(ReportImplementationService);
   bind(InboxBulkActionService).toSelf().inSingletonScope();
   bind(INBOX_BULK_ACTION_SERVICE).toService(InboxBulkActionService);
 

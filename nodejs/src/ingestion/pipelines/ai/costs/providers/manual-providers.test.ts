@@ -1,3 +1,7 @@
+import { findCostFromModel } from '~/ingestion/pipelines/ai/costs/cost-model-matching'
+import { processCost } from '~/ingestion/pipelines/ai/costs/index'
+import { createAIEvent } from '~/ingestion/pipelines/ai/costs/test-helpers'
+
 import { manualCosts } from './manual-providers'
 
 describe('manualCosts', () => {
@@ -81,5 +85,115 @@ describe('manualCosts', () => {
         if (expected.cache_read_token !== undefined) {
             expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
         }
+    })
+
+    // These TTS models accept text input and emit audio output. They must resolve
+    // their own price rather than fuzzy-matching the ordinary Gemini text model.
+    describe('Gemini TTS pricing through ingestion', () => {
+        it.each([
+            ['gemini-2.5-pro-preview-tts', 0.000001, 0.00002],
+            ['gemini-3.1-flash-tts-preview', 0.000001, 0.00002],
+        ])('prices %s using its dedicated published audio rate', (model, inputRate, audioRate) => {
+            for (const provider of ['google', 'gemini', 'google-ai-studio']) {
+                for (const usage of [
+                    { candidatesTokensDetails: [{ modality: 'AUDIO', tokenCount: 800 }] },
+                    { output_tokens_by_modality: [{ modality: 'audio', tokens: 800 }] },
+                ]) {
+                    const event = createAIEvent({
+                        $ai_provider: provider,
+                        $ai_model: model,
+                        $ai_input_tokens: 100,
+                        $ai_output_tokens: 800,
+                        $ai_usage: usage,
+                    })
+                    const resolved = findCostFromModel(model, event.properties)
+                    expect(resolved?.cost.model).toBe(model)
+                    expect(resolved?.cost.cost.audio_output).toBe(audioRate)
+
+                    const result = processCost(event)
+
+                    expect(result.properties.$ai_audio_output_tokens).toBe(800)
+                    expect(result.properties.$ai_input_cost_usd).toBeCloseTo(100 * inputRate, 8)
+                    expect(result.properties.$ai_output_cost_usd).toBeCloseTo(800 * audioRate, 8)
+                    expect(result.properties.$ai_total_cost_usd).toBeCloseTo(100 * inputRate + 800 * audioRate, 8)
+                    expect(result.properties.$ai_usage).toBeUndefined()
+                }
+            }
+        })
+
+        it.each(['gemini-2.5-pro-preview-tts', 'google/gemini-3.1-flash-tts-preview'])(
+            'prices audio-only %s even without a modality breakdown',
+            (model) => {
+                const result = processCost(createAIEvent({ $ai_model: model, $ai_output_tokens: 800 }))
+
+                expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.016, 8)
+                expect(result.properties.$ai_input_cost_usd).toBeUndefined()
+                expect(result.properties.$ai_cost_model_provider).toBe('default')
+            }
+        )
+
+        it('labels an unlisted provider as fallback pricing rather than verified Vertex pricing', () => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'vertex',
+                    $ai_model: 'gemini-3.1-flash-tts-preview',
+                    $ai_output_tokens: 800,
+                })
+            )
+
+            expect(result.properties.$ai_cost_model_provider).toBe('default')
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.016, 8)
+        })
+    })
+
+    describe('GPT Image 2 pricing through ingestion', () => {
+        it.each(['gpt-image-2', 'openai/gpt-image-2', 'gpt-image-2-2026-04-21'])(
+            'prices %s text input, image input and image output at their own rates',
+            (model) => {
+                const result = processCost(
+                    createAIEvent({
+                        $ai_provider: 'openai',
+                        $ai_model: model,
+                        $ai_input_tokens: 250,
+                        $ai_image_input_tokens: 200,
+                        $ai_output_tokens: 1000,
+                        $ai_image_output_tokens: 1000,
+                    })
+                )
+
+                expect(result.properties.$ai_cost_model_source).toBe('manual')
+                expect(result.properties.$ai_input_cost_usd).toBeCloseTo(50 * 0.000005 + 200 * 0.000008, 8)
+                expect(result.properties.$ai_output_cost_usd).toBeCloseTo(1000 * 0.00003, 8)
+                expect(result.properties.$ai_total_cost_usd).toBeCloseTo(0.00185 + 0.03, 8)
+            }
+        )
+
+        it('prices output at the image rate without a modality breakdown', () => {
+            const result = processCost(createAIEvent({ $ai_model: 'gpt-image-2', $ai_output_tokens: 1000 }))
+
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.03, 8)
+        })
+
+        it.each([
+            { exclusive: false, inputTokens: 600 },
+            { exclusive: true, inputTokens: 300 },
+        ])('prices cached image and text separately with exclusive=$exclusive', ({ exclusive, inputTokens }) => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-image-2',
+                    $ai_input_tokens: inputTokens,
+                    $ai_image_input_tokens: 450,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_cache_read_image_tokens: 250,
+                    $ai_cache_reporting_exclusive: exclusive,
+                })
+            )
+
+            expect(result.properties.$ai_input_cost_usd).toBeCloseTo(
+                100 * 0.000005 + 200 * 0.000008 + 50 * 0.00000125 + 250 * 0.000002,
+                10
+            )
+        })
     })
 })

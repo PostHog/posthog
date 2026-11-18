@@ -105,6 +105,7 @@ describe('HeatmapsPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -115,6 +116,7 @@ describe('HeatmapsPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         } as unknown as jest.Mocked<EventFilterManager>
 
         // Passthrough by default: events round-trip unchanged. The apply step reads `.value.event`
@@ -150,6 +152,7 @@ describe('HeatmapsPipeline', () => {
             }),
             topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
             cookielessManager: mockCookielessManager,

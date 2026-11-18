@@ -6,8 +6,52 @@ export const HEATMAP_ROW_LABEL_SORT_KEY = '__heatmap_row_label__'
 
 export type HeatmapCellValues = Record<string, Record<string, number | null>>
 
+export function getDistinctHeatmapLabels(values: unknown[], nullLabel: string): Map<unknown, string> {
+    const labels = new Map<unknown, string>()
+    const reserved = new Set(values.map((value) => String(value ?? nullLabel)))
+    const used = new Set<string>()
+    for (const value of values) {
+        if (labels.has(value)) {
+            continue
+        }
+        const base = String(value ?? nullLabel)
+        let label = base
+        let suffix = 2
+        while (used.has(label)) {
+            label = `${base} (${suffix++})`
+            while (reserved.has(label)) {
+                label = `${base} (${suffix++})`
+            }
+        }
+        labels.set(value, label)
+        used.add(label)
+    }
+    return labels
+}
+
 const compareHeatmapLabels = (left: string, right: string): number =>
     left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+
+const compareHeatmapColumnLabels = (left: string, right: string): number => {
+    const leftNumber = left.trim() === '' ? NaN : Number(left)
+    const rightNumber = right.trim() === '' ? NaN : Number(right)
+    const leftIsNumber = Number.isFinite(leftNumber)
+    const rightIsNumber = Number.isFinite(rightNumber)
+    if (leftIsNumber && rightIsNumber) {
+        return leftNumber - rightNumber
+    }
+    if (leftIsNumber !== rightIsNumber) {
+        return leftIsNumber ? -1 : 1
+    }
+    return compareHeatmapLabels(left, right)
+}
+
+export const sortHeatmapColumns = (columnLabels: string[], order?: HeatmapSortOrder): string[] =>
+    order
+        ? [...columnLabels].sort(
+              (left, right) => compareHeatmapColumnLabels(left, right) * (order === HeatmapSortOrder.Asc ? 1 : -1)
+          )
+        : columnLabels
 
 const compareHeatmapValues = (
     left: number | null | undefined,

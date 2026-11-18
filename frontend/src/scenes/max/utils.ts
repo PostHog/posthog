@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     AgentMode,
@@ -34,8 +35,7 @@ import {
     QuerySchema,
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { ActionType, EventDefinition, InsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
@@ -43,9 +43,10 @@ import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
     EvaluationRuntime,
-    InsightWithQuery,
     MaxActionContext,
+    MaxContextItem,
     MaxContextType,
+    MaxContextDashboard,
     MaxDashboardContext,
     MaxErrorTrackingIssueContext,
     MaxEvaluationContext,
@@ -185,9 +186,25 @@ export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?:
     return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
+function stripQueryResponses<Value>(value: Value): Value {
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        return value.map(stripQueryResponses) as Value
+    }
+
+    const isQueryNode = 'kind' in value && Object.values(NodeKind).includes(value.kind as NodeKind)
+    return Object.fromEntries(
+        Object.entries(value)
+            .filter(([key]) => !(isQueryNode && key === 'response'))
+            .map(([key, child]) => [key, stripQueryResponses(child)])
+    ) as Value
+}
+
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
-    insight: Partial<QueryBasedInsightModel>,
+    insight: Partial<InsightModel>,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): MaxInsightContext => {
@@ -199,13 +216,13 @@ export const insightToMaxContext = (
         id: insight.short_id!,
         name: insight.name || insight.derived_name,
         description: insight.description,
-        query: source,
+        query: stripQueryResponses(source),
         filtersOverride,
         variablesOverride,
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: MaxContextDashboard): MaxDashboardContext => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
@@ -389,4 +406,41 @@ export function activeSceneLogicHasMaxContext(
     activeSceneLogic: BuiltLogic | null | undefined
 ): activeSceneLogic is BuiltLogic {
     return !!activeSceneLogic?.isMounted() && 'maxContext' in activeSceneLogic.selectors
+}
+
+const UI_CONTEXT_FIELD_TYPES = {
+    dashboards: MaxContextType.DASHBOARD,
+    insights: MaxContextType.INSIGHT,
+    events: MaxContextType.EVENT,
+    actions: MaxContextType.ACTION,
+    error_tracking_issues: MaxContextType.ERROR_TRACKING_ISSUE,
+    evaluations: MaxContextType.EVALUATION,
+    notebooks: MaxContextType.NOTEBOOK,
+} as const satisfies Partial<Record<keyof MaxUIContext, MaxContextType>>
+
+export type ContextSource = 'none' | 'page' | 'added' | 'mixed'
+
+/**
+ * Splits the context sent with a message into items the open page attached on its own and items
+ * the user added (through the picker or an "ask AI" entry point), for turn telemetry.
+ */
+export function getContextSourceProperties(
+    uiContext: MaxUIContext | null | undefined,
+    sceneContext: MaxContextItem[]
+): { context_source: ContextSource; page_context_count: number; added_context_count: number } {
+    const sceneKeys = new Set(sceneContext.map((item) => `${item.type}:${item.id}`))
+    let pageCount = 0
+    let addedCount = 0
+    for (const [field, type] of Object.entries(UI_CONTEXT_FIELD_TYPES)) {
+        for (const item of uiContext?.[field as keyof typeof UI_CONTEXT_FIELD_TYPES] ?? []) {
+            if (sceneKeys.has(`${type}:${item.id}`)) {
+                pageCount++
+            } else {
+                addedCount++
+            }
+        }
+    }
+    const contextSource: ContextSource =
+        pageCount > 0 && addedCount > 0 ? 'mixed' : pageCount > 0 ? 'page' : addedCount > 0 ? 'added' : 'none'
+    return { context_source: contextSource, page_context_count: pageCount, added_context_count: addedCount }
 }

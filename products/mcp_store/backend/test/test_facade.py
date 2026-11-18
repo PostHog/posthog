@@ -1,10 +1,13 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 
 from products.mcp_store.backend.agents import (
     create_gateway_agent_token,
@@ -12,19 +15,35 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import (
+    SLACK_MCP_URL,
+    call_member_server_tool,
+    connect_slack_mcp_from_slack_link,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
+    member_server_tools,
+    resolve_agent_gateway_server_ids,
+    resolve_installations_for_sandbox,
+    slack_mcp_user_scopes,
+    team_tools_not_connected,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    UnconnectedTeamTool,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
+    MCPOrgRule,
     MCPServerInstallation,
+    MCPServerInstallationTool,
     MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -208,6 +227,154 @@ class TestGetActiveInstallations(BaseTest):
         assert (len(results) == 1) == expected_included
 
 
+class TestConnectSlackMcpFromSlackLink(BaseTest):
+    SCOPES = ["channels:read", "channels:history", "search:read.public", "search:read.private"]
+
+    def _slack_template(self, source: str = "slack_app", team_enabled: bool = True) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source=source,
+            oauth_scope_allowlist=self.SCOPES,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=team_enabled
+        )
+
+    def _link_slack(self, scopes: list[str]) -> UserIntegration:
+        return user_slack_integration_from_identity(
+            self.user,
+            slack_user_id="U1",
+            slack_team_id="T1",
+            slack_team_name="Example",
+            slack_email_at_link=None,
+            user_access_token="xoxp-link",
+            user_scopes=" ".join(scopes),
+        )
+
+    @parameterized.expand(
+        [
+            ("connects", "slack_app", True, SCOPES, None, True),
+            ("missing_scope", "slack_app", True, SCOPES[:1], None, False),
+            # The consent screen lets a person clear an optional search scope, which only removes that search.
+            ("cleared_optional_search_scope", "slack_app", True, SCOPES[:3], None, True),
+            # The allowlist is a ceiling too: a link that can read DMs never connects a public-only server.
+            ("wider_than_allowlist", "slack_app", True, [*SCOPES, "search:read.im"], None, False),
+            ("turned_off_for_the_team", "slack_app", False, SCOPES, None, False),
+            ("keeps_a_working_connection", "slack_app", True, SCOPES, "tok-existing", True),
+        ]
+    )
+    def test_connects_the_slack_mcp_only_when_the_link_token_can(
+        self,
+        _name: str,
+        source: str,
+        team_enabled: bool,
+        granted: list[str],
+        existing_token: str | None,
+        connects: bool,
+    ) -> None:
+        self._slack_template(source, team_enabled)
+        if existing_token:
+            MCPServerInstallation.objects.create(
+                team=self.team,
+                user=self.user,
+                url=SLACK_MCP_URL,
+                auth_type="oauth",
+                sensitive_configuration={"access_token": existing_token},
+            )
+        link = self._link_slack(granted)
+
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+
+        assert connected is connects
+        assert slack_mcp_user_scopes(self.team.id, self.user.id) == (
+            tuple(self.SCOPES) if source == "slack_app" and team_enabled else ()
+        )
+        installation = MCPServerInstallation.objects.filter(team=self.team, user=self.user, url=SLACK_MCP_URL).first()
+        if not connects:
+            assert installation is None
+            return
+        assert installation is not None
+        assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        if existing_token:
+            assert installation.sensitive_configuration == {"access_token": existing_token}
+            return
+        assert installation.sensitive_configuration == {}
+        assert installation.linked_user_integration_id == link.id
+        assert installation.gateway_server is not None
+        # The resolver holds the ceiling too: a link that later grants more than the allowlist stops connecting.
+        link.config = {**link.config, "scope": " ".join([*self.SCOPES, "search:read.im"])}
+        link.save(update_fields=["config"])
+        assert get_active_installations(self.team.id, self.user.id) == []
+        link.config = {**link.config, "scope": " ".join(self.SCOPES)}
+        link.save(update_fields=["config"])
+        assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        # The installation keeps no copy of the token, so an unlink also ends its access.
+        link.delete()
+        assert get_active_installations(self.team.id, self.user.id) == []
+
+    def test_a_relink_does_not_turn_on_a_slack_mcp_the_member_turned_off(self) -> None:
+        self._slack_template()
+        MCPServerInstallation.objects.create(
+            team=self.team, user=self.user, url=SLACK_MCP_URL, auth_type="oauth", is_enabled=False
+        )
+        link = self._link_slack(self.SCOPES)
+
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+
+        assert connected is False
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+        # The access is restored for when the member turns the server on, but the agents it was granted to stay off.
+        assert installation.linked_user_integration_id == link.id and installation.is_enabled is False
+        assert get_active_installations(self.team.id, self.user.id) == []
+
+
+class TestTeamToolsNotConnected(BaseTest):
+    @parameterized.expand(
+        [
+            ("not_connected", True),
+            ("connected", False),
+            ("turned_off_for_the_team", False),
+            ("revoked_for_the_member", False),
+            ("registers_a_client_per_person", True),
+        ]
+    )
+    def test_lists_turned_on_tools_the_member_has_not_connected(self, case: str, listed: bool) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials={} if case == "registers_a_client_per_person" else {"client_id": "cid"},
+            created_by=self.user,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Linear",
+            url=template.url,
+            template=template,
+            is_team_enabled=case != "turned_off_for_the_team",
+        )
+        if case == "connected":
+            MCPServerInstallation.objects.create(
+                team=self.team, user=self.user, url=template.url, auth_type="api_key", is_enabled=True
+            )
+        if case == "revoked_for_the_member":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=self.user
+            )
+
+        tools = team_tools_not_connected(self.team.id, self.user.id)
+
+        # A template that registers a client per person only connects through install, never from a plain link.
+        connects = case != "registers_a_client_per_person"
+        expected = [UnconnectedTeamTool(template_id=str(template.id), name="Linear", connects_with_oauth=connects)]
+        assert tools == (expected if listed else [])
+
+
 class TestGetInstallationsForSandbox(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -285,6 +452,59 @@ class TestGetInstallationsForSandbox(BaseTest):
         scopes = {r.scope for r in results}
         assert scopes == {"shared", "personal"}
 
+    @parameterized.expand(
+        [
+            ("needs_reconnect", None, "needs_reconnect"),
+            ("teammate_needs_reconnect", None, "teammate_needs_reconnect"),
+            ("server_disabled", None, "server_disabled"),
+            ("revoked", None, "revoked"),
+            ("replaced_by_personal", None, "replaced_by_personal"),
+            ("needs_reconnect", [], "not_selected"),
+            ("server_disabled", [], "not_selected"),
+            ("revoked", [], "not_selected"),
+        ]
+    )
+    def test_member_run_reports_why_a_reachable_installation_is_not_mounted(
+        self,
+        reason: UnmountedInstallationReason,
+        allowed_installation_ids: list[str] | None,
+        expected_reason: UnmountedInstallationReason,
+    ) -> None:
+        server = self._create_gateway_server(
+            name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=reason != "server_disabled"
+        )
+        left_out = self._create_installation(
+            scope="shared",
+            user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+            if reason == "teammate_needs_reconnect"
+            else self.user,
+            display_name="Linear",
+            url=server.url,
+            gateway_server=server,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True}
+            if reason in ("needs_reconnect", "teammate_needs_reconnect")
+            else {"access_token": "tok"},
+        )
+        if reason == "revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=self.user
+            )
+        if reason == "replaced_by_personal":
+            self._create_installation(scope="personal", url=server.url, display_name="My Linear")
+
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            allowed_installation_ids=allowed_installation_ids,
+        )
+
+        assert str(left_out.id) not in {installation.id for installation in resolution.mounted}
+        assert resolution.unmounted == (
+            UnmountedInstallation(id=str(left_out.id), name="Linear", scope="shared", reason=expected_reason),
+        )
+
     def test_shared_visible_to_any_team_member(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         self._create_installation(scope="shared", user=other_user, display_name="Other's Shared")
@@ -313,6 +533,21 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert {result.id for result in results} == {str(shared.id), str(personal.id)}
         assert all(result.proxy_token is None for result in results)
+
+    def test_empty_allowlist_mounts_nothing_before_the_gateway_flag_rollout(self) -> None:
+        # The rollout gate sends a mapped origin down the legacy path. An autonomous run that asked
+        # for no MCP Store servers must not pick up every shared installation on the way.
+        self.enforcement_enabled_mock.return_value = False
+        self._create_installation(scope="shared", display_name="Shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            task_origin="scout_suggestions",
+            allowed_gateway_server_ids=[],
+        )
+
+        assert results == []
 
     def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         account = self._support_agent()
@@ -401,6 +636,27 @@ class TestGetInstallationsForSandbox(BaseTest):
             credential_owner_id=self.user.id,
         )
         assert mismatched_results == []
+
+        profiled_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="user_created",
+            task_agent_key="support",
+            has_profile=True,
+            profile_agent_key="support",
+            credential_owner_id=self.user.id,
+        ).mounted
+        assert [result.id for result in profiled_results] == [str(personal.id)]
+
+        profiled_member_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            has_profile=True,
+        ).mounted
+        assert {result.name for result in profiled_member_results} == {"Personal", "Ungranted"}
 
     def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
         account = self._support_agent()
@@ -565,6 +821,136 @@ class TestGetInstallationsForSandbox(BaseTest):
         # with no servers selected runs without MCP servers.
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    @parameterized.expand(
+        [
+            ("token_needs_reconnect", "needs_reconnect"),
+            ("teammates_token_needs_reconnect", "teammate_needs_reconnect"),
+            ("both_tokens_need_reconnect", "needs_reconnect"),
+            ("connection_turned_off", "needs_reconnect"),
+            ("server_turned_off_for_team", "server_disabled"),
+            ("no_grant", "not_shared"),
+            ("teammate_share_still_works", None),
+        ]
+    )
+    def test_agent_run_reports_why_a_selected_server_is_not_mounted(
+        self, case: str, expected_reason: UnmountedInstallationReason | None
+    ) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        server = self._create_gateway_server(
+            name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=case != "server_turned_off_for_team"
+        )
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        needs_reauth = {"access_token": "tok", "needs_reauth": True}
+        if case == "both_tokens_need_reconnect":
+            teammates_broken = self._create_installation(
+                user=teammate,
+                gateway_server=server,
+                url=server.url,
+                auth_type="oauth",
+                sensitive_configuration=needs_reauth,
+            )
+            self._grant(account, server, user=teammate, installation=teammates_broken, scope="team")
+        grantor = teammate if case == "teammates_token_needs_reconnect" else self.user
+        installation = self._create_installation(
+            user=grantor,
+            gateway_server=server,
+            url=server.url,
+            auth_type="oauth",
+            is_enabled=case != "connection_turned_off",
+            sensitive_configuration=needs_reauth
+            if case
+            in (
+                "token_needs_reconnect",
+                "teammates_token_needs_reconnect",
+                "both_tokens_need_reconnect",
+                "teammate_share_still_works",
+            )
+            else {"access_token": "tok"},
+        )
+        if case != "no_grant":
+            self._grant(account, server, user=grantor, installation=installation, scope="team")
+        if case == "teammate_share_still_works":
+            working = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+            self._grant(account, server, user=teammate, installation=working, scope="team")
+
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            task_origin="workflow",
+            task_agent_key="workflow",
+            credential_owner_id=self.user.id,
+            allowed_gateway_server_ids=[str(server.id)],
+        )
+
+        assert bool(resolution.mounted) == (expected_reason is None)
+        assert resolution.unmounted == (
+            (UnmountedInstallation(id=str(server.id), name="Linear", scope="team", reason=expected_reason),)
+            if expected_reason is not None
+            else ()
+        )
+
+    def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
+        kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
+        self._create_installation(scope="shared", display_name="Dropped", url="https://dropped.example.com/mcp")
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        team_shared = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=team_shared, scope="team")
+
+        member = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[str(kept.id)])
+        member_empty = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[])
+        # A workflow run's snapshot carries no installation ids, so the agent path must not be
+        # emptied by the closed member allowlist that comes with it.
+        agent = get_installations_for_sandbox(
+            self.team.id, task_origin="support_reply", task_agent_key="support", allowed_installation_ids=[]
+        )
+
+        assert [result.id for result in member] == [str(kept.id)]
+        assert member_empty == []
+        assert [result.id for result in agent] == [str(team_shared.id)]
+
+    def test_resolves_saved_connectors_to_the_servers_an_agent_run_reaches(self) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        personal_server = self._create_gateway_server(name="Personal", url="https://personal.example.com/mcp")
+        disabled_server = self._create_gateway_server(
+            name="Disabled", url="https://disabled.example.com/mcp", is_team_enabled=False
+        )
+        unshared_server = self._create_gateway_server(name="Unshared", url="https://unshared.example.com/mcp")
+        team_shared = self._create_installation(user=teammate, gateway_server=team_server, url=team_server.url)
+        personal = self._create_installation(gateway_server=personal_server, url=personal_server.url)
+        disabled = self._create_installation(user=teammate, gateway_server=disabled_server, url=disabled_server.url)
+        self._grant(account, team_server, user=teammate, installation=team_shared, scope="team")
+        self._grant(account, personal_server, user=self.user, installation=personal)
+        self._grant(account, disabled_server, user=teammate, installation=disabled, scope="team")
+        connector_ids = [
+            str(team_server.id),
+            # A selection saved before connectors were keyed by gateway server names the
+            # installation; it still resolves to the server that installation sits on.
+            str(team_shared.id),
+            str(personal_server.id),
+            str(disabled_server.id),
+            str(unshared_server.id),
+            "not-a-uuid",
+        ]
+
+        resolve = lambda owner_id: resolve_agent_gateway_server_ids(
+            self.team.id, agent_key="workflow", credential_owner_id=owner_id, connector_ids=connector_ids
+        )
+
+        assert resolve(None) == {
+            str(team_server.id): str(team_server.id),
+            str(team_shared.id): str(team_server.id),
+            str(personal_server.id): None,
+            str(disabled_server.id): None,
+            str(unshared_server.id): None,
+            "not-a-uuid": None,
+        }
+        # A run with a credential owner also reaches that owner's personal grants.
+        assert resolve(self.user.id)[str(personal_server.id)] == str(personal_server.id)
 
     def test_sandbox_server_names_match_what_the_sandbox_mounts(self) -> None:
         # The names projection backs prompt steering (a scout's run prompt names its mounted
@@ -826,3 +1212,196 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestCallMemberServerTool(BaseTest):
+    HOST = "mcp.example.com"
+
+    def _installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "url": f"https://{self.HOST}/mcp",
+            "auth_type": "api_key",
+            "sensitive_configuration": {"api_key": "sk-test"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def _tool(self, installation: MCPServerInstallation, name: str = "list_events", **kwargs) -> None:
+        kwargs.setdefault("annotations", {"readOnlyHint": True})
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name=name,
+            approval_state="approved",
+            last_seen_at=timezone.now(),
+            **kwargs,
+        )
+
+    def _call(self, name: str = "list_events", **kwargs):
+        return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_tool_with_no_row_is_listed_before_the_call_is_refused(self, mock_call, mock_fetch) -> None:
+        # A connection whose connect-time listing never landed holds no rows, and
+        # without a re-listing it refuses every call for the life of the connection.
+        self._installation()
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
+
+        # Freshly listed tools are opt-in, so policy answers the call now.
+        assert self._call().status == "needs_approval"
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
+        installation = self._installation()
+        self._tool(installation, removed_at=timezone.now())
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
+
+        assert self._call().status == "ok"
+        mock_call.assert_called_once()
+
+    @patch(
+        "products.mcp_store.backend.facade.api.call_upstream_tool",
+        return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},
+    )
+    def test_prefers_the_members_own_connection_over_a_shared_one(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        own = self._installation()
+        self._tool(shared)
+        self._tool(own)
+
+        outcome = self._call()
+
+        assert outcome.status == "ok"
+        assert outcome.content == ({"type": "text", "text": "3 events"},)
+        assert mock_call.call_args.args[0].id == own.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_falls_back_to_the_teams_shared_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        self._installation(user=other_user, url="https://mcp.example.com.evil.test/mcp")
+        self._tool(shared)
+
+        # The owner's approval does not carry over, so the teammate approves the call first.
+        pending = self._call()
+        assert pending.status == "needs_approval"
+        assert self._call(approval_token=pending.approval_token).status == "ok"
+        assert mock_call.call_args.args[0].id == shared.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_never_borrows_a_teammates_personal_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._tool(self._installation(user=other_user))
+
+        assert self._call().status == "not_connected"
+        mock_call.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("destructive_name", "delete_event", {}, False, "write_blocked"),
+            ("read_only_hint_cannot_clear_name", "delete_event", {"readOnlyHint": True}, False, "write_blocked"),
+            (
+                "destructive_hint",
+                "list_events",
+                {"readOnlyHint": True, "destructiveHint": True},
+                False,
+                "write_blocked",
+            ),
+            ("create", "create_issue", {"readOnlyHint": True}, False, "write_blocked"),
+            ("update", "update_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("send", "send_message", {"readOnlyHint": True}, False, "write_blocked"),
+            ("unknown", "process_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("mixed", "getOrCreateEvent", {"readOnlyHint": True}, False, "write_blocked"),
+            ("missing_hint", "list_events", {}, False, "write_blocked"),
+            ("read_name_marked_write", "list_events", {"readOnlyHint": False}, False, "write_blocked"),
+            ("writes_allowed", "delete_event", {}, True, "ok"),
+        ]
+    )
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_allow_writes_gates_tools_that_may_write(
+        self, _name, tool_name, annotations, allow_writes, expected_status, mock_call
+    ) -> None:
+        self._tool(self._installation(), name=tool_name, annotations=annotations)
+
+        assert self._call(tool_name, allow_writes=allow_writes, approval_token="untrusted").status == expected_status
+        assert mock_call.called is (expected_status == "ok")
+        tools = member_server_tools(self.team.id, self.user.id, self.HOST)
+        assert tools is not None
+        assert tools[0].read_only is False
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_disabled_gateway_server_blocks_without_calling_upstream(self, mock_call) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Example", url=f"https://{self.HOST}/mcp", is_team_enabled=False
+        )
+        self._tool(self._installation(gateway_server=server))
+
+        assert self._call(approval_token="untrusted").status == "blocked"
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_approval_applies_only_to_one_call(self, mock_call: MagicMock) -> None:
+        installation = self._installation()
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+
+        pending = self._call(allow_writes=False)
+        assert pending.status == "needs_approval"
+        assert pending.approval_token is not None
+        mock_call.assert_not_called()
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "ok"
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "blocked"
+        assert self._call().status == "needs_approval"
+        assert mock_call.call_count == 1
+        assert installation.tools.get().approval_state == "needs_approval"
+
+    @parameterized.expand(
+        [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
+    )
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_approval_does_not_override_blocks(
+        self,
+        _name: str,
+        approval_state: str,
+        removed: str | None,
+        expected: str,
+        mock_call: MagicMock,
+        _mock_fetch: MagicMock,
+    ) -> None:
+        installation = self._installation()
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
+        installation.tools.update(approval_state=approval_state, removed_at=timezone.now() if removed else None)
+
+        assert self._call(approval_token=token, allow_writes=False).status == expected
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_org_rule_cannot_be_overridden_by_call_approval(self, mock_call: MagicMock) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Calendar", url=f"https://{self.HOST}/mcp"
+        )
+        installation = self._installation(gateway_server=server)
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
+        MCPOrgRule.objects.for_team(self.team.id).create(
+            team=self.team, name="Review calendar reads", effect="needs_approval", tool_pattern="list_events"
+        )
+
+        assert self._call(approval_token=token, allow_writes=False).status == "blocked"
+        assert self._call().status == "blocked"
+        mock_call.assert_not_called()

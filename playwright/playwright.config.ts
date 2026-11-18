@@ -1,12 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// require('dotenv').config();
-
-/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
@@ -42,12 +36,8 @@ export default defineConfig({
         preserve raw per-test failure signal.
      */
     retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
-    /*
-        GitHub Actions has 4 cores so run 3 workers 
-        and leave one core for all the rest
-        For local running, our machines are all M3 or M4 by now so we can afford to run more workers
-    */
-    workers: process.env.CI ? 3 : 6,
+    /* CI passes --workers explicitly, sized against the other processes on its runner. */
+    workers: 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         // Enforces `mode: "run"` quarantine entries — tolerates their failures so
@@ -82,78 +72,5 @@ export default defineConfig({
             name: 'chromium',
             use: { ...devices['Desktop Chrome'] },
         },
-        // {
-        //     name: 'chromium',
-        //     use: {
-        //         ...devices['Desktop Chrome'],
-        //         launchOptions: {
-        //             // https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
-        //             args: [
-        //                 '--headless=new',
-        //                 '--single-process',
-        //
-        //                 '--allow-pre-commit-input',
-        //                 '--deterministic-mode',
-        //                 '--disable-features=PaintHolding',
-        //                 '--disable-partial-raster',
-        //                 '--disable-skia-runtime-opt',
-        //                 '--disable-gpu',
-        //                 '--use-gl=swiftshader',
-        //                 '--force-color-profile=srgb',
-        //             ],
-        //         },
-        //     },
-        // },
-
-        // {
-        //   name: 'firefox',
-        //   use: {
-        //     ...devices['Desktop Firefox'],
-        //   },
-        // },
-
-        // {
-        //     name: 'webkit',
-        //     use: {
-        //         ...devices['Desktop Safari'],
-        //     },
-        // },
-
-        /* Test against mobile viewports. */
-        // {
-        //   name: 'Mobile Chrome',
-        //   use: {
-        //     ...devices['Pixel 5'],
-        //   },
-        // },
-        // {
-        //   name: 'Mobile Safari',
-        //   use: {
-        //     ...devices['iPhone 12'],
-        //   },
-        // },
-
-        /* Test against branded browsers. */
-        // {
-        //   name: 'Microsoft Edge',
-        //   use: {
-        //     channel: 'msedge',
-        //   },
-        // },
-        // {
-        //   name: 'Google Chrome',
-        //   use: {
-        //     channel: 'chrome',
-        //   },
-        // },
     ],
-
-    /* Folder for test artifacts such as screenshots, videos, traces, etc. */
-    // outputDir: 'test-results/',
-
-    /* Run your local dev server before starting the tests */
-    // webServer: {
-    //   command: 'npm run start',
-    //   port: 3000,
-    // },
 })

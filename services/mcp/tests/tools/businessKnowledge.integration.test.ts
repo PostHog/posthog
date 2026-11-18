@@ -83,7 +83,7 @@ describe('Business knowledge sources', { concurrent: false }, () => {
             expect(retrieved.id).toBe(source.id)
             expect(retrieved.name).toBe(name)
             expect(retrieved.source_type).toBe('text')
-            expect(retrieved).not.toHaveProperty('_posthogUrl')
+            expect(retrieved._posthogUrl).toContain(`/business-knowledge/${source.id}`)
         })
     })
 
@@ -134,6 +134,7 @@ describe('Business knowledge sources', { concurrent: false }, () => {
                 expect(source).toHaveProperty('name')
                 expect(source).toHaveProperty('source_type')
                 expect(source).toHaveProperty('status')
+                expect(source._posthogUrl).toContain(`/business-knowledge/${source.id}`)
 
                 const unexpectedFields = ['documents', 'source_text', 'team']
                 for (const field of unexpectedFields) {

@@ -33,6 +33,7 @@ interface ImageDetailPageProps {
   /** Names of the environments starting from this image, or null while unknown. */
   usedBy: readonly string[] | null;
   onDone: () => void;
+  onUseInEnvironment: () => void;
 }
 
 /**
@@ -44,6 +45,7 @@ export function ImageDetailPage({
   image,
   usedBy,
   onDone,
+  onUseInEnvironment,
 }: ImageDetailPageProps) {
   const { data } = useSandboxCustomImageDetail(image.id);
   const { buildMutation, builderTaskMutation, updateMutation, deleteMutation } =
@@ -166,6 +168,16 @@ export function ImageDetailPage({
               ? "No environment starts from it yet"
               : `Used by ${usedBy.join(", ")}`}
         </Text>
+        {current.status === "ready" && (
+          <Button
+            variant="link-muted"
+            size="sm"
+            data-attr="image-detail-use-in-environment"
+            onClick={onUseInEnvironment}
+          >
+            Use in an environment
+          </Button>
+        )}
       </div>
 
       {isImageBuildFailed(current.status) && (

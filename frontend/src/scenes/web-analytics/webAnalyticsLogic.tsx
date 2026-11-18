@@ -1,4 +1,7 @@
 import {
+    LogicWrapper,
+    key,
+    props,
     MakeLogicType,
     BreakPointFunction,
     actions,
@@ -12,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { UrlToActionPayload } from 'kea-router/lib/types'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
@@ -29,14 +33,16 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -45,7 +51,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { InsightVizRenderer, WebOverviewRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -68,7 +74,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/web-analytics-schema-guards'
 import {
     AvailableFeature,
     BaseMathType,
@@ -91,9 +97,10 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { CompareFilter, CurrencyCode } from '../../queries/schema/schema-general'
+import type { CompareFilter, CurrencyCode, WebAnalyticsQueryModifiers } from '../../queries/schema/schema-general'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
+    AI_VISIBILITY_URL_PARAMS,
     ActiveHoursTab,
     ConversionGoalWarning,
     DeviceTab,
@@ -104,7 +111,6 @@ import {
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
-    INITIAL_WEB_ANALYTICS_FILTER,
     PathTab,
     ProductTab,
     SourceTab,
@@ -116,11 +122,14 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    cleanedPathOperators,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
+    isContentAutopilotEnabled,
     loadPriorityMap,
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
+    withPresetTag,
 } from './common'
 import {
     PROPERTY_HOST,
@@ -135,6 +144,8 @@ import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
+import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
+import { applyWebQueryModifiers } from './webQueryModifiers'
 
 export interface DateFilterState {
     dateFrom: string | null
@@ -155,6 +166,8 @@ export interface webAnalyticsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
+    appliedPresetFilters: WebAnalyticsFiltersConfig | null // webAnalyticsFilterLogic
+    appliedPresetShortId: string | null // webAnalyticsFilterLogic
     authorizedDomains: string[] // webAnalyticsFilterLogic
     countryFilter: string | null // webAnalyticsFilterLogic
     deviceTypeFilter: DeviceType | null // webAnalyticsFilterLogic
@@ -187,6 +200,8 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -208,6 +223,7 @@ export interface webAnalyticsLogicValues {
     graphsTab: string
     hasCountryFilter: boolean
     hasIncompatibleFilters: boolean
+    hasNonDefaultFilters: boolean
     hasSavedFocusMode: boolean
     hasSeenFocusModeOnboarding: boolean
     hiddenTiles: TileId[]
@@ -216,8 +232,8 @@ export interface webAnalyticsLogicValues {
     isFocusModeActive: boolean
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
+    marketingCrossSellDismissed: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -225,6 +241,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -245,8 +262,11 @@ export interface webAnalyticsLogicValues {
     }
     tileVisualizations: Record<TileId, TileVisualizationOption>
     tiles: WebAnalyticsTile[]
+    tilesWithoutQueryModifiers: WebAnalyticsTile[]
     useWebAnalyticsPrecompute: boolean | null
+    warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
+    webQueryModifiers: WebAnalyticsQueryModifiers
     webVitalsMetricQuery: InsightVizNode<TrendsQuery>
     webVitalsPercentile: WebVitalsPercentile
     webVitalsTab: WebVitalsMetric
@@ -270,8 +290,10 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+        successCallback?: (() => void) | undefined,
+        failureCallback?: (() => void) | undefined
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
     } // userLogic
@@ -344,6 +366,9 @@ export interface webAnalyticsLogicActions {
     dismissFocusModeOnboarding: () => {
         value: true
     }
+    dismissMarketingCrossSell: () => {
+        value: true
+    }
     enterFocusMode: () => {
         value: true
     }
@@ -386,6 +411,17 @@ export interface webAnalyticsLogicActions {
     }
     removeIncompatibleFilters: () => {
         value: true
+    }
+    reportWebAnalyticsDateRangeChanged: (props: {
+        date_from: string | null
+        date_to: string | null
+        interval: string
+    }) => {
+        props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }
     }
     resetTileVisibility: () => boolean
     resetZoom: () => {
@@ -498,6 +534,9 @@ export interface webAnalyticsLogicActions {
     setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => {
         useWebAnalyticsPrecompute: boolean | null
     }
+    setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => {
+        patch: WebAnalyticsQueryModifiers
+    }
     setWebVitalsPercentile: (percentile: WebVitalsPercentile) => {
         percentile: WebVitalsPercentile
     }
@@ -521,15 +560,13 @@ export interface webAnalyticsLogicActions {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface webAnalyticsLogicMeta {
+    key: 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -554,6 +591,19 @@ export interface webAnalyticsLogicMeta {
             isPathCleaningEnabled: boolean,
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
+        warmablePresetShortId: (
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
+            currentFiltersConfig: WebAnalyticsFiltersConfig
+        ) => string | null
+        hasNonDefaultFilters: (
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
+            conversionGoal: WebAnalyticsConversionGoal | null
+        ) => boolean
         webAnalyticsFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
             isPathCleaningEnabled: boolean,
@@ -627,6 +677,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -641,7 +692,7 @@ export interface webAnalyticsLogicMeta {
             focusModeEnabled: boolean,
             focusModeConcerns: WebAnalyticsConcern[]
         ) => boolean
-        tiles: (
+        tilesWithoutQueryModifiers: (
             productTab: ProductTab,
             tabs: {
                 activeHoursTab: string
@@ -672,8 +723,17 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
-            hiddenTiles: TileId[]
+            restrictedUiEnabled: boolean,
+            hiddenTiles: TileId[],
+            warmablePresetShortId: string | null
+        ) => WebAnalyticsTile[]
+        effectiveWebQueryModifiers: (
+            webQueryModifiers: WebAnalyticsQueryModifiers,
+            featureFlags: FeatureFlagsSet
+        ) => WebAnalyticsQueryModifiers
+        tiles: (
+            tilesWithoutQueryModifiers: WebAnalyticsTile[],
+            effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
             tiles: WebAnalyticsTile[]
@@ -684,13 +744,15 @@ export interface webAnalyticsLogicMeta {
 export type webAnalyticsLogicType = MakeLogicType<
     webAnalyticsLogicValues,
     webAnalyticsLogicActions,
-    Record<string, any>,
+    WebAnalyticsLogicProps,
     webAnalyticsLogicMeta
 >
 
-export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
+export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAnalyticsLogicType>([
+    props({} as WebAnalyticsLogicProps),
+    key((props) => props.context ?? 'web-analytics'),
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
-    connect(() => ({
+    connect((props: WebAnalyticsLogicProps) => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -707,7 +769,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
-            webAnalyticsFilterLogic,
+            webAnalyticsFilterLogic(props),
             [
                 'rawWebAnalyticsFilters',
                 'domainFilter',
@@ -719,6 +781,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'validatedDomainFilter',
                 'selectedHost',
                 'authorizedDomains',
+                'appliedPresetShortId',
+                'appliedPresetFilters',
             ],
         ],
         actions: [
@@ -735,7 +799,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'newUrl as newAuthorizedUrl',
                 'cancelProposingUrl as cancelProposingAuthorizedUrl',
             ],
-            webAnalyticsFilterLogic,
+            webAnalyticsFilterLogic(props),
             [
                 'setWebAnalyticsFilters',
                 'togglePropertyFilter',
@@ -753,6 +817,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     })),
     actions({
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
         removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
@@ -777,6 +846,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
+        setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => ({ patch }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -787,6 +857,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        dismissMarketingCrossSell: true,
         setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
         openFocusModeModal: (onboarding: boolean = false) => ({ onboarding }),
@@ -853,7 +924,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers(() => {
-        const persistConfig = buildTeamScopedPersistenceConfig()
+        const persistConfig = buildTeamScopedPersistenceConfig('')
         // The precompute toggle changed from opt-in (default `false`) to a tri-state where
         // `null` means "use the team default". Legacy users persisted the old `false`, which
         // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
@@ -1011,6 +1082,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     clearFilters: () => false,
                 },
             ],
+            webQueryModifiers: [
+                {} as WebAnalyticsQueryModifiers,
+                persistConfig,
+                {
+                    // A key set to `undefined` in the patch is removed, so the query falls back to the team default.
+                    setWebQueryModifiers: (state, { patch }) =>
+                        Object.fromEntries(
+                            Object.entries({ ...state, ...patch }).filter(([, value]) => value !== undefined)
+                        ) as WebAnalyticsQueryModifiers,
+                },
+            ],
             useWebAnalyticsPrecompute: [
                 // Tri-state: `null` means the user never touched the toggle, so the
                 // backend's per-team default decides (opt-out for unrestricted teams,
@@ -1076,6 +1158,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         [tileId]: visualization,
                     }),
                 },
+            ],
+            marketingCrossSellDismissed: [
+                false,
+                buildTeamScopedPersistenceConfig(),
+                { dismissMarketingCrossSell: () => true },
             ],
             hiddenTiles: [
                 [] as TileId[],
@@ -1153,22 +1240,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1266,6 +1362,47 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 shouldFilterTestAccounts,
             }),
         ],
+        // The preset id to tag queries with, or null. An applied preset stays applied while the
+        // user drifts the filters away from it, so tagging off `appliedPresetShortId` alone would
+        // attribute unrelated query shapes to the preset and blow past the warmer's per-preset cap.
+        warmablePresetShortId: [
+            (s) => [s.appliedPresetShortId, s.appliedPresetFilters, s.currentFiltersConfig],
+            (
+                appliedPresetShortId: string | null,
+                appliedPresetFilters: WebAnalyticsFiltersConfig | null,
+                currentFiltersConfig: WebAnalyticsFiltersConfig
+            ): string | null =>
+                appliedPresetShortId && appliedPresetFilters && objectsEqual(appliedPresetFilters, currentFiltersConfig)
+                    ? appliedPresetShortId
+                    : null,
+        ],
+        // Whether the user has filtered beyond the defaults, which is when saving a preset starts to
+        // pay off. Date range and the path-cleaning / test-account toggles are deliberately left out:
+        // almost everyone changes the date range, so counting it would nudge almost everyone.
+        hasNonDefaultFilters: [
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.domainFilter,
+                s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
+                s.conversionGoal,
+            ],
+            (
+                properties: WebAnalyticsPropertyFilters,
+                domainFilter: string | null,
+                deviceTypeFilter: DeviceType | null,
+                countryFilter: string | null,
+                referrerFilter: string | null,
+                conversionGoal: WebAnalyticsConversionGoal | null
+            ): boolean =>
+                properties.length > 0 ||
+                !!domainFilter ||
+                !!deviceTypeFilter ||
+                !!countryFilter ||
+                !!referrerFilter ||
+                !!conversionGoal,
+        ],
         webAnalyticsFilters: [
             (s) => [
                 s.rawWebAnalyticsFilters,
@@ -1335,13 +1472,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                // Translate exact path filters to cleaned path filters
+                // Translate exact and is_not path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
                         if (filter.type === PropertyFilterType.Cohort) {
                             return filter
                         }
-                        if (filter.operator !== PropertyOperator.Exact) {
+                        const cleanedPathOperator = filter.operator && cleanedPathOperators[filter.operator]
+                        if (!cleanedPathOperator) {
                             return filter
                         }
                         let propertiesToPathClean: Set<string>
@@ -1361,7 +1499,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         if (propertiesToPathClean.has(filter.key)) {
                             return {
                                 ...filter,
-                                operator: PropertyOperator.IsCleanedPathExact,
+                                operator: cleanedPathOperator,
                             }
                         }
                         return filter
@@ -1587,6 +1725,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
+        ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
             (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
@@ -1611,7 +1756,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (showFocusMode: boolean, focusModeEnabled: boolean, focusModeConcerns: WebAnalyticsConcern[]): boolean =>
                 showFocusMode && focusModeEnabled && focusModeConcerns.length > 0,
         ],
-        tiles: [
+        tilesWithoutQueryModifiers: [
             (s) => [
                 s.productTab,
                 s.tabs,
@@ -1620,8 +1765,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
+                s.warmablePresetShortId,
             ],
             (
                 productTab: ProductTab,
@@ -1646,8 +1792,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
-                hiddenTiles: TileId[]
+                restrictedUiEnabled: boolean | undefined,
+                hiddenTiles: TileId[],
+                warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
@@ -1871,7 +2018,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         orderBy: 'users',
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
-                        filterGroup: replayFilters.filter_group,
+                        // Not replayFilters.filter_group: it carries the conversion goal, which this tile does not apply.
+                        filterGroup: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: webAnalyticsFilters }],
+                        },
                         columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
@@ -1889,85 +2040,92 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         math_property: `$web_vitals_${name}_value`,
                     })
 
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsQuery,
-                                properties: webAnalyticsFilters,
-                                // Match the path-breakdown tile below so both tiles' precompute
-                                // reads hash to the same bucket job and share warm buckets. The
-                                // timeseries merges across all paths, so cleaning is result-neutral
-                                // here, but the hash is not — a mismatch builds a second bucket set.
-                                doPathCleaning: isPathCleaningEnabled,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange,
-                                    interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
-                                        createSeries(metric, webVitalsPercentile)
+                    // Tagged like the analytics tab below: web vitals shapes opened under a preset
+                    // must reach the warmer too.
+                    return withPresetTag(
+                        [
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsQuery,
+                                    properties: webAnalyticsFilters,
+                                    // Match the path-breakdown tile below so both tiles' precompute
+                                    // reads hash to the same bucket job and share warm buckets. The
+                                    // timeseries merges across all paths, so cleaning is result-neutral
+                                    // here, but the hash is not — a mismatch builds a second bucket set.
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval,
+                                        series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                            createSeries(metric, webVitalsPercentile)
+                                        ),
+                                        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                        filterTestAccounts,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS,
+                                        'web-vitals-overview',
+                                        false
                                     ),
-                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
+                                showIntervalSelect: true,
+                            },
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsPathBreakdownQuery,
+                                    dateRange,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
+                                    percentile: webVitalsPercentile,
+                                    metric: webVitalsTab,
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    thresholds: [
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].good,
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
+                                    ],
+                                    useWebAnalyticsPrecompute,
                                 },
-                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                        'web-vitals-path-breakdown',
+                                        false
+                                    ),
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
                             },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                            showIntervalSelect: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsPathBreakdownQuery,
-                                dateRange,
-                                filterTestAccounts,
-                                properties: webAnalyticsFilters,
-                                percentile: webVitalsPercentile,
-                                metric: webVitalsTab,
-                                doPathCleaning: isPathCleaningEnabled,
-                                thresholds: [
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].good,
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
-                                ],
-                                useWebAnalyticsPrecompute,
-                            },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(
-                                    TileId.WEB_VITALS_PATH_BREAKDOWN,
-                                    'web-vitals-path-breakdown',
-                                    false
-                                ),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                        },
-                    ]
+                        ],
+                        warmablePresetShortId
+                    )
                 }
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
                 // Only read the removal experiment flag where the replay tile would actually render: the
-                // analytics tab with no conversion goal. allTiles is also built for the bot-analytics tab
-                // (then discarded), and the tile is hidden whenever a conversion goal is set, so reading the
-                // flag outside this path would enroll users neither variant affects and dilute the metrics.
+                // analytics tab. allTiles is also built for the bot-analytics tab (then discarded), so reading
+                // the flag outside this path would enroll users neither variant affects and dilute the metrics.
                 const removeReplayTile =
                     productTab === ProductTab.ANALYTICS &&
-                    !conversionGoal &&
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] === 'test'
 
                 const includeHostMenuItem: LemonMenuItem | null =
@@ -2516,6 +2674,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 'Browser',
                                 WebStatsBreakdown.Browser
                             ),
+                            createTableTab(
+                                TileId.DEVICES,
+                                DeviceTab.IN_APP_BROWSER,
+                                'In-app browsers',
+                                'In-app browser',
+                                WebStatsBreakdown.InAppBrowser
+                            ),
                             createTableTab(TileId.DEVICES, DeviceTab.OS, 'OS', 'OS', WebStatsBreakdown.OS),
                             createTableTab(
                                 TileId.DEVICES,
@@ -2526,12 +2691,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ),
                         ],
                     },
-
                     {
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            // Only the v2 grid packs densely, so the one-column slot next to sources and
+                            // devices exists only there.
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-2 2xl:col-span-1' : 'md:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -2659,58 +2825,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ] as (TabsTileTab | null)[]
                         ).filter(isNotNil),
                     },
-                    !conversionGoal
+                    errorTrackingQ
                         ? {
-                              kind: 'query',
-                              tileId: TileId.RETENTION,
-                              title: 'Retention',
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'md:col-span-full',
                               },
-                              query: {
-                                  kind: NodeKind.InsightVizNode,
-                                  source: {
-                                      kind: NodeKind.RetentionQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      retentionFilter: {
-                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-                                          retentionReference: 'total',
-                                          totalIntervals: isGreaterThanMd ? 8 : 5,
-                                          period: RetentionPeriod.Week,
-                                      },
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                  },
-                                  vizSpecificOptions: {
-                                      [InsightType.RETENTION]: {
-                                          hideLineGraph: true,
-                                          hideSizeColumn: !isGreaterThanMd,
-                                          useSmallLayout: !isGreaterThanMd,
-                                      },
-                                  },
-                                  embedded: true,
-                              },
-                              insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: true,
-                              canOpenModal: true,
+                              query: errorTrackingQ,
                               docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                                  title: 'Retention',
+                                  url: 'https://posthog.com/docs/error-tracking',
+                                  title: 'Error Tracking',
                                   description: (
                                       <>
                                           <div>
                                               <p>
-                                                  Retention creates a cohort of unique users who performed any event for
-                                                  the first time in the last week. It then tracks the percentage of
-                                                  users who return to perform any event in the following weeks.
+                                                  Error tracking allows you to track, investigate, and resolve
+                                                  exceptions your customers face.
                                               </p>
                                               <p>
-                                                  You want the numbers to be the highest possible, suggesting that
-                                                  people that come to your page continue coming to your page - and
-                                                  performing an actions. Also, the further down the table the higher the
-                                                  numbers should be (or at least as high), which would indicate that
-                                                  you're either increasing or keeping your retention at the same level.
+                                                  Errors are captured as <code>$exception</code> events which means that
+                                                  you can create insights, filter recordings and trigger surveys based
+                                                  on them exactly the same way you can for any other type of event.
                                               </p>
                                           </div>
                                       </>
@@ -2718,6 +2854,63 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
+                    {
+                        kind: 'query',
+                        tileId: TileId.RETENTION,
+                        title: 'Retention',
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts,
+                                retentionFilter: {
+                                    retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                        insightProps: createInsightProps(TileId.RETENTION),
+                        canOpenInsight: true,
+                        canOpenModal: true,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                            title: 'Retention',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Retention creates a cohort of unique users who performed any event for the
+                                            first time in the last week. It then tracks the percentage of users who
+                                            return to perform any event in the following weeks.
+                                        </p>
+                                        <p>
+                                            You want the numbers to be the highest possible, suggesting that people that
+                                            come to your page continue coming to your page - and performing an actions.
+                                            Also, the further down the table the higher the numbers should be (or at
+                                            least as high), which would indicate that you're either increasing or
+                                            keeping your retention at the same level.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                     {
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
@@ -2861,80 +3054,81 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    // Hiding if conversionGoal is set already because values aren't representative
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              tileId: TileId.GOALS,
-                              title: 'Goals',
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebGoalsQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      compareFilter,
-                                      limit: 10,
-                                      orderBy: tablesOrderBy ?? undefined,
-                                      filterTestAccounts,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // Backend gate decides whether this query is actually served
-                                      // from the precomputed table; we just pass the per-team opt-in.
-                                      useWebAnalyticsPrecompute,
+                    {
+                        kind: 'query',
+                        tileId: TileId.GOALS,
+                        title: 'Goals',
+                        layout: {
+                            colSpanClassName:
+                                removeReplayTile || hiddenTiles.includes(TileId.REPLAY)
+                                    ? 'md:col-span-full'
+                                    : 'md:col-span-2 2xl:col-span-2',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebGoalsQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                compareFilter,
+                                limit: 10,
+                                orderBy: tablesOrderBy ?? undefined,
+                                filterTestAccounts,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Backend gate decides whether this query is actually served
+                                // from the precomputed table; we just pass the per-team opt-in.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
+                        },
+                        insightProps: createInsightProps(TileId.GOALS),
+                        canOpenInsight: false,
+                        extraMenuItems: useTileHeaderV2
+                            ? [
+                                  {
+                                      label: 'Manage actions',
+                                      icon: <IconOpenInNew />,
+                                      to: urls.actions(),
+                                      onClick: () => {
+                                          void addProductIntentForCrossSell({
+                                              from: ProductKey.WEB_ANALYTICS,
+                                              to: ProductKey.ACTIONS,
+                                              intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                          })
+                                      },
                                   },
-                                  embedded: true,
-                                  showActions: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
-                              },
-                              insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: false,
-                              extraMenuItems: useTileHeaderV2
-                                  ? [
-                                        {
-                                            label: 'Manage actions',
-                                            icon: <IconOpenInNew />,
-                                            to: urls.actions(),
-                                            onClick: () => {
-                                                void addProductIntentForCrossSell({
-                                                    from: ProductKey.WEB_ANALYTICS,
-                                                    to: ProductKey.ACTIONS,
-                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                                                })
-                                            },
-                                        },
-                                    ]
-                                  : undefined,
-                              docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
-                                  title: 'Goals',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Goals shows your pinned or most recently created actions and the
-                                                  number of conversions they've had. You can set a custom event or
-                                                  action as a{' '}
-                                                  <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
-                                                      conversion goal
-                                                  </Link>{' '}
-                                                  at the top of the dashboard for more specific metrics.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-                    !conversionGoal && !removeReplayTile
+                              ]
+                            : undefined,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
+                            title: 'Goals',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Goals shows your pinned or most recently created actions and the number of
+                                            conversions they've had. You can set a custom event or action as a{' '}
+                                            <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
+                                                conversion goal
+                                            </Link>{' '}
+                                            at the top of the dashboard for more specific metrics.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
+                    !removeReplayTile
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                                  colSpanClassName: hiddenTiles.includes(TileId.GOALS)
+                                      ? 'md:col-span-full'
+                                      : 'md:col-span-2 2xl:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -2944,104 +3138,72 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && errorTrackingQ
-                        ? {
-                              kind: 'error_tracking',
-                              tileId: TileId.ERROR_TRACKING,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-1',
-                              },
-                              query: errorTrackingQ,
-                              docs: {
-                                  url: 'https://posthog.com/docs/error-tracking',
-                                  title: 'Error Tracking',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Error tracking allows you to track, investigate, and resolve
-                                                  exceptions your customers face.
-                                              </p>
-                                              <p>
-                                                  Errors are captured as <code>$exception</code> events which means that
-                                                  you can create insights, filter recordings and trigger surveys based
-                                                  on them exactly the same way you can for any other type of event.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              title: 'Frustrating Pages',
-                              tileId: TileId.FRUSTRATING_PAGES,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebStatsTableQuery,
-                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      properties: webAnalyticsFilters,
-                                      compareFilter,
-                                      limit: 10,
-                                      doPathCleaning: isPathCleaningEnabled,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // The backend frustration lazy precompute gate decides whether
-                                      // this query is actually served from the precomputed table; we
-                                      // just pass the per-team opt-in through so it's eligible.
-                                      useWebAnalyticsPrecompute,
-                                  },
-                                  embedded: true,
-                                  showActions: true,
-                                  hiddenColumns: ['views'],
-                              },
-                              insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
-                              canOpenModal: true,
-                              canOpenInsight: true,
-                              docs: {
-                                  title: 'Frustrating Pages',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  See which pages are causing frustration by monitoring rage clicks,
-                                                  dead clicks, and errors.
-                                              </p>
-                                              <p>
-                                                  <ul>
-                                                      <li>
-                                                          A dead click is a click that doesn't result in any action.
-                                                          E.g. an image that looks like a button.
-                                                      </li>
-                                                      <li>
-                                                          Rageclicks are collected when a user clicks on a static
-                                                          element more than three times in a one-second window.
-                                                      </li>
-                                                      <li>
-                                                          Errors are JavaScript exceptions that occur when users
-                                                          interact with your site.
-                                                      </li>
-                                                  </ul>
-                                              </p>
-                                              <p>
-                                                  These are captured automatically and can help identify broken
-                                                  functionality, failed API calls, or other technical issues that
-                                                  frustrate users.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
+                    {
+                        kind: 'query',
+                        title: 'Frustrating Pages',
+                        tileId: TileId.FRUSTRATING_PAGES,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebStatsTableQuery,
+                                breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                dateRange,
+                                filterTestAccounts,
+                                properties: webAnalyticsFilters,
+                                compareFilter,
+                                limit: 10,
+                                doPathCleaning: isPathCleaningEnabled,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // The backend frustration lazy precompute gate decides whether
+                                // this query is actually served from the precomputed table; we
+                                // just pass the per-team opt-in through so it's eligible.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            hiddenColumns: ['views'],
+                        },
+                        insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
+                        canOpenModal: true,
+                        canOpenInsight: true,
+                        docs: {
+                            title: 'Frustrating Pages',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            See which pages are causing frustration by monitoring rage clicks, dead
+                                            clicks, and errors.
+                                        </p>
+                                        <p>
+                                            <ul>
+                                                <li>
+                                                    A dead click is a click that doesn't result in any action. E.g. an
+                                                    image that looks like a button.
+                                                </li>
+                                                <li>
+                                                    Rageclicks are collected when a user clicks on a static element more
+                                                    than three times in a one-second window.
+                                                </li>
+                                                <li>
+                                                    Errors are JavaScript exceptions that occur when users interact with
+                                                    your site.
+                                                </li>
+                                            </ul>
+                                        </p>
+                                        <p>
+                                            These are captured automatically and can help identify broken functionality,
+                                            failed API calls, or other technical issues that frustrate users.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                 ]
 
                 // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
@@ -3054,23 +3216,43 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                if (productTab === ProductTab.AGENTS) {
+                if ([ProductTab.AGENTS, ProductTab.CONTENT_AUTOPILOT].includes(productTab)) {
                     return []
                 }
 
-                return allTiles
-                    .filter(isNotNil)
-                    .filter((tile) =>
-                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
-                    )
-                    .filter((tile) => !hiddenTiles.includes(tile.tileId))
+                return withPresetTag(
+                    allTiles
+                        .filter(isNotNil)
+                        .filter((tile) =>
+                            restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                        )
+                        .filter((tile) => !hiddenTiles.includes(tile.tileId)),
+                    warmablePresetShortId
+                )
             },
+        ],
+        effectiveWebQueryModifiers: [
+            (s) => [s.webQueryModifiers, s.featureFlags],
+            (
+                webQueryModifiers: WebAnalyticsQueryModifiers,
+                featureFlags: FeatureFlagsSet
+            ): WebAnalyticsQueryModifiers =>
+                // Stored modifiers apply only while the flag is on, so turning the flag off stops sending them.
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] ? webQueryModifiers : {},
+        ],
+        tiles: [
+            (s) => [s.tilesWithoutQueryModifiers, s.effectiveWebQueryModifiers],
+            (tiles: WebAnalyticsTile[], effectiveWebQueryModifiers: WebAnalyticsQueryModifiers): WebAnalyticsTile[] =>
+                applyWebQueryModifiers(tiles, effectiveWebQueryModifiers),
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
     })),
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
+        // The default tab draws the overview tiles and insight charts. Fetch them alongside the tile queries.
+        void InsightVizRenderer.preload()
+        void WebOverviewRenderer.preload()
         actions.loadShouldShowGeoIPQueries()
     }),
 
@@ -3105,6 +3287,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
+            } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+                // A prompt page keeps its own path, so a shared header control doesn't close the prompt.
+                const path = removeProjectIdIfPresent(router.values.location.pathname)
+                const basePath = path.startsWith(`${urls.webAnalyticsContentAutopilot()}/prompts/`)
+                    ? path
+                    : urls.webAnalyticsContentAutopilot()
+                // The AI visibility filters live in the URL; every other param belongs to another tab.
+                const aiVisibilityParams = new URLSearchParams()
+                for (const key of AI_VISIBILITY_URL_PARAMS) {
+                    const value = urlParams.get(key)
+                    if (value !== null) {
+                        aiVisibilityParams.set(key, value)
+                    }
+                }
+                return `${basePath}${aiVisibilityParams.toString() ? '?' + aiVisibilityParams.toString() : ''}`
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3178,7 +3375,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 } else {
                     urlParams.delete('referrer')
                 }
-                return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+                const basePath = urls.webAnalyticsPagePerformance()
+                return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.AGENTS) {
                 urlParams.delete('filters')
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
@@ -3216,6 +3414,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
+            } else {
+                // Delete these params when the state is at its defaults. `urlParams` starts from the
+                // live URL, so a param left behind keeps an earlier value, which `urlToAction` reads
+                // back and applies over the user's current selection.
+                urlParams.delete('date_from')
+                urlParams.delete('date_to')
+                urlParams.delete('interval')
             }
             if (_deviceTab) {
                 urlParams.set('device_tab', _deviceTab)
@@ -3286,7 +3491,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // tells kea-router to skip the write, breaking the actionToUrl <-> urlToAction cascade that
             // otherwise fires a burst of redundant evaluations and trips the rapid-URL-change detector.
             // A single corrective write is emitted afterwards by `reconcileUrlAfterRestore`.
-            if (cache.applyUrlStateDepth > 0) {
+            if (router.values.location.pathname.endsWith('/marketing') || cache.applyUrlStateDepth > 0) {
                 return undefined
             }
             return buildStateUrl()
@@ -3318,7 +3523,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }): UrlToActionPayload<webAnalyticsLogicType> => {
         const applyUrlState = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
@@ -3344,8 +3549,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 referrer,
                 tile_visualizations,
                 include_host_path,
-            }: Record<string, any>,
-            isInitialRestore: boolean
+            }: Record<string, any>
         ): void => {
             if (
                 ![
@@ -3357,17 +3561,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.BOT_ANALYTICS,
                     ProductTab.PAGE_PERFORMANCE,
                     ProductTab.AGENTS,
+                    ProductTab.CONTENT_AUTOPILOT,
                 ].includes(productTab)
             ) {
-                return
-            }
-
-            // Redirect away from bot analytics tab if the feature flag is disabled
-            if (
-                productTab === ProductTab.BOT_ANALYTICS &&
-                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
-            ) {
-                router.actions.replace(urls.webAnalytics())
                 return
             }
 
@@ -3384,7 +3580,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
-            cache.hasRestoredWebUrl = true
+            if (
+                [ProductTab.CONTENT_AUTOPILOT, ProductTab.BOT_ANALYTICS].includes(productTab) &&
+                !isContentAutopilotEnabled(values.featureFlags)
+            ) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
 
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
             const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
@@ -3403,21 +3605,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 } else if (
                     productTab !== ProductTab.AGENTS &&
+                    productTab !== ProductTab.CONTENT_AUTOPILOT &&
                     !objectsEqual(nextFilters, values.rawWebAnalyticsFilters)
                 ) {
                     actions.setWebAnalyticsFilters(nextFilters)
                 }
             }
 
-            const tabSerializesFilters = productTab !== ProductTab.LIVE && productTab !== ProductTab.HEALTH
-            const shouldResetAbsentFilters =
-                !isInitialRestore && !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]
-
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters) {
                 applyRestoredFilters(parsedFilters)
-            } else if (shouldResetAbsentFilters && tabSerializesFilters) {
-                applyRestoredFilters(INITIAL_WEB_ANALYTICS_FILTER)
             }
             if (
                 conversionGoalActionId &&
@@ -3481,38 +3678,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
             }
-            // Drill-down filters fold into the query the same way `filters` does, so on a
-            // back-navigation to a URL that omits one, clear it instead of leaving the newer
-            // value applied, because otherwise the shown data can't be reproduced from the URL.
             if (domain && domain !== values.domainFilter) {
                 actions.setDomainFilter(domain === 'all' ? null : domain)
-            } else if (!domain && shouldResetAbsentFilters && tabSerializesFilters && values.domainFilter !== null) {
-                actions.setDomainFilter(null)
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
-            } else if (
-                !device_type &&
-                shouldResetAbsentFilters &&
-                tabSerializesFilters &&
-                values.deviceTypeFilter !== null
-            ) {
-                actions.setDeviceTypeFilter(null)
             }
             if (country && country !== values.countryFilter) {
                 actions.setCountryFilter(country)
-            } else if (!country && shouldResetAbsentFilters && tabSerializesFilters && values.countryFilter !== null) {
-                actions.setCountryFilter(null)
             }
             if (referrer && referrer !== values.referrerFilter) {
                 actions.setReferrerFilter(referrer)
-            } else if (
-                !referrer &&
-                shouldResetAbsentFilters &&
-                tabSerializesFilters &&
-                values.referrerFilter !== null
-            ) {
-                actions.setReferrerFilter(null)
             }
             if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
                 for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
@@ -3561,10 +3737,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         // into a burst of redundant URL evaluations and trip the rapid-URL-change detector. The depth
         // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
         const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
-            const isInitialRestore = !cache.hasRestoredWebUrl
             cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
             try {
-                applyUrlState(params, searchParams, isInitialRestore)
+                applyUrlState(params, searchParams)
             } finally {
                 cache.applyUrlStateDepth -= 1
             }
@@ -3581,6 +3756,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             '/web/agents': (_, searchParams) => {
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
+            },
+            // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
+            '/web/ai-visibility/prompts/:promptId': (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,
         }
@@ -3613,7 +3792,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
         return {
             setDates: ({ dateFrom, dateTo }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
@@ -3621,12 +3800,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            reportWebAnalyticsDateRangeChanged: ({ props }) => {
+                posthog.capture('web analytics date range changed', props)
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3716,12 +3898,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                posthog.capture('web analytics focus mode onboarding started')
                 actions.openFocusModeModal(true)
             },
             dismissFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+                posthog.capture('web analytics focus mode onboarding skipped')
             },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
@@ -3746,7 +3928,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
                 if (wasOnboarding) {
-                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                    posthog.capture('web analytics focus mode onboarding completed', {
                         concern_count: concernCount,
                     })
                 }
@@ -3771,7 +3953,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     } else if (conversionGoal && 'customEventName' in conversionGoal) {
                         goalType = 'custom_event'
                     }
-                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                    posthog.capture('web analytics conversion goal set', { goal_type: goalType })
                 },
                 ({ conversionGoal }) => {
                     if (conversionGoal) {
@@ -3810,7 +3992,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
             if (shouldOpen && !values.focusModeOnboardingModalOpen) {
                 actions.openFocusModeOnboarding()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+                posthog.capture('web analytics focus mode onboarding shown')
             }
         },
     })),

@@ -71,8 +71,9 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
                         return []
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/change_requests?${toParams({ state: 'pending,approved' })}`
+                        `api/projects/${values.currentTeamId}/change_requests?${toParams({ state: 'pending,approved' })}`
                     )
                     return response.results || []
                 },

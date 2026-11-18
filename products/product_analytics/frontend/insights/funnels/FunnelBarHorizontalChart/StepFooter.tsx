@@ -2,6 +2,11 @@ import clsx from 'clsx'
 
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { type Noun } from '~/models/groupsModel'
+import type { FunnelsFilter } from '~/queries/schema/schema-general'
+import { type FunnelStepWithConversionMetrics } from '~/types'
+
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -9,12 +14,8 @@ import {
     formatDroppedOffPercentage,
     getTooltipTitleForConverted,
     getTooltipTitleForDroppedOff,
-} from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
-
-import { type Noun } from '~/models/groupsModel'
-import type { FunnelsFilter } from '~/queries/schema/schema-general'
-import { type FunnelStepWithConversionMetrics } from '~/types'
+} from '../funnelUtils'
+import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 
 interface StepFooterProps {
     step: FunnelStepWithConversionMetrics

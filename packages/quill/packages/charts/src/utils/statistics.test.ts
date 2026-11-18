@@ -43,6 +43,10 @@ describe('trendLine', () => {
         }
     })
 
+    it('fits against x positions when given', () => {
+        expect(trendLine([0, 1, 4], undefined, [0, 1, 4])).toEqual([0, 1, 4])
+    })
+
     it('fits over finite points only, ignoring gaps (NaN)', () => {
         // The fit should follow y = x from the finite points; the gap must not poison it.
         const result = trendLine([0, 1, NaN, 3, 4])

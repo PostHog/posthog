@@ -9,14 +9,8 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "personhog_updates")]
-    pub kafka_topic: String,
-
     #[envconfig(default = "personhog-writer")]
     pub kafka_consumer_group: String,
-
-    #[envconfig(default = "earliest")]
-    pub kafka_consumer_offset_reset: String,
 
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,
@@ -80,6 +74,13 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub writer_lanes: usize,
 
+    // ── etcd ─────────────────────────────────────────────────────
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/personhog/")]
+    pub etcd_prefix: String,
+
     // ── Service ──────────────────────────────────────────────────
     #[envconfig(default = "9103")]
     pub metrics_port: u16,
@@ -88,5 +89,14 @@ pub struct Config {
 impl Config {
     pub fn flush_interval(&self) -> Duration {
         Duration::from_millis(self.flush_interval_ms)
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
     }
 }

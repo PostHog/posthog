@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("endpoints", "0029_remove_data_modeling_models"),
         ("posthog", "1178_datadeletionrequest_person_properties"),
     ]
 

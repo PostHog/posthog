@@ -2,7 +2,7 @@ import { Popover } from "@base-ui/react/popover";
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
 import { Button } from "@posthog/quill";
-import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   type MouseEvent,
@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
-import { useAuthStateValue } from "../../../features/auth/store";
 import { useDraftStore } from "../../../features/message-editor/draftStore";
 import { usePanelLayoutStore } from "../../../features/panels/panelLayoutStore";
 import { useSessionTaskId } from "../../../features/sessions/useSessionTaskId";
@@ -37,6 +36,7 @@ import {
   trackEvidencePreviewShown,
 } from "../evidencePreviewAnalytics";
 import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
+import { usePostHogLinkContext } from "../usePostHogLinkContext";
 
 /**
  * Inline evidence reference inside an agent message, authored as a
@@ -50,8 +50,8 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
  *
  * The reference carries only `kind/id`. Hovering or focusing mounts the card,
  * which resolves the object's live name and status through the PostHog API
- * (for `hogql`, runs the query); clicking a linked reference opens the object
- * in PostHog at a URL derived from the reference and the current project.
+ * (for `hogql`, runs the query); report links open the report in the app.
+ * Other links open a task object tab, or PostHog outside a task.
  * Nothing about the object is stored in the message itself.
  *
  * The card is a Base UI popover, not a tooltip: it holds real controls (the
@@ -64,11 +64,9 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
 const SPARK_W = 100;
 const SPARK_H = 30;
 const SPARK_PAD = 2;
-// Surfaces with their own palette (the quick-ask panel) set
-// --evidence-spark-color; everywhere else PostHog's first data-viz color
-// applies, with a hex fallback because the tooltip portals outside the
-// theme root.
-const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
+// PostHog's first data-viz color, with a hex fallback because the tooltip
+// portals outside the theme root.
+const SPARK_COLOR = "var(--data-color-1, #1d4aff)";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
 export function EvidenceSparkline({
@@ -364,14 +362,15 @@ function EvidenceHoverCardLoader({
   const shownTrackedRef = useRef(false);
   const kind = target.kind;
   const id = target.id;
+  const referenceSource = target.href ? "link" : "tag";
   useEffect(() => {
     if (shownTrackedRef.current) return;
     shownTrackedRef.current = true;
     const cached =
       queryClient.getQueryState(evidencePreviewQueryKey({ kind, id }))
         ?.status === "success";
-    trackEvidencePreviewShown(kind, cached);
-  }, [queryClient, kind, id]);
+    trackEvidencePreviewShown(kind, cached, referenceSource);
+  }, [queryClient, kind, id, referenceSource]);
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey(target),
     (apiClient) => fetchEvidencePreviewTimed(apiClient, target, "hover"),
@@ -417,23 +416,41 @@ function EvidenceHoverCardLoader({
 
 /** PostHog web URL for a reference in the current project, when it has one. */
 export function useEvidenceUrl(kind: string, id: string): string | null {
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const links = usePostHogLinkContext();
   const path = evidenceWebPath(kind, id);
-  if (!path || !cloudRegion || !projectId) return null;
-  return `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`;
+  if (!path || !links) return null;
+  return `${links.appUrl}/project/${links.projectId}${path}`;
 }
 
-export function EvidenceRefChip({
-  target,
-  children,
-}: {
+interface EvidenceRefChipProps {
   target: EvidenceLinkTarget;
   children: ReactNode;
+}
+
+export function EvidenceRefChip(props: EvidenceRefChipProps) {
+  return props.target.kind === "report" ? (
+    <InboxReportRefChip {...props} />
+  ) : (
+    <EvidenceRefChipContent {...props} />
+  );
+}
+
+function InboxReportRefChip(props: EvidenceRefChipProps) {
+  const openReport = useOpenInboxReport();
+  return <EvidenceRefChipContent {...props} onOpenReport={openReport} />;
+}
+
+function EvidenceRefChipContent({
+  target,
+  children,
+  onOpenReport,
+}: EvidenceRefChipProps & {
+  onOpenReport?: (reportId: string) => Promise<void>;
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
-  const url = useEvidenceUrl(target.kind, target.id);
+  const canonicalUrl = useEvidenceUrl(target.kind, target.id);
+  const url = target.href ?? canonicalUrl;
   const taskId = useSessionTaskId();
   const objectKind = isPostHogObjectKind(target.kind) ? target.kind : null;
   const [open, setOpen] = useState(false);
@@ -464,6 +481,11 @@ export function EvidenceRefChip({
 
   const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (onOpenReport) {
+      void onOpenReport(target.id);
+      setOpen(false);
+      return;
+    }
     if (taskId) {
       openPostHogObjectTab(taskId, {
         kind: target.kind,
@@ -501,7 +523,7 @@ export function EvidenceRefChip({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url || taskId ? (
+          url || taskId || onOpenReport ? (
             // Keep the truthful role: Enter follows the link (opens the
             // object's page in the app, or in PostHog outside a session), it
             // does not act as a popover button.

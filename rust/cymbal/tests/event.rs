@@ -4,9 +4,11 @@ use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
 use common_types::error_tracking::FrameId;
 use cymbal::{
+    core::code_variables::REDACTED,
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
+    modes::processing::ProcessingConfig,
     symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, Exception, ExceptionList, Mechanism, ProcessedExceptionProperties,
@@ -229,6 +231,28 @@ impl TestHarness {
         self.post_events(vec![event.clone()]).await
     }
 
+    async fn post_event_with_config<T: DeserializeOwned>(
+        &self,
+        event: &AnyEvent,
+        configure: impl FnOnce(&mut ProcessingConfig),
+    ) -> (StatusCode, T) {
+        utils::get_response_with_config(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri("/process")
+                    .body(Body::from(serde_json::to_vec(&vec![event]).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+            configure,
+        )
+        .await
+    }
+
     async fn post_raw_string(&self, json: &[u8]) -> (StatusCode, String) {
         utils::get_raw_response(
             self.db.clone(),
@@ -372,24 +396,21 @@ async fn invalid_request_returns_400(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event(vec![]);
+    let mut input = make_event(vec![]);
+    input.properties["$adaptive_ingestion_over_issue_line"] = json!(true);
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     // Empty exception list returns success with error embedded in the event
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
-    let event = body.first_event();
-    let errors: Vec<String> = serde_json::from_value(
-        event
-            .as_ref()
-            .unwrap()
-            .properties
-            .get("$cymbal_errors")
-            .unwrap()
-            .clone(),
-    )
-    .unwrap();
+    let event = body.first_event().as_ref().unwrap();
+    assert!(event
+        .properties
+        .get("$adaptive_ingestion_over_issue_line")
+        .is_none());
+    let errors: Vec<String> =
+        serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
 }
 
@@ -477,6 +498,68 @@ async fn severity_rule_overrides_inference_only_for_new_issue(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_severity_property_controls_only_new_issues_and_falls_back_when_invalid(db: PgPool) {
+    let harness = TestHarness::new(db);
+    insert_severity_rule(&harness.db, "critical", json!(["_H", 1, 29, 38])).await;
+    let mut input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("issue-severity-property"),
+        Some(false),
+    );
+    input.properties["$exception_level"] = json!("fatal");
+    input.properties["$issue_severity"] = json!("HIGH");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let event = body.take_properties();
+    let issue_id = event.issue_id();
+    assert_eq!(
+        event.properties().get("$issue_severity"),
+        Some(&json!("high"))
+    );
+    let initial_severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(initial_severity.as_deref(), Some("high"));
+
+    sqlx::query("UPDATE posthog_errortrackingissue SET severity = 'low' WHERE id = $1")
+        .bind(issue_id)
+        .execute(&harness.db)
+        .await
+        .unwrap();
+    let (status, _): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let existing_severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(existing_severity.as_deref(), Some("low"));
+
+    input.properties["$exception_fingerprint"] = json!("invalid-issue-severity");
+    input.properties["$issue_severity"] = json!("urgent");
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let invalid_event = body.take_properties();
+    assert_eq!(
+        invalid_event.properties().get("$issue_severity"),
+        Some(&json!("urgent"))
+    );
+    let invalid_issue_id = invalid_event.issue_id();
+    let fallback_severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(invalid_issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(fallback_severity.as_deref(), Some("critical"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn unmatched_severity_rule_preserves_inference(db: PgPool) {
     let harness = TestHarness::new(db);
     insert_severity_rule(&harness.db, "low", json!(["_H", 1, 30, 38])).await;
@@ -543,6 +626,45 @@ async fn uses_client_fingerprint_override(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn replaces_null_bytes_in_client_supplied_fields(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event_with_options(vec![], Some("custom\u{0000}fingerprint"), None);
+    input.properties["$exception_list"] = json!([{
+        "type": "SIGSEGV",
+        "value": "segmentation fault",
+        "stacktrace": {
+            "type": "raw",
+            "frames": [{
+                "platform": "native",
+                "instruction_addr": "0x7f00000014a8",
+                "image_addr": "0x7f0000000000"
+            }]
+        }
+    }]);
+    input.properties["$debug_images"] = json!([{
+        "debug_id": "debug\u{0000}id",
+        "image_addr": "0x7f0000000000",
+        "image_size": 1048576
+    }]);
+    input.properties["$issue_name"] = json!("Custom\u{0000}name");
+    input.properties["$issue_description"] = json!("Custom\u{0000}description");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+
+    assert!(status.is_success());
+    let event = body.take_properties();
+    assert_eq!(event.fingerprint(), "custom\u{FFFD}fingerprint");
+    let (name, description): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT name, description FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(event.issue_id())
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(name.as_deref(), Some("Custom\u{FFFD}name"));
+    assert_eq!(description.as_deref(), Some("Custom\u{FFFD}description"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn same_fingerprint_returns_same_issue(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception_with_stack(
@@ -602,6 +724,8 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
         mechanism_type: None,
         source: None,
         synthetic: None,
+        exception_id: None,
+        parent_id: None,
     });
     let input = make_event_with_options(vec![exception], None, Some(true));
 
@@ -656,6 +780,180 @@ async fn resolves_python_raw_frames(db: PgPool) {
     assert_json_snapshot!(exception_list.0, {
         "[].id" => "REDACTED",
     });
+}
+
+fn python_event_with_code_variables() -> AnyEvent {
+    let mut event = load_static_event("python");
+    for frame in event.properties["$exception_list"][0]["stacktrace"]["frames"]
+        .as_array_mut()
+        .unwrap()
+    {
+        frame["code_variables"] = json!({"token": "fake-token-for-tests"});
+    }
+    event
+}
+
+fn frames_with_code_variables(body: &SuccessResponse) -> usize {
+    let event = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    event.properties["$exception_list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|exception| exception["stacktrace"]["frames"].as_array())
+        .flatten()
+        .filter(|frame| !frame["code_variables"].is_null())
+        .count()
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn drops_code_variables_replayed_from_stored_frames(db: PgPool) {
+    let harness = TestHarness::new(db);
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_code_variables(), |_| {})
+        .await;
+    assert!(status.is_success());
+    assert!(frames_with_code_variables(&body) > 0);
+
+    // The second event carries no code variables, so any that come back are replayed records.
+    let mut event = load_static_event("python");
+    event.uuid = Uuid::now_v7();
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&event, |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+    assert!(status.is_success());
+    assert_eq!(frames_with_code_variables(&body), 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn does_not_store_code_variables_for_listed_teams(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_code_variables(), |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+
+    assert!(status.is_success());
+    assert_eq!(frames_with_code_variables(&body), 0);
+    let (stored, stored_with_code_variables): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE contents ? 'code_variables')
+         FROM posthog_errortrackingstackframe WHERE team_id = 1",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(stored > 0);
+    assert_eq!(stored_with_code_variables, 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn drops_code_variables_from_events_that_fail_to_parse(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut event = python_event_with_code_variables();
+    // A python frame without `function` does not deserialize, so the event is returned as sent.
+    event.properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("function");
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&event, |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+
+    assert!(status.is_success());
+    let returned = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    assert!(returned.properties["$cymbal_errors"].is_array());
+    assert_eq!(frames_with_code_variables(&body), 0);
+}
+
+const FAKE_DB_PASSWORD: &str = "fake-pass-for-tests";
+
+fn python_event_with_database_url() -> AnyEvent {
+    let mut event = load_static_event("python");
+    for frame in event.properties["$exception_list"][0]["stacktrace"]["frames"]
+        .as_array_mut()
+        .unwrap()
+    {
+        frame["code_variables"] =
+            json!({"url": format!("postgresql://app:{FAKE_DB_PASSWORD}@db.example.com/app")});
+    }
+    event
+}
+
+fn exception_list_contains(body: &SuccessResponse, needle: &str) -> bool {
+    let event = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    event.properties["$exception_list"]
+        .to_string()
+        .contains(needle)
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn stores_masked_code_variables(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_database_url(), |_| {})
+        .await;
+
+    assert!(status.is_success());
+    assert!(!exception_list_contains(&body, FAKE_DB_PASSWORD));
+    let (stored, stored_unmasked): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE contents::text LIKE '%' || $1 || '%')
+         FROM posthog_errortrackingstackframe WHERE team_id = 1",
+    )
+    .bind(FAKE_DB_PASSWORD)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(stored > 0);
+    assert_eq!(stored_unmasked, 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn masks_code_variables_replayed_from_stored_frames(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, _): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_database_url(), |_| {})
+        .await;
+    assert!(status.is_success());
+    // Stands in for frame records stored before masking existed.
+    let unmasked =
+        json!({"url": format!("postgresql://app:{FAKE_DB_PASSWORD}@db.example.com/app")});
+    let rewritten = sqlx::query(
+        "UPDATE posthog_errortrackingstackframe
+         SET contents = jsonb_set(contents, '{code_variables}', $1)
+         WHERE team_id = 1 AND contents ? 'code_variables'",
+    )
+    .bind(unmasked)
+    .execute(&db)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert!(rewritten > 0);
+
+    // The second event carries no code variables, so any that come back are replayed records.
+    let mut event = load_static_event("python");
+    event.uuid = Uuid::now_v7();
+    let (status, body): (_, SuccessResponse) = harness.post_event_with_config(&event, |_| {}).await;
+    assert!(status.is_success());
+    assert!(!exception_list_contains(&body, FAKE_DB_PASSWORD));
+    assert!(exception_list_contains(&body, REDACTED));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

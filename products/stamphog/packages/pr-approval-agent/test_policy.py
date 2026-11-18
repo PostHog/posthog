@@ -1,6 +1,7 @@
 """Tests for the declarative policy loader, resolver, and prompt recomposition."""
 
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -19,12 +20,16 @@ import review_pr  # noqa: E402
 from familiarity import AuthorFamiliarity  # noqa: E402
 from github import PRData  # noqa: E402
 from policy import (  # noqa: E402
+    Attestation,
+    BotAuthor,
     EffectivePolicy,
     PolicyError,
     ScopeBudget,
     _sanitize_folder_prose,
-    default_policy_path,
+    bundled_defaults_dir,
+    load_effective_policy,
     load_policy,
+    merge_policy,
     resolve,
 )
 
@@ -83,7 +88,7 @@ OLD_DENY_PATTERN_DEFS = {
             "k8s",
             "dockerfile",
             "docker-compose",
-            "\\.github/workflows",
+            "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -92,6 +97,12 @@ OLD_DENY_PATTERN_DEFS = {
             "(?:^|/)bin/deploy",
             "deploy\\.sh",
         ],
+    },
+    "ci_workflows": {
+        "paths": [
+            "\\.github/workflows",
+            "\\.depot/workflows",
+        ]
     },
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
@@ -113,6 +124,50 @@ OLD_DENY_PATTERN_DEFS = {
             "Dockerfile",
             "\\.tool-versions",
             "\\.nvmrc",
+        ]
+    },
+    "devex_guardrails": {
+        "paths": [
+            "^\\.github/scripts/migration-deletion-allowlist\\.txt$",
+            "^\\.semgrep/rules/devex/",
+            "^\\.semgrep/rules/security/prefer-codegen-api\\.",
+            "^frontend/src/lib/api-ratchet-baseline\\.txt$",
+            "^posthog/(egress|ingress)/agents\\.md$",
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+            "^posthog/management/migration_analysis/",
+            "^posthog/migration_helpers/",
+            "^posthog/product_urls\\.py$",
+            "^posthog/settings/nextgensquash\\.py$",
+            "^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\\.txt|setup_import_baseline\\.txt)$",
+            "^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\\.py$",
+            "^products/(architecture\\.md|isolation_baseline\\.txt|readme\\.md)$",
+            "^docs/internal/django-startup-time\\.md$",
+            "^docs/published/handbook/engineering/type-system\\.md$",
+            "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
+            "^tools/hogli-commands/hogli_commands/product/",
+        ]
+    },
+    "agent_steering": {
+        "paths": [
+            "^agents\\.md$",
+            "^claude\\.md$",
+            "^\\.agents/(agent-automation|architecture|ci|code-style|feature-usage-tracking)\\.md$",
+            "^\\.github/pull_request_template\\.md$",
+            "^\\.agents/skills/writing-pr-descriptions/",
+            "^\\.claude/settings\\.json$",
+            "^\\.claude/hooks/",
+            "^\\.mcp\\.json$",
+        ]
+    },
+    "workflows_delivery": {
+        "paths": [
+            "^products/cdp/backend/(api|models)/",
+            "^products/workflows/backend/(facade|presentation|models)/",
+            "^products/messaging/backend/(api|models)/",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
 }
@@ -144,14 +199,14 @@ OLD_ALLOW_PATH_PATTERNS = [
     "CHANGELOG",
     "LICENSE",
     "CONTRIBUTING",
-    ".github/CODEOWNERS",
     ".gitignore",
     ".editorconfig",
     "generated/",
     "__snapshots__/",
+    ".github/CODEOWNERS",
 ]
-OLD_MAX_LINES = 800
-OLD_MAX_FILES = 30
+OLD_MAX_LINES = 1200
+OLD_MAX_FILES = 50
 
 # ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
 
@@ -187,7 +242,7 @@ def test_tier_thresholds_unchanged(lines: int, files: int, breadth: str, expecte
 
 
 def _valid_policy_dict() -> dict:
-    return yaml.safe_load(default_policy_path().read_text())
+    return yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text())
 
 
 def _unknown_top_level_key(d: dict) -> None:
@@ -210,8 +265,20 @@ def _out_of_contract_delegation(d: dict) -> None:
     d["overrides"]["deny"] = {"ceiling": 1}
 
 
+def _ceiling_under_global_default(d: dict) -> None:
+    d["size_gate"]["max_lines"] = d["overrides"]["size_gate.max_lines"]["ceiling"] + 1
+
+
 def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
+
+
+def _self_governance_exempts_a_team(d: dict) -> None:
+    d["deny"]["stamphog_policy"]["exempt_author_teams"] = ["team-devex"]
+
+
+def _exempt_author_team_with_org_prefix(d: dict) -> None:
+    d["deny"]["auth"]["exempt_author_teams"] = ["@PostHog/team-security"]
 
 
 def _ownership_unknown_format(d: dict) -> None:
@@ -238,21 +305,129 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
     d["ownership"]["sources"][0] = {"format": "hogli-resolver", "glob": "products/*/product.yaml"}
 
 
+def _set_deny_exceptions(d: dict, *, raw: object) -> None:
+    d["deny_exceptions"] = raw
+
+
+_ATTESTATION = {
+    "name": "migration_risk",
+    "check": "Migration risk",
+    "app_id": 2492437,
+    "lifts": ["migrations"],
+    "paths": [r"(?:^|/)migrations/[^/]+\.py$"],
+}
+
+
+def _set_attestations(d: dict, *, raw: object) -> None:
+    d["attestations"] = raw
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
+        *[
+            pytest.param(partial(_set_attestations, raw=raw), id=f"attestations-{name}")
+            for name, raw in [
+                ("not-list", {"name": "x"}),
+                ("entry-not-mapping", ["migration_risk"]),
+                ("missing-paths", [{k: v for k, v in _ATTESTATION.items() if k != "paths"}]),
+                ("unknown-key", [{**_ATTESTATION, "marker": "v1"}]),
+                ("duplicate-name", [_ATTESTATION, _ATTESTATION]),
+                ("github-actions-app", [{**_ATTESTATION, "app_id": 15368}]),
+                ("app-id-string", [{**_ATTESTATION, "app_id": "2492437"}]),
+                ("unknown-category", [{**_ATTESTATION, "lifts": ["migrationz"]}]),
+                ("lifts-self-governance", [{**_ATTESTATION, "lifts": ["migrations", "stamphog_policy"]}]),
+                ("empty-lifts", [{**_ATTESTATION, "lifts": []}]),
+                ("invalid-regex", [{**_ATTESTATION, "paths": ["migrations/("]}]),
+                ("sibling-with-directory", [{**_ATTESTATION, "sibling_files": ["migrations/max_migration.txt"]}]),
+                ("publisher-file-escapes-repo", [{**_ATTESTATION, "publisher_files": ["../ci.yml"]}]),
+            ]
+        ],
         _unknown_top_level_key,
         _empty_pattern_list,
         _invalid_regex,
         _drop_self_governance,
         _out_of_contract_delegation,
+        _ceiling_under_global_default,
         _rename_deps_toolchain,
+        _self_governance_exempts_a_team,
+        _exempt_author_team_with_org_prefix,
         _ownership_unknown_format,
         _ownership_both_locators,
         _ownership_no_locator,
         _ownership_empty_sources,
         _ownership_path_escapes_repo,
         _ownership_wrong_locator_for_format,
+        *[
+            pytest.param(partial(_set_deny_exceptions, raw=raw), id=f"deny-exceptions-{name}")
+            for name, raw in [
+                ("null", None),
+                ("not-mapping", []),
+                ("unknown-category", {"billling": [{"path_prefixes": ["apps/"]}]}),
+                ("self-governance", {"stamphog_policy": [{"path_prefixes": [".stamphog/"]}]}),
+                ("self-governance-empty", {"stamphog_policy": []}),
+                ("rules-not-list", {"billing": {"path_prefixes": ["apps/"]}}),
+                ("empty-rules", {"billing": []}),
+                ("rule-not-mapping", {"billing": ["apps/"]}),
+                ("missing-prefixes", {"billing": [{"keyword": "billing"}]}),
+                ("unknown-rule-key", {"billing": [{"path_prefixes": ["apps/"], "extension": [".yaml"]}]}),
+                ("mixed-rule-keys", {"billing": [{"path_prefixes": ["apps/"], None: True, "bogus": True}]}),
+                ("invented-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "subscription"}]}),
+                ("title-only-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "authorized"}]}),
+                ("regex-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "two[_-]?factor"}]}),
+                ("null-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": None}]}),
+                ("non-string-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": 1}]}),
+                ("empty-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": ""}]}),
+                ("non-ascii-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "billíng"}]}),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(_set_deny_exceptions, raw={"billing": [{"path_prefixes": prefixes}]}),
+                id=f"deny-exceptions-prefix-{name}",
+            )
+            for name, prefixes in [
+                ("not-list", "apps/"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("absolute", ["/apps/"]),
+                ("missing-slash", ["apps"]),
+                ("dot-segment", ["apps/./"]),
+                ("parent-segment", ["apps/../shared/"]),
+                ("repeated-slash", ["apps//billing/"]),
+                ("backslash", ["apps\\billing/"]),
+                ("wildcard", ["apps/*/"]),
+                ("regex", ["apps/(billing|payment)/"]),
+                ("whitespace", ["apps /"]),
+                ("control", ["apps\x00/"]),
+                ("invalid-second-entry", ["apps/", "../"]),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(
+                    _set_deny_exceptions, raw={"billing": [{"path_prefixes": ["apps/"], "extensions": extensions}]}
+                ),
+                id=f"deny-exceptions-extension-{name}",
+            )
+            for name, extensions in [
+                ("not-list", ".yaml"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("missing-dot", ["yaml"]),
+                ("empty-suffix", ["."]),
+                ("empty-compound-segment", [".tar..gz"]),
+                ("slash", [".yaml/"]),
+                ("backslash", [".yaml\\"]),
+                ("wildcard", [".*"]),
+                ("regex", [".(yaml|yml)"]),
+                ("whitespace", [".yaml "]),
+                ("control", [".yaml\x00"]),
+                ("invalid-second-entry", [".yaml", "."]),
+            ]
+        ],
     ],
 )
 def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
@@ -262,6 +437,84 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+@pytest.mark.parametrize(
+    "overlay, expected",
+    [
+        pytest.param({"a": {"b": [3]}}, {"a": {"b": [3], "c": 1}}, id="declared-list-replaces"),
+        pytest.param({"a": {"extend_b": [2, 3]}}, {"a": {"b": [1, 2, 3], "c": 1}}, id="extend-appends-new-items"),
+        pytest.param({"a": {"c": 2}, "d": {"e": 1}}, {"a": {"b": [1], "c": 2}, "d": {"e": 1}}, id="mappings-merge"),
+        pytest.param({"a": {"b": [3], "extend_b": [4]}}, PolicyError, id="replace-and-extend"),
+        pytest.param({"a": {"extend_c": [4]}}, PolicyError, id="extend-a-non-list"),
+        pytest.param({"a": {"extend_missing": [4]}}, PolicyError, id="extend-a-missing-list"),
+    ],
+)
+def test_merge_policy(overlay: dict, expected: dict | type[Exception]) -> None:
+    default = {"a": {"b": [1], "c": 1}}
+    if isinstance(expected, dict):
+        assert merge_policy(default, overlay) == expected
+        return
+    with pytest.raises(expected):
+        merge_policy(default, overlay)
+
+
+@pytest.mark.parametrize(
+    "overlay, error",
+    [
+        pytest.param(None, None, id="no-repo-file-reviews-under-the-default"),
+        pytest.param({"size_gate": {"max_lines": 500}}, None, id="partial-section"),
+        pytest.param(
+            {"deny": {"stamphog_policy": {"match": {"paths": ["\\.stamphog/"]}}}},
+            "drops the shipped self-governance patterns",
+            id="self-governance-floor",
+        ),
+        pytest.param(
+            {"deny": {"auth": {"exempt_path_prefixes": ["apps/"]}}},
+            "declare deny_exceptions.auth",
+            id="retired-exemption-key",
+        ),
+    ],
+)
+def test_load_effective_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overlay: dict | None, error: str | None
+) -> None:
+    repo_file = tmp_path / "policy.yml"
+    if overlay is not None:
+        repo_file.write_text(yaml.safe_dump(overlay))
+    monkeypatch.setattr(policy, "repo_policy_path", lambda: repo_file)
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
+    assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
+
+
+def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Path) -> None:
+    data = _valid_policy_dict()
+    data["attestations"] = [{**_ATTESTATION, "sibling_files": ["max_migration.txt"]}]
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert loaded.attestations == (
+        Attestation(
+            name="migration_risk",
+            check="Migration risk",
+            app_id=2492437,
+            lifts=("migrations",),
+            paths=(r"(?:^|/)migrations/[^/]+\.py$",),
+            sibling_files=("max_migration.txt",),
+            publisher_files=(),
+        ),
+    )
+    shipped = load_policy(
+        bundled_defaults_dir() / "policy.yml", lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS
+    )
+    assert shipped.attestations == ()
 
 
 def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
@@ -275,6 +528,28 @@ def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> N
     assert loaded.version == 1
 
 
+@pytest.mark.parametrize(
+    "match, keyword",
+    [
+        ({"titles": ["billing"]}, "billing"),
+        ({"paths": ["payment"]}, "billing"),
+        ({"any": ["billing.*"]}, "billing"),
+        ({"paths": ["[Bb]illing"]}, "billing"),
+        ({"paths": [r"\bbilling\b"]}, "billing"),
+    ],
+)
+def test_deny_exception_keyword_requires_effective_path_literal(
+    tmp_path: Path, match: dict[str, list[str]], keyword: str
+) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = match
+    data["deny_exceptions"] = {"billing": [{"keyword": keyword, "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(PolicyError, match="path-capable literal pattern"):
+        load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
 # ── 3. Folder-override resolution ──
 
 
@@ -283,8 +558,13 @@ _PRODUCTS_FILE = "products/AGENT_APPROVALS.md"
 _PROSE_ONLY_FM = "{}"
 
 
-def _grant(max_files: int) -> str:
-    return f"stamphog:\n  size_gate:\n    max_files: {max_files}"
+def _grant(max_files: int | None = None, max_lines: int | None = None) -> str:
+    lines = ["stamphog:", "  size_gate:"]
+    if max_files is not None:
+        lines.append(f"    max_files: {max_files}")
+    if max_lines is not None:
+        lines.append(f"    max_lines: {max_lines}")
+    return "\n".join(lines)
 
 
 def _multi_prose(*parts: tuple[str, str]) -> str:
@@ -308,18 +588,27 @@ def fake_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _scope(eff, path):
-    return next(s for s in eff.scopes if s.path == path)
+def _file_scope(eff, path):
+    return next(s for s in eff.file_scopes if s.path == path)
+
+
+def _line_scope(eff, path):
+    return next(s for s in eff.line_scopes if s.path == path)
 
 
 def test_resolve_folder_override_budgets_its_own_files(fake_repo: Path) -> None:
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
-    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/visual_review/sub/b.py"])
-    vr = _scope(eff, _VISUAL_REVIEW_FILE)
-    assert vr.max_files == 50
-    assert set(vr.files) == {"products/visual_review/a.py", "products/visual_review/sub/b.py"}
-    assert _scope(eff, None).files == ()
-    assert eff.max_lines == gates.MAX_LINES
+    changed = ["products/visual_review/a.py", "products/visual_review/sub/b.py"]
+    eff = resolve(gates.POLICY, changed)
+    vr = _file_scope(eff, _VISUAL_REVIEW_FILE)
+    assert vr.ceiling == 50
+    assert set(vr.files) == set(changed)
+    assert _file_scope(eff, None).files == ()
+    # Granting max_files alone leaves the lines in the global pool, at the global ceiling.
+    global_lines = _line_scope(eff, None)
+    assert global_lines.ceiling == gates.MAX_LINES
+    assert set(global_lines.files) == set(changed)
+    assert [s.path for s in eff.line_scopes] == [None]
     assert eff.invalid_folder_files == ()
     assert eff.folder_prose == "advisory prose"
 
@@ -330,24 +619,60 @@ def test_resolve_mixed_pr_budgets_each_scope_separately(fake_repo: Path) -> None
     # override, it just has to fit the global budget itself.
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
-    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
-    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).max_files == gates.MAX_FILES
-    assert _scope(eff, None).files == ("README.md",)
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).ceiling == 50
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _file_scope(eff, None).ceiling == gates.MAX_FILES
+    assert _file_scope(eff, None).files == ("README.md",)
+
+
+@pytest.mark.parametrize(
+    "frontmatter, expected_file_budget, expected_line_budget",
+    [
+        pytest.param(_grant(max_files=50), (_VISUAL_REVIEW_FILE, 50), (None, gates.MAX_LINES), id="files-only"),
+        pytest.param(_grant(max_lines=1000), (None, gates.MAX_FILES), (_VISUAL_REVIEW_FILE, 1000), id="lines-only"),
+        pytest.param(
+            _grant(max_files=50, max_lines=1000),
+            (_VISUAL_REVIEW_FILE, 50),
+            (_VISUAL_REVIEW_FILE, 1000),
+            id="both-keys",
+        ),
+    ],
+)
+def test_resolve_budgets_each_ceiling_independently(
+    fake_repo: Path,
+    frontmatter: str,
+    expected_file_budget: tuple[str | None, int],
+    expected_line_budget: tuple[str | None, int],
+) -> None:
+    # Granting one ceiling must not open a second budget for the other: a
+    # lines-only folder still counts its files against the one global file
+    # budget, so it can never double how many files a PR may touch.
+    _write_folder_policy(fake_repo, frontmatter)
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
+    for (path, ceiling), scopes in ((expected_file_budget, eff.file_scopes), (expected_line_budget, eff.line_scopes)):
+        governing = next(s for s in scopes if "products/visual_review/a.py" in s.files)
+        assert (governing.path, governing.ceiling) == (path, ceiling)
+        # A file outside the folder never rides its grant.
+        assert next(s for s in scopes if s.path is None).files[-1] == "README.md"
 
 
 @pytest.mark.parametrize(
     "frontmatter",
     [
-        pytest.param("stamphog:\n  size_gate:\n    max_lines: 999", id="undelegated-key"),
-        pytest.param("stamphog:\n  size_gate:\n    max_files: 99", id="over-ceiling"),
+        pytest.param("stamphog:\n  tiers:\n    max_files: 10", id="undelegated-key"),
+        pytest.param("stamphog:\n  size_gate:\n    breadth: single-area", id="undelegated-size-gate-key"),
+        pytest.param("stamphog:\n  size_gate: {}", id="empty-grant"),
+        pytest.param(_grant(max_files=99), id="files-over-ceiling"),
+        pytest.param(_grant(max_lines=1501), id="lines-over-ceiling"),
+        pytest.param(_grant(max_files=50, max_lines=1501), id="one-key-over-ceiling"),
     ],
 )
 def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, frontmatter: str) -> None:
     _write_folder_policy(fake_repo, frontmatter)
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert [s.path for s in eff.line_scopes] == [None]
+    assert _file_scope(eff, None).files == ("products/visual_review/a.py",)
     assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
     assert eff.folder_prose is None
 
@@ -355,9 +680,30 @@ def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, fr
 @pytest.mark.usefixtures("fake_repo")
 def test_resolve_no_folder_file_uses_global() -> None:
     eff = resolve(gates.POLICY, ["posthog/api/insight.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).max_files == gates.MAX_FILES
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert _file_scope(eff, None).ceiling == gates.MAX_FILES
     assert eff.invalid_folder_files == ()
+
+
+@pytest.mark.parametrize(
+    "frontmatter, expected_line_roof",
+    [
+        pytest.param(None, gates.MAX_LINES, id="no-grant-keeps-the-global-total"),
+        pytest.param(_grant(max_lines=200), gates.MAX_LINES, id="grant-under-the-global-default"),
+        pytest.param(_grant(max_lines=1500), 1500, id="grant-over-the-global-default"),
+    ],
+)
+def test_roof_is_the_most_generous_ceiling_in_play(
+    fake_repo: Path, frontmatter: str | None, expected_line_roof: int
+) -> None:
+    # A folder may grant under the global default, so the roof reads the global
+    # pool too. It is always a scope, which keeps the roof from dropping below
+    # the global ceiling.
+    if frontmatter is not None:
+        _write_folder_policy(fake_repo, frontmatter)
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert eff.line_roof == expected_line_roof
+    assert eff.file_roof == gates.MAX_FILES
 
 
 def test_resolve_prose_only_folder_file_keeps_global_budget(fake_repo: Path) -> None:
@@ -366,8 +712,8 @@ def test_resolve_prose_only_folder_file_keeps_global_budget(fake_repo: Path) -> 
     (fake_repo / "products" / "visual_review").mkdir(parents=True)
     (fake_repo / _VISUAL_REVIEW_FILE).write_text("---\n{}\n---\n\nadvice only\n")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert _file_scope(eff, None).files == ("products/visual_review/a.py",)
     assert eff.folder_prose == "advice only"
 
 
@@ -377,19 +723,8 @@ def test_resolve_carries_sanitized_prose(fake_repo: Path) -> None:
     assert eff.folder_prose == "keepthis"
 
 
-@pytest.mark.parametrize(
-    "n_global, expected_ok",
-    [
-        pytest.param(19, True, id="both-budgets-fit"),
-        pytest.param(21, False, id="global-budget-exceeded"),
-    ],
-)
-def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> None:
-    # 30 folder-scoped files ride the folder's ceiling while the remaining
-    # files are judged against the global ceiling on their own.
-    vr_files = [{"filename": f"products/visual_review/f{i}.py", "additions": 5, "deletions": 0} for i in range(30)]
-    global_files = [{"filename": f"posthog/api/m{i}.py", "additions": 5, "deletions": 0} for i in range(n_global)]
-
+def _size_pipeline(vr_files: list[dict], global_files: list[dict]) -> "review_pr.Pipeline":
+    # The folder scope carries the higher ceiling on both keys.
     pipeline = review_pr.Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = PRData(
         number=1,
@@ -408,18 +743,72 @@ def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> N
         review_comments=[],
         check_runs=[],
     )
+    vr_names = tuple(f["filename"] for f in vr_files)
+    global_names = tuple(f["filename"] for f in global_files)
     pipeline.effective_policy = EffectivePolicy(
-        max_lines=500,
-        scopes=(
-            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=tuple(f["filename"] for f in vr_files)),
-            ScopeBudget(path=None, max_files=20, files=tuple(f["filename"] for f in global_files)),
+        file_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=50, files=vr_names),
+            ScopeBudget(path=None, ceiling=20, files=global_names),
+        ),
+        line_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=1000, files=vr_names),
+            ScopeBudget(path=None, ceiling=500, files=global_names),
         ),
     )
+    return pipeline
 
-    ok, message = pipeline._check_size()
+
+@pytest.mark.parametrize(
+    "vr_additions, global_additions, n_global, expected_ok, expected_where",
+    [
+        pytest.param(5, 5, 19, True, None, id="both-budgets-fit"),
+        pytest.param(5, 5, 21, False, "global", id="global-file-budget-exceeded"),
+        pytest.param(5, 30, 19, False, "global", id="global-line-budget-exceeded"),
+        pytest.param(30, 5, 19, True, None, id="folder-lines-exceed-global-ceiling-but-fit-own"),
+        pytest.param(40, 5, 19, False, _VISUAL_REVIEW_FILE, id="folder-line-budget-exceeded"),
+    ],
+)
+def test_size_gate_applies_mixed_leniency(
+    vr_additions: int, global_additions: int, n_global: int, expected_ok: bool, expected_where: str | None
+) -> None:
+    # 30 folder-scoped files ride the folder's ceilings while the remaining
+    # files are judged against the global ceilings on their own.
+    vr_files = [
+        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(30)
+    ]
+    global_files = [
+        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
+    ]
+
+    ok, message = _size_pipeline(vr_files, global_files)._check_size()
     assert ok is expected_ok
-    if not expected_ok:
-        assert "global" in message
+    if expected_where is not None:
+        assert f"in {expected_where}" in message
+
+
+@pytest.mark.parametrize(
+    "n_vr, vr_additions, n_global, global_additions, expected_roof",
+    [
+        pytest.param(30, 30, 19, 26, "1000L", id="line-roof"),
+        pytest.param(45, 1, 19, 1, "50F", id="file-roof"),
+    ],
+)
+def test_size_gate_roof_bounds_the_whole_pr(
+    n_vr: int, vr_additions: int, n_global: int, global_additions: int, expected_roof: str
+) -> None:
+    # Every scope fits its own budget here. Without a roof the PR total would
+    # grow with the number of granting folders it touches.
+    vr_files = [
+        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(n_vr)
+    ]
+    global_files = [
+        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
+    ]
+
+    ok, message = _size_pipeline(vr_files, global_files)._check_size()
+    assert ok is False
+    assert "across the whole PR" in message
+    assert f"roof is {expected_roof}" in message
 
 
 @pytest.mark.parametrize(
@@ -438,10 +827,10 @@ def test_resolve_child_rides_nearest_grant_and_accumulates_ancestor_prose(
     _write_agent_policy(fake_repo, "products", parent_fm, "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", child_fm, "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    scope = _scope(eff, scope_path)
-    assert scope.max_files == max_files
+    scope = _file_scope(eff, scope_path)
+    assert scope.ceiling == max_files
     assert scope.files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, None).files == ()
     assert eff.invalid_folder_files == ()
     assert eff.folder_prose == _multi_prose(
         (_PRODUCTS_FILE, "parent guidance"),
@@ -453,11 +842,29 @@ def test_resolve_nearest_grant_wins_across_siblings(fake_repo: Path) -> None:
     _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", _grant(50), "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
-    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
-    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
-    assert _scope(eff, _PRODUCTS_FILE).max_files == 30
-    assert _scope(eff, _PRODUCTS_FILE).files == ("products/foo.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).ceiling == 50
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _file_scope(eff, _PRODUCTS_FILE).ceiling == 30
+    assert _file_scope(eff, _PRODUCTS_FILE).files == ("products/foo.py",)
+    assert _file_scope(eff, None).files == ()
+
+
+def test_resolve_walks_the_chain_separately_for_each_ceiling(fake_repo: Path) -> None:
+    # The child grants lines only, so its files still share the parent's one file
+    # budget rather than getting a second one of their own.
+    _write_agent_policy(fake_repo, "products", _grant(max_files=50), "parent guidance")
+    _write_agent_policy(fake_repo, "products/visual_review", _grant(max_lines=1000), "child guidance")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
+    parent_files = _file_scope(eff, _PRODUCTS_FILE)
+    assert parent_files.ceiling == 50
+    assert set(parent_files.files) == {"products/visual_review/a.py", "products/foo.py"}
+    assert [s.path for s in eff.file_scopes] == [_PRODUCTS_FILE, None]
+    child_lines = _line_scope(eff, _VISUAL_REVIEW_FILE)
+    assert child_lines.ceiling == 1000
+    assert child_lines.files == ("products/visual_review/a.py",)
+    global_lines = _line_scope(eff, None)
+    assert global_lines.ceiling == gates.MAX_LINES
+    assert global_lines.files == ("products/foo.py",)
 
 
 def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
@@ -466,10 +873,10 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
     _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", _grant(99), "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    parent_scope = _scope(eff, _PRODUCTS_FILE)
-    assert parent_scope.max_files == 30
+    parent_scope = _file_scope(eff, _PRODUCTS_FILE)
+    assert parent_scope.ceiling == 30
     assert parent_scope.files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, None).files == ()
     assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
     assert eff.folder_prose == "parent guidance"
 
@@ -509,10 +916,11 @@ def test_policy_file_only_pr_is_t2_never(path: str) -> None:
 def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
-    guidance = policy.review_guidance_path().read_text()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    guidance = reviewer._load_review_guidance()
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──
@@ -554,10 +962,13 @@ def _body_pipeline(fam) -> "review_pr.Pipeline":
         "assurance": {"head_approvals": [], "head_commented_users": ["greptile-apps[bot]"]},
     }
     pipeline.effective_policy = EffectivePolicy(
-        max_lines=500,
-        scopes=(
-            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=("products/visual_review/a.py",)),
-            ScopeBudget(path=None, max_files=20, files=()),
+        file_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=50, files=("products/visual_review/a.py",)),
+            ScopeBudget(path=None, ceiling=20, files=()),
+        ),
+        line_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=1000, files=("products/visual_review/a.py",)),
+            ScopeBudget(path=None, ceiling=500, files=()),
         ),
     )
     pipeline.gate_results = [review_pr.GateResult("size", True, "4L, 1F substantive")]
@@ -575,6 +986,7 @@ def test_review_body_leads_with_reasoning_and_folds_mechanics() -> None:
         files_prev_count=1,
         files_total=1,
         capped=False,
+        blame_incomplete_files=0,
         top_prior_authors=(),
     )
     body = _body_pipeline(fam)._render_review_body()
@@ -592,3 +1004,46 @@ def test_review_body_without_familiarity_has_no_familiarity_bullet() -> None:
     body = _body_pipeline(None)._render_review_body()
     assert body is not None
     assert "familiarity" not in body.lower()
+
+
+def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted checkout is the PR head, and the engine sits at tools/pr-approval-agent. A PR that adds
+    # tools/.stamphog/ would become the root of the upward walk and supply its own policy.
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / "tools" / ".stamphog").mkdir(parents=True)
+    monkeypatch.setenv("STAMPHOG_REPO_ROOT", str(tmp_path))
+    policy.repo_root.cache_clear()
+    try:
+        assert policy.repo_root() == tmp_path.resolve()
+    finally:
+        monkeypatch.delenv("STAMPHOG_REPO_ROOT")
+        policy.repo_root.cache_clear()
+
+
+_BOT_AUTHOR = {"name": "renovate", "login": "renovate[bot]", "id": 29139614}
+
+
+@pytest.mark.parametrize(
+    "entries, error",
+    [
+        pytest.param([_BOT_AUTHOR], None, id="valid"),
+        pytest.param([{**_BOT_AUTHOR, "login": "renovate"}], r"login: must end with \[bot\]", id="not-an-app-login"),
+        pytest.param([{"name": "renovate", "login": "renovate[bot]"}], "keys must be", id="missing-id"),
+        pytest.param([{**_BOT_AUTHOR, "id": 0}], r"\.id", id="zero-id"),
+        pytest.param(
+            [_BOT_AUTHOR, {**_BOT_AUTHOR, "name": "again"}], "duplicate 'renovate\\[bot\\]'", id="duplicate-login"
+        ),
+    ],
+)
+def test_bot_authors_name_one_app_account_each(tmp_path: Path, entries: list[dict], error: str | None) -> None:
+    data = _valid_policy_dict()
+    data["bot_authors"] = entries
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.bot_authors == (BotAuthor(name="renovate", login="renovate[bot]", id=29139614),)

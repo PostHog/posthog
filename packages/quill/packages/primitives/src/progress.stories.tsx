@@ -7,6 +7,9 @@ const meta = {
     title: 'Primitives/Progress',
     component: Progress,
     tags: ['autodocs'],
+    args: {
+        value: 56,
+    },
     argTypes: {
         variant: {
             control: 'select',

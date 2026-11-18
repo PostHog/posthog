@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 export const personUpdateVersionMismatchCounter = new Counter({
     name: 'person_update_version_mismatch',
@@ -19,7 +19,9 @@ export const pluginLogEntryCounter = new Counter({
 export const moveDistinctIdsCountHistogram = new Histogram({
     name: 'move_distinct_ids_count',
     help: 'Number of distinct IDs moved in merge operations',
-    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+    buckets: [
+        0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000,
+    ],
 })
 
 export const personPropertiesSizeHistogram = new Histogram({
@@ -33,4 +35,23 @@ export const postgresErrorCounter = new Counter({
     name: 'plugin_server_postgres_errors',
     help: 'Count of Postgres errors by type',
     labelNames: ['error_type', 'database_use'],
+})
+
+export const postgresPoolAcquireDurationHistogram = new Histogram({
+    name: 'postgres_pool_acquire_duration_seconds',
+    help: 'Time a transaction waits for a pooled client, which rises when the pool is saturated',
+    labelNames: ['pool'],
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60],
+})
+
+export const postgresClientErrorCounter = new Counter({
+    name: 'postgres_client_errors',
+    help: 'Errors raised on a client while a transaction held it',
+    labelNames: ['pool'],
+})
+
+export const postgresOpenTransactionsGauge = new Gauge({
+    name: 'postgres_open_transactions',
+    help: 'Transactions currently holding a client',
+    labelNames: ['pool', 'tag'],
 })

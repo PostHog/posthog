@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination_ids": {
+            "description": "Destination IDs from the destinations list, to delete with their HogFunctions.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "hog_function_ids": {
+            "description": "HogFunction IDs of the destination, as returned when it was created.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this alert configuration.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

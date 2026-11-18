@@ -31,6 +31,7 @@ INSERT INTO sharded_session_replay_events (
     console_error_count,
     snapshot_source,
     snapshot_library,
+    snapshot_mode_v2,
     size,
     block_urls,
     block_first_timestamps,
@@ -54,8 +55,9 @@ SELECT
     %(console_log_count)s,
     %(console_warn_count)s,
     %(console_error_count)s,
-    argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
-    argMinState(cast(%(snapshot_library)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    argMinState(cast(%(snapshot_source)s, 'Nullable(String)'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    argMinState(cast(%(snapshot_library)s, 'Nullable(String)'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     %(size)s,
     %(block_urls)s,
     %(block_first_timestamps)s,
@@ -143,7 +145,7 @@ def produce_replay_summary(
     block_last_timestamps: list[datetime] | None = None,
     retention_period_days: int | None = None,
     is_deleted: bool = False,
-):
+) -> None:
     """
     Creates a session replay event in ClickHouse for testing purposes.
     Writes session replay data directly to ClickHouse and creates associated analytics events.

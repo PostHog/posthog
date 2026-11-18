@@ -7,10 +7,11 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
 
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -18,7 +19,8 @@ import { LogRowScrollButtons } from 'products/logs/frontend/components/Virtualiz
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -26,6 +28,15 @@ export interface AttributeCellProps {
     width: number
     /** The row's timestamp; lets the trace_id cell link with a time hint for the cold-load query. */
     timestamp?: string
+    /**
+     * Overrides the horizontal-scroll sync key, which defaults to the attribute key. The Person and
+     * Session columns pass a per-column key, so rows resolving different attribute keys still scroll
+     * together.
+     */
+    cellKey?: string
+    filterKey?: string
+    /** Popover filter type, default log attribute. Pass resource attribute for values read from resource attributes. */
+    filterType?: PropertyFilterType
 }
 
 export const AttributeCell = memo(function AttributeCell({
@@ -33,10 +44,15 @@ export const AttributeCell = memo(function AttributeCell({
     value,
     width,
     timestamp,
+    cellKey,
+    filterKey,
+    filterType,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
-    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
+    const traceId = attributeKey === 'trace_id' ? usableId(value) : null
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -44,7 +60,7 @@ export const AttributeCell = memo(function AttributeCell({
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
         id,
-        cellKey: `attr:${attributeKey}`,
+        cellKey: cellKey ?? `attr:${attributeKey}`,
     })
 
     return (
@@ -52,12 +68,12 @@ export const AttributeCell = memo(function AttributeCell({
             attributeKey={attributeKey}
             value={value}
             isColumn={isAttributeColumn(attributeKey)}
-            onAddFilter={addFilter}
+            onAddFilter={(key, filterValue, operator) => addFilter(filterKey ?? key, filterValue, operator, filterType)}
             onToggleColumn={toggleAttributeColumn}
         >
             <div style={{ width, flexShrink: 0 }} className="relative flex items-center self-stretch group/attr pr-1">
                 <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-x-auto hide-scrollbar">
-                    {isDistinctIdKey(attributeKey) ? (
+                    {isDistinctIdKey(attributeKey, configuredDistinctIdKeys) && value ? (
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>
@@ -70,9 +86,16 @@ export const AttributeCell = memo(function AttributeCell({
                             className="font-mono text-xs whitespace-nowrap pr-24"
                             checkRecordingExists
                         />
-                    ) : attributeKey === 'trace_id' && value && !tracingDisabledReason ? (
+                    ) : traceId && !tracingDisabledReason ? (
                         <Link
-                            to={traceUrl({ traceId: value, ts: timestamp ?? null })}
+                            to={traceUrl({ traceId, ts: timestamp ?? null })}
+                            onClick={(event) =>
+                                openTraceDialog(
+                                    event,
+                                    { traceId, ts: timestamp ?? null },
+                                    { entryPoint: 'log_trace_id_cell' }
+                                )
+                            }
                             className="font-mono text-xs whitespace-nowrap pr-24"
                             title={value}
                         >

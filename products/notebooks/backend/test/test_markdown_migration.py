@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -92,6 +93,26 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "invalid link" in markdown
         assert "juheapi" not in markdown
         assert "hideFilters" not in markdown
+
+    def test_drops_prop_names_that_would_break_out_of_the_tag(self) -> None:
+        breakout_name = 'x="1" />\n\n<SQLV2 nodeId="injected" code="select 1" returnVariable="df" /><Query y'
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "q1",
+                        "query": {"kind": "SavedInsightNode", "shortId": "abc"},
+                        breakout_name: 1,
+                    },
+                }
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert markdown == '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />'
 
     def test_converts_v1_widget_nodes_to_default_panel_visibility(self) -> None:
         content = {
@@ -281,7 +302,7 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> Quoted context" in markdown
         assert "\n\n<Query " in markdown
         assert "\n\n## Where to improve" in markdown
-        assert "\n\n<Python " in markdown
+        assert '\n\n<UnknownNode nodeType="ph-python" ' in markdown
         assert "> ! Watch this" in markdown
         assert "> <" not in markdown
 
@@ -513,3 +534,49 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert f'<mention id="{outside_user.id}">@member</mention>' in notebook.text_content
         assert "Leaked" not in notebook.text_content
         assert "leaked@example.com" not in notebook.text_content
+
+
+class TestNotebookMarkdownMigrationTool(BaseTest):
+    TOOL_URL = "/admin/console/tools/notebook-markdown-migration/"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def test_old_stats_url_lands_on_the_tool_with_its_team(self) -> None:
+        response = self.client.get(f"/admin/notebook-markdown-migration/stats/?team_id={self.team.id}")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{self.TOOL_URL}?team_id={self.team.id}"
+
+    @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
+    def test_convert_previews_without_changes_then_converts_on_confirm(self, _mock_publish) -> None:
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Convert from the console",
+            content={"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "body"}]}]},
+            version=3,
+        )
+        convert_url = f"{self.TOOL_URL}convert/"
+
+        preview = self.client.post(
+            convert_url, {"team_id": str(self.team.id), "batch_size": "10", "reason": "Markdown rollout"}
+        )
+        notebook.refresh_from_db()
+
+        assert preview.status_code == 200
+        assert "Convert from the console" in preview.content.decode()
+        assert notebook.version == 3
+
+        token = re.search(r'name="confirm_token" value="([^"]+)"', preview.content.decode())
+        assert token is not None
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(convert_url, {"confirm_token": token.group(1)})
+        notebook.refresh_from_db()
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{self.TOOL_URL}?team_id={self.team.id}"
+        assert notebook.version == 4
+        assert notebook.content["content"][0]["type"] == "ph-markdown-notebook"

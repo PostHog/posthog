@@ -1,0 +1,112 @@
+fun metric(name, horizon, field) {
+    let values := company.traction_metrics[name];
+    return ifNull(if(horizon == null, values.latest_metric_value, values[horizon][field]), 0);
+}
+
+fun intersects(values, accepted) {
+    for (let value in values) {
+        if (has(accepted, value)) { return true; }
+    }
+    return false;
+}
+
+fun has_quality_investor(observed, accepted_names) {
+    let joined := arrayStringConcat(observed, '\n');
+    for (let accepted in accepted_names) {
+        if (has(observed, accepted)) { return true; }
+        if (length(accepted) >= 8 and position(joined, accepted) > 0) {
+            for (let investor in observed) {
+                if (position(investor, accepted) > 0) { return true; }
+            }
+        }
+    }
+    return false;
+}
+
+if (lower(trim(ifNull(signup.role, ''))) == 'student') {
+    return {'status': 'disqualified', 'score': 0, 'dq_reason': 'role=student'};
+}
+if (empty(company)) { return {'status': 'not_found'}; }
+
+// Company type identifies institutions; market tags describe their customers.
+if (company.company_type == 'SCHOOL') {
+    return {'status': 'disqualified', 'score': 0, 'dq_reason': 'company_type=SCHOOL'};
+}
+
+let funding := ifNull(company.funding.funding_total, 0);
+let visits := metric('web_traffic', null, null);
+let headcount := if(company.headcount, company.headcount, metric('headcount', null, null));
+// Named investors make an undisclosed raise a profile worth scoring.
+if (not (headcount or funding or company.funding.investors or company.tags_v2 or visits)) {
+    return {'status': 'insufficient_data'};
+}
+
+fun normalized_name(value) {
+    return trim(replaceAll(lower(ifNull(value, '')), ' and ', ' & '));
+}
+let tags := [];
+let tag_types := [];
+for (let tag in company.tags_v2) {
+    if (typeof(tag) == 'object') {
+        tags := arrayPushBack(tags, normalized_name(tag.display_value));
+        tag_types := arrayPushBack(tag_types, tag.type);
+    }
+}
+let investors := [];
+for (let investor in company.funding.investors) {
+    if (typeof(investor) == 'object') {
+        investors := arrayPushBack(investors, normalized_name(investor.name));
+    }
+}
+
+let traffic_change := metric('web_traffic', '90d_ago', 'percent_change');
+let traffic_level := multiIf(visits >= 100000, 15, visits >= 10000, 10, visits >= 1000, 5, 0);
+let traffic_growth := if(visits >= 5000,
+    multiIf(traffic_change >= 40, 20, traffic_change >= 15, 12, traffic_change > 0, 5, 0), 0);
+let traction := traffic_level + traffic_growth;
+
+let quality := has(tag_types, 'YC_BATCH') or intersects(tags, lists.capital_quality);
+if (not quality) { quality := has_quality_investor(investors, lists.quality_investors); }
+let capital := multiIf(funding >= 10000000, 20, funding >= 2000000, 14,
+    funding > 0 or company.funding_attribute_null_status == 'EXISTS_BUT_UNDISCLOSED', 8, 0);
+capital := min2(30, capital + if(quality, 10, 0));
+
+let description := if(company.description, company.description, ifNull(company.short_description, ''));
+let harmonic_ai := intersects(tags, lists.ai_positive)
+    or match(lower(description), '\\b(ai|artificial intelligence|machine learning|ml|llms?|genai|generative|copilot|neural network)\\b')
+    or match(ifNull(signup.domain, ''), '[.]ai$');
+let ai_sources := [];
+if (harmonic_ai) { ai_sources := arrayPushBack(ai_sources, 'harmonic'); }
+if (signup.wizard_ai_sdk) { ai_sources := arrayPushBack(ai_sources, 'wizard'); }
+if (typeof(enrichments.ai_pilled.ai_pilled) == 'boolean' and enrichments.ai_pilled.ai_pilled == true) { ai_sources := arrayPushBack(ai_sources, 'llm'); }
+let ai_points := if(empty(ai_sources), 0, 15);
+let ai_source := if(empty(ai_sources), null, if(ai_sources == ['harmonic', 'wizard'], 'both', arrayStringConcat(ai_sources, '+')));
+
+let headcount_change := metric('headcount', '180d_ago', 'percent_change');
+let headcount_adds := metric('headcount', '180d_ago', 'change');
+let headcount_growth := max2(
+    multiIf(headcount_change >= 15, 10, headcount_change >= 5, 6, headcount_change > 0, 3, 0),
+    if(headcount_adds >= 3, 6, 0));
+let software := intersects(tags, lists.software_positive)
+    or match(lower(description), '\\b(software|platform|api|saas|application|developer|sdk|automat\\w+|dashboard|analytics|infrastructure|integrat\\w+)\\b');
+let software_relevance := multiIf(metric('headcount_engineering', null, null) > 0, 10, software, 7, 0);
+
+let coverage := toInt(headcount >= 1) + toInt(visits >= 100)
+    + toInt(funding > 0 or not empty(investors)) + toInt(not empty(company.tags_v2));
+return {
+    'status': 'scored',
+    'score': traction + capital + ai_points + headcount_growth + software_relevance,
+    'components': {
+        'traction': traction, 'capital': capital, 'ai_pilled': ai_points,
+        'headcount_growth': headcount_growth, 'software_relevance': software_relevance
+    },
+    'flags': {
+        'quality_investor': quality,
+        'data_coverage': coverage,
+        'low_confidence': coverage <= 1,
+        'agency_flag': intersects(tags, ['consulting', 'technology & digital consulting', 'management & strategy consulting']),
+        'nonprofit_flag': intersects(tags, ['non-profit & community organizations']),
+        'wizard_ai_sdk': signup.wizard_ai_sdk,
+        'ai_pilled_source': ai_source
+    }
+};

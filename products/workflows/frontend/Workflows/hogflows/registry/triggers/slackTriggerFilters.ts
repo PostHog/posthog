@@ -1,5 +1,39 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+/** pinned: analytics event name emitted by the Slack trigger */
+const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
+/** The stored trigger config a Slack message workflow uses. */
+export type InternalEventTriggerConfig = {
+    type: 'internal-event'
+    filters: {
+        source: 'internal-events'
+        events: { id: string; type: 'events' }[]
+        properties?: any[]
+    }
+}
+
+// Callers pass whatever trigger a workflow carries, including legacy and malformed shapes, so
+// every level is checked before it is read.
+export function isSlackMessageTriggerConfig(config: unknown): config is InternalEventTriggerConfig {
+    if (!config || typeof config !== 'object') {
+        return false
+    }
+    const { type, filters } = config as { type?: unknown; filters?: unknown }
+    if (type !== 'internal-event' || !filters || typeof filters !== 'object') {
+        return false
+    }
+    const { source, events } = filters as { source?: unknown; events?: unknown }
+    return (
+        source === 'internal-events' &&
+        Array.isArray(events) &&
+        events.some(
+            (event) =>
+                event && typeof event === 'object' && (event as { id?: unknown }).id === SLACK_MESSAGE_RECEIVED_EVENT
+        )
+    )
+}
+
 /** Who is allowed to start a run. Each mode compiles to exactly one property filter. */
 export type SlackPosterMode = 'anyone' | 'people' | 'specific_people' | 'apps' | 'specific_apps'
 
@@ -38,7 +72,7 @@ export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string;
 const OWNED_KEYS = new Set(['channel', 'user', 'bot_id', 'app_id', 'thread_ts'])
 
 export interface SlackTriggerFilters {
-    channel: string | null
+    channels: string[]
     posterMode: SlackPosterMode
     posterIds: string[]
     topLevelOnly: boolean
@@ -95,7 +129,7 @@ export function decodeSlackFilters(properties: Record<string, any>[] | undefined
     }
 
     return {
-        channel: values(channelEntry).length ? channelId(values(channelEntry)[0]) : null,
+        channels: values(channelEntry).map(channelId),
         posterMode,
         posterIds,
         topLevelOnly: threadTs?.operator === PropertyOperator.IsNotSet,
@@ -106,8 +140,8 @@ export function decodeSlackFilters(properties: Record<string, any>[] | undefined
 export function encodeSlackFilters(filters: SlackTriggerFilters): Record<string, any>[] {
     const properties: Record<string, any>[] = []
 
-    if (filters.channel) {
-        properties.push(exact('channel', [channelId(filters.channel)]))
+    if (filters.channels.length) {
+        properties.push(exact('channel', filters.channels.map(channelId)))
     }
 
     switch (filters.posterMode) {

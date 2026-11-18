@@ -13,6 +13,7 @@ import { logger } from '~/common/utils/logger'
 import { NodeInstrumentation } from '~/common/utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
+import { closeSharedAgents } from '~/common/utils/request'
 import { delay } from '~/common/utils/utils'
 
 import { onShutdown } from '../lifecycle'
@@ -23,6 +24,7 @@ export type BaseServerConfig = {
     INTERNAL_API_SECRET_FALLBACKS: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     HTTP_SERVER_PORT: number
+    HTTP_SERVER_DRAIN_TIMEOUT_MS: number
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
@@ -68,6 +70,7 @@ export class ServerLifecycle {
     private nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
+    private openConnections = 0
 
     constructor(
         private config: BaseServerConfig,
@@ -78,6 +81,11 @@ export class ServerLifecycle {
             internalApiSecretFallbacks: this.config.INTERNAL_API_SECRET_FALLBACKS,
             ...expressAppOptions,
         })
+        if (this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS > 0) {
+            ;(this.expressApp as ReturnType<typeof express>).uwsApp.filter((_res, change) => {
+                this.openConnections += Number(change)
+            })
+        }
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
         this.setupContinuousProfiling()
@@ -138,6 +146,7 @@ export class ServerLifecycle {
 
         logger.info('💤', ' Shutting down gracefully...')
 
+        await this.drainConnections()
         this.httpServer?.close()
         Object.values(schedule.scheduledJobs).forEach((job) => {
             job.cancel()
@@ -163,6 +172,7 @@ export class ServerLifecycle {
             ...resources.kafkaProducers.map((p) => p.disconnect()),
             ...resources.redisPools.map((p) => p.drain()),
             resources.postgres?.end(),
+            closeSharedAgents(),
         ])
         for (const pool of resources.redisPools) {
             await pool.clear()
@@ -172,6 +182,25 @@ export class ServerLifecycle {
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
+    }
+
+    // uWebSockets close() terminates every open connection at once. A connection stays open until the
+    // tail of an ended response leaves its send buffer, and closes on its own once idle.
+    async drainConnections(): Promise<void> {
+        const timeoutMs = this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS
+        if (timeoutMs <= 0) {
+            return
+        }
+        const deadline = Date.now() + timeoutMs
+        if (this.openConnections > 0) {
+            logger.info('💤', `Waiting for ${this.openConnections} open HTTP connections to close...`)
+        }
+        while (this.openConnections > 0 && Date.now() < deadline) {
+            await delay(100)
+        }
+        if (this.openConnections > 0) {
+            logger.warn('⚠️', `Closing HTTP server with ${this.openConnections} connections still open`)
+        }
     }
 
     private setupPodTermination(getCleanupResources: () => CleanupResources): void {
@@ -210,6 +239,14 @@ export class ServerLifecycle {
         process.on('unhandledRejection', rejectionHandler)
 
         const exceptionHandler = async (error: Error) => {
+            // Log before stopping. Without this the process exits silently, so a crash loop
+            // shows only a rising restart count and whatever the service logged last.
+            logger.error('🤮', `Uncaught Exception`, { error: String(error), stack: error?.stack })
+
+            captureException(error, {
+                extra: { detected_at: `ServerLifecycle on uncaughtException` },
+            })
+
             await this.stop(getCleanupResources, error)
         }
         this.processListeners.set('uncaughtException', exceptionHandler)

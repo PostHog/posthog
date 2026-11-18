@@ -1,0 +1,153 @@
+import { describe, expect, it } from 'vitest'
+
+import { register, resolveTotal } from '@/metrics'
+import { resolveKeys } from '@/resolve'
+import type { CallerIdentity, MountedSecrets } from '@/types'
+
+function mounted(secrets: MountedSecrets['secrets']): MountedSecrets {
+    return { fetchedAt: '2026-08-06T00:00:00.000Z', versionId: 'v1', secrets }
+}
+
+const MOUNTED = mounted({
+    GOOGLE_ADS_APP_CLIENT_ID: { state: 'steady', value: 'ga-id', versionId: 'v1', fetchedAt: 'now' },
+    GOOGLE_ADS_APP_CLIENT_SECRET: {
+        state: 'rotating',
+        value: 'ga-live',
+        incoming: 'ga-staged',
+        versionId: 'v1',
+        fetchedAt: 'now',
+    },
+    STRIPE_APP_SECRET_KEY: { state: 'steady', value: 'sk-live', versionId: 'v1', fetchedAt: 'now' },
+})
+
+function identity(requestedKeys: string[], allowed: string[] | null = null): CallerIdentity {
+    return {
+        deployment: 'temporal-worker-data-warehouse',
+        caller: 'warehouse-sources',
+        requestedKeys,
+        allowedKeys: allowed === null ? null : new Set(allowed),
+    }
+}
+
+describe('resolve', () => {
+    // The allowlist is opt-in per deployment, so a deployment with no entry keeps reading
+    // anything on the mount that is not reserved.
+    it('serves anything on the mount to a deployment with no allowlist', async () => {
+        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY']), MOUNTED)
+
+        expect(Object.keys(response.secrets).sort()).toEqual(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'])
+        expect(response.missing).toEqual([])
+    })
+
+    it('serves the requested fields with their rotation state', async () => {
+        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']), MOUNTED)
+
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).toMatchObject({ state: 'steady', value: 'ga-id' })
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).toMatchObject({
+            state: 'rotating',
+            value: 'ga-live',
+            incoming: 'ga-staged',
+        })
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('incoming')
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).not.toHaveProperty('previous')
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('previous')
+    })
+
+    // THE containment property at this layer: the scope is the identity's key list and
+    // nothing else. The route-level half — a request body cannot widen it — is pinned in
+    // app.test.ts, since this function never sees an HTTP request.
+    it('serves nothing outside the token scope even though the caller may read it', async () => {
+        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED)
+
+        expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
+        expect(response.secrets).not.toHaveProperty('STRIPE_APP_SECRET_KEY')
+    })
+
+    it.each([
+        ['a name nothing on the mount carries', 'NOT_A_REAL_KEY'],
+        // The mount never puts a reserved entry in the secret set, so a token naming a
+        // signing key gets the same answer as a token naming nonsense.
+        ['a reserved entry a token asked for by name', '__CALLER_KEY_POSTHOG_DJANGO'],
+    ])('reports %s as missing rather than failing the request', async (_label, key) => {
+        const response = resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED)
+
+        expect(response.missing).toContain(key)
+        expect(response.secrets).not.toHaveProperty(key)
+        expect(response.secrets).toHaveProperty('GOOGLE_ADS_APP_CLIENT_ID')
+    })
+
+    it.each([
+        ['a name outside the allowlist', ['GOOGLE_ADS_APP_CLIENT_ID'], 'STRIPE_APP_SECRET_KEY'],
+        ['any name when the allowlist is empty', [], 'GOOGLE_ADS_APP_CLIENT_ID'],
+    ])('refuses %s and reports it as missing', async (_label, allowed, key) => {
+        register.resetMetrics()
+        const response = resolveKeys(identity([key], allowed), MOUNTED)
+
+        expect(response.secrets).toEqual({})
+        expect(response.missing).toEqual([key])
+        const results = (await resolveTotal.get()).values.map((v) => v.labels['result'])
+        expect(results).toEqual(['not_allowed'])
+    })
+
+    it('serves an allowlisted name', async () => {
+        const response = resolveKeys(
+            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'], ['GOOGLE_ADS_APP_CLIENT_ID']),
+            MOUNTED
+        )
+
+        expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
+        expect(response.missing).toEqual(['STRIPE_APP_SECRET_KEY'])
+    })
+
+    // The mount drops `__` entries, and resolve refuses them again, so a provider secret stays
+    // unreachable even if a change to the mount let one into the secret set.
+    it.each([
+        ['with no allowlist', null],
+        ['when an allowlist names it', ['__PROVIDER_GITHUB_APP_PRIVATE_KEY']],
+    ])('never serves a __PROVIDER_ entry %s', async (_label, allowed) => {
+        const withProvider = mounted({
+            ...MOUNTED.secrets,
+            __PROVIDER_GITHUB_APP_PRIVATE_KEY: {
+                state: 'steady',
+                value: 'pem-fake',
+                versionId: 'v1',
+                fetchedAt: 'now',
+            },
+        })
+        const response = resolveKeys(identity(['__PROVIDER_GITHUB_APP_PRIVATE_KEY'], allowed), withProvider)
+
+        expect(response.secrets).toEqual({})
+        expect(response.missing).toEqual(['__PROVIDER_GITHUB_APP_PRIVATE_KEY'])
+    })
+
+    it('serves a recovery field with no value so the caller fails fast', async () => {
+        const response = resolveKeys(
+            identity(['STRIPE_APP_SECRET_KEY']),
+            mounted({ STRIPE_APP_SECRET_KEY: { state: 'recovery', versionId: 'v1', fetchedAt: 'now' } })
+        )
+
+        expect(response.secrets['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'recovery' })
+        expect(response.secrets['STRIPE_APP_SECRET_KEY']?.value).toBeUndefined()
+    })
+
+    // prom-client keeps every series in process memory for the lifetime of the pod, so a
+    // caller holding a signing key could otherwise grow the heap and the scrape payload
+    // without bound. Nothing a caller types may become a label: not an invented key name,
+    // and not the `caller` claim.
+    it('never puts caller-supplied text on a metric label', async () => {
+        register.resetMetrics()
+        const invented = 'TOTALLY_MADE_UP_KEY_NAME_9f2a'
+        const claimedCaller = 'a-product-nobody-registered-4b81'
+
+        const response = resolveKeys(
+            { deployment: 'posthog-django', caller: claimedCaller, requestedKeys: [invented], allowedKeys: null },
+            MOUNTED
+        )
+
+        const labelValues = (await resolveTotal.get()).values.flatMap((v) => Object.values(v.labels).map(String))
+        expect(labelValues).not.toContain(invented)
+        expect(labelValues).not.toContain(claimedCaller)
+        // The real name still reaches the caller, just not the metric.
+        expect(response.missing).toContain(invented)
+    })
+})

@@ -21,8 +21,16 @@ import type {
     LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
+    RescoreRequestApi,
+    RescoreResponseApi,
     RunRequestApi,
     SaveRequestApi,
+    ScoringActivateRequestApi,
+    ScoringConfigApi,
+    ScoringConfigListResponseApi,
+    ScoringPreviewRequestApi,
+    ScoringPreviewResponseApi,
+    ScoringSaveRequestApi,
     SdkHealthReportApi,
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
@@ -177,6 +185,87 @@ export const growthAiEnrichmentSaveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(saveRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentRescoreCreateUrl = () => {
+    return `/api/growth_enrichment/rescore/`
+}
+
+/**
+ * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.
+ * @summary Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.
+ */
+export const growthEnrichmentRescoreCreate = async (
+    rescoreRequestApi: RescoreRequestApi,
+    options?: RequestInit
+): Promise<RescoreResponseApi> => {
+    return apiMutator<RescoreResponseApi>(getGrowthEnrichmentRescoreCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rescoreRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringActivateCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/activate/`
+}
+
+export const growthEnrichmentScoringActivateCreate = async (
+    scoringActivateRequestApi: ScoringActivateRequestApi,
+    options?: RequestInit
+): Promise<ScoringConfigApi> => {
+    return apiMutator<ScoringConfigApi>(getGrowthEnrichmentScoringActivateCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringActivateRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringConfigsRetrieveUrl = () => {
+    return `/api/growth_enrichment_scoring/configs/`
+}
+
+export const growthEnrichmentScoringConfigsRetrieve = async (
+    options?: RequestInit
+): Promise<ScoringConfigListResponseApi> => {
+    return apiMutator<ScoringConfigListResponseApi>(getGrowthEnrichmentScoringConfigsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGrowthEnrichmentScoringPreviewCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/preview/`
+}
+
+export const growthEnrichmentScoringPreviewCreate = async (
+    scoringPreviewRequestApi: ScoringPreviewRequestApi,
+    options?: RequestInit
+): Promise<ScoringPreviewResponseApi> => {
+    return apiMutator<ScoringPreviewResponseApi>(getGrowthEnrichmentScoringPreviewCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringPreviewRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringSaveCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/save/`
+}
+
+export const growthEnrichmentScoringSaveCreate = async (
+    scoringSaveRequestApi: ScoringSaveRequestApi,
+    options?: RequestInit
+): Promise<ScoringConfigApi> => {
+    return apiMutator<ScoringConfigApi>(getGrowthEnrichmentScoringSaveCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringSaveRequestApi),
     })
 }
 

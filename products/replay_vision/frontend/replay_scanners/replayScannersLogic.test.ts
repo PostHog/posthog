@@ -1,21 +1,29 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { addProductIntent } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { tagsModel } from '~/models/tagsModel'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
+    REPLAY_VISION_INTENT_DWELL_MS,
     buildScannerListParams,
     replayScannersLogic,
     resolveScannerOrderByKey,
     type ScannerOrderKey,
 } from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
+
+jest.mock('lib/utils/product-intents', () => ({
+    addProductIntent: jest.fn().mockResolvedValue(null),
+}))
 
 const quotaFixture = makeQuotaFixture({
     credit_limit: 1000,
@@ -48,7 +56,7 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
         sampling_rate: 0.1,
         query: null,
         provider: 'google',
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
@@ -69,7 +77,6 @@ describe('replayScannersLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
                 '/api/projects/:team/vision/scanners/creators/': { creators: [] },
-                '/api/projects/:team/tags': [],
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
@@ -221,20 +228,6 @@ describe('replayScannersLogic', () => {
         })
     })
 
-    describe('tagOptions', () => {
-        it('drops comma tags from the team-wide list and keeps selected tags visible', async () => {
-            // Let the mount-time loadTags settle first so its mocked empty response can't clobber the fixture.
-            await expectLogic(logic).toFinishAllListeners()
-            tagsModel.actions.loadTagsSuccess(['beta', 'insight,tag'])
-            logic.actions.setScannersFilters({ tagsFilter: ['from-url'] })
-            expect(logic.values.tagOptions).toEqual([
-                { value: 'beta', label: 'beta' },
-                { value: 'from-url', label: 'from-url' },
-            ])
-            await expectLogic(logic).toFinishAllListeners()
-        })
-    })
-
     describe('clearFilters', () => {
         it('resets all filter state', async () => {
             logic.actions.setScannersFilters({ search: 'foo' })
@@ -348,14 +341,29 @@ describe('replayScannersLogic', () => {
             })
         })
 
-        it('a persisted toggle completes without a success toast', async () => {
+        it('a persisted toggle takes the saved reason and completes without a success toast', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        200,
+                        { id: 'a', enabled: false, disabled_reason: 'manual' },
+                    ],
+                },
+            })
             const successToast = jest.spyOn(lemonToast, 'success')
-            logic.actions.loadScannersSuccess(scanners, scanners.length)
+            logic.actions.loadScannersSuccess(
+                [{ ...scanners[0], disabled_reason: 'free_credits_used' }, ...scanners.slice(1)],
+                scanners.length
+            )
 
             await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
                 'toggleScannerEnabledDone',
             ])
 
+            expect(logic.values.scanners.find((s) => s.id === 'a')).toMatchObject({
+                enabled: false,
+                disabled_reason: 'manual',
+            })
             expect(successToast).not.toHaveBeenCalled()
             expect(logic.values.togglingIds).toEqual([])
         })
@@ -391,6 +399,28 @@ describe('replayScannersLogic', () => {
             expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
             expect(logic.values.togglingIds).toEqual([])
             expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
+        })
+
+        it('a turn-on the person declines reverts the row without an error toast', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        400,
+                        { type: 'validation_error', code: 'scanner_creator_lost_access', detail: 'x' },
+                    ],
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => props.onAfterClose?.())
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess([makeScanner({ id: 'a', enabled: false })], 1)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'revertScannerEnabled',
+            ])
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(errorToast).not.toHaveBeenCalled()
+            open.mockRestore()
         })
 
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
@@ -534,5 +564,56 @@ describe('replayScannersLogic', () => {
 
         expect(logic.values.filters.page).toBe(1)
         expect(logic.values.scanners).toHaveLength(1)
+    })
+
+    describe('shallow product intent', () => {
+        // The dwell gate is the whole point of this signal: there is one ProductIntent row per team
+        // and its created_at starts the 30-day activation clock, so a mount-and-bounce must not
+        // register. This is the bug that read Surveys' activation down from 10.5% to 2.8%.
+        beforeEach(() => {
+            jest.useFakeTimers()
+            ;(addProductIntent as jest.Mock).mockClear()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('does not register on mount alone', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS - 1)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+        })
+
+        it('registers once the dwell threshold passes', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+            expect(addProductIntent).toHaveBeenCalledWith({
+                product_type: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
+            })
+        })
+
+        it('registers once, not once per filter change', () => {
+            // urlToAction re-fires on every filter change, and each re-arm would be another write.
+            router.actions.push(urls.replayVision())
+            router.actions.push(`${urls.replayVision()}?search=checkout`)
+            router.actions.push(`${urls.replayVision()}?search=refund`)
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 3)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not register after unmount', () => {
+            router.actions.push(urls.replayVision())
+            logic.unmount()
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 2)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+            logic.mount()
+        })
     })
 })

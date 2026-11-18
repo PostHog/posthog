@@ -7,6 +7,9 @@ import orjson
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.caching.utils import ThresholdMode, is_stale
 
 # Mapping from ai_events dedicated columns to their original property names.
@@ -96,6 +99,23 @@ def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
     return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
 
 
+def timestamp_bound_as_hogql(bound: datetime) -> ast.Expr:
+    """A non-null DateTime64(6) constant for `bound`, keeping its microseconds.
+
+    `QueryDateRange.format_date` rounds down to a whole second, which would drop the events inside
+    the final second of an upper bound. Event timestamps carry microseconds, so the bound does too.
+    """
+    return ast.Call(
+        name="assumeNotNull",
+        args=[
+            ast.Call(
+                name="toDateTime64",
+                args=[ast.Constant(value=bound.strftime("%Y-%m-%d %H:%M:%S.%f")), ast.Constant(value=6)],
+            )
+        ],
+    )
+
+
 def parse_ai_property_value(value: Any) -> Any:
     if value is None or value == "":
         return None
@@ -165,3 +185,19 @@ class TaxonomyCacheMixin(ABC):
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         return None
+
+
+class _GlobalInSubqueries(TraversingVisitor):
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def with_global_in_subqueries(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Turn `x IN (SELECT ...)` into GLOBAL IN. A plain IN subquery over the Distributed ai_events
+    table does not narrow the outer read, so the outer read scans the whole table."""
+    _GlobalInSubqueries().visit(query)
+    return query

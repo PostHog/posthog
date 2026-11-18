@@ -65,6 +65,7 @@ def link_installation_to_gateway(installation: MCPServerInstallation, created_by
             "description": installation.description,
             "template": template,
             "category": template.category if template else "dev",
+            "auth_type": installation.auth_type,
             "created_by": created_by,
         },
     )
@@ -73,6 +74,10 @@ def link_installation_to_gateway(installation: MCPServerInstallation, created_by
     if template is not None and server.template_id is None:
         server.template = template
         update_fields.append("template")
+    # Rows created before auth_type existed learn it from the next credential.
+    if not server.auth_type:
+        server.auth_type = installation.auth_type
+        update_fields.append("auth_type")
     if update_fields:
         server.save(update_fields=[*update_fields, "updated_at"])
 

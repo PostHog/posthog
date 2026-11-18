@@ -62,28 +62,31 @@ type ChatTaskListProps = React.ComponentProps<typeof CollapsiblePrimitive.Root> 
     total: number
 }
 
-function ChatTaskList({ value, total, className, ...props }: ChatTaskListProps): React.ReactElement {
-    const context = React.useMemo(() => ({ value, total }), [value, total])
+const ChatTaskList = React.forwardRef<React.ComponentRef<typeof CollapsiblePrimitive.Root>, ChatTaskListProps>(
+    function ChatTaskList({ value, total, className, ...props }, ref) {
+        const context = React.useMemo(() => ({ value, total }), [value, total])
 
-    return (
-        <ChatTaskListContext.Provider value={context}>
-            <CollapsiblePrimitive.Root
-                data-quill
-                data-slot="task-list"
-                className={cn('quill-chat-task-list', className)}
-                {...props}
-            />
-        </ChatTaskListContext.Provider>
-    )
-}
+        return (
+            <ChatTaskListContext.Provider value={context}>
+                <CollapsiblePrimitive.Root
+                    ref={ref}
+                    data-quill
+                    data-slot="task-list"
+                    className={cn('quill-chat-task-list', className)}
+                    {...props}
+                />
+            </ChatTaskListContext.Provider>
+        )
+    }
+)
 
-function ChatTaskListTrigger({
-    className,
-    children,
-    ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.Trigger>): React.ReactElement {
+const ChatTaskListTrigger = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Trigger>,
+    React.ComponentProps<typeof CollapsiblePrimitive.Trigger>
+>(function ChatTaskListTrigger({ className, children, ...props }, ref) {
     return (
         <CollapsiblePrimitive.Trigger
+            ref={ref}
             data-slot="task-list-trigger"
             className={cn('quill-chat-row', 'quill-chat-row--interactive', 'quill-chat-task-list__trigger', className)}
             {...props}
@@ -91,7 +94,7 @@ function ChatTaskListTrigger({
             {children}
         </CollapsiblePrimitive.Trigger>
     )
-}
+})
 
 /**
  * The header's at-a-glance state: a list before anything starts, a ring that fills as steps land, a
@@ -102,36 +105,39 @@ function ChatTaskListTrigger({
  * rest; the chevron only matters once you've reached for it, so it doesn't need to sit there
  * permanently taking up the row.
  */
-function ChatTaskListProgress({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    const { value, total } = useChatTaskListContext('ChatTaskListProgress')
-    const done = total > 0 && value >= total
+const ChatTaskListProgress = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(
+    function ChatTaskListProgress({ className, ...props }, ref) {
+        const { value, total } = useChatTaskListContext('ChatTaskListProgress')
+        const done = total > 0 && value >= total
 
-    return (
-        <span
-            data-slot="task-list-progress"
-            aria-hidden="true"
-            className={cn('quill-chat-swap', 'quill-chat-task-list__progress', className)}
-            {...props}
-        >
+        return (
             <span
-                data-slot="task-list-progress-icon"
-                data-status={done ? 'done' : undefined}
-                className={cn('quill-chat-bullet', 'quill-chat-swap__icon')}
+                ref={ref}
+                data-slot="task-list-progress"
+                aria-hidden="true"
+                className={cn('quill-chat-swap', 'quill-chat-task-list__progress', className)}
+                {...props}
             >
-                {/* No steps yet, or no plan at all: a list, not a ring of nothing. Guarding `total`
+                <span
+                    data-slot="task-list-progress-icon"
+                    data-status={done ? 'done' : undefined}
+                    className={cn('quill-chat-bullet', 'quill-chat-swap__icon')}
+                >
+                    {/* No steps yet, or no plan at all: a list, not a ring of nothing. Guarding `total`
                     here also keeps the ring's percentage from dividing by zero. */}
-                {value <= 0 || total <= 0 ? (
-                    <ListIcon />
-                ) : done ? (
-                    <CircleCheckIcon />
-                ) : (
-                    <ProgressRing value={value} total={total} />
-                )}
+                    {value <= 0 || total <= 0 ? (
+                        <ListIcon />
+                    ) : done ? (
+                        <CircleCheckIcon />
+                    ) : (
+                        <ProgressRing value={value} total={total} />
+                    )}
+                </span>
+                <ChevronRightIcon aria-hidden="true" className={cn('quill-chat-chevron', 'quill-chat-swap__chevron')} />
             </span>
-            <ChevronRightIcon aria-hidden="true" className={cn('quill-chat-chevron', 'quill-chat-swap__chevron')} />
-        </span>
-    )
-}
+        )
+    }
+)
 
 function ProgressRing({ value, total }: { value: number; total: number }): React.ReactElement {
     // `pathLength` renormalizes the circle to 100 user units, so the arc is the percentage itself —
@@ -165,20 +171,33 @@ function ProgressRing({ value, total }: { value: number; total: number }): React
     )
 }
 
-function ChatTaskListLabel({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="task-list-label" className={cn('quill-chat-task-list__label', className)} {...props} />
-}
+const ChatTaskListLabel = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatTaskListLabel(
+    { className, ...props },
+    ref
+) {
+    return (
+        <span
+            ref={ref}
+            data-slot="task-list-label"
+            className={cn('quill-chat-task-list__label', className)}
+            {...props}
+        />
+    )
+})
 
 /**
  * `2/5`, where each digit rolls to its successor. The rolling glyphs are decorative — the real value
  * goes to screen readers once, as text, instead of announcing a half-rolled pair.
  */
-function ChatTaskListCount({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const ChatTaskListCount = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatTaskListCount(
+    { className, ...props },
+    ref
+) {
     const { value, total } = useChatTaskListContext('ChatTaskListCount')
     const shown = `${Math.min(Math.max(value, 0), total)}/${total}`
 
     return (
-        <span data-slot="task-list-count" className={cn('quill-chat-task-list__count', className)} {...props}>
+        <span ref={ref} data-slot="task-list-count" className={cn('quill-chat-task-list__count', className)} {...props}>
             <span className="sr-only">
                 {Math.min(Math.max(value, 0), total)} of {total} done
             </span>
@@ -191,7 +210,7 @@ function ChatTaskListCount({ className, ...props }: React.ComponentProps<'span'>
             </span>
         </span>
     )
-}
+})
 
 const ROLL_MS = 250
 
@@ -228,18 +247,26 @@ function RollingChar({ char }: { char: string }): React.ReactElement {
     )
 }
 
-function ChatTaskListContent({ className, children, ...props }: React.ComponentProps<'ol'>): React.ReactElement {
+const ChatTaskListContent = React.forwardRef<HTMLOListElement, React.ComponentProps<'ol'>>(function ChatTaskListContent(
+    { className, children, ...props },
+    ref
+) {
     return (
         <CollapsiblePrimitive.Panel
             data-slot="task-list-panel"
             className={cn('quill-chat-collapse', 'quill-chat-rail', 'quill-chat-task-list__panel')}
         >
-            <ol data-slot="task-list-items" className={cn('quill-chat-task-list__items', className)} {...props}>
+            <ol
+                ref={ref}
+                data-slot="task-list-items"
+                className={cn('quill-chat-task-list__items', className)}
+                {...props}
+            >
                 {children}
             </ol>
         </CollapsiblePrimitive.Panel>
     )
-}
+})
 
 type ChatTaskProps = React.ComponentProps<'li'> & {
     status?: ChatTaskStatus
@@ -247,15 +274,13 @@ type ChatTaskProps = React.ComponentProps<'li'> & {
     truncate?: boolean
 }
 
-function ChatTask({
-    status = 'pending',
-    truncate = false,
-    className,
-    children,
-    ...props
-}: ChatTaskProps): React.ReactElement {
+const ChatTask = React.forwardRef<HTMLLIElement, ChatTaskProps>(function ChatTask(
+    { status = 'pending', truncate = false, className, children, ...props },
+    ref
+) {
     return (
         <li
+            ref={ref}
             data-slot="task"
             data-status={status}
             className={cn('quill-chat-task', truncate && 'quill-chat-task--truncate', className)}
@@ -274,12 +299,15 @@ function ChatTask({
             </span>
         </li>
     )
-}
+})
 
 /** What the step produced: a duration, an exit code, the line that explains a failure. */
-function ChatTaskDetail({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="task-detail" className={cn('quill-chat-task__detail', className)} {...props} />
-}
+const ChatTaskDetail = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatTaskDetail(
+    { className, ...props },
+    ref
+) {
+    return <span ref={ref} data-slot="task-detail" className={cn('quill-chat-task__detail', className)} {...props} />
+})
 
 export {
     ChatTaskList,

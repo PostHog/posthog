@@ -6,8 +6,9 @@ from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallM
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -28,6 +29,7 @@ class QueryExecutorNode(AssistantNode):
 
         try:
             context = InsightContext(
+                max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
                 team=self._team,
                 user=self._user,
                 query=content.query,
@@ -37,7 +39,7 @@ class QueryExecutorNode(AssistantNode):
                 event_source=self.context_manager.event_source,
             )
             formatted_query_result = await context.execute_and_format()
-        except MaxToolRetryableError as err:
+        except MaxToolError as err:
             # Handle known query execution errors (exposed to users)
             return PartialAssistantState(
                 messages=[

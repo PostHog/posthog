@@ -5,6 +5,7 @@ import {
     areDatesValidForInterval,
     dateFilterToText,
     dateMapping,
+    formatRelativeDateValue,
     dateStringToDayJs,
     getDefaultInterval,
     is12HoursOrLess,
@@ -12,6 +13,22 @@ import {
 } from 'lib/utils/dateFilters'
 
 describe('dateFilters utils', () => {
+    describe('formatRelativeDateValue()', () => {
+        it.each([
+            ['-14d', '14 days ago'],
+            ['14d', '14 days from now'],
+            ['+1w', '1 week from now'],
+            ['-1h', '1 hour ago'],
+            ['0d', 'now'],
+        ])('formats %s as %s', (value, expected) => {
+            expect(formatRelativeDateValue(value)).toBe(expected)
+        })
+
+        it('returns null for absolute dates', () => {
+            expect(formatRelativeDateValue('2026-08-20')).toBeNull()
+        })
+    })
+
     describe('dateFilterToText()', () => {
         beforeEach(() => {
             tk.freeze(new Date('2026-06-15T12:00:00.000Z'))
@@ -205,6 +222,19 @@ describe('dateFilters utils', () => {
         })
         afterEach(() => {
             tk.reset()
+        })
+
+        // A window across a daylight saving change must start at local midnight, like the backend's
+        // relative_date_parse, and not keep the UTC offset of today.
+        it.each([
+            ['Europe/Zurich', '2026-03-31T10:00:00Z', '-7d', '2026-03-23T23:00:00.000Z'],
+            ['Europe/Zurich', '2026-10-27T10:00:00Z', '-7d', '2026-10-19T22:00:00.000Z'],
+            ['Europe/Zurich', '2026-04-15T10:00:00Z', '-1m', '2026-03-14T23:00:00.000Z'],
+            ['America/New_York', '2026-03-10T12:00:00Z', '-1w', '2026-03-03T05:00:00.000Z'],
+            ['Europe/Zurich', '2026-03-29T01:30:00Z', '-1h', '2026-03-29T00:30:00.000Z'],
+        ])('resolves %s %s %s across a daylight saving change', (timezone, now, date, expected) => {
+            tk.freeze(new Date(now))
+            expect(dateStringToDayJs(date, timezone)?.toISOString()).toEqual(expected)
         })
 
         it('handles various dates', () => {

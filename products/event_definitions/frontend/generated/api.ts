@@ -12,12 +12,15 @@ import type {
     BulkUpdateTagsUUIDRequestApi,
     BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
+    EnterpriseEventDefinitionRequestApi,
     EventDefinitionBulkUpdateVerifiedRequestApi,
     EventDefinitionBulkUpdateVerifiedResponseApi,
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     EventDefinitionsPrimaryPropertiesRetrieveParams,
+    EventDefinitionsTypescriptRetrieveParams,
+    GeneratedDefinitionsApi,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
     PrimaryPropertiesResponseApi,
@@ -56,6 +59,9 @@ export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefi
         : `/api/projects/${projectId}/event_definitions/`
 }
 
+/**
+ * List the event definitions of a project. On projects with more than 50000 event definitions, `count` stops at 10000 and `count_is_capped` is true, unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or `event_type=event_posthog`. Projects with more than 100000 event definitions also default to ordering by name under the same condition.
+ */
 export const eventDefinitionsList = async (
     projectId: string,
     params?: EventDefinitionsListParams,
@@ -73,14 +79,14 @@ export const getEventDefinitionsCreateUrl = (projectId: string) => {
 
 export const eventDefinitionsCreate = async (
     projectId: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
+    enterpriseEventDefinitionRequestApi: NonReadonly<EnterpriseEventDefinitionRequestApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
+        body: JSON.stringify(enterpriseEventDefinitionRequestApi),
     })
 }
 
@@ -106,14 +112,14 @@ export const getEventDefinitionsUpdateUrl = (projectId: string, id: string) => {
 export const eventDefinitionsUpdate = async (
     projectId: string,
     id: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
+    enterpriseEventDefinitionRequestApi: NonReadonly<EnterpriseEventDefinitionRequestApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
+        body: JSON.stringify(enterpriseEventDefinitionRequestApi),
     })
 }
 
@@ -158,6 +164,29 @@ export const eventDefinitionsMetricsRetrieve = async (
     return apiMutator<void>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventDefinitionsStopIngestingCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_definitions/${id}/stop_ingesting/`
+}
+
+/**
+ * Drop new events with this name at ingestion, then hide the definition and schedule its delete.
+ *
+ * Adds an exact event name condition to the live event filter of each environment in the
+ * project, because the definition is shared by all of them. This never makes a team's own
+ * filter conditions live: if a filter is in dry run or turned off, or can't take one more
+ * condition, the request fails and nothing changes. Dropped events can't be recovered.
+ */
+export const eventDefinitionsStopIngestingCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsStopIngestingCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -261,8 +290,11 @@ export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/golang/`
 }
 
-export const eventDefinitionsGolangRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsGolangRetrieveUrl(projectId), {
+export const eventDefinitionsGolangRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsGolangRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -312,19 +344,41 @@ export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/python/`
 }
 
-export const eventDefinitionsPythonRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsPythonRetrieveUrl(projectId), {
+export const eventDefinitionsPythonRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsPythonRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getEventDefinitionsTypescriptRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/typescript/`
+export const getEventDefinitionsTypescriptRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsTypescriptRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/typescript/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/typescript/`
 }
 
-export const eventDefinitionsTypescriptRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsTypescriptRetrieveUrl(projectId), {
+export const eventDefinitionsTypescriptRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsTypescriptRetrieveParams,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsTypescriptRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

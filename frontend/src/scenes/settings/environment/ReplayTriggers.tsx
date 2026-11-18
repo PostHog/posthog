@@ -158,6 +158,7 @@ function UrlTriggerOptions(): JSX.Element | null {
             addUrl={addUrlTrigger}
             validationWarning={urlTriggerInputValidationWarning}
             title="Enable recordings when URL matches"
+            titleBadge={<Since web={{ version: '1.171.0' }} />}
             description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
             checkUrl={checkUrlTrigger}
             checkUrlResults={checkUrlTriggerResults}
@@ -200,8 +201,8 @@ function UrlBlocklistOptions(): JSX.Element | null {
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
             validationWarning={urlBlocklistInputValidationWarning}
-            title="Pause recordings when the user visits a page that matches the URL"
-            description="Used to pause recordings for part of a user journey"
+            title="Pause recordings when URL matches"
+            description="Pause recordings while the user is on a page that matches the URL."
             checkUrl={checkUrlBlocklist}
             checkUrlResults={checkUrlBlocklistResults}
             setCheckUrl={setCheckUrlBlocklist}
@@ -495,23 +496,33 @@ function LegacyRecordingConditions(): JSX.Element {
                     ]}
                 />
             </div>
-
-            <div>
-                <h3 className="text-base font-semibold mb-2">
-                    Recording exclusions <Since web={{ version: '1.171.0' }} />
-                </h3>
-                <LemonCollapse
-                    multiple
-                    panels={[
-                        {
-                            key: 'blocklist',
-                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
-                            content: <UrlBlocklistOptions />,
-                        },
-                    ]}
-                />
-            </div>
         </>
+    )
+}
+
+function RecordingExclusions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const statuses = useHeaderStatuses(currentTeam)
+
+    return (
+        <div>
+            <h3 className="text-base font-semibold mb-1">
+                Recording exclusions <Since web={{ version: '1.171.0' }} />
+            </h3>
+            <p className="text-muted text-xs mb-2">
+                The URL blocklist is global. It applies to trigger groups and to the legacy recording conditions.
+            </p>
+            <LemonCollapse
+                multiple
+                panels={[
+                    {
+                        key: 'blocklist',
+                        header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
+                        content: <UrlBlocklistOptions />,
+                    },
+                ]}
+            />
+        </div>
     )
 }
 
@@ -567,7 +578,7 @@ function SdkCompatibilityBanner(): JSX.Element {
                 {humanFriendlyNumber(outdatedWebTraffic.outdatedCount)}{' '}
                 {pluralize(outdatedWebTraffic.outdatedCount, 'event', 'events', false)}) is on a posthog-js before v
                 {TRIGGER_GROUPS_MIN_SDK_VERSION}. Those sessions still record using the legacy recording conditions
-                below — upgrade to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ for full trigger-group coverage. Both
+                below. Upgrade to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ for full trigger-group coverage. Both
                 configurations are sent meanwhile, so nothing is lost.
             </LemonBanner>
         )
@@ -609,6 +620,8 @@ export function ReplayTriggers(): JSX.Element {
                             <TriggerGroupsEditor />
                         </>
                     )}
+
+                    <RecordingExclusions />
 
                     {isV2TriggersEnabled && (
                         <div className="mt-2">

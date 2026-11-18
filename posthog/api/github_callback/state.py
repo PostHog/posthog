@@ -44,19 +44,32 @@ def authenticated_user_id(request: Request) -> int:
 
 
 def store_unified_authorize_state(state: GitHubAuthorizeState, *, ttl: int | None = None) -> None:
+    if state.originating_organization_id is None:
+        user = User.objects.filter(pk=state.user_id).first()
+        if user:
+            organization_id = (
+                user.teams.filter(id=state.team_id).values_list("organization_id", flat=True).first()
+                if state.team_id
+                else user.current_organization_id
+            )
+            if (
+                organization_id
+                and OrganizationMembership.objects.filter(user=user, organization_id=organization_id).exists()
+            ):
+                state = state.model_copy(update={"originating_organization_id": organization_id})
     timeout = ttl or GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS
     cache.set(unified_authorize_cache_key(state.token), state.cache_payload(), timeout=timeout)
     cache.set(unified_authorize_pending_cache_key(state.user_id), state.token, timeout=timeout)
 
 
 def has_team_management_access(user: User, team: Team) -> bool:
-    """Whether ``user`` may create or modify a team-level integration for ``team``.
+    """Whether ``user`` may modify an existing team-level integration for ``team``.
 
     Mirrors ``TeamMemberStrictManagementPermission`` (which gates integration setup on the
-    DRF side) for these plain Django callback views: writing a team integration requires
+    DRF side) for these plain Django callback views: modifying an existing integration requires
     admin-level effective access, not mere membership. The callback's ``team_id`` can be
     derived from a user-controlled ``next``/``state`` param, so a bare membership check would
-    let any project member attach an integration that initiation reserves for admins.
+    let any project member modify an integration that initiation reserves for admins.
     """
     level = UserPermissions(user).team(team).effective_membership_level
     return level is not None and level >= OrganizationMembership.Level.ADMIN

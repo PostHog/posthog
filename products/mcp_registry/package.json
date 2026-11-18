@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-mcp-registry",
+    "scripts": {
+        "backend:test": "echo 'vestigial app — no tests'"
+    }
+}

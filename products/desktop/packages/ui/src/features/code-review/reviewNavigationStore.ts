@@ -10,6 +10,7 @@ interface ReviewNavigationStoreState {
   selectedPrUrls: Record<string, string | undefined>;
   commentFileFilters: Record<string, CommentFileFilter>;
   hideViewedFiles: Record<string, boolean>;
+  fileBrowserCollapsed: Record<string, boolean>;
 }
 
 interface ReviewNavigationStoreActions {
@@ -21,6 +22,7 @@ interface ReviewNavigationStoreActions {
   setSelectedPrUrl: (taskId: string, url: string) => void;
   setCommentFileFilter: (taskId: string, filter: CommentFileFilter) => void;
   setHideViewedFiles: (taskId: string, hideViewed: boolean) => void;
+  setFileBrowserCollapsed: (taskId: string, collapsed: boolean) => void;
   getReviewMode: (taskId: string) => ReviewMode;
 }
 
@@ -35,6 +37,7 @@ export const useReviewNavigationStore = create<ReviewNavigationStore>()(
     selectedPrUrls: {},
     commentFileFilters: {},
     hideViewedFiles: {},
+    fileBrowserCollapsed: {},
 
     setActiveFilePath: (taskId, path) =>
       set((state) => ({
@@ -97,6 +100,14 @@ export const useReviewNavigationStore = create<ReviewNavigationStore>()(
         hideViewedFiles: {
           ...state.hideViewedFiles,
           [taskId]: hideViewed,
+        },
+      })),
+
+    setFileBrowserCollapsed: (taskId, collapsed) =>
+      set((state) => ({
+        fileBrowserCollapsed: {
+          ...state.fileBrowserCollapsed,
+          [taskId]: collapsed,
         },
       })),
 

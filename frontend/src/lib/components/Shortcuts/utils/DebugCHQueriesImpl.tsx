@@ -132,6 +132,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
                     } else if (props.experimentId) {
                         params.append('experiment_id', String(props.experimentId))
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
             },
@@ -712,15 +713,18 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
         }
         const rootDuration = timings['.']
 
+        // A span is a leaf when no other key extends it with a '/' segment. Collect the parent spans in one pass,
+        // because a query can log thousands of spans (the database build logs one per warehouse table), and
+        // comparing every pair of keys freezes the page.
+        const parentSpans = new Set<string>()
+        for (const key of Object.keys(timings)) {
+            for (let i = key.indexOf('/'); i !== -1; i = key.indexOf('/', i + 1)) {
+                parentSpans.add(key.slice(0, i))
+            }
+        }
         let slowestSpan = { name: '', duration: 0 }
-        const entries = Object.entries(timings)
-        // Find the entries where the key is not a prefix of another key (with / as the separator).
-        // This is quadratic, but the number of entries is small, do something smart if this becomes a problem
-        const leafEntries = entries.filter(
-            ([key]) => !entries.some(([otherKey]) => otherKey.startsWith(key + '/') && otherKey !== key)
-        )
-        for (const [key, val] of leafEntries) {
-            if (val > slowestSpan.duration) {
+        for (const [key, val] of Object.entries(timings)) {
+            if (!parentSpans.has(key) && val > slowestSpan.duration) {
                 slowestSpan = { name: key, duration: val }
             }
         }

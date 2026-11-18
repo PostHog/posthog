@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Notebook widget example</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 24px;
+                font: 14px system-ui;
+                color: #27252a;
+                background: #fff;
+            }
+            h2 {
+                font-size: 20px;
+                margin: 0 0 8px;
+            }
+            p {
+                color: #6b6770;
+                margin: 0 0 30px;
+            }
+            .row {
+                display: grid;
+                grid-template-columns: 65px 1fr 55px;
+                gap: 12px;
+                align-items: center;
+                margin: 24px 0;
+            }
+            .bar {
+                height: 30px;
+                background: #7856d8;
+                border-radius: 4px;
+            }
+            .value {
+                text-align: right;
+                font-weight: 600;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Revenue by plan</h2>
+        <p>Calculated in Python from notebook dataframes</p>
+        <div id="rows">Loading saved results…</div>
+        <script>
+            const channel = new MessageChannel()
+            channel.port1.onmessage = ({ data }) => {
+                if (data.type !== 'data-response' || !data.ok) {
+                    return
+                }
+                const container = document.getElementById('rows')
+                container.replaceChildren()
+                const max = Math.max(...data.result.rows.map((row) => row[1]))
+                for (const [label, value] of data.result.rows) {
+                    const row = document.createElement('div')
+                    row.className = 'row'
+                    const name = document.createElement('span')
+                    name.textContent = label
+                    const bar = document.createElement('div')
+                    bar.className = 'bar'
+                    bar.style.width = `${(value / max) * 100}%`
+                    const number = document.createElement('span')
+                    number.className = 'value'
+                    number.textContent = `$${value}`
+                    row.append(name, bar, number)
+                    container.append(row)
+                }
+                channel.port1.postMessage({ channel: 'posthog-canvas', type: 'rendered' })
+            }
+            parent.postMessage({ channel: 'posthog-canvas', type: 'notebook-connect' }, '*', [channel.port2])
+            channel.port1.postMessage({
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'saved-revenue',
+                method: 'stateGet',
+                payload: { key: '__posthog_notebook_frame__:revenue:0:100' },
+            })
+        </script>
+    </body>
+</html>

@@ -44,12 +44,13 @@ impl WarningType {
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 8] = [
+    pub const DIRECT_EMIT: [Self; 9] = [
         Self::HighVolumeDistinctId,
         Self::DistinctIdTruncated,
         Self::InvalidAiEvent,
         Self::InvalidAiPayload,
         Self::NoAiSpansIngested,
+        Self::MisroutedEvent,
         Self::MissingSessionId,
         Self::InvalidSessionId,
         Self::MissingSnapshotData,
@@ -74,6 +75,13 @@ impl WarningType {
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
             "message_size_too_large" => Some(Self::MessageSizeTooLarge),
+            // The v1 AI lane's per-event ceiling. v0 reports the same condition
+            // as `CaptureError::AiEventTooBig`, which already maps here, so
+            // moving AI traffic onto the v1 endpoint keeps the warning a
+            // project owner already sees for an oversized event. An alias, not
+            // a second route: `MessageSizeTooLarge` stays tag-derived, so the
+            // one-route-per-type invariant below is untouched.
+            "ai_event_too_big" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }
@@ -120,7 +128,13 @@ mod tests {
     }
 
     // Excluded on purpose: intentional drops, auth/transport/server errors, and
-    // post-validation drops are not data-quality signals for the v2 surface.
+    // ops-imposed drops are not data-quality signals for the v2 surface.
+    //
+    // "Post-validation" is not itself the test -- customer-actionable is.
+    // `event_restriction` is excluded because the operator caused it and the
+    // project owner cannot act on it; `ai_event_too_big` is included, after the
+    // same stage, because the customer sent an oversized event and v0 already
+    // tells them so.
     #[rstest]
     #[case::intentional_drop("dropped_performance_event")]
     #[case::auth("invalid_api_token")]

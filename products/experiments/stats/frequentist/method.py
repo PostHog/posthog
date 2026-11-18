@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import AnyStatistic, StatisticError
 from .tests import SequentialTwoSidedTTest, StatisticalTest, TestResult, TwoSidedTTest
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 class TestType(Enum):
@@ -65,14 +68,20 @@ class FrequentistMethod:
         """
         self.config = config or FrequentistConfig()
 
-    def run_test(self, treatment_stat: AnyStatistic, control_stat: AnyStatistic, **kwargs) -> TestResult:
+    def run_test(
+        self,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
+    ) -> TestResult:
         """
         Run statistical test comparing treatment vs control.
 
         Args:
             treatment_stat: Treatment group statistic
             control_stat: Control group statistic
-            **kwargs: Additional parameters (overrides config values)
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             TestResult with all statistical outputs
@@ -96,41 +105,7 @@ class FrequentistMethod:
                 treatment_stat=treatment_stat,
                 control_stat=control_stat,
                 difference_type=self.config.difference_type,
-                **kwargs,
+                relative_effect_baseline=relative_effect_baseline,
             )
         except Exception as e:
             raise StatisticError(f"Test execution failed: {str(e)}") from e
-
-    def get_summary(self, result: TestResult) -> dict[str, Any]:
-        """
-        Get human-readable summary of test result.
-
-        Args:
-            result: TestResult object
-
-        Returns:
-            Dict with summary information
-        """
-        summary: dict[str, Any] = {
-            "test_type": result.test_type,
-            "point_estimate": result.point_estimate,
-            "confidence_interval": result.confidence_interval,
-            "p_value": result.p_value,
-            "is_significant": result.is_significant,
-            "alpha": result.alpha,
-            "degrees_of_freedom": result.degrees_of_freedom,
-        }
-
-        # Add interpretation
-        if self.config.difference_type == DifferenceType.RELATIVE:
-            summary["interpretation"] = {
-                "effect_size": f"{result.point_estimate:.1%}",
-                "effect_direction": "positive" if result.point_estimate > 0 else "negative",
-            }
-        elif self.config.difference_type == DifferenceType.ABSOLUTE:
-            summary["interpretation"] = {
-                "effect_size": result.point_estimate,
-                "effect_direction": "positive" if result.point_estimate > 0 else "negative",
-            }
-
-        return summary

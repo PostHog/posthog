@@ -19,6 +19,9 @@ const mockResponse: SlackThreadContextResponseApi = {
         thread_ts: '1779956938.619299',
         slack_workspace_id: 'T_SLACK',
         mentioning_slack_user_id: 'U_ANDY',
+        queue_workflow_id: 'slack-app-mention-T_SLACK:C0:1779956938.619299',
+        queue_workflow_url: null,
+        mapping_admin_url: 'http://testserver/admin/slack_app/slackthreadtaskmapping/mapping-1/change/',
     },
     task: {
         id: 'task-1',
@@ -28,6 +31,7 @@ const mockResponse: SlackThreadContextResponseApi = {
         origin_product: 'slack',
         created_at: '2026-05-28T08:30:00Z',
         url: 'http://testserver/project/2/tasks/task-1',
+        admin_url: 'http://testserver/admin/tasks/task/task-1/change/',
     },
     runs: [],
 }
@@ -76,19 +80,35 @@ describe('slackTaskContextSceneLogic', () => {
         await logic.asyncActions.loadResult()
 
         expect(logic.values.result).toBeNull()
-        expect(logic.values.submissionError).toEqual({ status: 403, detail: 'Forbidden' })
+        expect(logic.values.submissionError).toEqual({
+            status: 403,
+            detail: 'Forbidden',
+            queueWorkflowId: null,
+            queueWorkflowUrl: null,
+        })
     })
 
-    it('surfaces a 404 error from the backend', async () => {
+    it('surfaces a 404 error with the mention queue workflow handle', async () => {
         ;(generatedApi.tasksSlackThreadContextRetrieve as jest.Mock).mockRejectedValueOnce({
             status: 404,
-            data: { detail: 'no_mapping' },
+            data: {
+                detail: 'no_mapping',
+                thread: {
+                    queue_workflow_id: 'slack-app-mention-T_SLACK:C0:1779956938.619299',
+                    queue_workflow_url: 'https://temporal.example/wf',
+                },
+            },
         })
         logic.actions.setUrl('https://posthog.slack.com/archives/C0/p1779956938619299')
 
         await logic.asyncActions.loadResult()
 
-        expect(logic.values.submissionError).toEqual({ status: 404, detail: 'no_mapping' })
+        expect(logic.values.submissionError).toEqual({
+            status: 404,
+            detail: 'no_mapping',
+            queueWorkflowId: 'slack-app-mention-T_SLACK:C0:1779956938.619299',
+            queueWorkflowUrl: 'https://temporal.example/wf',
+        })
     })
 
     it('clears state on clearResult', async () => {

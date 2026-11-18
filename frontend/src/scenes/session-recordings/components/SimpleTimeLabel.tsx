@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { formatLocalizedDate } from 'lib/utils/datetime'
+import { formatLocalizedDate, formatLocalizedTime } from 'lib/utils/datetime'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -26,15 +26,16 @@ function formattedReplayTime(
 }
 
 function formatStringFor(d: Dayjs, timeOnly?: boolean): string {
+    const time = formatLocalizedTime()
     if (timeOnly) {
-        return 'HH:mm:ss'
+        return time
     }
 
     const today = dayjs()
     if (d.isSame(today, 'year')) {
-        return `${formatLocalizedDate()}, HH:mm:ss`
+        return `${formatLocalizedDate()}, ${time}`
     }
-    return `${formatLocalizedDate()} YYYY, HH:mm:ss`
+    return `${formatLocalizedDate()} YYYY, ${time}`
 }
 
 const truncateToSeconds = (time: string | number | Dayjs): number => {

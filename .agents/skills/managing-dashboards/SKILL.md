@@ -4,7 +4,8 @@ description: >
   Guides PostHog engineers through dashboard platform and scene changes. Use when changing
   Dashboard, DashboardTile, dashboardLogic, dashboard layouts, dashboard sharing or embeds,
   public dashboards, templates, filters, variables, refresh behavior, tile loading, dashboard
-  lists, or dashboard permissions. Covers normal, shared, embedded, export, product-embedded,
+  lists, or dashboard permissions. Also use for slow dashboard loading, scrolling, layout autosave or undo,
+  low frame rates, chart flicker, and tile drag or resize performance. Covers normal, shared, embedded, export, product-embedded,
   and template surfaces; RBAC; cache and query behavior; responsive layouts; and large or small
   dashboards. Use manage-dashboard-widgets instead for a widget_type or WidgetCard change.
 ---
@@ -14,6 +15,10 @@ description: >
 Use this skill for a dashboard change that affects the dashboard platform, dashboard scene, or an existing non-widget tile type.
 
 Use [`manage-dashboard-widgets`](../manage-dashboard-widgets/SKILL.md) for a new `widget_type` or a `WidgetCard` change.
+
+For dashboard loading, scrolling, layout autosave, tile movement, resize, or chart flicker, read the [dashboard performance guide](../../../products/dashboards/PERFORMANCE.md) before implementation.
+For drag or resize delays, measure start, movement, and release separately. On a long dashboard, repeat after scrolling through every tile before accepting a fix.
+For loading or scroll delays, compare a cold fast scroll with a settled repeat. Measure frame stalls and time until visible tiles display results.
 
 ## 1. Route the request
 
@@ -42,7 +47,7 @@ Do this before implementation for a new dashboard feature. Skip it for a narrow 
 
 1. State the user problem, intended actor, and explicit non-goals.
 2. State the feature action and its default behavior.
-3. State the state owner: dashboard, tile, request, user, or URL.
+3. State where the feature stores its state: dashboard, tile, request, user, URL, or a separate team-scoped resource.
 4. State the availability, read permission, and mutation permission.
 5. State behavior for new rows, existing rows, and invalid or absent state.
 6. State the acceptance criteria for allowed, denied, shared, and failure paths.
@@ -67,18 +72,20 @@ State these decisions before implementation.
 8. Define cache, refresh, query, and failure behavior.
 9. If templates apply, define scope, portability, copy semantics, and later edits.
 10. Define lifecycle, API, streaming, quota, audit, and project-tree effects.
+11. For a new API, add MCP tools for its supported operations. Exclude an operation only with a documented reason. Record required scopes.
 
 Use this checklist as a design gate. Read the linked reference when an item applies.
 
-| Area                   | Check                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                        |
-| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)     |
-| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                    |
-| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md) |
-| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)          |
-| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                |
-| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                |
+| Area                   | Check                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                                  |
+| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)               |
+| Configuration editing  | [Dashboard configuration editing and URL overrides](references/filter-editing-and-temporary-views.md) |
+| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                              |
+| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md)           |
+| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)                    |
+| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                          |
+| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                          |
 
 ## 4. Implement across layers
 
@@ -89,6 +96,9 @@ Use this checklist as a design gate. Read the linked reference when an item appl
 5. Keep query work bounded. Do not turn dashboard load into unbounded tile queries or concurrent requests.
 6. Keep grid updates stable during drag, resize, and tile refresh. Avoid a full grid relayout for each tile result.
 7. Add observability when a change creates a new loading, query, cache, access, or refresh path.
+8. For list-only state, render controls only where that state applies.
+9. After a selector rename, search every dashboard consumer and test for the old name. Then run TypeScript.
+10. Keep dashboard mutation actions on the authenticated dashboard placement unless another placement has an explicit contract.
 
 ## 5. Test the boundary, not only the happy path
 
@@ -102,6 +112,7 @@ Cover each affected boundary.
 - Narrow layout, wide layout, drag, resize, insertion, duplication, and persisted layout reload.
 - Template scope, permissions, variable substitution, and project-specific references.
 - API schema and generated types after serializer changes.
+- Paginated list ordering, each page, and client continuation when the UI loads every result.
 - Filter and variable precedence, shared-token behavior, and quick-filter validation.
 - Soft-delete, restore, move, copy, and project-transfer behavior.
 - Streaming completion, disconnect, and individual tile failure behavior.
@@ -112,18 +123,18 @@ Run the focused tests for each edited layer. Then run the relevant checks from [
 
 ## 6. Code map
 
-| Concern                                                                 | Start here                                                                                           |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/api/dashboard.py`                                                       |
-| Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                        |
-| Sharing and collaborator routes                                         | `products/dashboards/backend/routes.py`                                                              |
-| Templates                                                               | `products/dashboards/backend/api/dashboard_templates.py`, `models/dashboard_templates.py`            |
-| Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `DashboardItems.tsx`            |
-| Layout geometry and tile size constraints                               | `frontend/src/scenes/dashboard/tileLayouts.ts`, `dashboardUtils.ts`                                  |
-| Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`      |
-| Refresh defaults and shared safety clamp                                | `posthog/hogql_queries/refresh_policy.py`                                                            |
-| Resource transfer                                                       | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py` |
-| MCP tool definitions                                                    | `products/dashboards/mcp/tools.yaml`                                                                 |
+| Concern                                                                 | Start here                                                                                                             |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/presentation/views/dashboard.py`                                                          |
+| Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                                          |
+| Sharing routes                                                          | `products/dashboards/backend/routes.py`                                                                                |
+| Templates                                                               | `products/dashboards/backend/presentation/views/dashboard_templates.py`, `models/dashboard_templates.py`               |
+| Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `products/dashboards/frontend/DashboardItems.tsx` |
+| Layout geometry and tile size constraints                               | `products/dashboards/frontend/tileLayouts.ts`, `frontend/src/scenes/dashboard/dashboardUtils.ts`                       |
+| Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`                        |
+| Refresh defaults and shared safety clamp                                | `posthog/hogql_queries/refresh_policy.py`                                                                              |
+| Resource transfer                                                       | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py`                   |
+| MCP tool definitions                                                    | `products/dashboards/mcp/tools.yaml`                                                                                   |
 
 ## Companion skills
 

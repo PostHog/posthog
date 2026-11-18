@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions, isToolsConfig } from './lib/definitions.mjs'
+import { type ToolInputSchema, validateListAppToolCall } from './lib/validate-ui-app-tool-call'
 import { MCP_ROOT_DIR, ROOT_DIR } from './utils'
 import {
     type CategoryConfig,
@@ -88,6 +89,7 @@ function resolveDetailApp(
         data_type: raw.data_type ?? `${pascal}Data`,
         view_component: raw.view_component ?? `${pascal}View`,
         ...(raw.link_prop ? { link_prop: raw.link_prop } : {}),
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
     }
 }
 
@@ -121,6 +123,7 @@ function resolveCustomApp(raw: Extract<UiAppConfig, { type: 'custom' }>): Resolv
         type: 'custom',
         app_name: raw.app_name,
         description: raw.description,
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
         ...(raw.render_ui ? { render_ui: raw.render_ui } : {}),
     }
 }
@@ -300,9 +303,11 @@ function generateDispatchModule(apps: DispatchApp[]): string {
                 return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={data as ${data_type}} />,`
             }
             if (app.type === 'custom') {
-                const { data_type, view_component, view_prop } = app.config.render_ui
+                const { data_type, view_component, view_prop, link_prop, app_prop } = app.config.render_ui
                 const dataExpression = data_type ? `data as ${data_type}` : 'data'
-                return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={${dataExpression}} />,`
+                const args = ['data', ...(link_prop ? ['openLink'] : []), ...(app_prop ? ['app'] : [])].join(', ')
+                const extraProps = `${link_prop ? ` ${link_prop}={openLink}` : ''}${app_prop ? ` ${app_prop}={app}` : ''}`
+                return `    '${app.appKey}': ({ ${args} }) => <${view_component} ${view_prop}={${dataExpression}}${extraProps} />,`
             }
             const pascalName = kebabToPascal(app.appKey)
             return `    '${app.appKey}': ({ data, app }) => <${pascalName}Content data={data as ${app.config.list_data_type}} app={app} />,`
@@ -340,6 +345,20 @@ interface RegistryEntry {
     uri: string
     name: string
     description: string
+    resourceDomains?: string[]
+}
+
+const RENDER_UI_APP_KEY = 'render-ui'
+
+function withRenderUiResourceDomains(entries: RegistryEntry[], dispatchApps: DispatchApp[]): RegistryEntry[] {
+    const viewDomains = dispatchApps.flatMap((app) => (app.type === 'list' ? [] : (app.config.resource_domains ?? [])))
+    return entries.map((entry) => {
+        if (entry.appKey !== RENDER_UI_APP_KEY) {
+            return entry
+        }
+        const resourceDomains = [...new Set([...(entry.resourceDomains ?? []), ...viewDomains])]
+        return resourceDomains.length > 0 ? { ...entry, resourceDomains } : entry
+    })
 }
 
 function toConstName(appKey: string): string {
@@ -360,7 +379,7 @@ function generateRegistry(entries: RegistryEntry[], dispatchableKeys: string[]):
     const appEntries = entries
         .map(
             (e) =>
-                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',\n    }`
+                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',${e.resourceDomains ? `\n        resourceDomains: ${JSON.stringify(e.resourceDomains)},` : ''}\n    }`
         )
         .join(',\n')
 
@@ -391,6 +410,7 @@ export const UI_APPS: Array<{
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }> = [
 ${appEntries},
 ]
@@ -400,6 +420,18 @@ ${appEntries},
 // ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
+
+const TOOL_SCHEMA_SNAPSHOTS_DIR = path.join(MCP_ROOT_DIR, 'tests', 'unit', '__snapshots__', 'tool-schemas')
+
+// The snapshot test writes one JSON schema per registered tool, so the generator
+// can read tool inputs without loading the server bundle.
+function readToolInputSchema(toolName: string): ToolInputSchema | undefined {
+    const snapshotPath = path.join(TOOL_SCHEMA_SNAPSHOTS_DIR, `${toolName}.json`)
+    if (!fs.existsSync(snapshotPath)) {
+        return undefined
+    }
+    return JSON.parse(fs.readFileSync(snapshotPath, 'utf-8'))
+}
 
 function main(): void {
     const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
@@ -464,6 +496,7 @@ function main(): void {
                     uri,
                     name: resolved.app_name,
                     description: resolved.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             } else if (appConfig.type === 'list') {
                 if (!componentImport && !appConfig.component_import) {
@@ -473,6 +506,7 @@ function main(): void {
                     process.exit(1)
                 }
                 const resolved = resolveListApp(appKey, appConfig, componentImport!)
+                validateListAppToolCall(appKey, resolved, readToolInputSchema(resolved.detail_tool))
                 const code = generateListApp(appKey, resolved)
                 const outPath = path.join(GENERATED_APPS_DIR, `${appKey}.tsx`)
                 fs.writeFileSync(outPath, code)
@@ -505,6 +539,7 @@ function main(): void {
                     uri,
                     name: appConfig.app_name,
                     description: appConfig.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             }
         }
@@ -537,7 +572,7 @@ function main(): void {
 
     // Write registry (with the render-ui dispatchable key list)
     const registryCode = generateRegistry(
-        registryEntries,
+        withRenderUiResourceDomains(registryEntries, dispatchApps),
         dispatchApps.map((a) => a.appKey)
     )
     fs.writeFileSync(GENERATED_REGISTRY_PATH, registryCode)

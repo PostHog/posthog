@@ -12,7 +12,9 @@ import { assertRouterTargetsTestDatabase } from './database-guard'
 // Rows outlive their test file, so draw from the whole int4 range. Narrower schemes
 // (per-millisecond, per-file band) collide far more often. Not Math.random: tests mock
 // that to pin their own randomness, which would pin every id to one value too.
-export const uniqueTestId = (): number => randomInt(2_100_000_000)
+export const TEST_IDS_BELOW = 2_100_000_000
+
+export const uniqueTestId = (): number => randomInt(TEST_IDS_BELOW)
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
@@ -266,7 +268,14 @@ export async function createUserTeamAndOrganization(
     })
 
     // Map drop_events_older_than_seconds to drop_events_older_than for database insertion
-    const { drop_events_older_than_seconds, ...otherTeamOverrides } = teamOverrides
+    const { drop_events_older_than_seconds, flag_evaluations_mode, ...otherTeamOverrides } = teamOverrides
+    // The team reads flag_evaluations_mode from its organization's config row, not from posthog_team.
+    if (flag_evaluations_mode !== undefined) {
+        await insertRow(db, 'feature_flags_organizationfeatureflagsconfig', {
+            organization_id: organizationId,
+            flag_evaluations_mode,
+        })
+    }
     const teamData: Record<string, any> = {
         id: teamId,
         project_id: teamId,

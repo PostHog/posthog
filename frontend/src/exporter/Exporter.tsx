@@ -3,11 +3,13 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { Suspense, useEffect, useSyncExternalStore } from 'react'
+import { CSSProperties, Suspense, useEffect, useSyncExternalStore } from 'react'
+
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { Logo } from 'lib/brand'
+import { imageSizeFromParams } from 'lib/components/ImageSize/imageSizeUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -18,17 +20,28 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { useThemedHtml } from '~/layout/useThemedHtml'
+import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+
+function sharedPageStyle(type: ExportType): CSSProperties | undefined {
+    if (type !== ExportType.Scene && type !== ExportType.Embed) {
+        return
+    }
+    const size = imageSizeFromParams(new URLSearchParams(window.location.search))
+    return {
+        width: size.width ?? undefined,
+        height: size.height ?? undefined,
+        ...(size.height != null ? { minHeight: 0, overflow: 'auto' } : {}),
+    }
+}
 
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
 const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
-const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
 const LazyQueryScene = lazyWithRetry(() => import('./scenes/ExporterQueryScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
@@ -87,7 +100,6 @@ export function Exporter(props: ExportedData): JSX.Element {
         themes,
         accessToken,
         exportToken,
-        interview,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -98,13 +110,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     // Applies to both saved insights and ad-hoc query exports — the image exporter narrows
     // the screenshot viewport for both.
     const metricQuery = insight?.query ?? query
-    const metric =
-        metricQuery &&
-        isInsightVizNode(metricQuery) &&
-        isTrendsQuery(metricQuery.source) &&
-        metricQuery.source.trendsFilter?.display === ChartDisplayType.Metric
-            ? metricQuery
-            : undefined
+    const metric = isMetricInsightQuery(metricQuery)
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -136,14 +142,6 @@ export function Exporter(props: ExportedData): JSX.Element {
         return <ExporterLogin whitelabel={whitelabel} />
     }
 
-    if (type === ExportType.Interview && interview) {
-        return (
-            <Suspense fallback={<ExportedSceneSkeleton />}>
-                <LazyInterviewScene interview={interview} accessToken={accessToken} />
-            </Suspense>
-        )
-    }
-
     return (
         <BindLogic logic={exporterViewLogic} props={props}>
             <div
@@ -156,6 +154,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
+                style={sharedPageStyle(type)}
             >
                 {dashboard ? (
                     type === ExportType.Scene ? (
@@ -233,7 +232,11 @@ export function Exporter(props: ExportedData): JSX.Element {
                         />
                     </Suspense>
                 ) : dashboard ? (
-                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                    <Suspense
+                        fallback={
+                            <DashboardLoadingState showControls={false} tileCount={dashboard.tiles?.length ?? 0} />
+                        }
+                    >
                         <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
                     </Suspense>
                 ) : recording ? (

@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -28,7 +29,7 @@ async def create_context_layer_dream_schedule(client: Client) -> None:
             id=CONTEXT_LAYER_DREAM_SCHEDULE_ID,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(cron_expressions=["0 3 * * *"]),
+        spec=ScheduleSpec(cron_expressions=["2 3 * * *"], jitter=timedelta(minutes=30)),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, CONTEXT_LAYER_DREAM_SCHEDULE_ID):

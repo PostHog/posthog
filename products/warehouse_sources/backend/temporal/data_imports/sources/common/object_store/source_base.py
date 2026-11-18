@@ -1,0 +1,650 @@
+import dataclasses
+from abc import abstractmethod
+from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime
+from typing import Any, ClassVar, Generic, NoReturn, Optional, cast
+
+import pyarrow as pa
+from botocore.exceptions import ClientError
+from structlog.types import FilteringBoundLogger
+
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
+from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    added_relative_path,
+    delta_table,
+    display_root,
+    files_table,
+    glob_table,
+    is_full_url,
+    parse_added_location,
+    relative_key,
+    store_identity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
+    DiscoveryOptions,
+    FileFormat,
+    FileFormatChoice,
+    StoreConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
+    DELTA_VERSION_COLUMN,
+    ObjectStorageDeltaCursor,
+    check_delta_table,
+    iter_delta_tables,
+    plan_delta_read,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
+    DELTA_LOG_DIRECTORY,
+    TableDefinition,
+    explain_no_tables,
+    group_tables,
+    list_glob_objects,
+    list_table_objects,
+    resolve_file_format,
+    resolve_table_files,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ACCESS_DENIED_ERROR,
+    BLOCKED_LOCATION_ERROR,
+    DELTA_UNSUPPORTED_ERROR,
+    FILE_PARSE_ERROR,
+    INVALID_CONFIG_ERROR,
+    NO_SUCH_BUCKET_ERROR,
+    NO_TABLE_FILES_ERROR,
+    TOO_MANY_FILES_ERROR,
+    WRONG_REGION_ERROR,
+    ObjectStorageError,
+    translate_storage_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
+    ObjectStore,
+    StoredObject,
+    open_store,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
+    iter_file_tables,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
+    FILE_PRIMARY_KEYS,
+    READ_ALL,
+    FileSelection,
+    plan_mirror,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
+    StorageService,
+    UnmappableTableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    CHUNK_SIZE_BYTES,
+    MAX_DISCOVERY_OBJECTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+    SourceRegistry,
+    known_source_key,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    incremental_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
+
+
+def _http_status(error: BaseException) -> int | None:
+    """The HTTP status of the botocore error behind an s3fs error, if there is one."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ClientError):
+            status = current.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if isinstance(status, int):
+                return status
+        current = current.__cause__
+    return None
+
+
+def _raise_translated(error: Exception, location: str) -> NoReturn:
+    to_translate = error
+    if type(error) is OSError and _http_status(error) in (401, 403):
+        # As in `validate_credentials` and `describe_pinned_schema`: s3fs gives a bare 401 or 403 (an
+        # error code it doesn't recognize, such as a provider's non-standard "Unauthorized") as a
+        # plain OSError instead of PermissionError.
+        to_translate = PermissionError()
+    translated = translate_storage_error(to_translate, location)
+    if translated is error:
+        raise error
+    raise translated from error
+
+
+def validate_store_location(config: StoreConfig) -> None:
+    """Apply the checks a self-managed warehouse table URL gets: https, no internal hosts, and no
+    bucket that PostHog itself owns."""
+    is_valid, error = validate_warehouse_table_url_pattern(config.location_url)
+    if not is_valid:
+        raise ObjectStorageError(f"{BLOCKED_LOCATION_ERROR}: {error}")
+
+
+class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDeltaCursor], Generic[ConfigType]):
+    """Imports the files a bucket URL selects: CSV, JSON Lines and Parquet files, and Delta tables.
+
+    A full refresh reads each table in full, so the table matches the bucket at the time of the sync.
+    The incremental and append sync types read only the files modified since the last sync. An append
+    never removes rows, so the rows of a file deleted from the bucket stay in the table. An incremental
+    sync also deletes the rows of a deleted file, and a changed file replaces its rows. An append sync
+    of a Delta table reads only the data files committed since the version of the last sync. An
+    incremental sync of a Delta table also replaces the rows of each data file that a commit removed,
+    so deletes, updates, merges and compactions reach the table.
+    """
+
+    supports_incremental_history = False
+
+    @abstractmethod
+    def object_store_config(self, config: ConfigType) -> StoreConfig: ...
+
+    @abstractmethod
+    def discovery_options(self, config: ConfigType) -> DiscoveryOptions: ...
+
+    # The service whose self-managed warehouse tables this source can take over.
+    self_managed_service: ClassVar[StorageService]
+
+    # Replaces the generic access-denied text, in the wizard and on a failed sync, for a provider
+    # where the user fixes the denial somewhere specific.
+    access_denied_message: ClassVar[str | None] = None
+
+    @abstractmethod
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        """The job inputs that reach the table's bucket with the table's own credential."""
+
+    def job_inputs_for_self_managed(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        """Job inputs for a source rooted at the bucket of a self-managed table.
+
+        The inputs go through the same parsing and location checks as a source a user creates, so
+        a credential or bucket the source would refuse is refused here too.
+        """
+        raw = {
+            **self.self_managed_connection_inputs(location, credential),
+            "file_format": "infer",
+            "csv_allow_double_quotes": "true",
+        }
+        try:
+            config = self.parse_config(raw)
+            validate_store_location(self.object_store_config(config))
+        except (ObjectStorageError, TypeError, ValueError) as e:
+            raise UnmappableTableError(str(e)) from e
+        return self.serialize_config(config)
+
+    def cursor_class(self) -> type[ObjectStorageDeltaCursor]:
+        return ObjectStorageDeltaCursor
+
+    def open_store(self, store_config: StoreConfig) -> ObjectStore:
+        """Re-check the location every time the stored credentials are about to be sent to it."""
+        validate_store_location(store_config)
+        return open_store(store_config)
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            INVALID_CONFIG_ERROR: None,
+            BLOCKED_LOCATION_ERROR: None,
+            ACCESS_DENIED_ERROR: self.access_denied_message
+            or (
+                "The storage provider rejected these credentials. Check the access key and secret, and that "
+                "the key can list and read the bucket, then reconnect the source."
+            ),
+            NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
+            WRONG_REGION_ERROR: (
+                "The bucket is in a different region. Fix the region in the URL, then reconnect the source."
+            ),
+            NO_TABLE_FILES_ERROR: (
+                "The files behind this table are no longer in the bucket. Refresh the source's tables, or "
+                "restore the files."
+            ),
+            TOO_MANY_FILES_ERROR: None,
+            FILE_PARSE_ERROR: None,
+            DELTA_UNSUPPORTED_ERROR: None,
+        }
+
+    def _discover(
+        self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
+    ) -> list[TableDefinition]:
+        store_config = self.object_store_config(config)
+        return self._group(self._list_objects(store, store_config, logger), store_config, config, logger)
+
+    def _list_objects(
+        self, store: ObjectStore, store_config: StoreConfig, logger: FilteringBoundLogger | None = None
+    ) -> list[StoredObject]:
+        try:
+            objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
+        except Exception as e:
+            _raise_translated(e, store_config.display_location)
+        if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
+            logger.warning("Reached the object storage listing limit; later objects are ignored")
+        return objects
+
+    def _group(
+        self,
+        objects: list[StoredObject],
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
+    ) -> list[TableDefinition]:
+        root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
+        return group_tables(
+            objects,
+            self.discovery_options(config),
+            root_name=root_name,
+            pattern=store_config.pattern,
+            listing_prefix=store_config.listing_prefix,
+            logger=logger,
+        )
+
+    def _validation_message(self, message: str) -> str:
+        if self.access_denied_message and message.startswith(ACCESS_DENIED_ERROR):
+            return self.access_denied_message
+        return message
+
+    def validate_credentials(
+        self,
+        config: ConfigType,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            store_config = self.object_store_config(config)
+            objects = self._list_objects(self.open_store(store_config), store_config)
+            tables = self._group(objects, store_config, config)
+        except ObjectStorageError as e:
+            return False, self._validation_message(str(e))
+        except OSError as e:
+            # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
+            status = _http_status(e)
+            if status in (401, 403):
+                denied = translate_storage_error(PermissionError(), store_config.display_location)
+                return False, self._validation_message(str(denied))
+            message = probe_status_message(self.get_source_config.label or "The storage provider", status)
+            if message is None:
+                raise
+            return False, message
+        if not tables:
+            return False, explain_no_tables(objects, self.discovery_options(config), store_config.pattern)
+        return True, None
+
+    def get_schemas(
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        store = self.open_store(self.object_store_config(config))
+        requested = set(names) if names is not None else None
+        return [
+            _source_schema(table)
+            for table in self._discover(store, config)
+            if requested is None or table.name in requested
+        ]
+
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a table from its stored definition, and check that the key can read the table.
+
+        Only the table's own location is read. A key that can read the table but can't list the
+        bucket root passes, and a large bucket isn't walked. Discovery also names a table after its
+        folder, and a pinned table, such as a migrated self-managed table, can have another name.
+        """
+        table = TableDefinition.from_schema_metadata(name, schema_metadata)
+        if table is None:
+            return None
+        store = self.open_store(self.object_store_config(config))
+        location = store.path(table.path)
+        try:
+            if table.kind == "delta":
+                check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+            else:
+                resolve_table_files(store, table)
+        except OSError as e:
+            # As in `validate_credentials`: s3fs gives a bare 401 or 403 as a plain OSError.
+            if _http_status(e) in (401, 403):
+                raise translate_storage_error(PermissionError(), location) from e
+            _raise_translated(e, location)
+        return _source_schema(table)
+
+    def storage_identity(self, config: ConfigType) -> tuple[str | None, ...]:
+        """The bucket the source reads, as `store_identity` names it.
+
+        A source whose config parsing makes a network call overrides this to read only the URL.
+        """
+        return store_identity(self.object_store_config(config))
+
+    def table_root(self, config: ConfigType) -> str | None:
+        """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<folder>/`.
+
+        None when the files URL names one file or a pattern, so no table can be added. A source whose config
+        parsing makes a network call overrides this to read only the URL.
+        """
+        return display_root(self.object_store_config(config))
+
+    def config_with_files_url(self, config: ConfigType, url: str) -> ConfigType:
+        """The config with another files URL, so the URL is parsed the same way as the source's own."""
+        return cast(ConfigType, dataclasses.replace(cast(Any, config), url_pattern=url))
+
+    def define_added_table(
+        self,
+        config: ConfigType,
+        name: str,
+        location: str,
+        file_format: FileFormatChoice,
+        allow_double_quotes: bool,
+    ) -> TableDefinition:
+        """Define the table a user adds by its path, and check that the key can read it.
+
+        The location is a path relative to the source's files URL, or a full URL into the same
+        bucket. Only that location is read, so a source rooted at a large bucket isn't walked.
+        """
+        try:
+            store_config = self.object_store_config(config)
+            if is_full_url(location):
+                url_config = self.object_store_config(self.config_with_files_url(config, location.strip()))
+                relative = relative_key(store_config, url_config)
+            else:
+                relative = added_relative_path(store_config, location)
+            added = parse_added_location(relative, file_format)
+            store = self.open_store(store_config)
+            location = store.path(added.path)
+            try:
+                is_delta = file_format == "delta" or (
+                    file_format == "infer" and added.pattern is None and self._holds_delta_log(store, added.path)
+                )
+                if not is_delta:
+                    objects = (
+                        list_table_objects(store, added.path)
+                        if added.pattern is None
+                        else list_glob_objects(store, added.pattern)
+                    )
+            except ObjectStorageError:
+                raise
+            except Exception as e:
+                _raise_translated(e, location)
+            if is_delta:
+                table = delta_table(name, added, file_format)
+                self._check_added_delta_table(store, table)
+                return table
+            options = DiscoveryOptions(file_format=file_format, allow_double_quotes=allow_double_quotes)
+            if added.pattern is not None:
+                return glob_table(objects, name, added, options)
+            return files_table(objects, name, added, options)
+        except ObjectStorageError as e:
+            message = self._validation_message(str(e))
+            if message == str(e):
+                raise
+            raise ObjectStorageError(message) from e
+
+    def _holds_delta_log(self, store: ObjectStore, path: str) -> bool:
+        """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked.
+
+        A key may be allowed to list the folder but not the log folder, so a denied probe means "not Delta",
+        and the folder listing that follows reports any real error. Other failures, such as a timeout, propagate.
+        """
+        log = f"{path}/{DELTA_LOG_DIRECTORY}" if path else DELTA_LOG_DIRECTORY
+        try:
+            return bool(store.list_objects(log, 1))
+        except Exception as e:
+            if isinstance(e, PermissionError) or _http_status(e) in (401, 403):
+                return False
+            raise
+
+    def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
+        try:
+            check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+        except ObjectStorageError as e:
+            if str(e).startswith(NO_TABLE_FILES_ERROR):
+                raise ObjectStorageError(
+                    f"No Delta table is at '{store.path(table.path)}'. Enter the folder that holds the table's "
+                    f"{DELTA_LOG_DIRECTORY} folder, or choose another file format."
+                ) from e
+            raise
+        except OSError as e:
+            _raise_translated(e, store.path(table.path))
+
+    def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        store = self.open_store(self.object_store_config(config))
+        table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
+            store, config, inputs.schema_name, inputs.logger
+        )
+        if table.kind == "delta":
+            return self._delta_response(store, table, inputs)
+        selection = FileSelection.from_inputs(inputs)
+        if selection.merges:
+            return self._mirrored_files_response(store, table, inputs, selection)
+
+        def items() -> Iterator[pa.Table]:
+            yield from iter_table(store, table, inputs.logger, selection)
+
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=items,
+            # A full refresh replaces the table and an append adds to it, so neither needs a key.
+            primary_keys=None,
+            chunk_size_bytes=CHUNK_SIZE_BYTES,
+            preserve_column_names=table.preserve_column_names,
+        )
+
+    def _mirrored_files_response(
+        self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs, selection: FileSelection
+    ) -> SourceResponse:
+        """An incremental read that also deletes the rows of deleted files and of rewritten files.
+
+        The listing is made here and not in `items`, because the response has to name the files
+        whose rows the run replaces before the first batch loads.
+        """
+        cursor_manager = self.get_cursor_manager(inputs)
+        stored = cursor_manager.load()
+        # Taken before listing, as in `iter_table`.
+        listing_started_at = datetime.now(UTC)
+        resolved = _resolve_files(store, table, inputs.logger)
+        listed = [stored_file for stored_file in resolved.files if _file_format(resolved, stored_file) is not None]
+        plan = plan_mirror(
+            listed, selection, stored.files_digest if stored is not None else None, now=listing_started_at
+        )
+
+        def items() -> Iterator[pa.Table]:
+            cursor_manager.stage(ObjectStorageDeltaCursor(files_digest=plan.digest))
+            yield from _iter_files(store, resolved, plan.files, inputs.logger)
+
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=items,
+            # A run with no scope reads no rows, but the pipeline still needs a key or a scope for an incremental run.
+            primary_keys=FILE_PRIMARY_KEYS if plan.replace_scope is None else None,
+            chunk_size_bytes=CHUNK_SIZE_BYTES,
+            replace_scope=plan.replace_scope,
+        )
+
+    def _delta_response(self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs) -> SourceResponse:
+        cursor_manager = self.get_cursor_manager(inputs)
+        appends = inputs.should_use_incremental_field
+        by_file = appends and inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+        stored = cursor_manager.load() if appends else None
+        # The plan is made here and not in `items`, because the response has to say up front
+        # whether the destination must be rebuilt.
+        read = plan_delta_read(
+            store.delta_uri(table.path),
+            store.delta_storage_options,
+            table.name,
+            stored=stored,
+            logger=inputs.logger,
+            by_file=by_file,
+        )
+
+        def items() -> Iterator[pa.Table]:
+            # A full refresh stages the cursor too. A later switch to append then continues from
+            # the version the table holds, and not from the cursor of an earlier append.
+            cursor_manager.stage(read.cursor)
+            yield from read.iter_tables(with_version=appends, with_file_names=by_file)
+
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=items,
+            primary_keys=None,
+            chunk_size_bytes=CHUNK_SIZE_BYTES,
+            destination_reset_required=read.reset_required,
+            preserve_column_names=table.preserve_column_names,
+            replace_scope=read.replace_scope,
+        )
+
+    def _find_table(
+        self, store: ObjectStore, config: ConfigType, schema_name: str, logger: FilteringBoundLogger
+    ) -> TableDefinition:
+        """Find a table by name when its schema predates `schema_metadata`."""
+        for table in self._discover(store, config, logger):
+            if table.name == schema_name:
+                return table
+        raise ObjectStorageError(
+            f"{NO_TABLE_FILES_ERROR} '{schema_name}'. The files it was discovered from may have been renamed, "
+            "moved, or removed from the bucket."
+        )
+
+
+def _object_storage_source(source_type: str) -> "ObjectStorageSource[Any] | None":
+    try:
+        source = SourceRegistry.get_source(known_source_key(source_type))
+    except ValueError:
+        return None
+    return source if isinstance(source, ObjectStorageSource) else None
+
+
+def supports_adding_tables(source_type: str) -> bool:
+    """Whether a table can be added to a source of this type by its path."""
+    return _object_storage_source(source_type) is not None
+
+
+def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None:
+    """Where relative paths of an added table start, or None for a source that can't add tables.
+
+    It reads only the files URL, so it makes no network call.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.table_root(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def source_storage_identity(source_type: str, job_inputs: dict[str, Any]) -> tuple[str | None, ...] | None:
+    """The bucket an object storage source reads, or None when the source is no such source or its inputs can't be read."""
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.storage_identity(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def self_managed_storage_identity(location: SelfManagedLocation) -> tuple[str | None, ...]:
+    """The bucket a self-managed table reads, in the form `store_identity` gives a source."""
+    if location.service == "azure":
+        return ("azure", location.account, location.bucket)
+    return (location.service, location.bucket, location.account, location.jurisdiction)
+
+
+def define_added_table_metadata(
+    source_type: str,
+    job_inputs: dict[str, Any],
+    name: str,
+    location: str,
+    file_format: FileFormatChoice,
+    allow_double_quotes: bool,
+) -> dict[str, Any]:
+    """The `schema_metadata` of a table added by its path, after a check that the key can read it.
+
+    A path the user must change raises `AddedTableLocationError`. Other errors, such as an
+    unexpected storage failure, propagate.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        raise ValueError(f"'{source_type}' is not an object storage source")
+    config = source.parse_config(job_inputs)
+    try:
+        table = source.define_added_table(config, name, location, file_format, allow_double_quotes)
+    except ObjectStorageError as e:
+        raise AddedTableLocationError(str(e)) from e
+    return table.schema_metadata()
+
+
+def _source_schema(table: TableDefinition) -> SourceSchema:
+    is_files = table.kind == "files"
+    return SourceSchema(
+        name=table.name,
+        # Delta rows have no key to merge on, so an incremental sync of a Delta table replaces rows by data file.
+        supports_incremental=True,
+        supports_append=True,
+        incremental_fields=[
+            incremental_field(FILE_MODIFIED_AT_COLUMN)
+            if is_files
+            else incremental_field(DELTA_VERSION_COLUMN, IncrementalFieldType.Integer)
+        ],
+        # An incremental sync keeps a Delta table equal to its source, so only file tables need a full
+        # refresh to drop the rows of deleted files.
+        prefers_full_refresh=is_files,
+        schema_metadata=table.schema_metadata(),
+    )
+
+
+def iter_table(
+    store: ObjectStore,
+    table: TableDefinition,
+    logger: FilteringBoundLogger,
+    selection: FileSelection = READ_ALL,
+) -> Iterator[pa.Table]:
+    if table.kind == "delta":
+        yield from iter_delta_tables(
+            store.delta_uri(table.path), store.delta_storage_options, table.name, logger=logger
+        )
+        return
+
+    # Taken before listing: a file that lands during a slow listing can share a timestamp with a listed
+    # file, so the append settle window has to count from before the listing started.
+    listing_started_at = datetime.now(UTC)
+    resolved = _resolve_files(store, table, logger)
+    yield from _iter_files(store, resolved, selection.select(resolved.files, now=listing_started_at), logger)
+
+
+def _resolve_files(store: ObjectStore, table: TableDefinition, logger: FilteringBoundLogger) -> TableDefinition:
+    try:
+        return resolve_table_files(store, table, logger=logger)
+    except Exception as e:
+        _raise_translated(e, store.root)
+
+
+def _file_format(resolved: TableDefinition, stored: StoredObject) -> FileFormat | None:
+    return resolve_file_format(stored.path, resolved.file_format)
+
+
+def _iter_files(
+    store: ObjectStore, resolved: TableDefinition, files: list[StoredObject], logger: FilteringBoundLogger
+) -> Iterator[pa.Table]:
+    for stored in files:
+        file_format = _file_format(resolved, stored)
+        if file_format is None:
+            continue
+        try:
+            with store.open(stored.path) as stream:
+                yield from iter_file_tables(stream, stored, file_format, resolved.csv, logger)
+        except PermissionError as e:
+            _raise_translated(e, store.root)

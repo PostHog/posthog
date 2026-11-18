@@ -24,9 +24,16 @@ from typing import Any
 
 from django.db import transaction
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalScoutRun,
+    SignalScratchpad,
+)
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,7 @@ DERIVED_FLAG_KEYS = (
     "has_chart",
     "has_self_validation",
     "has_structured_output",
+    "has_not_in_use_closeout",
 )
 
 
@@ -54,6 +62,7 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
     the row so every query here is anchored to the canonical team the caller resolved.
     """
     emitted_ids = run.emitted_report_ids or []
+    metadata = run.metadata or {}
     authored_titles, authored_charts = _authored_report_facts(team_id=team_id, report_ids=emitted_ids)
     return {
         "has_emit_report": bool(emitted_ids),
@@ -69,12 +78,19 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
         # counted, which needs run-attributed chart provenance rather than a wider query here.
         "has_self_improvement": any(is_self_improvement_title(title) for title in authored_titles),
         "has_chart": any(charts for charts in authored_charts),
-        "has_self_validation": _touched_followup_queue(run=run, team_id=team_id),
+        "has_self_validation": _closed_a_loop(run=run, team_id=team_id),
         # The record endpoint bumps this counter on the run row under lock, so it's a
         # server-side observation, not a scout self-report. It counts accepted batches —
         # a batch whose event delivery then failed still registers here, which the
         # flood-breaker semantics of the counter accept (see STRUCTURED_OUTPUT_COUNT_KEY).
-        "has_structured_output": bool((run.metadata or {}).get(STRUCTURED_OUTPUT_COUNT_KEY)),
+        "has_structured_output": bool(metadata.get(STRUCTURED_OUTPUT_COUNT_KEY)),
+        # The remember endpoint bumps the counter for the run its sandbox token is bound to, so
+        # the write is attributed when it happens. Any output means the run was not pointless.
+        "has_not_in_use_closeout": bool(metadata.get(NOT_IN_USE_WRITES_KEY))
+        and not emitted_ids
+        and not run.edited_report_ids
+        and not run.emitted_count
+        and not metadata.get(STRUCTURED_OUTPUT_COUNT_KEY),
     }
 
 
@@ -90,6 +106,37 @@ def _authored_report_facts(*, team_id: int, report_ids: list[str]) -> tuple[list
     titles = [row[0] for row in rows]
     charts = [row[1] for row in rows]
     return titles, charts
+
+
+def _closed_a_loop(*, run: SignalScoutRun, team_id: int) -> bool:
+    """Whether this run did follow-up work: report checks, or the scratchpad queue that predates them.
+
+    Two mechanisms answer the same question, so the flag reads both and the field name stays put:
+    dashboards built on `has_self_validation` keep meaning "a run that checked whether a past fix
+    held" while scouts move from the scratchpad queue onto checks. Creating a check counts, unlike
+    creating a queue entry, because a check is the validation being scheduled rather than a note
+    asking a future run to do it.
+    """
+    return _wrote_a_check(run=run, team_id=team_id) or _touched_followup_queue(run=run, team_id=team_id)
+
+
+def _wrote_a_check(*, run: SignalScoutRun, team_id: int) -> bool:
+    """Whether the run created a report check or recorded a verdict on one.
+
+    Both are attributed to the run's task, the way every other artefact a scout writes is, so the
+    task is what identifies the run's check work. The lookups are unscoped by team on purpose: a
+    check and its result sit on the report's own environment team, while `team_id` here is the
+    canonical project the run was resolved on, and the task id is already this run's own.
+    """
+    task_id = run.task_run.task_id if run.task_run_id else None
+    if task_id is None:
+        return False
+    return (
+        SignalReportCheck.all_teams.filter(task_id=task_id).exists()
+        or SignalReportArtefact.objects.filter(
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT, task_id=task_id
+        ).exists()
+    )
 
 
 def _touched_followup_queue(*, run: SignalScoutRun, team_id: int) -> bool:

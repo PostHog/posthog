@@ -21,6 +21,13 @@ describe('ComposerModeShortcut', () => {
         expect(onCycle).not.toHaveBeenCalled()
     })
 
+    it('does not cycle while an approval hides the normal composer', () => {
+        const onCycle = jest.fn()
+        render(<ComposerModeShortcut onCycle={onCycle} disabled />)
+        fireEvent.keyDown(document.body, { key: 'Tab', shiftKey: true })
+        expect(onCycle).not.toHaveBeenCalled()
+    })
+
     it('yields to a handler that already consumed the key', () => {
         const onCycle = jest.fn()
         render(<ComposerModeShortcut onCycle={onCycle} />)

@@ -18,8 +18,15 @@ from typing import Any
 import structlog
 import temporalio
 
+from posthog.temporal.ai_observability.shared_activities import (
+    TeamAIConsentInput,
+    check_ai_data_processing_consent_activity,
+)
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
+    CONSENT_CHECK_PATCH_ID,
+    CONSENT_CHECK_RETRY_POLICY,
+    CONSENT_CHECK_START_TO_CLOSE_TIMEOUT,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
@@ -61,7 +68,7 @@ from posthog.temporal.ai_observability.trace_summarization.sampling import sampl
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.summarization.budget import text_repr_budget
+from products.ai_observability.backend.summarization.budget import batch_text_repr_budget
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 logger = structlog.get_logger(__name__)
@@ -184,6 +191,19 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
 
         increment_workflow_started(inputs.analysis_level)
 
+        # Defence in depth: team discovery already drops teams without consent, but a stale
+        # allowlist entry must not send trace content to a third-party model either.
+        if temporalio.workflow.patched(CONSENT_CHECK_PATCH_ID):
+            consented = await temporalio.workflow.execute_activity(
+                check_ai_data_processing_consent_activity,
+                TeamAIConsentInput(team_id=inputs.team_id),
+                start_to_close_timeout=CONSENT_CHECK_START_TO_CLOSE_TIMEOUT,
+                retry_policy=CONSENT_CHECK_RETRY_POLICY,
+            )
+            if not consented:
+                increment_workflow_finished("skipped_no_ai_consent", inputs.analysis_level)
+                return BatchSummarizationResult(batch_run_id=batch_run_id, metrics=metrics)
+
         # Compute window dates for queries using workflow time for determinism
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
@@ -236,7 +256,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
                 model=inputs.model,
-                max_length=text_repr_budget(inputs.model),
+                max_length=batch_text_repr_budget(inputs.model),
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
             )

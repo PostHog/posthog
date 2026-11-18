@@ -11,6 +11,7 @@ import { SubscriptionResourceTypes } from '~/types'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { subscriptionDestination } from './subscriptionDestination'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -195,7 +196,9 @@ function buildColumns(
         {
             title: 'Destination',
             key: 'target_value',
-            render: (_value: unknown, sub: SubscriptionApi) => <SubscriptionDestinationCell sub={sub} />,
+            render: (_value: unknown, sub: SubscriptionApi) => (
+                <SubscriptionDestinationCell destination={subscriptionDestination(sub.target_type, sub.target_value)} />
+            ),
         },
         {
             title: 'Recurrence',

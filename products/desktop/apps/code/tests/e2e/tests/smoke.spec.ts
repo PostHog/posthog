@@ -16,7 +16,7 @@ test.describe("Smoke Tests", () => {
     await window.waitForSelector("#root > *", { timeout: 30000 });
 
     await window
-      .locator('[data-testid="app-loading-logo"]')
+      .locator('[data-testid="app-loading-shell"]')
       .waitFor({ state: "hidden", timeout: 30000 })
       .catch(() => {});
 
@@ -49,14 +49,21 @@ test.describe("Smoke Tests", () => {
     expect(isValidBootState).toBe(true);
   });
 
-  test("window has correct minimum dimensions", async ({ window }) => {
-    const bounds = await window.evaluate(() => ({
-      width: window.innerWidth,
-      height: window.innerHeight,
-    }));
+  test("window has correct minimum dimensions", async ({
+    electronApp,
+    window,
+  }) => {
+    const browserWindow = await electronApp.browserWindow(window);
+    const { bounds, minimumSize } = await browserWindow.evaluate(
+      (nativeWindow) => ({
+        bounds: nativeWindow.getBounds(),
+        minimumSize: nativeWindow.getMinimumSize(),
+      }),
+    );
 
-    expect(bounds.width).toBeGreaterThanOrEqual(900);
-    expect(bounds.height).toBeGreaterThanOrEqual(600);
+    expect(minimumSize).toEqual([800, 600]);
+    expect(bounds.width).toBeGreaterThanOrEqual(minimumSize[0]);
+    expect(bounds.height).toBeGreaterThanOrEqual(minimumSize[1]);
   });
 
   test("app does not crash within 10 seconds of boot", async ({

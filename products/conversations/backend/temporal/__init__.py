@@ -13,9 +13,20 @@ from products.conversations.backend.temporal.coordinator import (
     SupportReplyCoordinatorWorkflow,
     support_collect_eligible_tickets_activity,
 )
+from products.conversations.backend.temporal.intercom_import.activities import (
+    intercom_import_batch_activity,
+    intercom_import_enumerate_conversations_activity,
+    intercom_import_update_job_progress_activity,
+    intercom_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.intercom_import.workflows import (
+    IntercomImportBatchWorkflow,
+    IntercomImportCoordinatorWorkflow,
+)
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     support_build_context_activity,
+    support_clarify_activity,
     support_classify_activity,
     support_draft_activity,
     support_persist_reply_activity,
@@ -25,6 +36,16 @@ from products.conversations.backend.temporal.pipeline import (
     support_review_reply_activity,
     support_safety_filter_activity,
     support_validate_activity,
+)
+from products.conversations.backend.temporal.pylon_import.activities import (
+    pylon_import_batch_activity,
+    pylon_import_enumerate_issues_activity,
+    pylon_import_update_job_progress_activity,
+    pylon_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.pylon_import.workflows import (
+    PylonImportBatchWorkflow,
+    PylonImportCoordinatorWorkflow,
 )
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
@@ -44,6 +65,10 @@ WORKFLOWS = [
     AccountChannelSummaryWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
+    IntercomImportCoordinatorWorkflow,
+    IntercomImportBatchWorkflow,
+    PylonImportCoordinatorWorkflow,
+    PylonImportBatchWorkflow,
 ]
 
 ACTIVITIES = [
@@ -55,6 +80,7 @@ ACTIVITIES = [
     support_draft_activity,
     support_validate_activity,
     support_review_reply_activity,
+    support_clarify_activity,
     support_persist_reply_activity,
     support_persist_knowledge_gap_activity,
     support_record_triage_activity,
@@ -65,4 +91,12 @@ ACTIVITIES = [
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
     zendesk_import_update_job_progress_activity,
+    intercom_import_enumerate_conversations_activity,
+    intercom_import_batch_activity,
+    intercom_import_update_job_status_activity,
+    intercom_import_update_job_progress_activity,
+    pylon_import_enumerate_issues_activity,
+    pylon_import_batch_activity,
+    pylon_import_update_job_status_activity,
+    pylon_import_update_job_progress_activity,
 ]

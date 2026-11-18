@@ -52,7 +52,6 @@ export async function assertCloudUsageAvailable(): Promise<boolean> {
         : usage.sustained.exceeded
           ? "sustained"
           : null,
-      is_pro: usage.is_pro,
     });
     useUsageLimitStore.getState().show(usageLimitArgs(usage));
     return false;

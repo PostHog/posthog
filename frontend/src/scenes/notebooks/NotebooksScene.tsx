@@ -1,13 +1,14 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { base64Encode } from 'lib/utils/base64'
-import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,15 +18,23 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
+import { ReusableWidgetCatalog } from 'products/notebooks/frontend/ReusableWidgetCatalog/ReusableWidgetCatalog'
+
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
     component: NotebooksScene,
     logic: notebooksTableLogic,
     productKey: ProductKey.NOTEBOOKS,
+    emptyState: notebooksEmptyState,
 }
 
 export function NotebooksScene(): JSX.Element {
+    const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const activeTab = searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -34,60 +43,27 @@ export function NotebooksScene(): JSX.Element {
                     type: 'notebook',
                 }}
                 actions={
-                    <>
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Load from JSON',
-                                    onClick: () => {
-                                        void selectFiles({
-                                            contentType: 'application/json',
-                                            multiple: false,
-                                        })
-                                            .then(async (files) => {
-                                                if (!files.length) {
-                                                    return
-                                                }
-                                                const text = await getTextFromFile(files[0])
-                                                const data = JSON.parse(text)
-                                                if (data.type !== 'doc') {
-                                                    throw new Error('Not a notebook')
-                                                }
-
-                                                // Looks like a notebook
-                                                router.actions.push(
-                                                    urls.canvas(),
-                                                    {},
-                                                    {
-                                                        '🦔': base64Encode(text),
-                                                    }
-                                                )
-                                            })
-                                            .catch((e) => {
-                                                lemonToast.error(e.message)
-                                            })
-                                    },
-                                },
-                            ]}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Notebook}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <Shortcut
+                            name="NewNotebook"
+                            keybind={[keyBinds.new]}
+                            intent="New notebook"
+                            interaction="click"
+                            scope={Scene.Notebooks}
                         >
-                            <LemonButton icon={<IconEllipsis />} size="small" />
-                        </LemonMenu>
-                        <Tooltip title="Like a Notebook but all your exploration is persisted to the URL for easy sharing.">
-                            <LemonButton size="small" data-attr="new-canvas" to={urls.canvas()} type="secondary">
-                                New canvas
-                            </LemonButton>
-                        </Tooltip>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Notebook}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <Shortcut
-                                name="NewNotebook"
-                                keybind={[keyBinds.new]}
-                                intent="New notebook"
-                                interaction="click"
-                                scope={Scene.Notebooks}
-                            >
+                            {todayRailNav ? (
+                                <Button
+                                    data-attr="new-notebook"
+                                    render={<LinkPrimitive to={urls.notebook('new')} />}
+                                    variant="primary"
+                                    tooltip="New notebook"
+                                >
+                                    New notebook
+                                </Button>
+                            ) : (
                                 <LemonButton
                                     size="small"
                                     data-attr="new-notebook"
@@ -97,13 +73,29 @@ export function NotebooksScene(): JSX.Element {
                                 >
                                     New notebook
                                 </LemonButton>
-                            </Shortcut>
-                        </AccessControlAction>
-                    </>
+                            )}
+                        </Shortcut>
+                    </AccessControlAction>
                 }
             />
-
-            <NotebooksTable />
+            <LemonTabs
+                activeKey={activeTab}
+                sceneInset
+                tabs={[
+                    {
+                        key: 'notebooks',
+                        label: 'Notebooks',
+                        link: urls.notebooks(),
+                        content: <NotebooksTable />,
+                    },
+                    {
+                        key: 'widgets',
+                        label: 'Reusable widgets',
+                        link: `${urls.notebooks()}?tab=widgets`,
+                        content: <ReusableWidgetCatalog />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }

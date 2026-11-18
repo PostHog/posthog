@@ -1,11 +1,18 @@
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 export interface ActivitySummaryInput {
+    lifetimeCalls: number | null
     totalCalls: number
     distinctClients: number
     errorCalls: number
     /** The busiest tool's name, when known. */
     topTool: string | null
+}
+
+export interface ActivitySummary {
+    headline: string
+    /** The failure count as a phrase ("4 failures"), or null when nothing failed. Rendered as a feed filter. */
+    failures: string | null
 }
 
 /**
@@ -14,29 +21,38 @@ export interface ActivitySummaryInput {
  * plain-language answer beats six sparse KPIs. Serves the same intro job as the
  * one-time first-look hero, but persistent and tailored to early data.
  */
-export function buildActivitySummary(input: ActivitySummaryInput): string {
-    const { totalCalls, distinctClients, errorCalls, topTool } = input
+export function buildActivitySummary(input: ActivitySummaryInput): ActivitySummary {
+    const { lifetimeCalls, totalCalls, distinctClients, errorCalls, topTool } = input
+    const resolvedLifetimeCalls = lifetimeCalls === null ? null : Math.max(lifetimeCalls, totalCalls)
+    const failures =
+        totalCalls > 0 && errorCalls > 0
+            ? `${humanFriendlyNumber(errorCalls)} failure${errorCalls === 1 ? '' : 's'}`
+            : null
 
     if (totalCalls === 0) {
-        return 'Waiting for your first tool call…'
+        return {
+            headline:
+                resolvedLifetimeCalls === 0 ? 'Waiting for your first tool call…' : 'No tool calls in the last 30 days',
+            failures,
+        }
     }
-    if (totalCalls <= 5) {
-        return totalCalls === 1
-            ? "Your first tool call arrived — here's what the agent tried."
-            : `Your first ${totalCalls} tool calls arrived — here's what agents tried.`
+    if (resolvedLifetimeCalls !== null && resolvedLifetimeCalls <= 5) {
+        return {
+            headline:
+                resolvedLifetimeCalls === 1
+                    ? "Your first tool call arrived. Here's what the agent tried."
+                    : `Your first ${resolvedLifetimeCalls} tool calls arrived. Here's what agents tried.`,
+            failures,
+        }
     }
 
-    const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls`]
+    const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls in the last 30 days`]
     if (distinctClients > 0) {
         parts.push(`from ${humanFriendlyNumber(distinctClients)} client${distinctClients === 1 ? '' : 's'}`)
     }
-    let summary = `${parts.join(' ')} so far`
+    let headline = parts.join(' ')
     if (topTool) {
-        summary += ` — ${topTool} is the favorite`
+        headline += `. ${topTool} is the favorite`
     }
-    if (errorCalls > 0) {
-        const failures = `${humanFriendlyNumber(errorCalls)} failure${errorCalls === 1 ? '' : 's'}`
-        summary += `${topTool ? ',' : ' —'} ${failures} worth a look`
-    }
-    return summary
+    return { headline, failures }
 }

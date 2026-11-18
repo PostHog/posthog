@@ -1,18 +1,32 @@
 {
     "name": "@posthog/products-notebooks",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ evals/test/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@testing-library/react": "^16.3.3",
+        "@testing-library/user-event": "^14.6.8",
+        "html-to-image": "^1.11.13",
+        "kea-test-utils": "catalog:",
+        "react-toastify": "^10.0.6",
+        "storybook": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     }
 }

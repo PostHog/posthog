@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -32,6 +34,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
 function CustomerJourneyBuilderSceneContent(): JSX.Element {
     const { journeyName, journeyDescription, isSaving, isEditMode } = useValues(journeyBuilderLogic)
     const { setJourneyName, setJourneyDescription, saveJourney } = useActions(journeyBuilderLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -52,16 +55,28 @@ function CustomerJourneyBuilderSceneContent(): JSX.Element {
                 renameDebounceMs={0}
                 saveOnBlur
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        loading={isSaving}
-                        onClick={() => saveJourney()}
-                        data-attr="journey-builder-save"
-                        disabledReason={accessControlDisabledReason}
-                    >
-                        {isEditMode ? 'Update' : 'Save'}
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="primary"
+                            loading={isSaving}
+                            onClick={() => saveJourney()}
+                            data-attr="journey-builder-save"
+                            disabledReason={accessControlDisabledReason}
+                        >
+                            {isEditMode ? 'Update' : 'Save'}
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            loading={isSaving}
+                            onClick={() => saveJourney()}
+                            data-attr="journey-builder-save"
+                            disabledReason={accessControlDisabledReason}
+                        >
+                            {isEditMode ? 'Update' : 'Save'}
+                        </LemonButton>
+                    )
                 }
             />
             <JourneyBuilder />

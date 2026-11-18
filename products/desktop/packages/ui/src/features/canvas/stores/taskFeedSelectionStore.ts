@@ -22,3 +22,7 @@ export function useTaskFeedSelection(feedId: string): TaskFeedSelection | null {
   const selected = useTaskFeedSelectionStore((state) => state.selected);
   return selected?.feedId === feedId ? selected : null;
 }
+
+export function feedIdFromHref(href: string | null): string | null {
+  return href ? (/^\/feeds\/([^/?#]+)/.exec(href)?.[1] ?? null) : null;
+}

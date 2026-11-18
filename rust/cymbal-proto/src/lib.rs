@@ -1,3 +1,5 @@
+pub const CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES: usize = 8 * 1024 * 1024;
+
 pub mod cymbal {
     pub mod resolution {
         pub mod v1 {

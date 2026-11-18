@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The `message_id` that the send returned.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

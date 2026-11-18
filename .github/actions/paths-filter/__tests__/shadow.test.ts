@@ -1,7 +1,8 @@
 import {PullRequest} from '@octokit/webhooks-types'
 
-import {ChangeStatus} from '../src/file'
-import {compareWithMergeCommit} from '../src/shadow'
+import {ChangeStatus, File} from '../src/file'
+import {Filter} from '../src/filter'
+import {ShadowInput, compareWithMergeCommit} from '../src/shadow'
 
 const cp = jest.requireMock('child_process') as {execFile: jest.Mock}
 
@@ -22,6 +23,26 @@ type ExecFileArgs = [
 
 const pullRequest = {number: 42, head: {sha: HEAD}} as PullRequest
 
+const filter = new Filter(`
+backend:
+  - 'posthog/**'
+frontend:
+  - 'frontend/**'
+`)
+
+// The action matches the API list once in `run()` and hands the result to the shadow, so
+// a test builds the same pairing here.
+function input(withFilter: Filter, apiFiles: File[]): ShadowInput {
+  return {
+    filter: withFilter,
+    apiFiles,
+    apiResults: withFilter.match(apiFiles),
+    apiRows: apiFiles.length,
+    apiTruncated: false,
+    pr: pullRequest
+  }
+}
+
 function stubGit(...stdouts: string[]): void {
   for (const stdout of stdouts) {
     cp.execFile.mockImplementationOnce((...args: ExecFileArgs) => args[3](null, stdout, ''))
@@ -40,12 +61,13 @@ describe('shadow merge-commit comparison', () => {
     cp.execFile.mockReset()
   })
 
-  // A git call that forgets the scratch dir runs against the job workspace, where a
-  // --depth or --filter fetch drops the schema cache of every later step in the job.
+  // A git call against the job workspace drops the schema cache of every later step.
   test('never runs git against the job workspace', async () => {
-    stubGit('', '', HEAD, 'a.ts\0')
+    stubGit('', '', HEAD, 'M\0posthog/a.py\0')
 
-    const result = await compareWithMergeCommit([{filename: 'a.ts', status: ChangeStatus.Modified}], pullRequest)
+    const result = await compareWithMergeCommit(
+      input(filter, [{filename: 'posthog/a.py', status: ChangeStatus.Modified}])
+    )
 
     expect(result.verdict).toBe('match')
     expect(argvOf(0)).toContain(GIT_DIR)
@@ -54,41 +76,39 @@ describe('shadow merge-commit comparison', () => {
     }
   })
 
-  // Losing this guard scores a merge ref from an earlier push as this pull request's
-  // changes, which fills the measurement with mismatches that mean nothing.
+  // Without this guard an earlier push's merge ref reads as this pull request's changes.
   test('refuses a stale merge ref instead of comparing against it', async () => {
     stubGit('', '', OTHER_SHA)
 
-    const result = await compareWithMergeCommit([{filename: 'a.ts', status: ChangeStatus.Modified}], pullRequest)
+    const result = await compareWithMergeCommit(
+      input(filter, [{filename: 'posthog/a.py', status: ChangeStatus.Modified}])
+    )
 
     expect(result.verdict).toBe('unavailable')
     expect(result.reason).toBe('stale-merge-ref')
   })
 
-  // Losing --no-renames reports one path where the API path reports two, so every
-  // rename reads as a mismatch.
+  // Without --no-renames every rename reads as a mismatch.
   test('matches a rename that the API reported as two entries', async () => {
-    stubGit('', '', HEAD, 'old.ts\0new.ts\0')
+    stubGit('', '', HEAD, 'D\0posthog/old.py\0A\0posthog/new.py\0')
 
     const result = await compareWithMergeCommit(
-      [
-        {filename: 'new.ts', status: ChangeStatus.Added},
-        {filename: 'old.ts', status: ChangeStatus.Deleted}
-      ],
-      pullRequest
+      input(filter, [
+        {filename: 'posthog/new.py', status: ChangeStatus.Added},
+        {filename: 'posthog/old.py', status: ChangeStatus.Deleted}
+      ])
     )
 
     expect(result.verdict).toBe('match')
     expect(cp.execFile.mock.calls.map(c => c[1])).toContainEqual(expect.arrayContaining(['--no-renames']))
   })
 
-  // An exec with no handle on the child leaves the fetch running after the budget gives
-  // up, and the action's process stays open until git exits.
+  // Without a handle on the child, an abandoned fetch holds the action open until git exits.
   test('stops git when the budget expires', async () => {
     cp.execFile.mockImplementation(() => undefined)
     jest.useFakeTimers()
 
-    const pending = compareWithMergeCommit([], pullRequest)
+    const pending = compareWithMergeCommit(input(filter, []))
     await jest.advanceTimersByTimeAsync(PAST_ANY_BUDGET_MS)
     const result = await pending
 
@@ -97,5 +117,45 @@ describe('shadow merge-commit comparison', () => {
     const [, , options] = cp.execFile.mock.calls[0] as ExecFileArgs
     expect(options.signal.aborted).toBe(true)
     jest.useRealTimers()
+  })
+
+  // Comparing the file lists instead of the keys reports every dropped path as consequential.
+  test.each([
+    ['the dropped path is the only one holding a key', 'M\0frontend/b.ts\0', ['backend']],
+    ['a surviving path holds the same key', 'M\0posthog/b.py\0M\0frontend/b.ts\0', []]
+  ])('reports keys lost when %s', async (_case, diff, keysLost) => {
+    stubGit('', '', HEAD, diff)
+
+    const result = await compareWithMergeCommit(
+      input(filter, [
+        {filename: 'posthog/a.py', status: ChangeStatus.Modified},
+        {filename: 'posthog/b.py', status: ChangeStatus.Modified},
+        {filename: 'frontend/b.ts', status: ChangeStatus.Modified}
+      ])
+    )
+
+    expect(result.verdict).toBe('mismatch')
+    expect(result.keysLost).toEqual(keysLost)
+    expect(result.keysGained).toEqual([])
+  })
+
+  // Reading the -z fields in the wrong order turns every path into a status letter.
+  test('carries each file status through to a status-scoped rule', async () => {
+    const scoped = new Filter(`
+added_only:
+  - added: 'posthog/**'
+`)
+    stubGit('', '', HEAD, 'A\0posthog/new.py\0D\0posthog/gone.py\0')
+
+    const result = await compareWithMergeCommit(
+      input(scoped, [
+        {filename: 'posthog/new.py', status: ChangeStatus.Added},
+        {filename: 'posthog/gone.py', status: ChangeStatus.Deleted}
+      ])
+    )
+
+    expect(result.verdict).toBe('match')
+    expect(result.keysLost).toEqual([])
+    expect(result.keysGained).toEqual([])
   })
 })

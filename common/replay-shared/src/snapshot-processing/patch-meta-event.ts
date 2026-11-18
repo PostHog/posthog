@@ -1,5 +1,6 @@
 import { EventType } from 'posthog-js/rrweb-types'
 
+import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
 import { RecordingSnapshot } from '../types'
 import { isObject } from '../utils'
 
@@ -56,9 +57,9 @@ export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot)
             if (
                 child.type === 2 &&
                 child.tagName === 'img' &&
-                child.attributes?.['data-rrweb-id'] &&
-                child.attributes?.width &&
-                child.attributes?.height
+                child.attributes?.[SCREENSHOT_ATTRIBUTE] &&
+                child.attributes.width &&
+                child.attributes.height
             ) {
                 return {
                     width: String(child.attributes.width),

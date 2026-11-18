@@ -33,13 +33,16 @@
 //! `flags_concurrency_limit_wait_ms` histogram collapsing to ~0 in
 //! production dashboards.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{extract::Request, middleware::Next, response::Response};
+use tokio::time::Instant;
 
 /// Wall-clock instant captured immediately before the request enters
 /// `ConcurrencyLimitLayer`. Read by [`record_concurrency_wait`] to compute
-/// permit-acquisition latency. `Copy` so the shim doesn't need to clone.
+/// permit-acquisition latency. The `flags` handler also reads it to cap the
+/// persons DB deadline at the request timeout. `Copy` so the shim doesn't
+/// need to clone.
 #[derive(Clone, Copy, Debug)]
 pub struct ConcurrencyEnterTime(pub Instant);
 

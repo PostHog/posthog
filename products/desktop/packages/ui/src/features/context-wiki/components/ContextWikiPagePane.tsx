@@ -5,13 +5,14 @@ import {
 import {
   Button,
   cn,
-  Spinner,
   Textarea,
   ToggleGroup,
   ToggleGroupItem,
 } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import type { Components } from "react-markdown";
 import {
@@ -106,11 +107,7 @@ export function ContextWikiPagePane({
   const baseHead = draft?.baseHead ?? page?.head_sha ?? null;
 
   if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner className="size-5" />
-      </div>
-    );
+    return <LoadingState className="flex-1" />;
   }
 
   if (error || !page) {
@@ -196,7 +193,7 @@ export function ContextWikiPagePane({
               onClick={() => commit(baseHead)}
               disabled={save.isPending || !hasDraft}
             >
-              {save.isPending ? <Spinner className="size-3.5" /> : null}
+              {save.isPending ? <Spinner /> : null}
               Save
             </Button>
           </div>

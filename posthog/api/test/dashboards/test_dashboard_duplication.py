@@ -17,7 +17,7 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-        self.tile_layout = {"tile_layout": "here"}
+        self.tile_layout = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
         self.tile_color = "red"
 
         dashboard_id, _ = self.dashboard_api.create_dashboard({})

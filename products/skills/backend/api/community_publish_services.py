@@ -20,21 +20,30 @@ import yaml
 import requests
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
+
+# nosemgrep: integration-model-through-sdk (an unsaved row for the publisher adapter, never stored)
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ..models.community_skills import CommunitySkillKind
+from .community_scout_config import validate_shareable_scout_config
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
     MAX_SKILL_FILE_BYTES,
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    bundled_skill_name_error,
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
+from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +51,9 @@ logger = structlog.get_logger(__name__)
 _EGRESS_SOURCE = "community_skills"
 
 MAX_SLUG_LENGTH = 64
+# Keep these aligned with PostHog/community-skills scripts/build_registry.py.
+MAX_COMMUNITY_FILE_BYTES = 256 * 1024
+MAX_COMMUNITY_SKILL_BYTES = 1024 * 1024
 # GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
 # content in that single request, so a skill above the cap can only ever fail with a 502. Measured
 # against the escaped form the request actually carries, and held under the cap for the frontmatter,
@@ -147,6 +159,9 @@ def _validate_slug(slug: str) -> str:
         raise CommunitySkillPublishValidationError(
             f"'{slug}' is a reserved name and can't be published to the community."
         )
+    # A catalog entry installs under its slug, so a bundled name would only be refused at install.
+    if error := bundled_skill_name_error(slug):
+        raise CommunitySkillPublishValidationError(error)
     return slug
 
 
@@ -167,23 +182,27 @@ def _validate_allowed_tool(tool: object) -> None:
         raise CommunitySkillPublishValidationError(f"'{tool}' can't be published as a tool name. {err}") from err
 
 
-def render_skill_md(
-    *,
-    name: str,
-    description: str,
-    body: str,
-    tags: list[str] | None = None,
-    allowed_tools: list[str] | None = None,
-    license: str = "",
-    compatibility: str = "",
-    author_handle: str = "",
-) -> str:
-    """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
+def _publishable_scout_config(*, kind: str, scout_config: dict[str, Any] | None) -> dict[str, Any]:
+    """Hold a publish to the same kind/scout_config rules ingest applies to a registry entry.
 
-    Output parses cleanly under the repo's `build_registry.py` frontmatter regex and field rules:
-    `name` and `description` are required; `trust_tier` defaults to `community` (maintainers set
-    `official`/`verified` on review); optional fields are omitted when empty.
+    Publishing something ingest then rejects is the worst outcome available here: the pull request
+    merges, and the skill silently never appears in the catalog.
     """
+    if kind not in set(CommunitySkillKind.values):
+        raise CommunitySkillPublishValidationError(f"'{kind}' is not a publishable kind.")
+    if kind != CommunitySkillKind.SCOUT.value:
+        if scout_config:
+            raise CommunitySkillPublishValidationError("Only a scout can be published with scout settings.")
+        return {}
+    try:
+        return validate_shareable_scout_config(scout_config)
+    except ValueError as err:
+        raise CommunitySkillPublishValidationError(str(err)) from err
+
+
+def _validate_skill_markdown(
+    *, name: str, description: str, body: str, author_handle: str, allowed_tools: list[str] | None
+) -> None:
     if not name.strip():
         raise CommunitySkillPublishValidationError("Skill name is required to publish.")
     if len(name.strip()) > MAX_DISPLAY_NAME_LENGTH:
@@ -194,7 +213,7 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
     # The LLMSkill.description column holds 4096, and the Agent Skills spec stops at 1024. New writes
     # cap at 1024, but a legacy row can still exceed it. A longer one publishes, syncs and installs,
-    # and then validate_for_export refuses the installed skill, so the publisher hands someone a skill
+    # and then compute_spec_problems refuses the installed skill, so the publisher hands someone a skill
     # they can never export.
     if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise CommunitySkillPublishValidationError(
@@ -212,11 +231,17 @@ def render_skill_md(
     for tool in allowed_tools or []:
         _validate_allowed_tool(tool)
 
-    frontmatter: dict[str, Any] = {
-        "name": name.strip(),
-        "description": description.strip(),
-        "trust_tier": "community",
-    }
+
+def _optional_skill_frontmatter(
+    *,
+    tags: list[str] | None,
+    allowed_tools: list[str] | None,
+    license: str,
+    compatibility: str,
+    author_handle: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    frontmatter: dict[str, Any] = {}
     if tags:
         frontmatter["tags"] = list(tags)
     if author_handle.strip():
@@ -227,6 +252,70 @@ def render_skill_md(
         frontmatter["compatibility"] = compatibility.strip()
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        # `required` is always written, so an omitted `default` reads back the same as an empty one.
+        frontmatter["metadata"] = {
+            "variables": [
+                {
+                    "name": variable.name,
+                    "prompt": variable.prompt,
+                    "required": variable.required,
+                    **({"default": variable.default} if variable.default else {}),
+                }
+                for variable in template_variables
+            ]
+        }
+    return frontmatter
+
+
+def render_skill_md(
+    *,
+    name: str,
+    description: str,
+    body: str,
+    tags: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+    license: str = "",
+    compatibility: str = "",
+    author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
+) -> str:
+    """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
+
+    Output parses cleanly under the repo's `build_registry.py` frontmatter regex and field rules:
+    `name` and `description` are required; `trust_tier` defaults to `community` (maintainers set
+    `official`/`verified` on review); optional fields are omitted when empty.
+    """
+    _validate_skill_markdown(
+        name=name,
+        description=description,
+        body=body,
+        author_handle=author_handle,
+        allowed_tools=allowed_tools,
+    )
+
+    frontmatter: dict[str, Any] = {
+        "name": name.strip(),
+        "description": description.strip(),
+        "trust_tier": "community",
+    }
+    published_scout_config = _publishable_scout_config(kind=kind, scout_config=scout_config)
+    if kind != CommunitySkillKind.SKILL.value:
+        frontmatter["kind"] = kind
+        frontmatter["scout_config"] = published_scout_config
+    frontmatter.update(
+        _optional_skill_frontmatter(
+            tags=tags,
+            allowed_tools=allowed_tools,
+            license=license,
+            compatibility=compatibility,
+            author_handle=author_handle,
+            metadata=metadata,
+        )
+    )
 
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
@@ -249,6 +338,9 @@ def render_community_skill_files(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
 ) -> list[RenderedFile]:
     """Render the full set of files to commit for a skill: SKILL.md plus any bundled files.
 
@@ -256,7 +348,22 @@ def render_community_skill_files(
     `references/playbook.md` becomes `skills/<slug>/references/playbook.md`).
     """
     _validate_slug(slug)
+    # The store hands a scout to the scout-create form, which takes instructions but no bundled
+    # files, so ingest refuses a scout that ships them. Say so before opening a pull request that
+    # would merge and then leave the scout missing from the catalog.
+    if kind == CommunitySkillKind.SCOUT.value and files:
+        raise CommunitySkillPublishValidationError(
+            "A scout can't be published with bundled files. Move what they hold into its instructions."
+        )
     _validate_entry_caps(body=body, files=files or [])
+    # Only a template reads `{{ }}` as placeholders. A plain skill keeps that text verbatim, the way
+    # install does, so a skill quoting GitHub Actions or Go template syntax still publishes.
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        try:
+            validate_template(variables=template_variables, body=body, files=files or [])
+        except TemplateRenderError as err:
+            raise CommunitySkillPublishValidationError(str(err)) from err
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -271,6 +378,9 @@ def render_community_skill_files(
                 license=license,
                 compatibility=compatibility,
                 author_handle=author_handle,
+                metadata=metadata,
+                kind=kind,
+                scout_config=scout_config,
             ),
         )
     ]
@@ -318,11 +428,11 @@ def _encoded_payload_bytes(content: str) -> int:
 
 
 def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
-    """Hold a publish to ingest's own per-entry caps, which it measures on the stored bytes.
+    """Validate ingest limits and the catalog builder's smaller content limits.
 
-    These are `community_skill_sync._validate_entry_within_caps`, where breaching one drops the whole
-    entry: the pull request merges and the skill never appears in the catalog. The file count is
-    checked here rather than after rendering so an absurd manifest never gets rendered at all.
+    Ingest checks the store caps; community-skills scripts/build_registry.py also checks bundled
+    files and total embedded content. Check both before creating a public pull request that cannot
+    reach the catalog, and check file count before rendering the manifest.
     """
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
         raise CommunitySkillPublishValidationError(
@@ -330,11 +440,26 @@ def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
         )
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise CommunitySkillPublishValidationError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
+    # The catalog reads SKILL.md with universal newlines, then strips its body and excludes frontmatter.
+    total_bytes = len(body.replace("\r\n", "\n").replace("\r", "\n").strip().encode("utf-8"))
     for file in files:
-        if len(file["content"].encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+        file_bytes = len(file["content"].encode("utf-8"))
+        if file_bytes > MAX_SKILL_FILE_BYTES:
             raise CommunitySkillPublishValidationError(
                 f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB."
             )
+        if file_bytes > MAX_COMMUNITY_FILE_BYTES:
+            raise CommunitySkillPublishValidationError(
+                f"'{file['path']}' exceeds the community catalog's {MAX_COMMUNITY_FILE_BYTES // 1024} KiB file limit. "
+                "Reduce the file size before publishing."
+            )
+        total_bytes += file_bytes
+    if total_bytes > MAX_COMMUNITY_SKILL_BYTES:
+        raise CommunitySkillPublishValidationError(
+            f"The skill body and bundled files exceed the community catalog's "
+            f"{MAX_COMMUNITY_SKILL_BYTES // (1024 * 1024)} MiB total limit. "
+            "Reduce their combined size before publishing."
+        )
 
 
 def _validate_publishable_tree_size(rendered: list[RenderedFile]) -> None:
@@ -402,8 +527,11 @@ def _publisher_app_jwt() -> str | None:
     cannot sign: a key GitHub would reject is a deployment nobody can retry their way out of, so it
     has to read as "this instance cannot publish" rather than as a GitHub outage.
     """
-    client_id = settings.COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID
-    private_key = settings.COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY
+    values = get_many_or_settings(
+        ["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"], CredentialsCaller.SKILLS
+    )
+    client_id = values["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID"]
+    private_key = values["COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"]
     if not client_id or not private_key:
         return None
 
@@ -442,6 +570,7 @@ def _publisher_app_request(
         timeout=10,
         # requests omits the body entirely when json is None
         json=json_body,
+        priority=Priority.CRITICAL,
     )
 
 
@@ -518,7 +647,7 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         sensitive_config={"access_token": token},
     )
     # The same source as the App-JWT calls above, so every publish request lands under one label.
-    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE, priority=Priority.CRITICAL)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
@@ -551,6 +680,9 @@ def publish_skill_to_community(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
@@ -582,6 +714,9 @@ def publish_skill_to_community(
         license=license,
         compatibility=compatibility,
         author_handle=author_handle,
+        metadata=metadata,
+        kind=kind,
+        scout_config=scout_config,
     )
 
     publisher = get_community_skills_publisher()

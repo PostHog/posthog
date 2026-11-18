@@ -16,6 +16,7 @@ export const EVENT_SOURCE = {
     POSTHOG_AI: 'posthog_ai',
     POSTHOG_CODE: 'posthog_code',
     SELF_DRIVING: 'self_driving',
+    WEBMCP: 'webmcp',
 } as const
 
 export type EventSource = (typeof EVENT_SOURCE)[keyof typeof EVENT_SOURCE]
@@ -44,6 +45,10 @@ const SIGNALS_OAUTH_CLIENT_IDS = new Set([
     'nqZsiFEbu1fCWDK3r8QtSGwKmmANxVIgfZmTXywk',
     'xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8',
 ])
+
+// Mirrors WEBMCP_APP_CLIENT_ID in `posthog/temporal/oauth.py`. The WebMCP proxy mints its tokens
+// server-side against this CIMD application, and the URL is the same in every region.
+const WEBMCP_OAUTH_CLIENT_ID = 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json'
 
 const FIRST_PARTY_OAUTH_CLIENT_IDS = new Set([
     'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W',
@@ -109,6 +114,9 @@ export function resolveEventSource(input: EventSourceInput): EventSource {
     if (input.oauthClientId && SIGNALS_OAUTH_CLIENT_IDS.has(input.oauthClientId)) {
         return EVENT_SOURCE.SELF_DRIVING
     }
+    if (input.oauthClientId === WEBMCP_OAUTH_CLIENT_ID) {
+        return EVENT_SOURCE.WEBMCP
+    }
     // Matches Django: the outer caller's user-agent wins over anything the MCP layer says.
     if (input.clientUserAgent?.includes(WIZARD_USER_AGENT_FRAGMENT)) {
         return EVENT_SOURCE.WIZARD
@@ -122,4 +130,9 @@ export function resolveEventSource(input: EventSourceInput): EventSource {
         return EVENT_SOURCE.MCP
     }
     return FIRST_PARTY_CONSUMER_TO_SOURCE.get(input.mcpConsumer) ?? EVENT_SOURCE.MCP
+}
+
+// A first-party token with no mapped consumer resolves to `mcp` but is still one of PostHog's own agents.
+export function isCustomerAgentCaller(input: EventSourceInput): boolean {
+    return resolveEventSource(input) === EVENT_SOURCE.MCP && !isFirstPartyCaller(input)
 }

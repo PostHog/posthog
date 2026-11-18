@@ -11,7 +11,7 @@ from posthog.models.integration import Integration
 
 from products.conversations.backend.models import GithubCommentMapping, Ticket
 from products.conversations.backend.models.constants import Status
-from products.conversations.backend.tasks import process_github_event
+from products.conversations.backend.tasks.github import process_github_event
 
 
 def _issue_payload(

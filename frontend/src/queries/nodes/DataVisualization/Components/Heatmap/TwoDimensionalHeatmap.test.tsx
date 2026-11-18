@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind, HeatmapSortOrder } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -21,7 +21,7 @@ jest.mock('~/queries/query', () => ({
 const dataNodeCollectionId = 'new-test-SQL-heatmap'
 let logicCounter = 0
 
-const makeQuery = (nullLabel = '(header null)', nullValue = ''): DataVisualizationNode => ({
+const makeQuery = (nullLabel = '(header null)', nullValue = ''): VisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -56,7 +56,8 @@ const response = {
 const setup = (
     nullLabel = '(header null)',
     nullValue = '',
-    responseOverride: typeof response = response
+    responseOverride: typeof response = response,
+    onInspect?: (record: Record<string, unknown>) => void
 ): ReturnType<typeof dataVisualizationLogic.build> => {
     logicCounter += 1
     const testKey = `test-two-dimensional-heatmap-${logicCounter}`
@@ -74,7 +75,7 @@ const setup = (
     render(
         <Provider>
             <BindLogic logic={dataVisualizationLogic} props={props}>
-                <TwoDimensionalHeatmap />
+                <TwoDimensionalHeatmap onInspect={onInspect} />
             </BindLogic>
         </Provider>
     )
@@ -83,6 +84,52 @@ const setup = (
 }
 
 describe('TwoDimensionalHeatmap', () => {
+    it.each([
+        [undefined, ['Stage 2', 'Stage 10', 'Stage 1'], ['20', '10', '30']],
+        [HeatmapSortOrder.Asc, ['Stage 1', 'Stage 2', 'Stage 10'], ['30', '20', '10']],
+        [HeatmapSortOrder.Desc, ['Stage 10', 'Stage 2', 'Stage 1'], ['10', '20', '30']],
+    ])('orders columns by %s without moving values to another label', async (xAxisSortOrder, headers, cells) => {
+        const logic = setup('(header null)', '', {
+            ...response,
+            results: [
+                ['Stage 2', 'Enterprise', 20],
+                ['Stage 10', 'Enterprise', 10],
+                ['Stage 1', 'Enterprise', 30],
+            ],
+        })
+        await screen.findByText('Stage 10')
+
+        act(() => {
+            logic.actions.updateChartSettings({ heatmap: { ...logic.values.chartSettings.heatmap, xAxisSortOrder } })
+        })
+
+        expect(
+            Array.from(screen.getByRole('table').querySelectorAll('thead th'))
+                .slice(1)
+                .map((header) => header.textContent)
+        ).toEqual(headers)
+        expect(screen.getAllByRole('cell').map((cell) => cell.textContent)).toEqual(cells)
+    })
+
+    it('keeps null and literal labels separately inspectable even when display labels collide', async () => {
+        const onInspect = jest.fn()
+        const values = [null, 'null', 'null (2)', '']
+        setup(
+            'null',
+            '',
+            {
+                ...response,
+                results: values.map((value, index) => [value, 'Enterprise', index + 10]),
+            },
+            onInspect
+        )
+
+        for (const [index, value] of values.entries()) {
+            fireEvent.click((await screen.findByText(String(index + 10))).closest('button')!)
+            expect(onInspect).toHaveBeenLastCalledWith({ region: value, segment: 'Enterprise', count: index + 10 })
+        }
+        expect(screen.queryByText(/duplicate/)).not.toBeInTheDocument()
+    })
     afterEach(() => {
         cleanup()
         // Guard against any pollution leaking into other tests if a regression reintroduces it

@@ -23,7 +23,6 @@ export const SCOUT_DESTINATION_NAME_PREFIX = 'Replay Vision · '
 export const WEBHOOK_TEMPLATE_ID = 'template-webhook'
 
 // Marks our payloads so a consumer can pin the schema and we can evolve it without breaking them.
-// Mirrors the convention the vision-action webhooks used.
 const WEBHOOK_HEADERS = { 'Content-Type': 'application/json', 'X-PostHog-Webhook-Version': '1' }
 
 /** Whether a destination is one this scout's delivery provisioned: our template, our name, and this

@@ -37,11 +37,5 @@ export const openInAppOutput = z.object({
 export const getLastUsedOutput = z.object({
   lastUsedApp: z.string().optional(),
 });
-
-export type OpenInAppInput = z.infer<typeof openInAppInput>;
-export type SetLastUsedInput = z.infer<typeof setLastUsedInput>;
-export type CopyPathInput = z.infer<typeof copyPathInput>;
 export type DetectedApplication = z.infer<typeof detectedApplication>;
 export type ExternalAppType = z.infer<typeof externalAppType>;
-export type OpenInAppOutput = z.infer<typeof openInAppOutput>;
-export type GetLastUsedOutput = z.infer<typeof getLastUsedOutput>;

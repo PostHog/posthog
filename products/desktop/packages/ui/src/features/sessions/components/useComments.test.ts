@@ -19,7 +19,7 @@ describe("commentCacheCoversTarget", () => {
     },
     {
       what: "the same id under another scope",
-      key: ["comments", "identity", "task-1", "desktop_canvas", "a"],
+      key: ["comments", "identity", "task-1", "canvas", "a"],
       covers: false,
     },
     {
@@ -29,7 +29,7 @@ describe("commentCacheCoversTarget", () => {
         "targets",
         "identity",
         "task-1",
-        "desktop_canvas:c,task_artifact:a",
+        "canvas:c,task_artifact:a",
       ],
       covers: true,
     },

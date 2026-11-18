@@ -9,17 +9,20 @@
  */
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
-import { handleMetadata } from '@/handlers/metadata'
+import { EMA_SETUP_PATH, handleEmaTrustedIssuer } from '@/handlers/ema'
+import { FONT_PATHS, handleFont } from '@/handlers/fonts'
+import { handleClientManifest, handleMetadata, handleOpenIdConfiguration, handleScopes } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
 import { handleToken } from '@/handlers/token'
+import type { SigningKeyEnv } from '@/lib/idtoken'
 import { type Validator, errorResponse, noDuplicateParams, runValidators } from '@/lib/validation'
 
-export interface Env {
+export interface Env extends SigningKeyEnv {
     AUTH_KV: KVNamespace
 }
 
-type Handler = (request: Request, kv: KVNamespace) => Response | Promise<Response>
+type Handler = (request: Request, kv: KVNamespace, env: Env) => Response | Promise<Response>
 
 interface Route {
     paths: string[]
@@ -36,6 +39,14 @@ const routes: Route[] = [
     {
         paths: ['/.well-known/oauth-authorization-server'],
         handler: handleMetadata,
+    },
+    {
+        paths: ['/.well-known/openid-configuration'],
+        handler: handleOpenIdConfiguration,
+    },
+    {
+        paths: ['/auth.md'],
+        handler: handleClientManifest,
     },
     {
         paths: ['/.well-known/jwks.json'],
@@ -75,6 +86,11 @@ const routes: Route[] = [
         handler: handleToken,
     },
     {
+        paths: [EMA_SETUP_PATH],
+        method: 'PUT',
+        handler: handleEmaTrustedIssuer,
+    },
+    {
         paths: ['/oauth/revoke'],
         method: 'POST',
         handler: handleRevoke,
@@ -87,6 +103,15 @@ const routes: Route[] = [
     {
         paths: ['/oauth/userinfo'],
         handler: handleUserInfo,
+    },
+    {
+        paths: ['/oauth/scopes'],
+        method: 'GET',
+        handler: handleScopes,
+    },
+    {
+        paths: FONT_PATHS,
+        handler: handleFont,
     },
 ]
 
@@ -107,7 +132,7 @@ export default {
                             return errorResponse(validationError)
                         }
                     }
-                    return await route.handler(request, env.AUTH_KV)
+                    return await route.handler(request, env.AUTH_KV, env)
                 }
             }
 

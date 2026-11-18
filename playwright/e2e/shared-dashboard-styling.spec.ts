@@ -79,10 +79,10 @@ test.describe('Shared dashboard styling', () => {
             }
         })
 
-        let fallbackWarningLogged = false
+        let fallbackFailureLogged = false
         page.on('console', (msg) => {
-            if (msg.type() === 'warning' && msg.text().includes('Failed to load stylesheet')) {
-                fallbackWarningLogged = true
+            if (msg.type() === 'error' && msg.text().includes('App stylesheet failed to load')) {
+                fallbackFailureLogged = true
             }
         })
 
@@ -90,7 +90,7 @@ test.describe('Shared dashboard styling', () => {
         await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible({ timeout: 30000 })
 
         expect(fallbackCssLoaded).toBe(true)
-        expect(fallbackWarningLogged).toBe(true)
+        expect(fallbackFailureLogged).toBe(true)
         await expect(page.locator('body.ExporterBody')).toBeVisible()
     })
 })

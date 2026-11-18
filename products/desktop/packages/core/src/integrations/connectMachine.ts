@@ -1,4 +1,5 @@
 import { signalsConfigKeys } from "../inbox/inboxQuery";
+import { readApiErrorBody } from "./apiErrorBody";
 import { githubInstallRequestKeys } from "./repositoryKeys";
 
 export type ConnectState =
@@ -74,9 +75,11 @@ export function toConnectError(
   error: unknown,
   fallbackMessage: string,
 ): ConnectError {
+  const { code, detail } = readApiErrorBody(error);
   return {
-    message: error instanceof Error ? error.message : fallbackMessage,
-    code: null,
+    message:
+      detail || (error instanceof Error ? error.message : fallbackMessage),
+    code,
   };
 }
 

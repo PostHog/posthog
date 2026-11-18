@@ -1,6 +1,6 @@
 import datetime as dt
 
-from freezegun.api import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import ANY, call, patch
 
@@ -56,7 +56,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertLessEqual(
             {
                 "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
-                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yyyy",
             }.items(),
             response.json().items(),
         )
@@ -124,7 +124,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 call(
                     distinct_id=self.user.distinct_id,
                     event="membership level changed",
-                    properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+                    properties={
+                        "new_level": 15,
+                        "previous_level": 1,
+                        "$set": mock.ANY,
+                        "$update_person_last_seen_at": False,
+                    },
                     groups=mock.ANY,
                 ),
                 call(
@@ -286,12 +291,13 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
         License.PLANS = current_plans
 
-    @patch("ee.api.license.requests.post")
-    def test_feature_available_self_hosted_license_expired(self, patch_post):
+    def test_feature_available_self_hosted_license_expired(self):
         current_plans = License.PLANS
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
-        with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
+        with time_machine.travel(
+            "2070-01-01T12:00:00.000Z", tick=False
+        ):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_product_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertIsNone(self.organization.get_available_feature("whatever"))

@@ -1,6 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -12,13 +16,21 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { metricsQueryCreate, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import {
+    metricsHasMetricsRetrieve,
+    metricsNamesRetrieve,
+    metricsQueryCreate,
+} from 'products/metrics/frontend/generated/api'
 
+import { metricNamePickerLogic } from './components/metricNamePickerLogic'
+import { metricsViewerLogic } from './components/metricsViewerLogic'
+import { metricsSetupLogic } from './emptyState/metricsSetupLogic'
 import { metricsSceneLogic } from './metricsSceneLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsHasMetricsRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
 
@@ -56,7 +68,8 @@ describe('metricsSceneLogic', () => {
             },
         } as AppContext
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsSceneLogic()
         logic.mount()
@@ -65,6 +78,23 @@ describe('metricsSceneLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('requests metric names only after the flag is on and the gated scene primes them once', async () => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        jest.mocked(metricsNamesRetrieve).mockClear()
+        logic = metricsSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+        metricNamePickerLogic.actions.primeItems()
+        metricNamePickerLogic.actions.primeItems()
+        await expectLogic(metricNamePickerLogic).toFinishAllListeners()
+        expect(metricsNamesRetrieve).toHaveBeenCalledTimes(1)
     })
 
     describe('URL parameter parsing', () => {
@@ -77,6 +107,7 @@ describe('metricsSceneLogic', () => {
                     aggregation: 'p95',
                     dateFrom: '-24h',
                     dateTo: '2026-08-25T00:00:00.000Z',
+                    interval: 'minute_5',
                     groupBy: '["service_name","env"]',
                     filterGroup: JSON.stringify(FILTER_GROUP),
                 })
@@ -85,11 +116,10 @@ describe('metricsSceneLogic', () => {
             expect(logic.values.activeTab).toEqual('viewer')
             expect(logic.values.metricName).toEqual('queue_depth')
             expect(logic.values.selectedMetricType).toEqual('gauge')
-            // The shared link's own aggregation survives the recommendation cascade that
-            // picking queue_depth (a gauge, recommending 'avg') triggers.
             expect(logic.values.aggregation).toEqual('p95')
             expect(logic.values.dateFrom).toEqual('-24h')
             expect(logic.values.dateTo).toEqual('2026-08-25T00:00:00.000Z')
+            expect(logic.values.interval).toEqual('minute_5')
             expect(logic.values.groupByKeys).toEqual(['service_name', 'env'])
             expect(logic.values.filterGroup).toEqual(FILTER_GROUP)
             // Applying the params dispatches setters whose own URL sync must not rewrite the
@@ -97,24 +127,141 @@ describe('metricsSceneLogic', () => {
             expect(router.values.searchParams).toMatchObject({ metricName: 'queue_depth', aggregation: 'p95' })
         })
 
-        it('keeps the recommended aggregation for a link that has a metric but no aggregation param', async () => {
+        it('leaves a link that has a metric but no aggregation param without operations', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/metrics', { metricName: 'queue_depth' })
             }).toFinishAllListeners()
 
-            expect(logic.values.aggregation).toEqual('avg')
+            expect(logic.values.aggregation).toBeNull()
+            expect(logic.values.rangeFunction).toBeNull()
+        })
+
+        it('reads a legacy rate link as a rate range function over a sum', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'requests_total', aggregation: 'rate' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.rangeFunction).toEqual('rate')
+            expect(logic.values.aggregation).toEqual('sum')
+        })
+
+        it('restores a range function link without an aggregation', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'requests_total', rangeFunction: 'increase' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.rangeFunction).toEqual('increase')
+            expect(logic.values.aggregation).toBeNull()
         })
 
         it.each([
             ['activeTab', 'nonsense', 'activeTab', 'overview'],
-            ['aggregation', 'not-an-aggregation', 'aggregation', 'sum'],
+            ['aggregation', 'not-an-aggregation', 'aggregation', null],
             ['metricType', 'not-a-type', 'selectedMetricType', null],
+            ['interval', 'not-an-interval', 'interval', null],
         ])('falls back to the default for an invalid %s param', async (param, urlValue, valueKey, expected) => {
             await expectLogic(logic, () => {
                 router.actions.push('/metrics', { [param]: urlValue })
             }).toFinishAllListeners()
 
             expect(logic.values[valueKey as keyof typeof logic.values]).toEqual(expected)
+        })
+
+        it('restores multiple clauses and a formula from the clauses URL param', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    activeTab: 'viewer',
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        {
+                            name: 'b',
+                            metricName: 'queue_depth',
+                            aggregation: 'avg',
+                            metricType: 'gauge',
+                            groupBy: ['env'],
+                        },
+                    ]),
+                    formula: 'a / b',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toEqual([
+                expect.objectContaining({
+                    name: 'a',
+                    metricName: 'requests_total',
+                    rangeFunction: 'rate',
+                    aggregation: 'sum',
+                }),
+                expect.objectContaining({
+                    name: 'b',
+                    metricName: 'queue_depth',
+                    aggregation: 'avg',
+                    selectedMetricType: 'gauge',
+                    groupByKeys: ['env'],
+                }),
+            ])
+            expect(logic.values.formula).toEqual('a / b')
+        })
+
+        it('a legacy single-metric link collapses multi-clause state', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        { name: 'b', metricName: 'queue_depth', aggregation: 'avg' },
+                    ]),
+                    formula: 'a / b',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.viewerClauses).toHaveLength(2)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toHaveLength(1)
+            expect(logic.values.metricName).toEqual('queue_depth')
+            expect(logic.values.formula).toEqual('')
+        })
+
+        // An invalid clauses param must not fall through to the legacy branch — that
+        // would collapse the multi-series state on screen to one blank clause.
+        it('an invalid clauses param leaves multi-series state untouched', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        { name: 'b', metricName: 'queue_depth', aggregation: 'avg' },
+                    ]),
+                })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { clauses: '{corrupted' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toHaveLength(2)
+            expect(logic.values.metricName).toEqual('requests_total')
+        })
+
+        // The clauses param is attacker-controlled JSON; any invalid entry must reject the
+        // whole param instead of reaching the viewer half-validated.
+        it.each([
+            ['unparsable JSON', '{not json'],
+            ['not an array', '{"a":1}'],
+            ['a clause without a metric', '[{"name":"a","aggregation":"sum"}]'],
+            ['an unknown aggregation', '[{"name":"a","metricName":"x","aggregation":"nope"}]'],
+            [
+                'duplicate aliases',
+                '[{"name":"a","metricName":"x","aggregation":"sum"},{"name":"a","metricName":"y","aggregation":"sum"}]',
+            ],
+        ])('ignores a malformed clauses param (%s)', async (_, urlValue) => {
+            const before = logic.values.viewerClauses
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { clauses: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toEqual(before)
         })
 
         it.each([
@@ -151,22 +298,101 @@ describe('metricsSceneLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setMetricName('requests_total')
                 logic.actions.setDateFrom('-7d')
+                logic.actions.setInterval('minute_5')
             }).toFinishAllListeners()
 
-            // aggregation is written even when recommended ('increase' for this counter), so
-            // restoring the link never has to re-derive it.
             expect(router.values.searchParams).toMatchObject({
                 metricName: 'requests_total',
-                aggregation: 'increase',
                 dateFrom: '-7d',
+                interval: 'minute_5',
             })
+            expect(router.values.searchParams).not.toHaveProperty('aggregation')
 
             await expectLogic(logic, () => {
                 logic.actions.setDateFrom('-1h')
+                logic.actions.setInterval(null)
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).not.toHaveProperty('dateFrom')
+            expect(router.values.searchParams).not.toHaveProperty('interval')
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        it('round-trips a PromQL query through the URL, and a builder link leaves it', async () => {
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum(up)',
+                })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ language: 'promql', query: 'sum(up)' })
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('builder')
+            expect(metricsViewerLogic.values.metricName).toEqual('queue_depth')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { language: 'sql', query: 'SELECT 1' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('sql')
+            expect(metricsViewerLogic.values.queryText).toEqual('SELECT 1')
+        })
+
+        // The two URL encodings must never disagree: multi-series/formula state writes
+        // `clauses` and removes the legacy params, and collapsing back restores them.
+        it('switches between the legacy and clauses encodings as series come and go', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+            expect(router.values.searchParams).not.toHaveProperty('clauses')
+
+            metricsViewerLogic.actions.addClause()
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setMetricName('queue_depth')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('metricName')
+            expect(router.values.searchParams.clauses).toEqual([
+                expect.objectContaining({ name: 'a', metricName: 'requests_total' }),
+                expect.objectContaining({ name: 'b', metricName: 'queue_depth' }),
+            ])
+
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setFormula('a / b')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.formula).toEqual('a / b')
+
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setFormula('')
+                metricsViewerLogic.actions.removeClause(1)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('clauses')
+            expect(router.values.searchParams).not.toHaveProperty('formula')
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        // With a blank just-added row focused, the active clause is empty while the chart
+        // still shows the named one — the legacy encoding must serialize the named clause,
+        // or editing the blank row drops the metric from the link.
+        it('keeps the named clause in the URL while a blank added row is focused', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+                logic.actions.setRangeFunction('rate')
+            }).toFinishAllListeners()
+
+            metricsViewerLogic.actions.addClause()
+            await expectLogic(logic, () => {
+                logic.actions.setAggregation('max')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toMatchObject({
+                metricName: 'requests_total',
+                rangeFunction: 'rate',
+            })
         })
 
         it('keeps viewer params in the URL when switching tabs', async () => {
@@ -191,6 +417,45 @@ describe('metricsSceneLogic', () => {
 
             expect(router.values.location.pathname).toContain('/logs')
             expect(router.values.searchParams).not.toHaveProperty('metricName')
+        })
+    })
+
+    describe('landing tab', () => {
+        afterEach(() => {
+            metricsSetupLogic.unmount()
+        })
+
+        // The overview reads only ingested metrics, so a team with only derived series would land on zero counts.
+        it.each([
+            [
+                'derived series only',
+                { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true },
+                {},
+                'viewer',
+            ],
+            [
+                'ingested metrics',
+                { hasMetrics: true, hasDerivedSources: true, hasDerivedMetrics: true },
+                {},
+                'overview',
+            ],
+            [
+                'derived series only, overview linked',
+                { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true },
+                { activeTab: 'overview' },
+                'overview',
+            ],
+        ])('%s lands on %s', async (_name, response, params, expected) => {
+            jest.mocked(metricsHasMetricsRetrieve).mockResolvedValue(response)
+            router.actions.push('/metrics', params)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(metricsSetupLogic, () => {
+                metricsSetupLogic.mount()
+            }).toDispatchActions(['detectStatusSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual(expected)
         })
     })
 })

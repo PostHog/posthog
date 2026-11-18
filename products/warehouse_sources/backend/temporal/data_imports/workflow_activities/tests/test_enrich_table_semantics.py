@@ -5,8 +5,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.models.query import QuerySet
+from django.db.utils import OperationalError as DjangoOperationalError
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -36,6 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 pytestmark = pytest.mark.django_db
 
 _USAGE = {"model": "claude-haiku-4-5", "prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}
+_UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
 
 
 @pytest.fixture(autouse=True)
@@ -228,7 +234,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="short context",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         for column in columns:
             assert column["name"] in prompt
@@ -247,7 +253,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=["col_0", "col_1"],
             business_context=huge_context,
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The 100k-char context is truncated to the cap (a few stray "x" elsewhere in the template are fine).
         assert MAX_BUSINESS_CONTEXT_CHARS <= prompt.count("x") < MAX_BUSINESS_CONTEXT_CHARS + 100
@@ -268,7 +274,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The first column survives; some tail columns are dropped to stay under budget.
         assert columns[0]["name"] in prompt
@@ -295,7 +301,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[str(c["name"]) for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
@@ -340,8 +346,8 @@ class TestExtractJsonObject:
         ],
     )
     def test_extracts_object_from_fenced_or_wrapped_replies(self, content):
-        # The gateway's Anthropic route doesn't reliably honour json_object mode, so replies arrive
-        # fenced or with prose — all must still yield the parsed object.
+        # A caller that asks for JSON in the prompt can get it fenced or with prose, and it must
+        # still parse.
         parsed = _extract_json_object(content)
         assert parsed == {"table_description": "t", "columns": {"a": "desc"}}
 
@@ -351,12 +357,14 @@ class TestExtractJsonObject:
 
 
 class TestGenerateDescriptions:
-    def _response(self, content: str | None) -> MagicMock:
-        response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = content
-        response.usage = MagicMock(prompt_tokens=1, completion_tokens=0, total_tokens=1)
-        return response
+    def _client(self, content: str | None, *, truncated: bool = False) -> MagicMock:
+        client = MagicMock()
+        client.complete.return_value = MagicMock(
+            text=content or "",
+            usage={"model": "m", "prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+            truncated=truncated,
+        )
+        return client
 
     def _call(self) -> tuple[dict, dict]:
         return enrich._generate_descriptions(
@@ -375,18 +383,66 @@ class TestGenerateDescriptions:
     @pytest.mark.parametrize("content", [None, "", "   ", "not json", "```\nnope\n```"])
     def test_raises_on_unparseable_response(self, content):
         # An empty or non-JSON reply must surface as an error (→ "partial"), not silently persist nothing.
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response(content)
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        with patch.object(enrich, "build_enrichment_client", return_value=self._client(content)):
             with pytest.raises(ValueError):
                 self._call()
 
+    def test_truncated_response_raises_the_truncation_error(self):
+        # A cut-off reply is its own failure class, so an undersized ceiling stays visible in analytics.
+        client = self._client('{"columns": ', truncated=True)
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            with pytest.raises(TruncatedCompletionError):
+                self._call()
+
     def test_parses_fenced_response(self):
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response('```json\n{"columns": {"a": "desc"}}\n```')
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        client = self._client('```json\n{"columns": {"a": "desc"}}\n```')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
             parsed, _usage = self._call()
         assert parsed == {"columns": {"a": "desc"}}
+
+    def test_the_bounded_ceiling_reaches_the_request(self):
+        """Pins the hand-off, not the sizing. The ceiling is computed in the shared helper and pinned
+        there; without this the `max_output_tokens=` argument below can be deleted on this surface
+        with the whole suite green, silently restoring the flat cap the sizing exists to replace."""
+        client = self._client('{"columns": {"a": "desc"}}')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            self._call()
+
+        sent = client.complete.call_args.kwargs["max_output_tokens"]
+        expected = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=[{"name": "a", "data_type": "String", "is_nullable": False}],
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=["a"],
+            business_context="",
+        ).max_output_tokens
+        assert sent == expected
+        assert sent < MAX_OUTPUT_TOKENS, "a one-column table must not reserve the whole cap"
+
+    def test_a_deferred_column_is_reported_for_a_later_pass(self):
+        """Warehouse idempotency is per annotation row, so a deferred column is simply still
+        unannotated and the next sync asks for it. Pinned so the deferral stays observable."""
+        columns = [{"name": f"c{i:03d}" + "x" * 396, "data_type": "String", "is_nullable": False} for i in range(200)]
+        bounded = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=columns,
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=[str(column["name"]) for column in columns],
+            business_context="",
+        )
+
+        assert bounded.deferred, "a 200-column table of 400-char names cannot fit one reply"
+        assert set(bounded.requested).isdisjoint(bounded.deferred)
+        assert len(bounded.requested) + len(bounded.deferred) == len(columns)
+        assert bounded.max_output_tokens <= MAX_OUTPUT_TOKENS
 
 
 class TestCanonicalDescriptionsResolver:
@@ -395,11 +451,6 @@ class TestCanonicalDescriptionsResolver:
         assert "Charge" in descriptions
         assert descriptions["Charge"]["docs_url"].startswith("https://stripe.com")
         assert "amount" in descriptions["Charge"]["columns"]
-
-    def test_hubspot_ships_canonical_descriptions(self):
-        descriptions = enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.HUBSPOT)
-        assert "contacts" in descriptions
-        assert "email" in descriptions["contacts"]["columns"]
 
     def test_sql_source_ships_no_canonical_descriptions(self):
         assert enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.POSTGRES) == {}
@@ -413,48 +464,82 @@ class TestCanonicalDescriptionsResolver:
         missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
         assert not missing, f"Stripe endpoints missing canonical descriptions: {sorted(missing)}"
 
-    def test_hubspot_canonical_covers_every_synced_endpoint(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import ENDPOINTS
-
-        missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
-        assert not missing, f"Hubspot endpoints missing canonical descriptions: {sorted(missing)}"
-
 
 class TestEnrichTableSemanticsSync:
-    def test_skipped_when_flag_disabled(self):
+    def test_retries_transient_internal_db_error_on_initial_team_lookup(self):
+        # A DNS blip resolving PostHog's own database must be retried, not raised straight through -
+        # it would otherwise reach error tracking as an unactionable OperationalError on every sync.
         team = _team()
-        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
-        with patch.object(enrich, "enrichment_enabled", return_value=False):
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}],
+            description="Stripe charges",
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+
+        failures = 0
+        original_get = QuerySet.get
+
+        def flaky_team_get(self, *args, **kwargs):
+            nonlocal failures
+            if self.model is Team and failures == 0:
+                failures += 1
+                raise DjangoOperationalError("[Errno -2] Name or service not known")
+            return original_get(self, *args, **kwargs)
+
+        with (
+            patch.object(QuerySet, "get", flaky_team_get),
+            patch(f"{_UTIL_MODULE}.close_stale_db_connections") as mock_close,
+            patch("time.sleep"),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_generate_descriptions") as mock_llm,
+        ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
-        assert result["status"] == "skipped"
-        assert result["reason"] == "flag_disabled"
-        assert _annotations(team, table) == {}
+
+        mock_llm.assert_not_called()
+        # The helper evicts the connection once per retry, so exactly one retry happened.
+        assert failures == 1
+        mock_close.assert_called_once()
+        assert result == {"status": "done", "canonical_annotations": 1, "ai_annotations": 0}
 
     def test_skipped_when_ai_data_processing_not_approved(self):
         team = _team()
         team.organization.is_ai_data_processing_approved = False
         team.organization.save()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_generate_descriptions") as mock_llm,
-        ):
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
         assert result["reason"] == "ai_data_processing_not_approved"
         assert _annotations(team, table) == {}
 
+    def test_skipped_when_team_was_deleted(self):
+        # Same fire-and-forget race as the schema case below, but for the team itself.
+        team = _team()
+        team_id = team.pk
+        team.delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team_id, uuid.uuid4())
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "team_deleted"}
+
+    def test_skipped_when_schema_was_deleted(self):
+        # This activity is a fire-and-forget child workflow started after a sync completes, so the
+        # schema can be deleted by the user before it actually runs. That's a benign race, not a bug.
+        team = _team()
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        schema.soft_delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "schema_deleted"}
+        assert _annotations(team, table) == {}
+
     def test_skipped_when_table_has_no_columns(self):
         team = _team()
         schema, table = _make_schema(team, columns=[])
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_generate_descriptions") as mock_llm,
-        ):
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
         assert result == {"status": "skipped", "reason": "no_columns"}
@@ -468,7 +553,6 @@ class TestEnrichTableSemanticsSync:
         )
         canonical = {"Charge": {"description": "A charge", "columns": {"amount": "charge amount in cents"}}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -498,7 +582,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"created": "Unix creation time.", "customer": "Customer ID."}}}
         generated = {"columns": {"payment_method_id": "Payment method used."}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -528,7 +611,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
         generated = {"table_description": "Stripe charges", "columns": {"status": "Charge lifecycle status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -561,7 +643,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "Subscriptions", "columns": {"id": "Subscription ID", "revenue": "MRR"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -584,7 +665,6 @@ class TestEnrichTableSemanticsSync:
             "Charge": {"description": "A charge transaction", "columns": {"amount": "amount in cents"}},
         }
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -605,7 +685,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "LLM table description", "columns": {"status": "Charge status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
@@ -632,7 +711,6 @@ class TestEnrichTableSemanticsSync:
             is_user_edited=True,
         )
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -656,7 +734,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "Stripe charges", "columns": {}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -692,7 +769,6 @@ class TestEnrichTableSemanticsSync:
 
         generated = {"columns": {"currency": "ISO currency code"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -712,7 +788,6 @@ class TestEnrichTableSemanticsSync:
         team = _team()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
@@ -722,6 +797,36 @@ class TestEnrichTableSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}
+
+    def test_unconfigured_gateway_is_not_reported_as_a_failure(self, _mock_capture_enrichment_event):
+        # A deployment with no LLM gateway fails identically for every team and no retry changes that,
+        # so it belongs in the completion event, not in error tracking.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "capture_exception") as mock_capture,
+            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_capture.assert_not_called()
+        assert result["status"] == "partial"
+        assert result["error"] == "llm_gateway_not_configured"
+        # The canonical description needs no gateway, so it still lands; the other column stays
+        # unannotated and a later sync asks for it again.
+        assert set(_annotations(team, table)) == {"amount"}
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert enrich.EVENT_ERROR not in events
+        assert events[enrich.EVENT_COMPLETED]["reason"] == "llm_gateway_not_configured"
 
     def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
         team = _team()
@@ -735,7 +840,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
         generated = {"table_description": "Stripe charges", "columns": {"status": "Charge status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
@@ -763,7 +867,6 @@ class TestEnrichTableSemanticsSync:
         team = _team()
         schema, _table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),

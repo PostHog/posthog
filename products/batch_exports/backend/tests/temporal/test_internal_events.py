@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 import unittest.mock
 
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.batch_exports import (
     make_internal_events_payload,
@@ -15,7 +16,7 @@ TEAM_ID = 1
 BATCH_EXPORT_ID = "d0ec7b0c-6b3d-4a76-8ea4-6a5b2c0e1f5a"
 RUN_ID = "b3f5a9d1-2c4e-4f6a-8b7c-9d0e1f2a3b4c"
 BATCH_EXPORT_NAME = "test export"
-DESTINATION_TYPE = "S3"
+DESTINATION_TYPE = "AwsS3"
 INTERVAL_START = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
 INTERVAL_END = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
@@ -29,7 +30,7 @@ BASE_PROPERTIES = {
 }
 
 
-def make_payloads(status: BatchExportRun.Status, error: str | None = "Oh No!", was_paused: bool = False):
+def make_payloads(status: BatchExportRunStatus, error: str | None = "Oh No!", was_paused: bool = False):
     return make_internal_events_payload(
         status,
         TEAM_ID,

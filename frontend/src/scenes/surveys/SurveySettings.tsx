@@ -150,7 +150,7 @@ export function SurveySettings({ isModal = false }: { isModal?: boolean }): JSX.
     )
 }
 
-function openSurveysSettingsDialog(): void {
+export function openSurveysSettingsDialog(): void {
     LemonDialog.open({
         title: 'Surveys settings',
         content: <SurveySettings isModal />,

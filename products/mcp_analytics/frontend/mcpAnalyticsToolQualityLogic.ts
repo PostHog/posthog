@@ -1,9 +1,22 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import type { BoxPlotDatum } from '@posthog/quill-charts'
 
 import api from 'lib/api'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,19 +26,16 @@ import {
     MCPToolQualityDailyStatItem,
     MCPToolQualityRowItem,
     MCPToolQualityRowsQueryResponse,
+    MCPToolQualitySortColumn,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import {
-    type IntervalOption,
-    buildBucketKeys,
-    intervalOptionsForWindow,
-    lastBucketIsInProgress,
-    normalizeBucket,
-    parseIntervalParam,
-    resolveInterval,
-} from './timeBuckets'
+    type MCPSharedQueryFilters,
+    mcpAnalyticsFiltersLogic,
+    writeSharedFilterParams,
+} from './mcpAnalyticsFiltersLogic'
 
 export interface CategoryCount {
     category: string
@@ -50,11 +60,24 @@ export interface DateFilter {
     dateTo: string | null
 }
 
+interface ToolRowsPage extends MCPToolQualityRowsQueryResponse {
+    pageIndex: number
+}
+
 // Carry the selected window across navigation as date_from / date_to, plus the grouping interval
 // when one is pinned, mirroring the tab's actionToUrl. Only set them when present so a cleared range
-// and an auto interval stay out of the URL.
-export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, string> {
-    const params: Record<string, string> = {}
+// and an auto interval stay out of the URL. `properties` and `filter_test_accounts` ride along
+// straight off the current URL, since mcpAnalyticsFiltersLogic's actionToUrl already keeps them
+// there, so a link between tabs never re-encodes them from state and risks drifting from what's applied.
+export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, any> {
+    const { properties, filter_test_accounts } = router.values.currentLocation.searchParams
+    const params: Record<string, any> = {}
+    if (properties !== undefined) {
+        params.properties = properties
+    }
+    if (filter_test_accounts !== undefined) {
+        params.filter_test_accounts = filter_test_accounts
+    }
     if (dateFilter.dateFrom) {
         params.date_from = dateFilter.dateFrom
     }
@@ -67,19 +90,35 @@ export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalT
     return params
 }
 
+function mcpToolNavigationParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, any> {
+    const { properties, filter_test_accounts } = router.values.currentLocation.searchParams
+    return {
+        ...mcpDateSearchParams(dateFilter, interval),
+        ...(properties !== undefined ? { properties } : {}),
+        ...(filter_test_accounts !== undefined ? { filter_test_accounts } : {}),
+    }
+}
+
 // Link from the Tool quality tab to an individual tool's report, keeping the date filter and pinned
 // interval so the tool page opens on the same window and granularity.
 export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?: IntervalType | null): string {
-    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter, interval)).url
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpToolNavigationParams(dateFilter, interval)).url
 }
 
-// Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
-export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
-    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter, interval)).url
+// Link to the Tool quality tab that restores the date filter, the interval and, optionally, a table sort.
+export function mcpToolQualityUrlWithDates(
+    dateFilter: DateFilter,
+    interval?: IntervalType | null,
+    sort?: SortState
+): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), {
+        ...mcpToolNavigationParams(dateFilter, interval),
+        ...(sort ? sortSearchParams(sort) : {}),
+    }).url
 }
 
 export type ToolQualityRow = MCPToolQualityRowItem
-export type ToolQualitySortColumn = Exclude<keyof ToolQualityRow, 'tool' | 'errors' | 'first_seen'>
+export type ToolQualitySortColumn = MCPToolQualitySortColumn
 
 export interface DailyToolStat {
     day: string
@@ -88,20 +127,66 @@ export interface DailyToolStat {
     p50: number
     p95: number
     p99: number
+    min?: number | null
+    p25?: number | null
+    mean?: number | null
+    p75?: number | null
+    max?: number | null
 }
 
 export interface DailyChartData {
     labels: string[]
     calls: number[]
     errors: number[]
+    errorRate: number[]
     successRate: number[]
     p50: number[]
     p95: number[]
     p99: number[]
+    latencyBoxes: (BoxPlotDatum | null)[]
 }
+
+export type ChartViewChange =
+    | { chart: 'calls'; view: 'counts' | 'percentage' }
+    | { chart: 'successRate'; view: 'full' | 'zoom' }
+    | { chart: 'latency'; view: 'lines' | 'boxPlot' }
+
+export type ChartViews = { [C in ChartViewChange as C['chart']]: C['view'] }
+
+export const DEFAULT_CHART_VIEWS: ChartViews = { calls: 'counts', successRate: 'full', latency: 'lines' }
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
+
+// A Record so a new sort column fails to compile until the URL parser accepts it.
+const SORT_COLUMNS: Record<ToolQualitySortColumn, true> = {
+    total_calls: true,
+    error_rate_pct: true,
+    p50_duration_ms: true,
+    p95_duration_ms: true,
+    p99_duration_ms: true,
+    users: true,
+    sessions: true,
+    last_seen: true,
+    trend_score: true,
+}
+
+function isDefaultSort(sort: SortState): boolean {
+    return sort.column === DEFAULT_SORT.column && sort.direction === DEFAULT_SORT.direction
+}
+
+// pinned: `sort` and `sort_direction` URL params. The dashboard's slowest-tools card links to them.
+function sortSearchParams(sort: SortState): Record<string, string> {
+    return isDefaultSort(sort) ? {} : { sort: sort.column, sort_direction: sort.direction }
+}
+
+function parseSortParams(searchParams: Record<string, any>): SortState {
+    const { sort, sort_direction } = searchParams
+    if (typeof sort !== 'string' || !Object.hasOwn(SORT_COLUMNS, sort)) {
+        return DEFAULT_SORT
+    }
+    return { column: sort as ToolQualitySortColumn, direction: sort_direction === 'ASC' ? 'ASC' : 'DESC' }
+}
 export const TOOL_QUALITY_PAGE_SIZE = 50
 
 // Pivot per-bucket rows onto the full set of interval buckets spanning the selected window:
@@ -117,19 +202,44 @@ export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: str
         labels: bucketKeys,
         calls: rows.map((r) => r?.calls ?? 0),
         errors: rows.map((r) => r?.errors ?? 0),
+        errorRate: rows.map((r) => (r && r.calls ? (r.errors / r.calls) * 100 : NaN)),
         successRate: rows.map((r) => (r && r.calls ? ((r.calls - r.errors) / r.calls) * 100 : NaN)),
         p50: rows.map((r) => (r ? r.p50 : NaN)),
         p95: rows.map((r) => (r ? r.p95 : NaN)),
         p99: rows.map((r) => (r ? r.p99 : NaN)),
+        latencyBoxes: rows.map((r, i) => (r ? latencyBox(r, bucketKeys[i]) : null)),
     }
+}
+
+// Whiskers stop at p99 so one very slow call does not flatten every box.
+function latencyBox(row: DailyToolStat, day: string): BoxPlotDatum | null {
+    const { min, p25, mean, p75, max } = row
+    if (min == null || p25 == null || mean == null || p75 == null || max == null) {
+        return null
+    }
+    return { day, min, p25, median: row.p50, mean, p75, max, whiskerMax: row.p99 }
+}
+
+// BoxPlotDatum has no partial style like the line series' `stroke.partial`, so a still-collecting
+// bucket is dropped outright rather than drawn as a settled box.
+export function maskIncompleteLatencyBox(
+    boxes: (BoxPlotDatum | null)[],
+    incompleteTail: boolean
+): (BoxPlotDatum | null)[] {
+    if (!incompleteTail) {
+        return boxes
+    }
+    return boxes.map((box, i) => (i === boxes.length - 1 ? null : box))
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpAnalyticsToolQualityLogicValues {
+    sharedQueryFilters: MCPSharedQueryFilters // mcpAnalyticsFiltersLogic
     availableCategories: string[]
     availableCategoriesLoading: boolean
     categoryCounts: CategoryCount[]
     categoryCountsLoading: boolean
+    chartViews: ChartViews
     dailyChartData: DailyChartData
     dailyStats: DailyToolStat[]
     dailyStatsLoading: boolean
@@ -138,6 +248,8 @@ export interface mcpAnalyticsToolQualityLogicValues {
     incompleteTail: boolean
     interval: IntervalType
     intervalOptions: IntervalOption[]
+    latencyBoxes: (BoxPlotDatum | null)[]
+    loadedToolQualityPageIndex: number
     pinnedInterval: IntervalType | null
     scopeShare: ScopeShare
     searchTerm: string
@@ -146,14 +258,17 @@ export interface mcpAnalyticsToolQualityLogicValues {
     toolQualityPageIndex: number
     toolQualitySort: SortState
     toolRows: MCPToolQualityRowItem[]
-    toolRowsPage: MCPToolQualityRowsQueryResponse | null
+    toolRowsLoadFailed: boolean
+    toolRowsPage: ToolRowsPage | null
     toolRowsPageLoading: boolean
+    toolRowsPreviousTotalSessions: number
     toolRowsTotalCount: number
+    toolRowsTotalSessions: number
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpAnalyticsToolQualityLogicActions {
-    loadAvailableCategories: () => any
+    loadAvailableCategories: (_: void) => void
     loadAvailableCategoriesFailure: (
         error: string,
         errorObject?: any
@@ -163,12 +278,12 @@ export interface mcpAnalyticsToolQualityLogicActions {
     }
     loadAvailableCategoriesSuccess: (
         availableCategories: string[],
-        payload?: any
+        payload?: void
     ) => {
         availableCategories: string[]
-        payload?: any
+        payload?: void
     }
-    loadCategoryCounts: () => any
+    loadCategoryCounts: (_: void) => void
     loadCategoryCountsFailure: (
         error: string,
         errorObject?: any
@@ -178,10 +293,10 @@ export interface mcpAnalyticsToolQualityLogicActions {
     }
     loadCategoryCountsSuccess: (
         categoryCounts: CategoryCount[],
-        payload?: any
+        payload?: void
     ) => {
         categoryCounts: CategoryCount[]
-        payload?: any
+        payload?: void
     }
     loadDailyStats: (_: void) => void
     loadDailyStatsFailure: (
@@ -207,15 +322,19 @@ export interface mcpAnalyticsToolQualityLogicActions {
         errorObject?: any
     }
     loadToolRowsPageSuccess: (
-        toolRowsPage: MCPToolQualityRowsQueryResponse,
+        toolRowsPage: ToolRowsPage,
         payload?: void
     ) => {
-        toolRowsPage: MCPToolQualityRowsQueryResponse
+        toolRowsPage: ToolRowsPage
         payload?: void
     }
     reloadAll: () => {
         value: true
     }
+    reloadForSharedFilters: () => {
+        value: true
+    }
+    setChartView: (change: ChartViewChange) => ChartViewChange
     setDateFilter: (
         dateFrom: string | null,
         dateTo: string | null
@@ -242,7 +361,7 @@ export interface mcpAnalyticsToolQualityLogicActions {
         column: ToolQualitySortColumn,
         direction: SortDirection
     ) => {
-        column: ToolQualitySortColumn
+        column: MCPToolQualitySortColumn
         direction: SortDirection
     }
 }
@@ -254,8 +373,11 @@ export interface mcpAnalyticsToolQualityLogicMeta {
         intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
         interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         scopeShare: (categoryCounts: CategoryCount[], selectedCategories: string[]) => ScopeShare
-        toolRows: (toolRowsPage: MCPToolQualityRowsQueryResponse | null) => MCPToolQualityRowItem[]
-        toolRowsTotalCount: (toolRowsPage: MCPToolQualityRowsQueryResponse | null) => number
+        loadedToolQualityPageIndex: (toolRowsPage: ToolRowsPage | null) => number
+        toolRows: (toolRowsPage: ToolRowsPage | null) => MCPToolQualityRowItem[]
+        toolRowsTotalCount: (toolRowsPage: ToolRowsPage | null) => number
+        toolRowsTotalSessions: (toolRowsPage: ToolRowsPage | null) => number
+        toolRowsPreviousTotalSessions: (toolRowsPage: ToolRowsPage | null) => number
         dailyChartData: (
             dailyStats: DailyToolStat[],
             dateFilter: DateFilter,
@@ -263,6 +385,7 @@ export interface mcpAnalyticsToolQualityLogicMeta {
             timezone: string
         ) => DailyChartData
         incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
+        latencyBoxes: (dailyChartData: DailyChartData, incompleteTail: boolean) => (BoxPlotDatum | null)[]
     }
 }
 
@@ -276,6 +399,10 @@ export type mcpAnalyticsToolQualityLogicType = MakeLogicType<
 export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolQualityLogic']),
 
+    connect(() => ({
+        values: [mcpAnalyticsFiltersLogic, ['queryFilters as sharedQueryFilters']],
+    })),
+
     actions({
         setToolQualitySort: (column: ToolQualitySortColumn, direction: SortDirection) => ({ column, direction }),
         setToolQualityPageIndex: (pageIndex: number) => ({ pageIndex }),
@@ -285,9 +412,18 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         setSelectedTool: (tool: string | null) => ({ tool }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         reloadAll: true,
+        reloadForSharedFilters: true,
+        setChartView: (change: ChartViewChange) => change,
     }),
 
     reducers({
+        chartViews: [
+            DEFAULT_CHART_VIEWS,
+            { persist: true },
+            {
+                setChartView: (state, { chart, view }): ChartViews => ({ ...state, [chart]: view }),
+            },
+        ],
         toolQualitySort: [
             DEFAULT_SORT,
             {
@@ -339,12 +475,15 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         availableCategories: [
             [] as string[],
             {
-                loadAvailableCategories: async (): Promise<string[]> => {
-                    // Fixed 30-day window so the scope selector lists every category regardless of the tab filter.
+                loadAvailableCategories: async (_: void, breakpoint): Promise<string[]> => {
+                    // Fixed 30-day window so the scope selector lists every category regardless of the tab's
+                    // date filter, though the shared property filters and test-account switch still narrow it.
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCategoriesQuery,
                         dateRange: { date_from: '-30d' },
+                        ...values.sharedQueryFilters,
                     })) as { results?: MCPToolCategoryItem[] }
+                    breakpoint()
                     return (response.results ?? []).map((r) => r.category).filter(Boolean)
                 },
             },
@@ -352,32 +491,42 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         categoryCounts: [
             [] as CategoryCount[],
             {
-                loadCategoryCounts: async (): Promise<CategoryCount[]> => {
+                loadCategoryCounts: async (_: void, breakpoint): Promise<CategoryCount[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCategoryCountsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                        ...values.sharedQueryFilters,
                     })) as { results?: MCPToolCategoryCountItem[] }
+                    breakpoint()
                     return (response.results ?? []).map((r) => ({ category: r.category, calls: r.calls }))
                 },
             },
         ],
         toolRowsPage: [
-            null as MCPToolQualityRowsQueryResponse | null,
+            null as ToolRowsPage | null,
             {
-                loadToolRowsPage: async (_: void, breakpoint): Promise<MCPToolQualityRowsQueryResponse> => {
+                loadToolRowsPage: async (_: void, breakpoint): Promise<ToolRowsPage> => {
                     await breakpoint(300)
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolQualityRowsQuery,
-                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
-                        categories: values.selectedCategories,
-                        search: values.searchTerm,
-                        sortColumn: values.toolQualitySort.column,
-                        sortDirection: values.toolQualitySort.direction,
-                        limit: TOOL_QUALITY_PAGE_SIZE,
-                        offset: values.toolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE,
-                    })) as MCPToolQualityRowsQueryResponse
+                    const pageIndex = values.toolQualityPageIndex
+                    const response = (await api
+                        .query({
+                            kind: NodeKind.MCPToolQualityRowsQuery,
+                            dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                            categories: values.selectedCategories,
+                            search: values.searchTerm,
+                            sortColumn: values.toolQualitySort.column,
+                            sortDirection: values.toolQualitySort.direction,
+                            limit: TOOL_QUALITY_PAGE_SIZE,
+                            offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
+                            ...values.sharedQueryFilters,
+                        })
+                        // kea-loaders dispatches a failure even from a request a newer one replaced.
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
-                    return response
+                    return { ...response, pageIndex }
                 },
             },
         ],
@@ -392,6 +541,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                         interval: values.interval,
                         categories: values.selectedCategories,
                         ...(values.selectedTool ? { toolName: values.selectedTool } : {}),
+                        ...values.sharedQueryFilters,
                     })) as { results?: MCPToolQualityDailyStatItem[] }
                     breakpoint()
                     return (response.results ?? []).map((r) => ({
@@ -401,11 +551,30 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                         p50: r.p50,
                         p95: r.p95,
                         p99: r.p99,
+                        min: r.min,
+                        p25: r.p25,
+                        mean: r.mean,
+                        p75: r.p75,
+                        max: r.max,
                     }))
                 },
             },
         ],
     })),
+
+    reducers({
+        // A failed request drops the rows on screen, because they answered an earlier filter or page.
+        toolRowsPage: {
+            loadToolRowsPageFailure: (): ToolRowsPage | null => null,
+        },
+        toolRowsLoadFailed: [
+            false,
+            {
+                loadToolRowsPage: () => false,
+                loadToolRowsPageFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         // Human-readable label for the active window (e.g. "Last 7 days"), used by
@@ -439,14 +608,25 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return { inScope, total, pct: total > 0 ? (inScope / total) * 100 : null }
             },
         ],
+        loadedToolQualityPageIndex: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.pageIndex ?? 0,
+        ],
         toolRows: [
             (s) => [s.toolRowsPage],
-            (toolRowsPage: MCPToolQualityRowsQueryResponse | null): MCPToolQualityRowItem[] =>
-                toolRowsPage?.results ?? [],
+            (toolRowsPage: ToolRowsPage | null): MCPToolQualityRowItem[] => toolRowsPage?.results ?? [],
         ],
         toolRowsTotalCount: [
             (s) => [s.toolRowsPage],
-            (toolRowsPage: MCPToolQualityRowsQueryResponse | null): number => toolRowsPage?.totalCount ?? 0,
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.totalCount ?? 0,
+        ],
+        toolRowsTotalSessions: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.totalSessions ?? 0,
+        ],
+        toolRowsPreviousTotalSessions: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.previousTotalSessions ?? 0,
         ],
         dailyChartData: [
             (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
@@ -467,6 +647,11 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
                 lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
         ],
+        latencyBoxes: [
+            (s) => [s.dailyChartData, s.incompleteTail],
+            (dailyChartData: DailyChartData, incompleteTail: boolean): (BoxPlotDatum | null)[] =>
+                maskIncompleteLatencyBox(dailyChartData.latencyBoxes, incompleteTail),
+        ],
     }),
 
     listeners(({ actions, values }) => {
@@ -486,10 +671,19 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         }
 
         return {
+            setChartView: (change) => {
+                posthog.capture('mcp analytics tool quality chart view changed', change)
+            },
             setDateFilter: () => {
                 loadFirstToolPage()
                 loadUnscopedDailyStats()
                 actions.loadCategoryCounts()
+            },
+            reloadForSharedFilters: () => {
+                loadFirstToolPage()
+                loadUnscopedDailyStats()
+                actions.loadCategoryCounts()
+                actions.loadAvailableCategories()
             },
             setSelectedCategories: () => {
                 loadFirstToolPage()
@@ -510,6 +704,8 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             reloadAll: () => {
                 actions.loadToolRowsPage()
                 actions.loadDailyStats()
+                actions.loadCategoryCounts()
+                actions.loadAvailableCategories()
             },
             setSelectedTool: () => {
                 actions.loadDailyStats()
@@ -521,6 +717,16 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             },
         }
     }),
+
+    // The shared filters change from the filter bar, URL hydration, or the team's test-account default,
+    // so react to the value rather than to any one action.
+    subscriptions(({ actions }) => ({
+        sharedQueryFilters: (_: MCPSharedQueryFilters, previous: MCPSharedQueryFilters | undefined) => {
+            if (previous) {
+                actions.reloadForSharedFilters()
+            }
+        },
+    })),
 
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
@@ -551,6 +757,11 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             } else {
                 delete searchParams.interval
             }
+            // A shared filter change clears the selected tool before the filter logic writes its own URL params.
+            writeSharedFilterParams(searchParams, mcpAnalyticsFiltersLogic.values)
+            delete searchParams.sort
+            delete searchParams.sort_direction
+            Object.assign(searchParams, sortSearchParams(values.toolQualitySort))
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
@@ -558,6 +769,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             setDateFilter: syncUrl,
             setPinnedInterval: syncUrl,
             setSelectedCategories: syncUrl,
+            setToolQualitySort: syncUrl,
         }
     }),
 
@@ -584,6 +796,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             const interval = parseIntervalParam(searchParams.interval)
             if (interval !== values.pinnedInterval) {
                 actions.setPinnedInterval(interval)
+            }
+            const sort = parseSortParams(searchParams)
+            if (sort.column !== values.toolQualitySort.column || sort.direction !== values.toolQualitySort.direction) {
+                actions.setToolQualitySort(sort.column, sort.direction)
             }
         },
     })),

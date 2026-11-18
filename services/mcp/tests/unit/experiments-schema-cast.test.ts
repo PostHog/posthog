@@ -23,6 +23,8 @@ import { z } from 'zod'
 import { GENERATED_TOOLS } from '@/tools/generated/experiments'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { EXPERIMENT_ID_TOOLS } from '../fixtures/experiment-id-tools'
+
 const PROJECT_ID = '2'
 
 /** Resolve a generated tool's input schema. Cast through `unknown` so individual
@@ -39,38 +41,14 @@ function parseWith(schema: z.ZodTypeAny, input: unknown): Record<string, unknown
     return schema.parse(input) as Record<string, unknown>
 }
 
-/**
- * One row per lifecycle tool that has `param_overrides: { id: { cast: 'string-int' } }`
- * in tools.yaml. The `extras` map captures each tool's *additional* required-input
- * fields beyond `id`/`project_id`, so the parameterised assertion can build a minimal
- * valid input for every shape. Adding a new cast'd lifecycle tool means appending
- * one row here — the test will then cover it automatically.
- */
-const LIFECYCLE_TOOLS_WITH_ID_CAST = [
-    ['experiment-archive', {}],
-    ['experiment-copy-to-project', { target_team_id: 5 }],
-    ['experiment-delete', {}],
-    ['experiment-duplicate', { name: 'A duplicate', feature_flag_key: 'duplicated-flag' }],
-    ['experiment-end', {}],
-    ['experiment-get', {}],
-    ['experiment-launch', {}],
-    ['experiment-pause', {}],
-    ['experiment-reset', {}],
-    ['experiment-resume', {}],
-    ['experiment-ship-variant', { variant_key: 'test' }],
-    ['experiment-timeseries-results', { metric_uuid: 'metric-uuid', fingerprint: 'fp' }],
-    ['experiment-unarchive', {}],
-    ['experiment-update', {}],
-] as const satisfies ReadonlyArray<readonly [keyof typeof GENERATED_TOOLS, Record<string, unknown>]>
-
 describe('experiment lifecycle tools — id cast', () => {
-    it.each(LIFECYCLE_TOOLS_WITH_ID_CAST)('%s accepts a stringified id', (toolName, extras) => {
+    it.each(EXPERIMENT_ID_TOOLS)('%s accepts a stringified id', (toolName, extras) => {
         const parsed = parseWith(getToolSchema(toolName), { id: '123', project_id: PROJECT_ID, ...extras })
         expect(parsed.id).toBe(123)
         expect(typeof parsed.id).toBe('number')
     })
 
-    it.each(LIFECYCLE_TOOLS_WITH_ID_CAST)('%s still accepts a plain numeric id', (toolName, extras) => {
+    it.each(EXPERIMENT_ID_TOOLS)('%s still accepts a plain numeric id', (toolName, extras) => {
         const parsed = parseWith(getToolSchema(toolName), { id: 123, project_id: PROJECT_ID, ...extras })
         expect(parsed.id).toBe(123)
     })

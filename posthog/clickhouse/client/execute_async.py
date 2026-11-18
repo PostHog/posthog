@@ -9,18 +9,19 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
-from posthog.schema import ClickhouseQueryProgress, QueryStatus
+from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
+from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, error_code_from_type, unwrap_exposed_hogql_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -121,9 +122,6 @@ class QueryStatusManager:
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
-    def has_results(self) -> bool:
-        return self.redis_client.exists(self.results_key) == 1
-
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
             clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
@@ -208,6 +206,36 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     return cast("User", SharedLinkUser(sharing_configuration))
 
 
+def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
+    """The scan summary the query runner put on a killed run, if this failure carries one."""
+    summary = getattr(err, "query_scan", None)
+    if summary is None:
+        return None
+    try:
+        return QueryScanSummary.model_validate(summary)
+    except Exception:
+        return None
+
+
+def _report_async_query_error(
+    err: Exception, query_json: dict, team_id: int, query_id: str, is_user_safe_error: bool
+) -> None:
+    from posthog.ph_client import has_filtered_sql_query
+
+    filtered_sql = has_filtered_sql_query(query_json)
+    logger.exception(
+        "Error processing query async",
+        team_id=team_id,
+        query_id=query_id,
+        error_type=type(err).__name__,
+        exc_info=not filtered_sql,
+    )
+    if not is_user_safe_error and not filtered_sql:
+        # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
+        # so don't report them to error tracking — only genuine server-side failures belong there.
+        capture_exception(err)
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -230,7 +258,7 @@ def execute_process_query(
 
     user: Optional[User] = None
     if user_id:
-        user = User.objects.only("email", "is_staff").get(pk=user_id)
+        user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         is_staff_user = user.is_staff
     elif sharing_configuration_id:
         # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
@@ -264,17 +292,20 @@ def execute_process_query(
         wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
+    reset_request_query_cost()
     try:
         results = process_query_dict(
             team=team,
             query_json=query_json,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_id=query_id,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
             user=user,
             is_query_service=is_query_service,
             analytics_props=analytics_props,
+            query_status=query_status,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -302,6 +333,18 @@ def execute_process_query(
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
+        if isinstance(err, InternalCHQueryError) or not is_user_safe_error:
+            query_status.error_code = error_code_from_type(err)
+        elif isinstance(err, ExposedHogQLError):
+            cause = unwrap_exposed_hogql_error(err)
+            query_status.error_code = (
+                cause.code_name if isinstance(cause, ExposedHogQLError) else error_code_from_type(cause)
+            )
+        # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
+        # for polling. Only for a real user: a shared link must not see the project's data volume.
+        if user_id:
+            query_status.cache_key = getattr(err, "cache_key", None)
+            query_status.query_scan = _query_scan_from_error(err)
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
@@ -311,14 +354,16 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
-        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        if not is_user_safe_error:
-            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
-            # so don't report them to error tracking — only genuine server-side failures belong there.
-            capture_exception(err)
+        _report_async_query_error(err, query_json, team_id, query_id, is_user_safe_error)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
+        cost = get_request_query_cost()
+        if cost is not None:
+            query_status.bytes_read = cost.bytes_read
+            query_status.budget_remaining_bytes = (
+                int(cost.remaining_bytes) if cost.remaining_bytes is not None else None
+            )
         manager.store_query_status(query_status)
         cache_key = None
         try:
@@ -357,9 +402,17 @@ def enqueue_process_query_task(
     if force:
         cancel_query(team.id, query_id)
 
-    if manager.has_results() and not refresh_requested:
-        # If we've seen this query before return and don't resubmit it.
-        return manager.get_query_status()
+    if not refresh_requested:
+        try:
+            # Only join a query that is still running. We are here because the cache already
+            # decided this query needs to run, so handing back a finished record would replay the
+            # old result and start nothing, blocking the refresh until that record expires.
+            # Throttling a query that keeps failing is the query runner's job, not this one's.
+            in_flight = manager.get_query_status()
+            if not in_flight.complete:
+                return in_flight
+        except QueryNotFoundError:
+            pass
 
     try:
         if cache_key:

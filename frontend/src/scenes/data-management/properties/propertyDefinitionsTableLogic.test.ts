@@ -2,6 +2,7 @@ import { MOCK_GROUP_TYPES, MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
@@ -71,6 +72,57 @@ describe('propertyDefinitionsTableLogic', () => {
         logic.mount()
     })
 
+    describe('request timing', () => {
+        const listRequests = (): unknown[][] =>
+            api.get.mock.calls.filter(([url]) => String(url).includes('/property_definitions'))
+
+        beforeEach(() => {
+            logic.unmount()
+            jest.useFakeTimers()
+            api.get.mockClear()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each<[string, Record<string, string>]>([
+            ['a bare URL', {}],
+            ['a search in the URL', { property: 'checkout' }],
+        ])('sends one request at once when the page opens on %s', async (_, searchParams) => {
+            router.actions.push(urls.propertyDefinitions(), searchParams)
+            logic = propertyDefinitionsTableLogic({ key: '1', syncWithUrl: true })
+            logic.mount()
+
+            expect(listRequests()).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listRequests()).toHaveLength(1)
+        })
+
+        it.each([
+            ['the list has results', false],
+            ['the list is empty', true],
+        ])('waits for typing in the search box to pause, then sends one request when %s', async (_, emptyList) => {
+            router.actions.push(urls.propertyDefinitions())
+            logic = propertyDefinitionsTableLogic({ key: '1', syncWithUrl: true })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1000)
+            if (emptyList) {
+                logic.actions.loadPropertyDefinitionsSuccess({ count: 0, results: [] })
+            }
+            api.get.mockClear()
+
+            logic.actions.setFilters({ property: 'chec' })
+            logic.actions.setFilters({ property: 'checkout' })
+            await jest.advanceTimersByTimeAsync(500 - 1)
+            expect(listRequests()).toHaveLength(0)
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(listRequests()).toEqual([[expect.stringContaining('search=checkout')]])
+        })
+    })
+
     describe('property definitions', () => {
         const startingUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
             combineUrl('', {
@@ -106,6 +158,43 @@ describe('propertyDefinitionsTableLogic', () => {
             // Doesn't call api.get again
             expect(api.get).toHaveBeenCalledTimes(1)
         })
+
+        it.each([
+            {
+                outcome: 'succeeded',
+                error: null,
+                action: 'loadPropertyDefinitionsSuccess',
+                event: 'event property definitions page load succeeded',
+                expectedProperties: { num_results: 50 },
+            },
+            {
+                outcome: 'failed',
+                error: 'request failed',
+                action: 'loadPropertyDefinitionsFailure',
+                event: 'event property definitions page load failed',
+                expectedProperties: { error: 'There was an unknown error fetching property definitions.' },
+            },
+        ])(
+            'captures when loading property definitions $outcome',
+            async ({ error, action, event, expectedProperties }) => {
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                try {
+                    if (error) {
+                        api.get.mockRejectedValueOnce(error)
+                    }
+                    await expectLogic(logic, () =>
+                        logic.actions.loadPropertyDefinitions(startingUrl)
+                    ).toDispatchActions([action])
+
+                    expect(capture).toHaveBeenCalledWith(
+                        event,
+                        expect.objectContaining({ load_time: expect.any(Number), ...expectedProperties })
+                    )
+                } finally {
+                    capture.mockRestore()
+                }
+            }
+        )
 
         it('pagination forwards and backwards', async () => {
             const url = urls.propertyDefinitions()

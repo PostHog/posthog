@@ -34,7 +34,9 @@ pub const MERGE_APPLIED_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
 pub const TOMBSTONE_KEY_LEN: usize = 2 + 8 + 16;
 
 /// `cf_stage2` key: per-`(cohort, person)` membership state.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+///
+/// Derives `Ord` so the register diff can collect keys in a deterministic order.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Stage2Key {
     pub partition_id: u16,
     pub team_id: u64,

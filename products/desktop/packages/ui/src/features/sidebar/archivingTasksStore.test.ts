@@ -3,7 +3,10 @@ import { useArchivingTasksStore } from "./archivingTasksStore";
 
 describe("archivingTasksStore", () => {
   beforeEach(() => {
-    useArchivingTasksStore.setState({ archivingTaskIds: new Set() });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
+    });
   });
 
   it("marks a task as archiving and back", () => {
@@ -26,6 +29,17 @@ describe("archivingTasksStore", () => {
     expect(state.isArchiving("task-1")).toBe(true);
     expect(state.isArchiving("task-2")).toBe(true);
     expect(state.isArchiving("task-3")).toBe(false);
+  });
+
+  it("distinguishes bulk rows that disappear from single-task progress", () => {
+    const { startArchiving } = useArchivingTasksStore.getState();
+
+    startArchiving("single-task");
+    startArchiving("bulk-task", "hidden");
+
+    const state = useArchivingTasksStore.getState();
+    expect(state.shouldHideWhileArchiving("single-task")).toBe(false);
+    expect(state.shouldHideWhileArchiving("bulk-task")).toBe(true);
   });
 
   it("is idempotent and keeps a stable reference when nothing changes", () => {

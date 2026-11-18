@@ -326,6 +326,37 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.events).toBeUndefined()
         })
 
+        it('carries the choice-level finish_reason onto the flat output message', () => {
+            const events = [
+                {
+                    index: 0,
+                    finish_reason: 'length',
+                    message: { role: 'assistant', content: 'wrapped' },
+                    'event.name': 'gen_ai.choice',
+                },
+                {
+                    role: 'assistant',
+                    content: 'bare',
+                    finish_reason: 'stop',
+                    'event.name': 'gen_ai.choice',
+                },
+                {
+                    role: 'assistant',
+                    content: 'oversized',
+                    finish_reason: 'x'.repeat(129),
+                    'event.name': 'gen_ai.choice',
+                },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_output_choices).toEqual([
+                { role: 'assistant', content: 'wrapped', finish_reason: 'length' },
+                { role: 'assistant', content: 'bare', finish_reason: 'stop' },
+                { role: 'assistant', content: 'oversized' },
+            ])
+        })
+
         it('orders $ai_input by gen_ai.message.index when all entries have one', () => {
             const events = [
                 { role: 'assistant', 'gen_ai.message.index': 2, 'event.name': 'gen_ai.assistant.message' },
@@ -700,6 +731,32 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
             expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Hi there!' }])
             expect(event.properties!.events).toBeUndefined()
+        })
+    })
+
+    describe('gen_ai.conversation.id as the session id fallback', () => {
+        it.each([
+            ['uses the conversation id', { 'gen_ai.conversation.id': 'conversation-1' }, 'conversation-1'],
+            [
+                'keeps an explicit session id',
+                { 'gen_ai.conversation.id': 'conversation-1', $ai_session_id: 'explicit' },
+                'explicit',
+            ],
+            [
+                'keeps a session id a middleware resolves from its own attributes',
+                {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    'ai.telemetry.metadata.$ai_session_id': 'from-metadata',
+                    'gen_ai.conversation.id': 'conversation-1',
+                },
+                'from-metadata',
+            ],
+            ['ignores an empty conversation id', { 'gen_ai.conversation.id': '' }, undefined],
+        ])('%s', (_label, properties, expected) => {
+            const event = createEvent('$ai_generation', properties)
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_session_id).toBe(expected)
+            expect(event.properties!['gen_ai.conversation.id']).toBe(properties['gen_ai.conversation.id'])
         })
     })
 

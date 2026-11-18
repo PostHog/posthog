@@ -6,12 +6,17 @@
 //! Supports:
 //! - gzip compression/decompression
 //! - Base64 encoding/decoding
+//! - lz-string ("lz64") decompression with a capped output
 
 use base64::{engine::general_purpose, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use std::io::{Read, Write};
 use thiserror::Error;
 use zstd::{Decoder, Encoder};
+
+mod lz64;
+
+pub use lz64::decompress_lz64_capped;
 
 /// Gzip streams start with the two-byte magic `1f 8b` (ID1, ID2), followed by
 /// compression method `08` (deflate). All three bytes are checked together so
@@ -32,6 +37,12 @@ pub enum CompressionError {
 
     #[error("decompressed output exceeded limit ({decompressed} > {limit} bytes)")]
     OutputTooLarge { decompressed: usize, limit: usize },
+
+    #[error("lz-string data could not be decompressed")]
+    Lz64Invalid,
+
+    #[error("lz-string output exceeded limit ({bytes} > {limit} bytes of UTF-8)")]
+    Lz64OutputTooLarge { bytes: usize, limit: usize },
 }
 
 /// Gzip decompression with **no output cap**.
@@ -75,12 +86,47 @@ pub fn compress_gzip(data: &[u8]) -> Result<Vec<u8>, CompressionError> {
     Ok(compressed)
 }
 
-/// Zstd decompression (matching Django's ZstdCompressor)
+/// Zstd decompression (matching Django's ZstdCompressor) with **no output
+/// cap**. Safe only for trusted compressed bytes; for HTTP request bodies use
+/// [`decompress_zstd_capped`], because zstd reaches ratios well past 1000:1 on
+/// repetitive input.
 pub fn decompress_zstd(bytes: &[u8]) -> Result<Vec<u8>, CompressionError> {
     let mut decoder = Decoder::new(bytes)?;
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)?;
     Ok(decompressed)
+}
+
+/// Zstd decompression with a hard output cap. Returns
+/// [`CompressionError::OutputTooLarge`] when the decompressed output would
+/// exceed `limit`.
+///
+/// A zstd frame may declare its content size in the header. When it does and
+/// the declared size is over the cap, the input is rejected before anything is
+/// allocated. The `take` cap on the streaming decoder covers frames without a
+/// declared size and frames whose header lies.
+pub fn decompress_zstd_capped(bytes: &[u8], limit: usize) -> Result<Vec<u8>, CompressionError> {
+    if let Ok(Some(declared)) = zstd::zstd_safe::get_frame_content_size(bytes) {
+        if declared > limit as u64 {
+            return Err(CompressionError::OutputTooLarge {
+                decompressed: usize::try_from(declared).unwrap_or(usize::MAX),
+                limit,
+            });
+        }
+    }
+
+    let mut buf = Vec::new();
+    Decoder::new(bytes)?
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut buf)?;
+
+    if buf.len() > limit {
+        return Err(CompressionError::OutputTooLarge {
+            decompressed: buf.len(),
+            limit,
+        });
+    }
+    Ok(buf)
 }
 
 /// Zstd compression (matching Django's ZstdCompressor)
@@ -304,6 +350,29 @@ mod tests {
                 assert_eq!(limit, 1024);
             }
             other => panic!("expected OutputTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decompress_zstd_capped_at_and_over_limit() {
+        let original = vec![b'A'; 1025];
+        // The streaming encoder writes no content size in the frame header, so
+        // only the `take` cap can stop it. The bulk encoder declares the size,
+        // which exercises the early header check.
+        let streaming = compress_zstd(&original).unwrap();
+        let bulk = zstd::bulk::compress(&original, 0).unwrap();
+        assert!(matches!(
+            zstd::zstd_safe::get_frame_content_size(&bulk),
+            Ok(Some(1025))
+        ));
+
+        for compressed in [&streaming, &bulk] {
+            assert_eq!(decompress_zstd_capped(compressed, 1025).unwrap(), original);
+            assert!(matches!(
+                decompress_zstd_capped(compressed, 1024),
+                Err(CompressionError::OutputTooLarge { decompressed, limit })
+                    if decompressed > 1024 && limit == 1024
+            ));
         }
     }
 

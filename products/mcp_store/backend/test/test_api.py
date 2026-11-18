@@ -1,9 +1,11 @@
 import hashlib
-from datetime import timedelta
-from urllib.parse import parse_qs, urlparse
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse, urlsplit
 
+import pytest
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -19,10 +21,21 @@ from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
+from posthog.security.url_validation import PinnedUrlVerdict
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
+from products.mcp_store.backend.facade.api import (
+    SLACK_MCP_URL,
+    connect_slack_mcp_from_slack_link,
+    slack_mcp_user_scopes,
+)
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
@@ -37,14 +50,21 @@ from products.mcp_store.backend.models import (
     TeamMCPGatewayConfig,
 )
 from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
+from products.mcp_store.backend.presentation.agent_views import GatewayAgentAuthentication
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
     ServiceAccountAccessUpdateSerializer,
 )
-from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
+from products.mcp_store.backend.presentation.views import (
+    MCPOAuthRedirectViewSet,
+    MCPServerInstallationViewSet,
+    _is_valid_posthog_code_callback_url,
+)
+from products.mcp_store.backend.proxy import validate_installation_auth
 
-ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
+ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
+ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
 
 POLICY_REQUEST_SERIALIZER_CASES = [
     ("policy_upsert", GatewayPoliciesUpsertSerializer, {}),
@@ -59,7 +79,10 @@ POLICY_REQUEST_SERIALIZER_CASES = [
 ]
 
 
-class TestIsValidPosthogCodeCallbackUrl(TestCase):
+pytestmark = pytest.mark.usefixtures("pin_oauth_urls")
+
+
+class TestIsValidPosthogCodeCallbackUrl(SimpleTestCase):
     @parameterized.expand(
         [
             ("array_scheme", "array://callback", True),
@@ -360,7 +383,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert [result["id"] for result in response.json()["results"]] == [str(registered.id)]
         assert not MCPGatewayServer.objects.for_team(self.team.id).filter(url=untouched.url).exists()
 
-    def test_list_exposes_template_auth_type_and_leaves_custom_auth_choice_open(self) -> None:
+    def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()
         template = self._template("API key", auth_type="api_key")
         template_server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -374,6 +397,13 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             team=self.team,
             name="Custom",
             url="https://mcp.custom-auth.gateway-test.example.com/mcp",
+            auth_type="api_key",
+            created_by=self.user,
+        )
+        legacy_custom = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Legacy custom",
+            url="https://mcp.legacy-auth.gateway-test.example.com/mcp",
             created_by=self.user,
         )
 
@@ -382,7 +412,10 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         by_id = {result["id"]: result for result in response.json()["results"]}
         assert by_id[str(template_server.id)]["template_auth_type"] == "api_key"
+        assert by_id[str(template_server.id)]["auth_type"] == "api_key"
         assert by_id[str(custom.id)]["template_auth_type"] is None
+        assert by_id[str(custom.id)]["auth_type"] == "api_key"
+        assert by_id[str(legacy_custom.id)]["auth_type"] is None
 
     def test_disabled_catalog_server_is_hidden_from_members_but_visible_to_admins(self) -> None:
         self._make_admin()
@@ -737,6 +770,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
 
         assert tools_response.status_code == status.HTTP_200_OK
         assert tools_response.json()["results"][0]["is_destructive"] is True
+        assert tools_response.json()["results"][0]["is_read_only"] is False
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1086,9 +1120,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save()
 
-    def _read_only_oauth_client(self) -> APIClient:
+    def _oauth_client(self, scope: str = "project:read") -> APIClient:
         application = OAuthApplication.objects.create(
-            name="Read-only MCP gateway",
+            name="Scoped MCP client",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -1099,9 +1133,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=application,
-            token="pha_read_only_mcp_gateway",
+            token=f"pha_mcp_{scope.replace(':', '_').replace(' ', '_')}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="project:read",
+            scope=scope,
             scoped_teams=[self.team.id],
         )
         client = APIClient()
@@ -1137,11 +1171,62 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
             url = f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/{account.id}/access/"
             data = {"gateway_server_id": str(server.id), "enabled": True}
 
-        response = self._read_only_oauth_client().post(url, data=data, format="json")
+        response = self._oauth_client().post(url, data=data, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not MCPToolPolicy.objects.for_team(self.team.id).filter(gateway_server=server).exists()
         assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(gateway_server=server).exists()
+
+    def _installation_with_tool(self) -> tuple[MCPServerInstallation, MCPServerInstallationTool]:
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Scoped server",
+            url="https://mcp.scoped.example.com/mcp",
+            auth_type="api_key",
+            scope="personal",
+        )
+        tool = MCPServerInstallationTool.objects.create(
+            installation=installation, tool_name="search", last_seen_at=timezone.now()
+        )
+        return installation, tool
+
+    @parameterized.expand([("install_custom",), ("update_tool_approval",), ("destroy",)])
+    def test_read_only_oauth_token_cannot_change_installations(self, action_name: str) -> None:
+        installation, tool = self._installation_with_tool()
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        client = self._oauth_client()
+
+        if action_name == "install_custom":
+            with ALLOW_URL:
+                response = client.post(
+                    f"{base}install_custom/",
+                    data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                    format="json",
+                )
+        elif action_name == "update_tool_approval":
+            response = client.patch(
+                f"{base}{installation.id}/tools/{tool.tool_name}/", data={"approval_state": "approved"}, format="json"
+            )
+        else:
+            response = client.delete(f"{base}{installation.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "project:write" in response.json()["detail"]
+        assert MCPServerInstallation.objects.filter(team=self.team).count() == 1
+        tool.refresh_from_db()
+        assert tool.approval_state == "needs_approval"
+
+    def test_write_scoped_oauth_token_can_install_custom(self) -> None:
+        with ALLOW_URL:
+            response = self._oauth_client("project:read project:write").post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+                data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert MCPServerInstallation.objects.filter(team=self.team, user=self.user).count() == 1
 
 
 class TestMCPServiceAccountAPI(APIBaseTest):
@@ -1207,10 +1292,10 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert [agent["agent_key"] for agent in results] == ["support", "scout"]
-        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout"]
+        assert [agent["agent_key"] for agent in results] == ["support", "scout", "workflow"]
+        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout", "posthog-workflow"]
         assert all(agent["status"] == "active" for agent in results)
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_list_reconciles_legacy_built_in_agent_handles(self) -> None:
         self._make_admin()
@@ -1227,7 +1312,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.json()["results"][0]["id"] == str(support_account.id)
         # Reconciliation renames the legacy row in place (keyed on token_hash),
         # so the catalog stays at exactly one row per built-in agent.
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
@@ -1424,10 +1509,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Personal Notion",
                 "description": "",
+                "url": "https://mcp.personal-notion.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -1507,6 +1594,73 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             )
             .exists()
             is expected_access
+        )
+
+    @parameterized.expand(
+        [
+            ("member_with_only_a_teammate_share", "member", "teammate", status.HTTP_403_FORBIDDEN),
+            ("member_whose_access_is_revoked", "member", "revoked", status.HTTP_404_NOT_FOUND),
+            ("member_whose_connection_is_deleted", "member", "deleted_connection", status.HTTP_403_FORBIDDEN),
+            ("admin_without_a_share", "admin", "teammate", status.HTTP_200_OK),
+        ]
+    )
+    def test_agent_tool_policy_write_needs_a_live_share_of_your_own(
+        self, _name: str, role: str, share: str, expected_status: int
+    ) -> None:
+        if role == "admin":
+            self._make_admin()
+        else:
+            self._make_member()
+        account = sync_built_in_agents(self.team)[0]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Agent share",
+            url="https://mcp.agent-share.example.com/mcp",
+        )
+        sharer = User.objects.create_and_join(self.organization, "sharer@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=sharer if share == "teammate" else self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            last_seen_at=timezone.now(),
+        )
+        share_owner = sharer if share == "teammate" else self.user
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=share_owner,
+            service_account=account,
+            gateway_server=server,
+            installation=None if share == "deleted_connection" else installation,
+            granted_by=share_owner,
+            scope="team",
+        )
+        if share == "revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team, gateway_server=server, user=self.user, revoked_by=sharer
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/",
+            data={
+                "scope_type": "agent",
+                "scope_service_account_id": str(account.id),
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert MCPToolPolicy.objects.for_team(self.team.id).filter(scope_type="agent").exists() is (
+            expected_status == status.HTTP_200_OK
         )
 
     def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
@@ -1867,10 +2021,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Notion",
                 "description": "Notion workspace",
+                "url": "https://mcp.notion-agent-summary.example.com/mcp",
                 "icon_key": "notion",
                 "icon_domain": "notion.so",
                 "connection_state": "missing_credential",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -1972,6 +2128,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         account.save(update_fields=["status", "updated_at"])
         assert client.get("/api/mcp_store/gateway/servers/").status_code == status.HTTP_401_UNAUTHORIZED
 
+    @covers_authentication(GatewayAgentAuthentication)
     def test_agent_endpoint_does_not_gate_on_product_state(self) -> None:
         account = self._active_scout_account()
         client = self._agent_client(account)
@@ -2141,8 +2298,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_proxy.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_agent_grant_enforces_agent_scope_policy(self, mock_http_client, _mock_is_url_allowed) -> None:
         account = self._active_scout_account()
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -2263,10 +2420,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(granted_server.id),
                 "name": "Agent only",
                 "description": "",
+                "url": "https://mcp.agent-only.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": False,
             }
         ]
 
@@ -2297,6 +2456,37 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert str(granted_server.id) not in revoke_response.json()["server_ids"]
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
+
+    def test_revoked_grant_owner_serializes_reachable_false_for_their_grant_only(self) -> None:
+        account = self._active_scout_account()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Team Notion",
+            url="https://mcp.revoked-grant-owner.example.com/mcp",
+        )
+        revoked_member = self._create_user("revoked-gateway-member@posthog.com")
+        for grant_user in (self.user, revoked_member):
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=grant_user,
+                service_account=account,
+                gateway_server=server,
+                scope="team",
+                granted_by=grant_user,
+            )
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            user=revoked_member,
+            revoked_by=self.user,
+        )
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        reachable_by_owner = {row["shared_by"]["id"]: row["reachable"] for row in scout["servers"]}
+        assert reachable_by_owner == {self.user.id: True, revoked_member.id: False}
 
     def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self) -> None:
         account = self._active_scout_account()
@@ -2532,6 +2722,110 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MCPServerInstallation.objects.filter(id=installation.id).exists()
 
+    def test_a_connection_from_a_slack_link_cannot_be_shared(self):
+        # Sharing would hand the owner's account-link token to every project member.
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        installation = self._slack_mcp_from_a_link()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/share/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "account link" in response.json()["detail"]
+        assert MCPServerInstallation.objects.get(id=installation.id).scope == "personal"
+
+        # Connecting Slack from the store, as the error suggests, makes the token the member's own and the server shareable.
+        with patch(
+            "products.mcp_store.backend.presentation.views.exchange_oauth_token",
+            return_value={"access_token": "xoxp-own-example"},
+        ):
+            MCPOAuthRedirectViewSet._exchange_and_store_tokens(installation, "code", "verifier")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/share/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        installation.refresh_from_db()
+        assert installation.scope == "shared" and installation.linked_user_integration_id is None
+
+    def _slack_mcp_from_a_link(self) -> MCPServerInstallation:
+        scopes = ["channels:read", "search:read.public"]
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source="slack_app",
+            oauth_scope_allowlist=scopes,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=True
+        )
+        link = user_slack_integration_from_identity(
+            self.user,
+            slack_user_id="U1",
+            slack_team_id="T1",
+            slack_team_name="Example",
+            slack_email_at_link=None,
+            user_access_token="xoxp-link",
+            user_scopes=" ".join(scopes),
+        )
+        assert connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+        return MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+
+    @parameterized.expand([("uninstall_then_unlink", False), ("unlink_then_uninstall", True)])
+    def test_uninstalling_the_slack_mcp_from_a_slack_link_keeps_a_relink_from_connecting_it_again(
+        self, _name: str, unlinks_first: bool
+    ):
+        scopes = ["channels:read", "search:read.public"]
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source="slack_app",
+            oauth_scope_allowlist=scopes,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=True
+        )
+
+        def link_slack() -> str:
+            link = user_slack_integration_from_identity(
+                self.user,
+                slack_user_id="U1",
+                slack_team_id="T1",
+                slack_team_name="Example",
+                slack_email_at_link=None,
+                user_access_token="xoxp-link",
+                user_scopes=" ".join(scopes),
+            )
+            return str(link.id)
+
+        def unlink_slack() -> None:
+            UserIntegration.objects.filter(user=self.user, kind=UserIntegration.IntegrationKind.SLACK).delete()
+
+        assert connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+        # An unlink deletes the link row, and with it the installation's pointer to it. The opt-out does not depend on
+        # that pointer, so the order of the two removals makes no difference.
+        if unlinks_first:
+            unlink_slack()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        if not unlinks_first:
+            unlink_slack()
+        assert slack_mcp_user_scopes(self.team.id, self.user.id) == ()
+        assert not connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        assert not MCPServerInstallation.objects.filter(team=self.team, user=self.user, url=SLACK_MCP_URL).exists()
+
     def test_update_installation(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
@@ -2666,6 +2960,40 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["auth_type"] == "api_key"
 
     @ALLOW_URL
+    def test_teammate_connects_to_registered_api_key_server_with_own_key(self, _mock):
+        url = "https://mcp.team-key.com"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-owner"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        server = MCPGatewayServer.objects.for_team(self.team.id).get(url=url)
+        assert server.auth_type == "api_key"
+
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_custom_servers=False)
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        self.client.force_login(teammate)
+
+        blocked = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "New server", "url": "https://mcp.new-server.com", "auth_type": "api_key"},
+            format="json",
+        )
+        assert blocked.status_code == status.HTTP_403_FORBIDDEN
+
+        connected = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-teammate"},
+            format="json",
+        )
+        assert connected.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(id=connected.json()["id"])
+        assert installation.user_id == teammate.id
+        assert installation.gateway_server_id == server.id
+        assert installation.sensitive_configuration["api_key"] == "sk-teammate"
+
+    @ALLOW_URL
     def test_install_custom_api_key_server_without_key(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2675,7 +3003,8 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["auth_type"] == "api_key"
 
-    def test_install_custom_none_auth_type_rejected(self):
+    @mock_anti_ssrf_dns_lookup()
+    def test_install_custom_none_auth_type_rejected(self, _dns):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
             data={"name": "Server", "url": "https://mcp.example.com", "auth_type": "none"},
@@ -2697,7 +3026,10 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Private IP"))
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Private IP", pinned_ips=set()),
+    )
     def test_install_custom_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2706,7 +3038,10 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Local/metadata host"))
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Local/metadata host", pinned_ips=set()),
+    )
     def test_install_custom_oauth_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2744,7 +3079,8 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_install_custom_rejects_invalid_posthog_code_callback_url(self):
+    @mock_anti_ssrf_dns_lookup()
+    def test_install_custom_rejects_invalid_posthog_code_callback_url(self, _dns):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
             data={
@@ -2944,6 +3280,49 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=created_by if created_by is not None else self.user,
         )
 
+    @parameterized.expand([(allowed, anonymous) for allowed in (False, True) for anonymous in (False, True)])
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode")
+    @patch("products.mcp_store.backend.presentation.views.MCPOAuthRedirectViewSet._exchange_and_store_tokens")
+    def test_callback_enforces_installation_policy_before_consuming_state(
+        self, allowed: bool, anonymous: bool, exchange: MagicMock, dev_mode: MagicMock
+    ) -> None:
+        dev_mode.return_value = anonymous
+        installation = self._create_installation()
+        state_token = "installation-policy-example"
+        oauth_state = self._create_oauth_state(
+            installation,
+            state_token,
+            install_source="posthog-code" if anonymous else "posthog",
+            posthog_code_callback_url="posthog-code://oauth/callback" if anonymous else "",
+        )
+        other = Organization.objects.create(name="Open example organization")
+        self.user.join(organization=other)
+        self.user.current_organization = other
+        self.user.current_team = None
+        self.user.save(update_fields=["current_organization", "current_team"])
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        installation.refresh_from_db()
+        original_credentials = installation.sensitive_configuration
+        if anonymous:
+            self.client.logout()
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "example-code"},
+            REMOTE_ADDR="203.0.113.7" if allowed else "198.51.100.7",
+        )
+
+        assert response.status_code == (302 if allowed else 403)
+        oauth_state.refresh_from_db()
+        installation.refresh_from_db()
+        assert (oauth_state.consumed_at is not None) == allowed
+        assert installation.sensitive_configuration == original_credentials
+        if allowed:
+            exchange.assert_called_once()
+        else:
+            exchange.assert_not_called()
+            assert response.json()["code"] == "ip_not_allowed"
+
     def test_oauth_redirect_places_callback_query_before_return_fragment(self):
         installation = self._create_installation()
         state_token = "web-return-with-fragment"
@@ -2962,7 +3341,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_dcr_path_used_when_pkce_verifier_present(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -2983,7 +3362,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert mock_post.call_args[1]["data"]["code_verifier"] == "test-pkce-verifier"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_uses_posthog_code_callback_url(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -3011,7 +3390,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "status=success" in location
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_posthog_code_error_includes_error_param(self, mock_post, _allow):
         installation = self._create_installation()
 
@@ -3057,7 +3436,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_rejects_anonymous_posthog_consumer_in_dev(self, mock_post, _allow, _is_dev):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3081,7 +3460,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_accepts_anonymous_consumer_in_dev(self, mock_post, _allow, _is_dev):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3163,7 +3542,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_happy_path_same_user(self, mock_post, _allow):
         """Positive control: callback authenticated as the same user -> success."""
         mock_post.return_value.status_code = 200
@@ -3182,7 +3561,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert installation.sensitive_configuration["access_token"] == "tok"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_callback_happy_path_cross_client_same_user(self, mock_post, _allow):
         """posthog-code scenario: initiate and callback happen in different HTTP clients.
 
@@ -3209,7 +3588,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert installation.sensitive_configuration["access_token"] == "tok"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_consumed_state_rejects_replay(self, mock_post, _allow):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -3349,7 +3728,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_spoofed_issuer_fails_and_no_state_persisted(self, mock_discover, _allow):
-        mock_discover.side_effect = ValueError("Issuer mismatch in authorization server metadata")
+        mock_discover.side_effect = ValueError("Issuer mismatch at https://internal.example.com")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -3358,7 +3737,122 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "OAuth discovery failed."
         assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
+    def test_discovery_reports_the_failed_metadata_check(self, mock_get, _allow_oauth, _allow):
+        metadata = {
+            "issuer": "https://evil.com",
+            "authorization_endpoint": "https://evil.com/authorize",
+            "token_endpoint": "https://attacker.example.net/token",
+        }
+
+        def respond(url: str, **_kwargs) -> MagicMock:
+            response = MagicMock()
+            response.status_code = 200 if url == "https://evil.com/.well-known/oauth-authorization-server" else 404
+            response.ok = response.status_code == 200
+            response.json.return_value = metadata
+            return response
+
+        mock_get.side_effect = respond
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Evil", "url": "https://evil.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "OAuth discovery failed. OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer"
+        )
+        assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_google_install_gets_a_refresh_token_that_survives_the_refresh_threshold(
+        self, mock_discover, mock_post, _allow_oauth, _allow
+    ):
+        mock_discover.return_value = {
+            "issuer": "https://accounts.google.com",
+            "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_endpoint": "https://oauth2.googleapis.com/token",
+            "code_challenge_methods_supported": ["S256"],
+            "resource": "https://gmail.example.com/mcp",
+            "resource_scopes_supported": ["https://www.googleapis.com/auth/gmail.readonly"],
+        }
+
+        def token_response(data: dict) -> MagicMock:
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = data
+            return response
+
+        mock_post.side_effect = [
+            token_response({"access_token": "first-access", "refresh_token": "google-refresh", "expires_in": 3599}),
+            token_response({"access_token": "second-access", "expires_in": 3599}),
+        ]
+        start = datetime.now(UTC)
+
+        with time_machine.travel(start, tick=False):
+            install_response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+                data={
+                    "name": "Gmail",
+                    "url": "https://gmail.example.com/mcp",
+                    "auth_type": "oauth",
+                    "client_id": "google-client-id",
+                    "client_secret": "google-client-secret",
+                },
+                format="json",
+            )
+            assert install_response.status_code == status.HTTP_200_OK, install_response.content
+            install_url = urlparse(install_response.json()["redirect_url"])
+            install_params = parse_qs(install_url.query)
+            assert install_url.netloc == "accounts.google.com"
+            assert install_params["access_type"] == ["offline"]
+            assert install_params["prompt"] == ["consent"]
+            assert install_params["code_challenge_method"] == ["S256"]
+            assert install_params["redirect_uri"] == [f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"]
+
+            callback = self.client.get(
+                "/api/mcp_store/oauth_redirect/",
+                {"state": install_params["state"][0], "code": "google-auth-code"},
+            )
+            assert callback.status_code == status.HTTP_302_FOUND
+
+        installation = MCPServerInstallation.objects.get(url="https://gmail.example.com/mcp", user=self.user)
+        assert installation.sensitive_configuration["refresh_token"] == "google-refresh"
+
+        with time_machine.travel(start + timedelta(seconds=1800), tick=False):
+            ok, error_response = validate_installation_auth(installation)
+
+        assert ok, error_response
+        refresh_call = mock_post.call_args_list[1]
+        assert refresh_call.args[0] == "https://oauth2.googleapis.com/token"
+        assert refresh_call.kwargs["data"]["grant_type"] == "refresh_token"
+        assert refresh_call.kwargs["data"]["refresh_token"] == "google-refresh"
+        installation.refresh_from_db()
+        sensitive = installation.sensitive_configuration
+        assert sensitive["access_token"] == "second-access"
+        assert sensitive["refresh_token"] == "google-refresh"
+        assert "needs_reauth" not in sensitive
+
+        reconnect = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"installation_id": str(installation.id)},
+        )
+        assert reconnect.status_code == status.HTTP_302_FOUND
+        reconnect_params = parse_qs(urlparse(reconnect["Location"]).query)
+        assert reconnect_params["access_type"] == ["offline"]
+        assert reconnect_params["prompt"] == ["consent"]
+        assert reconnect_params["client_id"] == ["google-client-id"]
+        mock_discover.assert_called_once()
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
@@ -3630,6 +4124,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert params["client_id"][0] == "existing-client-id"
         assert params["resource"][0] == "https://mcp.example.com/"
         assert params["scope"][0] == "read"
+        assert "access_type" not in params
+        assert "prompt" not in params
 
     @ALLOW_URL
     def test_authorize_uses_opaque_state_token(self, _allow):
@@ -3689,6 +4185,101 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "/api/mcp_store/oauth_redirect/", {"state": state_token, "error": "access_denied"}
         )
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestBuildAuthorizeUrlFromMetadata(SimpleTestCase):
+    def test_merges_query_params_when_authorization_endpoint_already_has_query(self) -> None:
+        """Railway (and similar AS) advertise authorization_endpoint with ?resource=...
+
+        Appending another '?' buries client_id inside the resource value, and the
+        AS responds with: missing required parameter 'client_id'.
+        """
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={
+                # Shape from https://backboard.railway.com/.well-known/oauth-authorization-server
+                "authorization_endpoint": (
+                    "https://backboard.railway.com/oauth/auth?resource=https%3A%2F%2Fbackboard.railway.com"
+                ),
+                "scopes_supported": ["openid", "offline_access", "workspace:member"],
+                # From https://mcp.railway.com/.well-known/oauth-protected-resource
+                "resource": "https://mcp.railway.com",
+            },
+            client_id="rlwy_oaci_test_client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        parts = urlsplit(authorize_url)
+        assert parts.scheme == "https"
+        assert parts.netloc == "backboard.railway.com"
+        assert parts.path == "/oauth/auth"
+        assert authorize_url.count("?") == 1
+
+        params = parse_qs(parts.query)
+        assert params["client_id"] == ["rlwy_oaci_test_client"]
+        assert params["redirect_uri"] == ["https://us.posthog.com/api/mcp_store/oauth_redirect/"]
+        assert params["response_type"] == ["code"]
+        assert params["state"] == ["test-state"]
+        assert params["code_challenge"] == ["test-challenge"]
+        assert params["code_challenge_method"] == ["S256"]
+        # PostHog's PRM resource must win over the AS-baked issuer resource
+        assert params["resource"] == ["https://mcp.railway.com"]
+
+    @parameterized.expand(
+        [
+            (
+                "verified_google_issuer",
+                "https://accounts.google.com",
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                {"access_type": ["offline"], "prompt": ["consent"]},
+            ),
+            ("other_issuer", "https://auth.example.com", "https://auth.example.com/authorize", {}),
+            (
+                "google_issuer_claim_with_foreign_authorize_endpoint",
+                "https://accounts.google.com",
+                "https://attacker.example.net/authorize",
+                {},
+            ),
+            (
+                "google_authorize_endpoint_under_other_issuer",
+                "https://auth.example.com",
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                {},
+            ),
+        ]
+    )
+    def test_adds_offline_consent_params_only_for_google(
+        self, _name: str, issuer: str, authorization_endpoint: str, expected: dict[str, list[str]]
+    ) -> None:
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={"issuer": issuer, "authorization_endpoint": authorization_endpoint},
+            client_id="test-client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        params = parse_qs(urlsplit(authorize_url).query)
+        assert {key: params[key] for key in ("access_type", "prompt") if key in params} == expected
+        assert params["code_challenge"] == ["test-challenge"]
+        assert params["code_challenge_method"] == ["S256"]
+
+    def test_keeps_repeated_endpoint_query_params(self) -> None:
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={"authorization_endpoint": "https://auth.example.com/authorize?tenant=a&tenant=b&state=stale"},
+            client_id="test-client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        params = parse_qs(urlsplit(authorize_url).query)
+        assert params["tenant"] == ["a", "b"]
+        assert params["state"] == ["test-state"]
 
 
 class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
@@ -3786,7 +4377,14 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         return MCPServerTemplate.objects.create(**defaults)
 
     def test_install_template_oauth_returns_redirect_url(self):
-        template = self._template()
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["read", "write"],
+            },
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -3799,9 +4397,77 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert urlparse(redirect_url).netloc == "auth.test.example.com"
         params = parse_qs(urlparse(redirect_url).query)
         assert params["client_id"][0] == "template-client-id"
+        assert params["scope"] == ["read"]
 
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
+
+    def test_install_template_oauth_uses_instance_credential_source(self) -> None:
+        template = self._template(
+            oauth_credentials_source="slack_app",
+            oauth_credentials={},
+            oauth_metadata={
+                "issuer": "https://mcp.slack.com",
+                "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+                "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        params = parse_qs(urlparse(response.json()["redirect_url"]).query)
+        assert params["client_id"] == ["slack-client"]
+        assert MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    def test_install_template_oauth_fails_closed_when_instance_credentials_are_missing(self):
+        template = self._template(
+            oauth_credentials_source="slack_app",
+            oauth_credentials={"client_id": "stale-template-client"},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", ""),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", ""),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Template OAuth client is not configured"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    def test_install_template_rejects_nonmatching_oauth_scope_allowlist(self):
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["write"],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Could not build OAuth authorize URL"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
     def test_install_template_api_key_stores_key_and_returns_installation(self):
         template = self._template(auth_type="api_key", oauth_credentials={}, oauth_metadata={})
@@ -4188,7 +4854,7 @@ class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
     @patch("products.mcp_store.backend.presentation.views.sync_installation_tools_task")
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.post")
     def test_oauth_redirect_dispatches_background_sync(self, mock_post, _allow, mock_task):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
@@ -4485,8 +5151,8 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
 
-        with mock_patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None)):
-            with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
+        with mock_patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT):
+            with mock_patch("products.mcp_store.backend.proxy.pinned_client") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.headers = {"content-type": "application/json"}

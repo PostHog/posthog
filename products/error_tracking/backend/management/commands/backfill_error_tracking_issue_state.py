@@ -29,20 +29,22 @@ from __future__ import annotations
 import time
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
 from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 from posthog.models.event.util import format_clickhouse_timestamp
 
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2, _clickhouse_status
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_BATCH_SIZE = 5000
+FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 
 class Command(BaseCommand):
@@ -116,13 +118,14 @@ class Command(BaseCommand):
         produced = 0
         since_last_flush = 0
         start_time = time.monotonic()
+        backfill_version = int(time.time() * 1000)
 
         for current_team_id in team_ids:
             team_qs = self._build_queryset(team_id=current_team_id).iterator(chunk_size=batch_size)
             logger.info("backfill_processing_team", team_id=current_team_id, produced_so_far=produced)
 
             for fp in team_qs:
-                data = self._build_row(fp)
+                data = self._build_row(fp, version=backfill_version)
                 producer.produce(
                     sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
                     topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
@@ -145,7 +148,17 @@ class Command(BaseCommand):
                         elapsed_s=round(elapsed),
                     )
 
+        # produce() only enqueues; flush before exit so queued records actually land in Kafka.
+        logger.info("backfill_flushing", timeout_s=FLUSH_TIMEOUT_SECONDS)
+        undelivered = flush_all_producers(FLUSH_TIMEOUT_SECONDS)
+
         elapsed = time.monotonic() - start_time
+        if undelivered:
+            logger.error(
+                "backfill_flush_incomplete", produced=produced, undelivered=undelivered, elapsed_s=round(elapsed)
+            )
+            raise CommandError(f"Kafka flush left {undelivered} record(s) undelivered; backfill is incomplete.")
+
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 
     def _get_team_ids(
@@ -177,7 +190,7 @@ class Command(BaseCommand):
 
         return qs
 
-    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2) -> dict:
+    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2, *, version: int) -> dict:
         issue = fp.issue
         assignment = getattr(issue, "assignment", None)
 
@@ -191,7 +204,6 @@ class Command(BaseCommand):
 
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
-        version = int(fp.created_at.timestamp() * 1000)
 
         return {
             "team_id": fp.team_id,
@@ -199,7 +211,7 @@ class Command(BaseCommand):
             "issue_id": str(issue.id),
             "issue_name": issue.name,
             "issue_description": issue.description,
-            "issue_status": issue.status,
+            "issue_status": _clickhouse_status(issue.status),
             "issue_severity": issue.severity,
             "assigned_user_id": assigned_user_id,
             "assigned_role_id": assigned_role_id,

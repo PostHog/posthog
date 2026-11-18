@@ -10,6 +10,7 @@ import posthoganalytics
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import MCP_READ_SCOPES
@@ -36,7 +37,11 @@ from products.tasks.backend.facade.onboarding_prompt import (
     missing_onboarding_prompt_placeholders,
     render_onboarding_prompt,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
+from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
 from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.task_profiles import USER
+from products.tasks.backend.task_sources import idempotency_key_q
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 
@@ -44,9 +49,9 @@ logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
-ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
+ONBOARDING_SESSION_FREE_MODEL = "zai-org/glm-5.3-flash"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write", "inbox:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
@@ -61,8 +66,8 @@ def _origin_key(user_id: int) -> str:
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
     return (
         Task.objects.filter(
+            idempotency_key_q(_origin_key(user_id)),
             team_id=team_id,
-            origin_key=_origin_key(user_id),
             created_by_id=user_id,
             origin_product=Task.OriginProduct.USER_CREATED,
         )
@@ -72,7 +77,7 @@ def _started_session_id(team_id: int, user_id: int) -> UUID | None:
 
 
 def company_domain_from(email: str) -> str | None:
-    _, _, domain = email.strip().lower().partition("@")
+    domain = email_domain(email.strip().lower())
     if not domain or domain in PERSONAL_EMAIL_DOMAINS:
         return None
     return normalize_target(domain)
@@ -187,6 +192,7 @@ def start_onboarding_session(
     homepage_override: str = "",
     force: bool = False,
     channel_id: UUID | None = None,
+    model: str | None = None,
 ) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
     if not force and not _session_enabled(team, user):
@@ -240,6 +246,8 @@ def start_onboarding_session(
         homepage=homepage,
         channel_id=str(channel_id),
     )
+    session_model = model or onboarding_session_model(team)
+    session_runtime_adapter = runtime_adapter_for(session_model)
 
     try:
         with transaction.atomic():
@@ -248,17 +256,22 @@ def start_onboarding_session(
                 title=ONBOARDING_SESSION_TITLE,
                 title_manually_set=True,
                 description=description,
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER,
                 user_id=user.id,
                 channel_id=channel_id,
                 origin_key=origin_key,
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                options=TaskRunOptions(
+                    adapter=session_runtime_adapter,
+                    model=session_model,
+                    reasoning_effort=filter_unsupported_effort(
+                        session_runtime_adapter, session_model, ONBOARDING_SESSION_EFFORT
+                    ),
+                    mcp_scopes=ONBOARDING_SESSION_SCOPES,
+                    permission_mode="auto",
+                ),
                 create_pr=False,
                 mode="interactive",
-                model=onboarding_session_model(team),
-                reasoning_effort=ONBOARDING_SESSION_EFFORT,
-                posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-                initial_permission_mode="auto",
             )
     except IntegrityError:
         started = _started_session_id(team.id, user.id)
@@ -299,6 +312,7 @@ def start_onboarding_test_session(
     sources_enabled: list[str],
     sources_watching: list[str],
     sources_newly_enabled: bool,
+    model: str | None,
 ) -> UUID | None:
     """Runs in the requester's personal space, so repeated tests leave #general alone."""
     domain = normalize_target(company_domain) if company_domain else None
@@ -321,4 +335,5 @@ def start_onboarding_test_session(
         homepage_override=homepage,
         force=True,
         channel_id=ensure_personal_channel_id(team.id, user.id),
+        model=model,
     )

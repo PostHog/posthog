@@ -1,4 +1,6 @@
 -- Lifecycle: per person-week status (new / returning / resurrecting). Dormant is derived downstream.
+-- "New" is the first-ever active week, because stg_events has no profile creation date.
+-- If your warehouse has a users table with created_at, join it and use that week instead, as query-lifecycle does.
 {{ config(materialized='table') }}
 
 with activity as (

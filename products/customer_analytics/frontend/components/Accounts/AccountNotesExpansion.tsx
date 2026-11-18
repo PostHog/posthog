@@ -1,0 +1,194 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { IconPencil } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TZLabel } from 'lib/components/TZLabel'
+import { fullName } from 'lib/utils/strings'
+import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { urls } from 'scenes/urls'
+
+import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
+import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
+import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
+import { accountNotebooksLogic } from './accountNotebooksLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
+import { AccountsEvents } from './constants'
+
+const PREVIEW_MAX_CHARS = 200
+
+function getPreview(notebook: AccountNotebookApi): string {
+    const text = (notebook.text_content ?? '').trim()
+    if (!text) {
+        return ''
+    }
+    const collapsed = text.replace(/\s+/g, ' ')
+    return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}...` : collapsed
+}
+
+interface AccountNotesExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
+export function AccountNotesExpansion({
+    accountId,
+    embedded = true,
+    ...tileProps
+}: AccountNotesExpansionProps): JSX.Element {
+    const logic = accountNotebooksLogic({ accountId, ...tileProps })
+    const {
+        notebooks,
+        notebooksResponseLoading,
+        createdNoteLoading,
+        searchTerm,
+        sorting,
+        pagination,
+        tagsFilter,
+        createdByFilter,
+        pendingNotebookTags,
+    } = useValues(logic)
+    const { setSearchTerm, setSorting, createNote, setTagsFilter, setCreatedByFilter, updateNotebook } =
+        useActions(logic)
+    const { selectNotebook } = useActions(notebookPanelLogic)
+
+    const columns: LemonTableColumns<AccountNotebookApi> = [
+        {
+            title: 'Note',
+            key: 'title',
+            sorter: true,
+            render: (_, notebook) => {
+                const preview = getPreview(notebook)
+                return (
+                    <div className="flex flex-col gap-1 py-1 max-w-2xl">
+                        <Link
+                            to={urls.notebook(notebook.short_id)}
+                            className="font-medium"
+                            onClick={(event) => {
+                                posthog.capture(AccountsEvents.NoteClicked, {
+                                    notebook_short_id: notebook.short_id,
+                                })
+                                event.preventDefault()
+                                selectNotebook(notebook.short_id)
+                            }}
+                        >
+                            {notebook.title || 'Untitled note'}
+                        </Link>
+                        {preview ? (
+                            <span className="text-xs text-muted line-clamp-2">{preview}</span>
+                        ) : (
+                            <span className="text-xs text-muted italic">No content yet</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: 220,
+            render: (_, notebook) => {
+                const tags = notebook.tags ?? []
+                return (
+                    <ObjectTags
+                        tags={tags}
+                        onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
+                        saving={!!pendingNotebookTags[notebook.short_id]}
+                        data-attr="account-note-tags"
+                    />
+                )
+            },
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            width: 160,
+            sorter: true,
+            render: (_, notebook) => {
+                const user = notebook.created_by
+                if (!user) {
+                    return <span className="text-muted italic">Unknown</span>
+                }
+                const name = fullName(user) || user.email
+                return (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture
+                            user={{ email: user.email, first_name: user.first_name, last_name: user.last_name }}
+                            size="sm"
+                        />
+                        <span className="text-sm">{name}</span>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Created at',
+            key: 'created_at',
+            width: 140,
+            sorter: true,
+            render: (_, notebook) => <TZLabel time={notebook.created_at} />,
+        },
+        {
+            title: 'Last modified',
+            key: 'last_modified_at',
+            width: 140,
+            sorter: true,
+            render: (_, notebook) => (notebook.last_modified_at ? <TZLabel time={notebook.last_modified_at} /> : null),
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-2" data-attr="account-notes">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search notes by title or content..."
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        size="small"
+                        className="min-w-64"
+                    />
+                    <AccountNotesViewSelector logicProps={{ sourceKey: logic.pathString, sourceLogic: logic }} />
+                    <NotesTagsFilter
+                        value={tagsFilter}
+                        onChange={setTagsFilter}
+                        data-attr="account-notes-tags-filter"
+                    />
+                    <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
+                </div>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPencil />}
+                    onClick={createNote}
+                    loading={createdNoteLoading}
+                >
+                    New note
+                </LemonButton>
+            </div>
+            <LemonTable<AccountNotebookApi>
+                size="small"
+                embedded={embedded}
+                dataSource={notebooks ?? []}
+                rowKey="short_id"
+                loading={notebooksResponseLoading}
+                columns={columns}
+                sorting={sorting}
+                onSort={setSorting}
+                pagination={pagination}
+                emptyState={
+                    notebooks === null
+                        ? 'Failed to load account notes.'
+                        : searchTerm || tagsFilter.length > 0 || createdByFilter.length > 0
+                          ? 'No notes match your filters.'
+                          : 'No notes linked to this account yet.'
+                }
+            />
+        </div>
+    )
+}

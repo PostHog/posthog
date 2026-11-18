@@ -9,11 +9,13 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 
 from products.growth.backend.enrichment.labels import (
+    AI_ENRICHMENT_FEATURE,
     UNKNOWN,
     PromptConfigError,
+    TransientToolError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
@@ -93,7 +95,11 @@ class Command(BaseCommand):
 
         # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
         # would multiply that budget nine-fold per row.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = build_openai_client(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "dry_run"},
+        ).with_options(max_retries=0)
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)
@@ -122,7 +128,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Prompt version: {display_version}")
         self.stdout.write(row_fmt.format(*headers))
 
-        classified = unknown = errors = skipped = 0
+        classified = unknown = errors = skipped = deferred = 0
         for fetch in ordered_fetches:
             # Its own branch rather than an ERROR row: a declined org is a correct outcome, and
             # counting it as an error would trip the every-row-failed check below.
@@ -138,6 +144,12 @@ class Command(BaseCommand):
                 company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
+            except TransientToolError:
+                deferred += 1
+                row = [_truncate(company, _COMPANY_WIDTH), _MISSING, "DEFERRED (search unavailable)"]
+                row += [_MISSING] * (len(headers) - len(row))
+                self.stdout.write(row_fmt.format(*row))
+                continue
             except Exception as e:
                 errors += 1
                 company = fetch.organization.name
@@ -173,8 +185,14 @@ class Command(BaseCommand):
                     for field in compare_config.output_fields
                 ]
             self.stdout.write(row_fmt.format(*row))
+            tool_calls = len(output.get("meta", {}).get("tool_calls", []))
+            if tool_calls:
+                self.stdout.write(f"  tool calls: {tool_calls}")
 
-        summary = f"classified {classified}, unknown {unknown}, errors {errors}, skipped_no_ai_consent {skipped}"
+        summary = (
+            f"classified {classified}, unknown {unknown}, errors {errors}, "
+            f"skipped_no_ai_consent {skipped}, deferred {deferred}"
+        )
         self.stdout.write(self.style.SUCCESS(summary) if errors == 0 else self.style.WARNING(summary))
         attempted = len(ordered_fetches) - skipped
         if attempted and errors == attempted:

@@ -96,34 +96,71 @@ describe("mergeConversationItems", () => {
     expect(pinned.content).toBe(echoedWithContext);
   });
 
-  it.each([
-    { name: "plain bare echo", bare: "hello" },
-    {
-      name: "bare echo carrying an attachment summary",
-      bare: "hello\n\nAttached files: clipboard.png",
-    },
-  ])(
-    "cloud: folds a raced $name and the shadow-context echo into the pinned message",
-    ({ bare }) => {
+  it.each(
+    [
+      { name: "plain bare echo", bare: "hello" },
+      {
+        name: "bare echo carrying an attachment summary",
+        bare: "hello\n\nAttached files: clipboard.png",
+      },
+    ].flatMap((entry) => [
+      { ...entry, withOptimistic: true },
+      { ...entry, withOptimistic: false },
+    ]),
+  )(
+    "cloud: folds a raced $name and the shadow-context echo (optimistic: $withOptimistic)",
+    ({ bare, withOptimistic }) => {
       const echoedWithContext =
         'hello\n\n<channel_context channel="bluebird">background</channel_context>';
       const result = mergeConversationItems({
         conversationItems: [
           userMessage("bare", bare),
+          progressGroup("setup"),
           userMessage("shadow", echoedWithContext),
           userMessage("other", "different"),
         ],
-        optimisticItems: [userMessage("opt", echoedWithContext)],
+        optimisticItems: withOptimistic
+          ? [userMessage("opt", echoedWithContext)]
+          : [],
         isCloud: true,
       });
 
-      expect(result.map((item) => item.id)).toEqual(["opt", "other"]);
+      expect(result.map((item) => item.id)).toEqual([
+        withOptimistic ? "opt" : "bare",
+        "setup",
+        "other",
+      ]);
       const pinned = result[0];
       if (pinned.type !== "user_message")
         throw new Error("expected user_message");
       expect(pinned.content).toBe(echoedWithContext);
     },
   );
+
+  it("cloud: preserves a repeated prompt after the agent has replied", () => {
+    const reply: ConversationItem = {
+      ...progressGroup("reply"),
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Build checked." },
+      },
+    } as ConversationItem;
+    const conversationItems = [
+      userMessage("first", "Check the build"),
+      reply,
+      userMessage(
+        "second",
+        'Check the build\n\n<channel_context channel="example">Project notes.</channel_context>',
+      ),
+    ];
+    expect(
+      mergeConversationItems({
+        conversationItems,
+        optimisticItems: [],
+        isCloud: true,
+      }),
+    ).toEqual(conversationItems);
+  });
 
   it("cloud: dedupes the echo when the placeholder carries an 'Attached files:' summary the echo lacks", () => {
     const echoed = {
@@ -211,6 +248,59 @@ describe("mergeConversationItems", () => {
       isCloud: true,
     });
     expect(result.map((i) => i.id)).toEqual(["setup", "opt"]);
+  });
+
+  it("cloud: keeps a follow-up waiting on its echo above later agent output", () => {
+    const tailAnchors = new Map<string, string | null>();
+    const optimisticItems = [userMessage("opt", "steer", false)];
+    mergeConversationItems({
+      conversationItems: [userMessage("setup", "setup"), progressGroup("p")],
+      optimisticItems,
+      isCloud: true,
+      tailAnchors,
+    });
+
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("setup", "setup"),
+        progressGroup("p"),
+        { type: "turn_cancelled", id: "later" },
+      ],
+      optimisticItems,
+      isCloud: true,
+      tailAnchors,
+    });
+
+    expect(result.map((i) => i.id)).toEqual(["setup", "opt", "p", "later"]);
+  });
+
+  it("cloud: keeps a later follow-up below the echo of an earlier one that shared its anchor", () => {
+    const tailAnchors = new Map<string, string | null>();
+    const second = userMessage("opt-2", "second", false);
+    mergeConversationItems({
+      conversationItems: [userMessage("setup", "setup")],
+      optimisticItems: [userMessage("opt-1", "first", false), second],
+      isCloud: true,
+      tailAnchors,
+    });
+
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("setup", "setup"),
+        userMessage("echo-1", "first"),
+        { type: "turn_cancelled", id: "agent" },
+      ],
+      optimisticItems: [second],
+      isCloud: true,
+      tailAnchors,
+    });
+
+    expect(result.map((i) => i.id)).toEqual([
+      "setup",
+      "echo-1",
+      "opt-2",
+      "agent",
+    ]);
   });
 
   it("cloud: keeps a resumed prompt before trailing setup progress", () => {

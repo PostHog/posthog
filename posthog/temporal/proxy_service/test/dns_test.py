@@ -1,6 +1,6 @@
-import time
 import uuid
 import asyncio
+import threading
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,14 +10,18 @@ import grpc.aio
 import requests
 import dns.resolver
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 from posthog.temporal.proxy_service.cloudflare import CLOUDFLARE_API_TIMEOUT_S
+from posthog.temporal.proxy_service.create import WaitForDNSRecordsInputs, wait_for_dns_records
 from posthog.temporal.proxy_service.monitor import (
     CHECK_START_TO_CLOSE,
     CLOUDFLARE_IPS_TIMEOUT_S,
     DNS_LOOKUP_LIFETIME_S,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
+    _resolve_dns,
     check_certificate_status,
     check_dns,
     check_proxy_is_live,
@@ -42,18 +46,27 @@ def _record(target_cname="x.cf-prod-us-proxy.proxyhog.com."):
     return r
 
 
-async def _time_a_co_tenant(during) -> tuple[float, float]:
-    async def ticker() -> float:
-        started = time.monotonic()
-        for _ in range(20):
-            await asyncio.sleep(0.05)
-        return time.monotonic() - started
+# Only reached when the loop is blocked, so it bounds a deadlock instead of timing the loop.
+BLOCKED_LOOP_TIMEOUT_S = 5.0
 
-    baseline = await ticker()
-    task = asyncio.create_task(ticker())
-    await asyncio.sleep(0.1)
-    await during()
-    return baseline, await task
+
+class _BlockingCall:
+    """A blocking stub that reports whether the event loop ran while the stub held its thread."""
+
+    def __init__(self, exception: Exception):
+        self._exception = exception
+        self._entered = threading.Event()
+        self._released = threading.Event()
+        self.loop_ran_while_blocked = False
+
+    def __call__(self, *args, **kwargs):
+        self._entered.set()
+        self.loop_ran_while_blocked = self._released.wait(BLOCKED_LOOP_TIMEOUT_S)
+        raise self._exception
+
+    async def release_when_entered(self) -> None:
+        await asyncio.to_thread(self._entered.wait, BLOCKED_LOOP_TIMEOUT_S)
+        self._released.set()
 
 
 class TestProxyChecksDoNotFailOnHandledConditions(SimpleTestCase):
@@ -110,33 +123,27 @@ class TestProxyChecksKeepTheEventLoopFree(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_dns_does_not_block(self, mock_get_record):
         mock_get_record.return_value = _record()
-
-        def slow(domain, rdtype, **kwargs):
-            time.sleep(1.0)
-            raise dns.resolver.NXDOMAIN()
+        lookup = _BlockingCall(dns.resolver.NXDOMAIN())
 
         with patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver:
-            resolver.return_value.resolve.side_effect = slow
-            baseline, contended = await _time_a_co_tenant(
-                lambda: check_dns(CheckActivityInput(proxy_record_id=RECORD_ID))
-            )
+            resolver.return_value.resolve.side_effect = lookup
+            check = asyncio.create_task(check_dns(CheckActivityInput(proxy_record_id=RECORD_ID)))
+            await lookup.release_when_entered()
+            await check
 
-        assert contended < baseline + 0.5, f"loop blocked: baseline={baseline:.2f}s contended={contended:.2f}s"
+        assert lookup.loop_ran_while_blocked, "loop blocked: no coroutine ran while the DNS lookup blocked"
 
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_does_not_block(self, mock_get_record):
         mock_get_record.return_value = _record()
+        probe = _BlockingCall(requests.exceptions.Timeout())
 
-        def slow(*args, **kwargs):
-            time.sleep(1.0)
-            raise requests.exceptions.Timeout()
+        with patch("posthog.temporal.proxy_service.monitor.pinned_request", side_effect=probe):
+            check = asyncio.create_task(check_proxy_is_live(CheckActivityInput(proxy_record_id=RECORD_ID)))
+            await probe.release_when_entered()
+            await check
 
-        with patch("posthog.temporal.proxy_service.monitor.requests.post", side_effect=slow):
-            baseline, contended = await _time_a_co_tenant(
-                lambda: check_proxy_is_live(CheckActivityInput(proxy_record_id=RECORD_ID))
-            )
-
-        assert contended < baseline + 0.5, f"loop blocked: baseline={baseline:.2f}s contended={contended:.2f}s"
+        assert probe.loop_ran_while_blocked, "loop blocked: no coroutine ran while the proxy probe blocked"
 
 
 class TestLegacyCertificateStatus(SimpleTestCase):
@@ -171,3 +178,38 @@ class TestActivityBudgetsCoverTheirNetworkCalls(SimpleTestCase):
     )
     def test_the_worst_case_fits_inside_the_budget(self, _name, worst_case_seconds):
         assert worst_case_seconds < CHECK_START_TO_CLOSE.total_seconds()
+
+
+class TestOutOfBandDomainsAreNotResolved(SimpleTestCase):
+    LISTED = "abc.oast.live"
+
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_the_dns_check_refuses_a_listed_domain_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        record = _record()
+        record.domain = self.LISTED
+        with (
+            patch("posthog.temporal.proxy_service.monitor.is_cloud", return_value=cloud),
+            patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver,
+        ):
+            output = _resolve_dns(record)
+
+        self.assertEqual(resolver.called, not cloud)
+        self.assertEqual(output.errors == [OOB_DOMAIN_REFUSAL], cloud)
+
+    def test_waiting_for_dns_records_refuses_a_listed_domain(self) -> None:
+        inputs = WaitForDNSRecordsInputs(
+            organization_id=uuid.uuid4(),
+            proxy_record_id=RECORD_ID,
+            domain=self.LISTED,
+            target_cname="x.cf-prod-us-proxy.proxyhog.com.",
+        )
+        with (
+            patch("posthog.temporal.proxy_service.create.is_cloud", return_value=True),
+            patch("posthog.temporal.proxy_service.create.record_exists", AsyncMock(return_value=True)),
+            patch("posthog.temporal.proxy_service.create.async_dnssec_resolver") as resolver,
+            self.assertRaises(ApplicationError) as raised,
+        ):
+            asyncio.run(wait_for_dns_records(inputs))
+
+        resolver.assert_not_called()
+        self.assertTrue(raised.exception.non_retryable)

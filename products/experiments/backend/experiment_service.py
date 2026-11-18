@@ -1,8 +1,9 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -18,7 +19,6 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
@@ -26,49 +26,90 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentMetric,
+    ExperimentWarehouseNativeExposureConfig,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
-from posthog.api.utils import ServiceRequest
+from posthog.api.cohort import (
+    ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY,
+    CohortSerializer,
+    get_flags_blocking_cohort_deletion,
+)
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+    AvailableFeature,
+)
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.filters.filter import Filter
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
-from posthog.models.signals import mute_selected_signals
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.actions.backend.models.action import Action
+from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.ownership import scope_by_owner_enabled
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding
+from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    apply_exposure_criteria_defaults,
     build_exposure_event_conditions,
+    exposure_event_names,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
+    rule_exposure_criteria_error,
 )
-from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.logic.result_stats import MetricTimeseries
+from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
+from products.experiments.backend.metric_calculation.config import (
+    ExperimentCalculationSettings,
+    build_primary_calculation_configs,
+    get_metric_calculation_config,
+    saved_metric_calculation_keys,
+    settings_rule,
+    stamp_calculation_keys,
+)
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
+from products.experiments.backend.metric_resolution import MetricRole, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_validation import (
+    defined_event_names,
+    extract_entity_nodes,
+    parse_and_validate_metric,
+    validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -76,16 +117,22 @@ from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
+    build_rule_snapshot,
     experiment_has_legacy_metrics,
+    experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.task_profiles import CLEANUP
+from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
+from products.experiments.backend.warehouse_native_sources import (
+    validate_experiment_warehouse_native_sources,
+    warehouse_native_exposure_config,
+)
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -95,14 +142,24 @@ from products.feature_flags.backend.facade.api import (
     ship_variant as ship_flag_variant,
     unarchive_flag,
     update_flag,
+    user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
     set_holdout,
     strip_group_cohort_restriction,
 )
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleConfig,
+    ExperimentRuleError,
+    experiment_rule_from_snapshot,
+    experiment_rule_ids,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
+from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -116,10 +173,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 logger = structlog.get_logger(__name__)
-
-# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
-# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
-EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -135,28 +188,68 @@ class CleanupRequestSummary(TypedDict):
 
     attempted: bool
     repository_source: CleanupRepositorySource | None
-    skip_reason: Literal["no_conclusion", "flag_disabled", "no_repository", "error"] | None
+    skip_reason: Literal["no_conclusion", "no_repository", "flag_rule", "error"] | None
     confident: bool | None
 
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+# The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
+ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
+
+# A launch whose start_date is older than this is a backdated launch (e.g. a move from another tool).
+BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
+
+
+def _is_imported_concluded(experiment: Experiment) -> bool:
+    """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
+    return experiment.end_date is not None and experiment.end_date <= timezone.now()
+
+
+def _parse_tag_names(value: Any) -> list[str]:
+    """Parse a tags query param that arrives as a list or a JSON-encoded string.
+
+    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
+    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
+    """
+    try:
+        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [tag for tag in tags if isinstance(tag, str)]
+
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
-# Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
-# time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
-# materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
-# The user cap is sized to the cohort insert (batches of 1000, sequential): 100k keeps the whole
-# freeze comfortably inside a web request. Long-running / very-high-traffic experiments that exceed
-# either bound are rejected rather than frozen synchronously (they would need a future async
-# populate path).
+# Synchronous freeze-exposure bounds. The freeze builds the snapshot inline in the web request, so the
+# request must finish before the ingress ends it at 120 seconds. After that the caller gets an error.
+#
+# The query timeout bounds the ClickHouse scan of the exposure events only. The user cap bounds the
+# two steps that the timeout does NOT cover. Both are linear in the number of exposed users, and
+# together they are almost all of the freeze duration:
+# - the personhog lookup: one RPC per PERSONHOG_BATCH_SIZE users, FREEZE_EXPOSURE_RESOLVE_CONCURRENCY at a time
+# - the cohort write: sequential batches of 1000, each with a ClickHouse read, a ClickHouse insert
+#   and a personhog insert
+#
+# The cap is sized so that the slowest freeze stays below the ingress limit. As of October 2026 the
+# slowest measured cost in production is about 0.5 ms per exposed user, which is about 105 seconds
+# at the cap. Every freeze logs its user count and step durations as experiment_freeze_exposure_timing.
+# Read those logs and repeat this calculation before you raise the cap.
+#
+# A longer build also widens the gap between the scan and the flag save. A user who is first exposed
+# in that gap is not in the snapshot and loses their variant when the flag narrows.
+#
+# Flag evaluation does not depend on the cap. It does one indexed lookup per person, whatever the
+# cohort size. An experiment over either bound is rejected. To freeze such an experiment, populate
+# the cohort in a background task and narrow the flag only after the cohort is complete.
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
-FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 200_000
 # Cohort membership is person-keyed, so exposed users without a person profile (anonymous
 # "personless" traffic, or since-deleted persons) can never match the snapshot cohort and would
 # silently lose their variant at freeze time. A small unresolvable share is tolerated as
@@ -173,6 +266,14 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
+# The update fields that can change which data sources an experiment reads.
+_WAREHOUSE_NATIVE_SOURCE_FIELDS = frozenset({"exposure_criteria", "metrics", "metrics_secondary", "saved_metrics_ids"})
+
+_INLINE_METRIC_FIELD_ROLES: tuple[tuple[str, MetricRole], ...] = (
+    ("metrics", "primary"),
+    ("metrics_secondary", "secondary"),
+)
 
 # Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
 # Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
@@ -246,6 +347,7 @@ _FREEZE_EXPOSURE_BLOCKER_MESSAGES: dict[ExposureFreezeBlocker, str] = {
     "already_frozen": "Experiment exposure is already frozen.",
     "no_flag": "Experiment does not have a feature flag linked.",
     "flag_deleted": "Experiment's feature flag has been deleted.",
+    "flag_rule": "Experiments on a feature flag rule cannot have their exposure frozen yet.",
     "group_aggregation": "Group-aggregated experiments cannot have their exposure frozen.",
     "holdout": (
         "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
@@ -289,6 +391,43 @@ def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
     )
 
 
+def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
+    """The facade's plain-value holdout setter, bound to the experiments holdout model."""
+    return set_holdout(
+        filters,
+        holdout_id=holdout.id if holdout else None,
+        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
+    """Returns the first action, event or data warehouse entry of a legacy insight filter, with its `type` set."""
+    entities: list[dict[str, Any]] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = filter_data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        entities.extend({**entity, "type": entity_type} for entity in raw)
+    # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
+    return min(
+        entities,
+        key=lambda entity: (int(entity["order"]) if entity.get("order") is not None else 0) or -1,
+        default=None,
+    )
+
+
+def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
+    # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
+    # string on `:`, so every field is present, empty when the finding has none.
+    return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
+
+
 class ExperimentVersionConflict(APIException):
     """A stale write raced a concurrent update and could not be applied safely."""
 
@@ -320,7 +459,7 @@ class ExperimentVersionConflict(APIException):
 
 # Fields a stale write may still change. The metric collections merge per uuid — each metric
 # carries a stable server-assigned uuid, so concurrent intent is preserved — and the ordering
-# arrays are re-derived by the ordering syncs. A stale write touching anything else conflicts
+# arrays are a display hint, so the client's array is taken as sent. A stale write touching anything else conflicts
 # outright: scalar fields have no sub-identity to merge on, and the edit was likely written
 # against context that has since changed (e.g. a description phrased for metrics someone
 # edited meanwhile).
@@ -525,6 +664,16 @@ def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values
     return conflicts
 
 
+@frozen
+class _EnsuredFlag:
+    """The flag that a new experiment runs on, and the variants it uses."""
+
+    feature_flag: FeatureFlag
+    variants: list[dict]
+    # The experiment rule that the experiment links when the flag has rules (config version 2).
+    rule: ExperimentRuleConfig | None = None
+
+
 class ExperimentQueryStatus(str, Enum):
     """
     Filter values for the experiment list endpoint.
@@ -646,14 +795,6 @@ class ExperimentService:
         return rendered
 
     @classmethod
-    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
-        """Drop unknown top-level keys from stored criteria (writes accepted them before
-        the unknown-key rejection below existed)."""
-        if not isinstance(exposure_criteria, dict):
-            return exposure_criteria
-        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
-
-    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -670,8 +811,7 @@ class ExperimentService:
             )
 
         # Reject unknown top-level keys: they used to be silently saved, and the strict
-        # read-side parse then broke every results/exposure query for the experiment
-        # (reads now tolerate them, but new writes should fail fast with a pointer).
+        # read-side parse then broke every results/exposure query for the experiment.
         unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
         if unknown_keys:
             hint = (
@@ -696,7 +836,7 @@ class ExperimentService:
         # nullable), so only validate shape when a value is present.
         if exposure_criteria.get("exposure_config") is not None:
             cls._validate_exposure_config_shape(
-                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
+                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config", warehouse_native_allowed=True
             )
 
         if exposure_criteria.get("activation_config") is not None:
@@ -721,7 +861,9 @@ class ExperimentService:
         )
 
     @classmethod
-    def _validate_exposure_config_shape(cls, exposure_config: object, field_path: str) -> None:
+    def _validate_exposure_config_shape(
+        cls, exposure_config: object, field_path: str, *, warehouse_native_allowed: bool = False
+    ) -> None:
         if not isinstance(exposure_config, dict):
             raise ValidationError(
                 f"{field_path} must be an object, got {type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
@@ -730,6 +872,11 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
+            cls._validate_exposure_config_model(
+                ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
+            )
+            return
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -738,6 +885,12 @@ class ExperimentService:
             )
 
         model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
+        cls._validate_exposure_config_model(model_cls, exposure_config, field_path, kind)
+
+    @classmethod
+    def _validate_exposure_config_model(
+        cls, model_cls: type[pydantic.BaseModel], exposure_config: dict, field_path: str, kind: object
+    ) -> None:
         try:
             model_cls.model_validate(exposure_config)
         except pydantic.ValidationError as e:
@@ -751,48 +904,8 @@ class ExperimentService:
                 f"Invalid {field_path} (kind={cls._safe_repr(kind)}): {safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
             )
 
-    # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
-    # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
-    # the caller picked. A drift test asserts this stays in sync with the ExperimentMetric union.
-    _METRIC_TYPE_TO_CLASS = {
-        "mean": "ExperimentMeanMetric",
-        "funnel": "ExperimentFunnelMetric",
-        "ratio": "ExperimentRatioMetric",
-        "retention": "ExperimentRetentionMetric",
-    }
-
-    # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
-    # errors) cannot blow up the response size. The first N errors are the most actionable.
-    _MAX_REPORTED_METRIC_ERRORS = 15
-
-    _EVENTS_NODE_ID_HINT = (
-        "EventsNode does not accept an 'id' field. "
-        "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
-        "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
-    )
-
     @staticmethod
-    def _is_events_node_actions_node_confusion(err: dict) -> bool:
-        """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
-        loc = tuple(err.get("loc") or ())
-        if len(loc) < 2 or err.get("type") != "extra_forbidden":
-            return False
-        return loc[-1] == "id" and "EventsNode" in loc
-
-    @classmethod
-    def _build_metric_validation_hint(cls, safe_errors: list[dict]) -> str:
-        """Return a targeted hint for an observed pydantic error pattern, or '' if none applies.
-
-        The structural shape of valid metrics is conveyed by `safe_errors` itself (loc, type,
-        msg) — adding prose duplicates the pydantic models and rots silently. Only hints
-        whose facts are independent of metric shape belong here."""
-        for err in safe_errors:
-            if cls._is_events_node_actions_node_confusion(err):
-                return cls._EVENTS_NODE_ID_HINT
-        return ""
-
-    @classmethod
-    def validate_experiment_metrics(cls, metrics: list | None) -> None:
+    def validate_experiment_metrics(metrics: list | None) -> None:
         """Validate metric payloads accepted by the API layer."""
         if metrics is None:
             return
@@ -801,83 +914,7 @@ class ExperimentService:
             raise ValidationError("Metrics must be a list")
 
         for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict):
-                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
-
-            kind = metric.get("kind")
-            if kind in LEGACY_METRIC_KINDS:
-                raise ValidationError(
-                    f"Invalid metric at index {i}: legacy metric kind '{kind}' is no longer supported for new experiments. "
-                    "Use 'ExperimentMetric' instead."
-                )
-
-            if kind != "ExperimentMetric":
-                raise ValidationError(f"Invalid metric at index {i}: metric kind must be 'ExperimentMetric'")
-
-            if kind == "ExperimentMetric":
-                try:
-                    validated_metric = ExperimentMetric.model_validate(metric)
-
-                    # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
-                    actual_metric = validated_metric.root
-                    if isinstance(actual_metric, ExperimentFunnelMetric):
-                        # The experiment exposure event is prepended as step_0 at query time,
-                        # so series must contain at least one user-supplied step for the funnel
-                        # to yield a meaningful conversion metric.
-                        if not actual_metric.series:
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
-                                "The experiment exposure event is added as the initial step automatically."
-                            )
-                        # Additional validation for funnel metrics with DW steps
-                        FunnelDWValidator.validate_funnel_metric(actual_metric)
-                    elif isinstance(actual_metric, ExperimentMeanMetric) and actual_metric.threshold is not None:
-                        # A threshold turns the per-user value into a binary "did the user reach N"
-                        # outcome, which only makes sense for sum/count math types.
-                        source_math = getattr(actual_metric.source, "math", None)
-                        if not is_threshold_supported_math(source_math):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold is only supported for "
-                                "sum or count (total) math types."
-                            )
-                        # A non-positive threshold is satisfied by every user (missing users
-                        # accumulate to 0), producing a meaningless 100% proportion.
-                        if actual_metric.threshold <= 0:
-                            raise ValidationError(f"Invalid metric at index {i}: threshold must be a positive number.")
-                        # Winsorization caps continuous outliers, which is meaningless once the
-                        # value collapses to a binary threshold outcome.
-                        if (
-                            actual_metric.lower_bound_percentile is not None
-                            or actual_metric.upper_bound_percentile is not None
-                        ):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold cannot be combined with "
-                                "outlier handling (winsorization)."
-                            )
-
-                except pydantic.ValidationError as e:
-                    # Surface only the field locations and error types from pydantic — not the
-                    # echoed `input`, `ctx`, and `url` fields, which would reflect arbitrary
-                    # user data back into the response (potentially unbounded in size).
-                    safe_errors = [
-                        {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
-                    ]
-                    # ExperimentMetric is a union of four variants; pydantic reports errors against
-                    # every variant by default. If the caller picked a metric_type, narrow to that
-                    # variant's errors so the message stays actionable instead of dumping 25+ errors.
-                    metric_type = metric.get("metric_type")
-                    variant_class = cls._METRIC_TYPE_TO_CLASS.get(metric_type) if isinstance(metric_type, str) else None
-                    if variant_class is not None:
-                        filtered = [err for err in safe_errors if err["loc"] and err["loc"][0] == variant_class]
-                        if filtered:
-                            safe_errors = filtered
-                    hint = cls._build_metric_validation_hint(safe_errors)
-                    if len(safe_errors) > cls._MAX_REPORTED_METRIC_ERRORS:
-                        truncated = safe_errors[: cls._MAX_REPORTED_METRIC_ERRORS]
-                        truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
-                        safe_errors = truncated
-                    suffix = f" {hint}" if hint else ""
-                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
+            parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -1016,7 +1053,32 @@ class ExperimentService:
     def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
         """Parameters for analytics events: the stored column carries no flag config, so attach
         the variant detail event consumers expect from the linked flag."""
-        return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
+        try:
+            variants = experiment_variants(experiment)
+        except ExperimentRuleError:
+            variants = []
+        return {**(experiment.parameters or {}), "feature_flag_variants": variants}
+
+    @staticmethod
+    def _reject_rule_linked(
+        experiment: Experiment, action: str, *, instead: str = "Change the rule on the feature flag instead."
+    ) -> None:
+        """Refuse an action that would write the linked flag as a config version 1 document, or that
+        reads the flag's release conditions. A rule-linked experiment's flag is changed on the flag."""
+        if experiment.is_rule_linked:
+            message = f"This experiment runs on a feature flag rule, and {action} is not supported for it yet."
+            raise ValidationError(f"{message} {instead}".strip())
+
+    @staticmethod
+    def _flag_variants(experiment: Experiment) -> list[dict]:
+        """The experiment's variants, for a write that validates against them. A rule-linked experiment
+        whose rule cannot be read fails the write with the reason."""
+        try:
+            return experiment_variants(experiment)
+        except (ExperimentRuleError, ConfigFormatError) as error:
+            if not experiment.is_rule_linked:
+                raise
+            raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
 
     @staticmethod
     def _flag_config_variants(feature_flag_config: dict | None) -> list | None:
@@ -1044,7 +1106,7 @@ class ExperimentService:
         """
         update_variants = cls._flag_config_variants(feature_flag_config)
         if update_variants is None:
-            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+            update_variants = cls._flag_variants(experiment) if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
 
     @staticmethod
@@ -1072,7 +1134,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -1081,6 +1143,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -1089,91 +1155,23 @@ class ExperimentService:
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
-    @staticmethod
-    def _extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
-        """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
-        event_names: set[str] = set()
-        action_ids: set[int] = set()
-        if not metrics:
-            return event_names, action_ids
-
-        for metric in metrics:
-            nodes: list[dict] = []
-            metric_type = metric.get("metric_type")
-            if metric_type == "mean":
-                if source := metric.get("source"):
-                    nodes.append(source)
-            elif metric_type == "funnel":
-                nodes.extend(metric.get("series") or [])
-            elif metric_type == "ratio":
-                if num := metric.get("numerator"):
-                    nodes.append(num)
-                if den := metric.get("denominator"):
-                    nodes.append(den)
-            elif metric_type == "retention":
-                if se := metric.get("start_event"):
-                    nodes.append(se)
-                if ce := metric.get("completion_event"):
-                    nodes.append(ce)
-
-            for node in nodes:
-                kind = node.get("kind")
-                if kind == "EventsNode":
-                    event = node.get("event")
-                    # Treat None and empty/whitespace-only strings as "no event"
-                    # (semantically equivalent to "All events"). The pydantic
-                    # schema permits "" but it can't reference a real event.
-                    if isinstance(event, str) and event.strip():
-                        event_names.add(event)
-                    elif event is not None and not isinstance(event, str):
-                        # Pydantic should have rejected non-str/None upstream;
-                        # log so we can catch any path that bypassed validation
-                        # rather than silently dropping the value.
-                        logger.warning(
-                            "experiment_metric_unexpected_event_type",
-                            event_type=type(event).__name__,
-                            event_value=repr(event)[:100],
-                        )
-                elif kind == "ActionsNode":
-                    if (action_id := node.get("id")) is not None:
-                        action_ids.add(int(action_id))
-
-        return event_names, action_ids
-
-    @classmethod
-    def validate_metric_action_ids(
-        cls, metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
-    ) -> None:
-        """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
-
-        Actions are explicitly created entities with stable IDs, so a reference to a
-        nonexistent action is almost certainly a mistake, so we raise a hard validation error.
-
-        ``known_action_ids`` exempts ids already persisted on the experiment, so an
-        update is checked for what it introduces rather than for everything it
-        resends. Without it, deleting a referenced action makes every later metric
-        edit fail on the resent arrays. See ``update_experiment``.
-        """
-        _, action_ids = cls._extract_entity_nodes(metrics)
-        if known_action_ids:
-            action_ids -= known_action_ids
-        if not action_ids:
-            return
-
-        existing_ids = set(
-            Action.objects.filter(
-                id__in=action_ids,
-                team_id=team_id,
-                deleted=False,
-            ).values_list("id", flat=True)
-        )
-        missing = action_ids - existing_ids
-        if missing:
-            missing_str = ", ".join(str(aid) for aid in sorted(missing))
+        # A linked legacy shared metric turns the whole experiment legacy, which hides all of its results.
+        legacy_names = sorted(saved_metrics.filter(query__kind__in=LEGACY_METRIC_KINDS).values_list("name", flat=True))
+        if legacy_names:
             raise ValidationError(
-                f"Action(s) with ID {missing_str} not found or deleted. "
-                "Each ActionsNode must reference an existing action belonging to this project."
+                f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
+                "Use a shared metric of kind 'ExperimentMetric' instead."
             )
+
+    @staticmethod
+    def saved_metric_calculation_keys(experiment: Experiment) -> dict[int, str]:
+        """The calculation key of each saved metric linked to the experiment, by link id.
+
+        The API response stamps these keys as the saved metrics' `fingerprint`, so the chart reads the rows
+        the daily workflow wrote. The links come from the caller's prefetch when it has one, and the team's
+        experiment settings take one query.
+        """
+        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.from_experiment(experiment))
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -1190,31 +1188,18 @@ class ExperimentService:
         use, so an update can be checked for what it introduces rather than for
         everything it resends. See ``update_experiment``.
 
-        Scope must match the picker: the EventDefinition list endpoint is
-        project-scoped (see posthog/api/event_definition.py), so a user in a
-        multi-team project can pick an event ingested by a sibling team. We
-        mirror that scope here to avoid rejecting legitimate selections.
+        The lookup is `defined_event_names`, which the experiment health checks
+        also read. They count only the definitions that ingestion has seen, but
+        this accepts the events Wizard planned, so they can be picked before the
+        code that sends them ships.
         """
-        all_event_names, _ = self._extract_entity_nodes(metrics)
+        all_event_names, _ = extract_entity_nodes(metrics)
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
         if not event_names:
             return
 
-        from products.event_definitions.backend.models.event_definition import EventDefinition
-
         project_id = self.team.project_id
-        # Uses `team_id = project_id` (not team_id = self.team.id)
-        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
-        # *primary* team, and primary_team.id == project.id by convention. This
-        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
-        # teams can validate against legacy primary-team events the picker shows.
-        existing = set(
-            EventDefinition.objects.filter(
-                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
-                name__in=event_names,
-            ).values_list("name", flat=True)
-        )
-        unknown = event_names - existing
+        unknown = event_names - defined_event_names(project_id, event_names)
         if unknown:
             # Capture the rejected payload shape so we can identify clients
             # that send malformed metrics (e.g. event="").
@@ -1273,8 +1258,15 @@ class ExperimentService:
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
+        analytics_properties: dict[str, Any] | None = None,
+        feature_flag_rule_id: Any | None = None,
     ) -> Experiment:
-        """Create experiment with full validation and defaults."""
+        """Create experiment with full validation and defaults.
+
+        When ``feature_flag_key`` names an existing flag that has rules (config version 2), the
+        experiment links one experiment rule of it: the one ``feature_flag_rule_id`` names, or the
+        flag's only experiment rule. It then analyses that rule and never writes the flag.
+        """
         # Seed the dedup set with uuids the inline metrics must not collide with:
         # - any saved-metric uuids referenced via saved_metrics_ids (their query.uuid
         #   appears in the ordering arrays, so any inline copy must be regenerated).
@@ -1291,13 +1283,26 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        self.validate_metric_action_ids(metrics, self.team.id)
-        self.validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team, user=self.user)
+        validate_metric_action_ids(metrics_secondary, self.team, user=self.user)
+        validate_metric_action_ids(
+            self._collect_saved_metric_queries(saved_metrics_ids), self.team, user=self.user, require_existing=False
+        )
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
+        validate_experiment_warehouse_native_sources(
+            exposure_criteria=exposure_criteria,
+            metrics=[
                 *(metrics or []),
                 *(metrics_secondary or []),
                 *self._collect_saved_metric_queries(saved_metrics_ids),
@@ -1307,8 +1312,11 @@ class ExperimentService:
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
+        self._reject_live_create_under_launch_policy(is_draft)
+        if not is_draft:
+            self._reject_warehouse_native_launch(exposure_criteria)
 
-        feature_flag, used_variants = self._ensure_feature_flag(
+        ensured = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
             experiment_name=name,
             feature_flag_config=feature_flag_config,
@@ -1316,7 +1324,13 @@ class ExperimentService:
             is_draft=is_draft,
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
+            feature_flag_rule_id=feature_flag_rule_id,
         )
+        feature_flag, used_variants, rule = ensured.feature_flag, ensured.variants, ensured.rule
+        if rule is not None:
+            self._validate_rule_linked_create(
+                type=type, holdout=holdout, exposure_criteria=exposure_criteria, is_draft=is_draft
+            )
 
         # Validate the baseline against the variants the flag actually ends up with.
         # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
@@ -1343,45 +1357,34 @@ class ExperimentService:
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
 
-        stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
+        # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
+        if (
+            creation_mode == "new"
+            and running_time_calculation.get("minimum_detectable_effect") is None
+            and team_config.default_minimum_detectable_effect is not None
+        ):
+            running_time_calculation = {
+                **running_time_calculation,
+                "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
+            }
+
+        calculation_settings = ExperimentCalculationSettings.from_configuration(
+            team=self.team,
+            feature_flag=feature_flag,
+            start_date=start_date,
+            stats_config=stats_config,
+            exposure_criteria=exposure_criteria,
+            only_count_matured_users=only_count_matured_users,
+            excluded_variants=excluded_variants,
+            team_config=team_config,
+            rule=rule,
+        )
         if metrics is not None:
-            for metric in metrics:
-                metric["fingerprint"] = compute_metric_fingerprint(
-                    metric,
-                    start_date,
-                    stats_method,
-                    exposure_criteria,
-                    only_count_matured_users=only_count_matured_users,
-                    excluded_variants=excluded_variants,
-                )
+            metrics = stamp_calculation_keys(metrics, "primary", calculation_settings)
         if metrics_secondary is not None:
-            for metric in metrics_secondary:
-                metric["fingerprint"] = compute_metric_fingerprint(
-                    metric,
-                    start_date,
-                    stats_method,
-                    exposure_criteria,
-                    only_count_matured_users=only_count_matured_users,
-                    excluded_variants=excluded_variants,
-                )
+            metrics_secondary = stamp_calculation_keys(metrics_secondary, "secondary", calculation_settings)
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
-
-        if metrics is not None:
-            primary_ordering = list(primary_metrics_ordered_uuids or [])
-            for metric in metrics:
-                if uuid := metric.get("uuid"):
-                    if uuid not in primary_ordering:
-                        primary_ordering.append(uuid)
-            primary_metrics_ordered_uuids = primary_ordering
-
-        if metrics_secondary is not None:
-            secondary_ordering = list(secondary_metrics_ordered_uuids or [])
-            for metric in metrics_secondary:
-                if uuid := metric.get("uuid"):
-                    if uuid not in secondary_ordering:
-                        secondary_ordering.append(uuid)
-            secondary_metrics_ordered_uuids = secondary_ordering
 
         create_kwargs: dict[str, Any] = {
             "team": self.team,
@@ -1414,6 +1417,8 @@ class ExperimentService:
             "conclusion_comment": conclusion_comment,
             "repository": repository,
         }
+        if rule is not None:
+            create_kwargs["feature_flag_rule_id"] = UUID(rule.rule_id)
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder
 
@@ -1425,7 +1430,6 @@ class ExperimentService:
         if saved_metrics_ids:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
-        self._validate_metric_ordering_on_create(experiment)
         # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
         # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
         transaction.on_commit(
@@ -1435,6 +1439,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         )
 
@@ -1448,6 +1453,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
@@ -1457,7 +1463,15 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
+            if experiment.start_date is not None and not _is_imported_concluded(experiment):
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="create_request",
+                    request=serializer_context.get("request") if serializer_context else None,
+                    event_source=event_source,
+                )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
@@ -1472,17 +1486,21 @@ class ExperimentService:
         *,
         request: Any | None,
         extra_metadata: dict[str, Any] | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
         """Emit a lifecycle analytics event with the experiment's standard metadata.
 
-        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
-        module-level name so tests can patch it at this module's path.
+        No-ops for a caller that has neither a ``request`` nor an ``event_source``.
+        ``report_user_action`` is referenced as a module-level name so tests can patch it at this
+        module's path.
         """
-        if request is None:
+        if request is None and event_source is None:
             return
         metadata = experiment.get_analytics_metadata()
         if extra_metadata:
             metadata.update(extra_metadata)
+        if event_source is not None:
+            metadata["source"] = event_source
         report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
 
     def _report_experiment_created(
@@ -1493,6 +1511,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
@@ -1500,12 +1519,19 @@ class ExperimentService:
 
         analytics_metadata = experiment.get_analytics_metadata()
         analytics_metadata["creation_mode"] = creation_mode
+        analytics_metadata["is_imported"] = _is_imported_concluded(experiment)
+        if experiment.start_date is not None:
+            analytics_metadata["start_date"] = experiment.start_date.isoformat()
+        if experiment.end_date is not None:
+            analytics_metadata["end_date"] = experiment.end_date.isoformat()
         if event_source is not None:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
+        if analytics_properties:
+            analytics_metadata.update(analytics_properties)
 
         report_user_action(
             self.user,
@@ -1519,14 +1545,63 @@ class ExperimentService:
         self,
         experiment: Experiment,
         *,
+        launch_path: ExperimentLaunchPath,
         request: Any | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
-        self._report_lifecycle_event(
-            experiment,
-            "experiment launched",
-            request=request,
-            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
+        # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
+        try:
+            flag_age = timezone.now() - experiment.feature_flag.created_at
+            # No health check reads a feature flag rule yet, so a rule-linked launch reports no findings. The findings
+            # go to PostHog's own analytics, not to the launcher, so the flag's calls are read whatever the launcher may
+            # query.
+            health_context = (
+                None if experiment.is_rule_linked else load_health_context(experiment, can_read_flag_calls=True)
+            )
+            # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
+            findings = (
+                evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings if health_context is not None else ()
+            )
+            self._report_lifecycle_event(
+                experiment,
+                "experiment launched",
+                request=request,
+                event_source=event_source,
+                extra_metadata={
+                    "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    "launch_path": launch_path,
+                    "is_backdated": experiment.start_date is not None
+                    and timezone.now() - experiment.start_date > BACKDATED_LAUNCH_THRESHOLD,
+                    "flag_age_seconds": int(flag_age.total_seconds()),
+                    # The launch doesn't move `last_called_at`, so this is the state before the launch, and the only
+                    # time it is recorded: a later call overwrites it. None when the organization's calls can't be read.
+                    "flag_called_before_launch": health_context.flag_called if health_context is not None else None,
+                    "health_finding_codes": [finding.code.value for finding in findings],
+                    # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
+                    # unambiguous when two codes use the same subcode.
+                    "health_finding_subcodes": [
+                        f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
+                    ],
+                    "health_findings": [_tracked_health_finding(finding) for finding in findings],
+                    "health_finding_count": len(findings),
+                },
+            )
+        except Exception:
+            logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
+
+    @staticmethod
+    def _notify_experiment_launched(experiment: Experiment) -> None:
+        responses = experiment_launched.send_robust(
+            sender=Experiment, team_id=experiment.team_id, experiment_id=experiment.id
         )
+        for receiver, response in responses:
+            if isinstance(response, Exception):
+                logger.error(
+                    "experiment_launched_receiver_failed",
+                    receiver=getattr(receiver, "__qualname__", repr(receiver)),
+                    experiment_id=experiment.id,
+                    exc_info=response,
+                )
 
     def _ensure_feature_flag(
         self,
@@ -1537,8 +1612,9 @@ class ExperimentService:
         is_draft: bool,
         create_in_folder: str | None,
         serializer_context: dict | None,
-    ) -> tuple[FeatureFlag, list[dict]]:
-        """Resolve existing flag or create a new one. Returns (flag, variants_used).
+        feature_flag_rule_id: Any | None = None,
+    ) -> "_EnsuredFlag":
+        """Resolve existing flag or create a new one.
 
         ``feature_flag_config`` is the flag's own write shape
         (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
@@ -1547,9 +1623,31 @@ class ExperimentService:
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
+            # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
+            # already owns.
+            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
+            self._assert_flag_access(
+                existing_flag,
+                next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
+            )
+            if detect_config_format(existing_flag.filters).kind == "v2":
+                rule = self._resolve_rule_to_link(existing_flag, feature_flag_rule_id)
+                return _EnsuredFlag(feature_flag=existing_flag, variants=rule.variants, rule=rule)
+            if feature_flag_rule_id is not None:
+                raise ValidationError(
+                    f"feature_flag_rule_id names a rule, and the feature flag {existing_flag.key} has no rules."
+                )
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
-            return existing_flag, variants
+            return _EnsuredFlag(feature_flag=existing_flag, variants=variants)
+
+        if feature_flag_rule_id is not None:
+            raise ValidationError(
+                "feature_flag_rule_id names a rule of an existing feature flag, and no feature flag has the key "
+                f"{feature_flag_key}."
+            )
+
+        self._assert_flag_access()
 
         config = feature_flag_config or {}
         config_filters = config.get("filters") or {}
@@ -1568,15 +1666,14 @@ class ExperimentService:
         # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
         # and any future key — is applied as-is so nothing the serializer accepted is
         # silently dropped.
-        feature_flag_filters = set_holdout(
+        feature_flag_filters = _apply_holdout(
             {
                 "aggregation_group_type_index": None,
                 **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                 "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
                 "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             },
-            holdout_id=holdout.id if holdout else None,
-            exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+            holdout,
         )
 
         feature_flag_data: dict[str, Any] = {
@@ -1600,7 +1697,137 @@ class ExperimentService:
             request=(serializer_context or {}).get("request"),
         )
 
-        return feature_flag, variants or list(DEFAULT_VARIANTS)
+        return _EnsuredFlag(feature_flag=feature_flag, variants=variants or list(DEFAULT_VARIANTS))
+
+    def _resolve_rule_to_link(self, feature_flag: FeatureFlag, requested_rule_id: Any | None) -> ExperimentRuleConfig:
+        """The experiment rule of a config version 2 flag that a new experiment links.
+
+        Without a requested ID the flag must have exactly one experiment rule. A rule runs one experiment,
+        so a rule that an experiment already holds is refused, also when that experiment is deleted: its
+        exposures carry the same rule ID.
+        """
+        try:
+            rule_ids = experiment_rule_ids(feature_flag.filters or {})
+            if requested_rule_id is not None:
+                rule_id = str(requested_rule_id)
+            elif len(rule_ids) == 1:
+                rule_id = rule_ids[0]
+            elif not rule_ids:
+                raise ValidationError(
+                    f"The feature flag {feature_flag.key} has no experiment rule. Add one to the flag first."
+                )
+            else:
+                raise ValidationError(
+                    f"The feature flag {feature_flag.key} has {len(rule_ids)} experiment rules. "
+                    f"Name one with feature_flag_rule_id: {', '.join(rule_ids)}."
+                )
+            rule = experiment_rule_from_snapshot(build_rule_snapshot(feature_flag, rule_id))
+        except ExperimentRuleError as error:
+            raise ValidationError(str(error)) from error
+        eligibility_error = experiment_eligibility_error(rule.variants)
+        if eligibility_error:
+            raise ValidationError(eligibility_error)
+        holder = Experiment.objects.filter(feature_flag_rule_id=rule.rule_id).only("id", "team_id").first()
+        if holder is not None:
+            named = f"experiment {holder.id}" if holder.team_id == self.team.id else "another experiment"
+            raise ValidationError(
+                f"The rule {rule.rule_id} of the feature flag {feature_flag.key} already belongs to {named}. "
+                "A rule runs one experiment. Add another experiment rule to the flag for a new experiment."
+            )
+        return rule
+
+    @staticmethod
+    def _validate_rule_linked_create(
+        *, type: str, holdout: ExperimentHoldout | None, exposure_criteria: dict | None, is_draft: bool
+    ) -> None:
+        """What a new experiment on a feature flag rule cannot have yet."""
+        if type == "web":
+            raise ValidationError("A web experiment cannot run on a feature flag rule.")
+        if holdout is not None:
+            raise ValidationError(
+                "A shared holdout cannot apply to an experiment on a feature flag rule. "
+                "Set the holdout on the rule instead."
+            )
+        if not is_draft:
+            raise ValidationError(
+                "An experiment on a feature flag rule cannot be created with a start date. "
+                "Create it as a draft, then launch it."
+            )
+        criteria_error = rule_exposure_criteria_error(exposure_criteria)
+        if criteria_error is not None:
+            raise ValidationError(criteria_error)
+
+    def _reject_live_create_under_launch_policy(self, is_draft: bool) -> None:
+        """Refuse creating an already-running experiment when launching one needs approval.
+
+        A create mints the flag before the experiment row exists, so the flag is unowned for that
+        instant and `experiment.launch` cannot see it. Gating the create instead is not the
+        answer: a change request replays a flag write, and there is no experiment yet for that
+        write to belong to. So refuse, and point at the draft-then-launch route, where the launch
+        is reviewed.
+
+        Only reachable through the API. The experiment form sends no start date, so every
+        experiment it creates is a draft.
+
+        Existence of the policy decides, not evaluation of it, which mirrors the flag API's own
+        refusal of a write it cannot send for approval. A caller who could bypass the launch
+        approval is refused here too, because the create carries no intent to evaluate conditions
+        or a bypass against, and refusing is the direction that cannot leak an unreviewed launch.
+        """
+        if is_draft:
+            return
+        organization = self.team.organization
+        if not organization.is_feature_available(AvailableFeature.APPROVALS):
+            # Without the feature the gate admits every flag write, so there is no review to protect.
+            return
+        if not scope_by_owner_enabled(organization):
+            # The flag family still gates this create until the organization scopes policies by
+            # flag owner, so there is nothing for this guard to add.
+            return
+        if PolicyEngine().get_policy_for_action(LaunchExperimentAction, self.team, organization) is None:
+            return
+        raise ValidationError(
+            "Launching an experiment needs approval in this project. "
+            "Create the experiment as a draft, then launch it to request approval."
+        )
+
+    def _assert_flag_access(
+        self,
+        feature_flag: FeatureFlag | None = None,
+        *,
+        next_step: str = "This experiment can't be changed without it. Ask someone with flag access.",
+    ) -> None:
+        """Enforce the flag API's own access control before an experiment write touches a flag.
+
+        Every such write reaches the flag facade, which enforces no access control, so without this
+        check experiment editor access substitutes for flag access. A caller could adopt a flag they
+        are denied, mint one where flag writes are refused, or drive an existing flag's `active`
+        state and release targeting through the experiment lifecycle. Pass `feature_flag` to check
+        editing that flag, or omit it to check creating a new one. `self.team` is the flag's team on
+        every path, including a cross-project copy, which re-instantiates the service against the
+        target. This mirrors `assert_feature_flag_rbac_access`, which covers the same two branches
+        for early access features.
+
+        Call it before the action's first side effect, not just before the flag write. Freezing
+        exposure builds a snapshot cohort first, and a refusal after that point leaves the cohort
+        behind.
+
+        Synthetic principals (project secret API keys) and userless system writes bypass
+        access control everywhere else, so they are not evaluated here either.
+        """
+        if not isinstance(self.user, User):
+            return
+        if feature_flag is not None:
+            if not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+                raise PermissionDenied(
+                    f"You don't have editor access to the feature flag {feature_flag.key}. {next_step}"
+                )
+            return
+        if not user_can_create_flags(team=self.team, user=self.user):
+            raise PermissionDenied(
+                "An experiment needs a feature flag, and you don't have access to create feature flags. "
+                "Ask someone with flag access."
+            )
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:
         """Validate that an existing feature flag is suitable for experiment use."""
@@ -1621,6 +1848,14 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
+    @staticmethod
+    def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
+        """A launched experiment runs every recalculation trigger, and which of them may query the customer's
+        warehouse is not decided yet. The exposure stands for the experiment: a warehouse-native experiment
+        always has one."""
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
+
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
 
@@ -1631,6 +1866,45 @@ class ExperimentService:
         self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
         self._assert_web_experiment_has_control(experiment.type, self._variant_keys(feature_flag.variants))
+
+    def _validate_rule_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
+        """The launch guards of a rule-linked experiment. Its rule can change after the create, so the
+        launch reads it again: it must still be an experiment rule of the flag with a usable variant set."""
+        self._assert_flag_not_deleted_for_launch(feature_flag)
+        eligibility_error = experiment_eligibility_error(self._flag_variants(experiment))
+        if eligibility_error:
+            raise ValidationError(eligibility_error)
+        criteria_error = rule_exposure_criteria_error(experiment.exposure_criteria)
+        if criteria_error is not None:
+            raise ValidationError(criteria_error)
+
+    @classmethod
+    def _locked_rule_snapshot(cls, experiment: Experiment, *, validated_variant_keys: list[str]) -> dict[str, Any]:
+        """The snapshot that a launch stores, read from the flag row under a lock. A flag write takes
+        the same lock, so the snapshot is the rule as it is when the experiment starts.
+
+        The launch validated the baseline and the excluded variants against `validated_variant_keys`
+        before it took the lock. A rule that holds other variants by now fails the launch, so that the
+        stored snapshot is the rule those checks passed on.
+        """
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
+        if feature_flag is None:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        try:
+            snapshot = build_rule_snapshot(feature_flag, experiment.feature_flag_rule_id)
+            locked_variant_keys = cls._variant_keys(experiment_rule_from_snapshot(snapshot).variants)
+        except (ExperimentRuleError, ConfigFormatError) as error:
+            raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
+        if locked_variant_keys != validated_variant_keys:
+            raise ValidationError(
+                "The variants of this experiment's feature flag rule changed during the launch. "
+                "Launch the experiment again."
+            )
+        return snapshot
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -1644,11 +1918,9 @@ class ExperimentService:
         in ``seen`` (used to share a single uniqueness space across primary +
         secondary metric lists, plus saved-metric query uuids).
 
-        Ordering arrays don't need a remap from this function: the first occurrence
-        of a duplicated uuid keeps its original value, so existing ordering entries
-        stay valid; regenerated duplicates are handled as new additions by
-        ``_sync_ordering_with_metric_changes`` (update path) or by the append loop
-        in ``create_experiment``.
+        Ordering arrays need no remap from this function: the first occurrence of a
+        duplicated uuid keeps its original value, so existing ordering entries stay
+        valid, and a regenerated duplicate ranks last until someone reorders.
 
         Callers pass dicts by reference, so we deepcopy to avoid leaking the
         generated uuid back into their data.
@@ -1693,6 +1965,14 @@ class ExperimentService:
                 seen.add(uuid)
         return seen
 
+    @staticmethod
+    def _linked_saved_metric_queries(experiment: Experiment) -> list[dict]:
+        return [
+            link.saved_metric.query
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+            if link.saved_metric.query
+        ]
+
     def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
         """Query definitions of the attached saved metrics, so their tables get the same warehouse
         access check as inline metrics."""
@@ -1727,31 +2007,6 @@ class ExperimentService:
             metric["uuid"] = new_uuid
         return prepared, remap
 
-    @staticmethod
-    def _recompute_fingerprints(
-        metrics: list[dict],
-        start_date: datetime | None,
-        stats_config: dict | None,
-        exposure_criteria: dict | None,
-        only_count_matured_users: bool = False,
-        excluded_variants: list[str] | None = None,
-    ) -> list[dict]:
-        """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
-        stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
-        updated = []
-        for metric in metrics:
-            metric_copy = deepcopy(metric)
-            metric_copy["fingerprint"] = compute_metric_fingerprint(
-                metric_copy,
-                start_date,
-                stats_method,
-                exposure_criteria,
-                only_count_matured_users=only_count_matured_users,
-                excluded_variants=excluded_variants,
-            )
-            updated.append(metric_copy)
-        return updated
-
     def _get_team_experiments_config(self) -> TeamExperimentsConfig:
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
@@ -1779,10 +2034,7 @@ class ExperimentService:
 
     def _apply_exposure_criteria_defaults(self, exposure_criteria: dict | None) -> dict:
         """Apply default exposure criteria if not provided."""
-        result = dict(exposure_criteria or {})
-        if result.get("filterTestAccounts") is None:
-            result["filterTestAccounts"] = True
-        return result
+        return apply_exposure_criteria_defaults(exposure_criteria)
 
     def _apply_web_variants(self, experiment: Experiment, variants: list[dict]) -> None:
         """Copy variant rollout data to web experiment."""
@@ -1800,7 +2052,7 @@ class ExperimentService:
         saved_metrics_ids: list[dict],
         serializer_context: dict | None,
     ) -> None:
-        """Create saved metric junction records and sync ordering."""
+        """Create saved metric junction records."""
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
@@ -1815,106 +2067,6 @@ class ExperimentService:
             saved_metric_serializer.is_valid(raise_exception=True)
             saved_metric_serializer.save()
 
-        primary_ordering = list(experiment.primary_metrics_ordered_uuids or [])
-        secondary_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
-        ordering_changed = False
-
-        saved_metric_id_list = [sm["id"] for sm in saved_metrics_ids]
-        saved_metrics_map = {
-            sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_id_list, team_id=self.team.id)
-        }
-
-        for sm_data in saved_metrics_ids:
-            saved_metric = saved_metrics_map.get(sm_data["id"])
-            if saved_metric and saved_metric.query:
-                if uuid := saved_metric.query.get("uuid"):
-                    metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
-                    if metric_type == "primary":
-                        if uuid not in primary_ordering:
-                            primary_ordering.append(uuid)
-                            ordering_changed = True
-                    else:
-                        if uuid not in secondary_ordering:
-                            secondary_ordering.append(uuid)
-                            ordering_changed = True
-
-        if ordering_changed:
-            experiment.primary_metrics_ordered_uuids = primary_ordering
-            experiment.secondary_metrics_ordered_uuids = secondary_ordering
-            experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
-
-    @staticmethod
-    def _saved_metric_uuids_by_type(
-        query_metadata_pairs: Iterable[tuple[dict | None, dict | None]],
-    ) -> dict[str, set[str]]:
-        """Group saved-metric query uuids into ``{"primary": set, "secondary": set}``.
-
-        A link's metric type comes from its metadata (``metadata["type"]``), defaulting to
-        ``"primary"``; anything that isn't ``"primary"`` counts as secondary. Pairs with no query
-        or no uuid are skipped.
-        """
-        by_type: dict[str, set[str]] = {"primary": set(), "secondary": set()}
-        for query, metadata in query_metadata_pairs:
-            if not query:
-                continue
-            uuid = query.get("uuid")
-            if not uuid:
-                continue
-            metric_type = (metadata or {}).get("type", "primary")
-            by_type["primary" if metric_type == "primary" else "secondary"].add(uuid)
-        return by_type
-
-    def _assert_ordering_covers_metrics(
-        self,
-        *,
-        primary_metrics: list[dict],
-        secondary_metrics: list[dict],
-        saved_metric_links: list,
-        primary_ordering: list[str] | None,
-        secondary_ordering: list[str] | None,
-    ) -> None:
-        """Assert each ordering array contains every UUID of its metrics (inline + saved).
-
-        Shared by the create and update paths, which differ only in where the metrics and
-        ordering arrays are sourced from.
-        """
-        expected_primary = {uuid for m in primary_metrics if (uuid := m.get("uuid"))}
-        expected_secondary = {uuid for m in secondary_metrics if (uuid := m.get("uuid"))}
-
-        saved_by_type = self._saved_metric_uuids_by_type(
-            (link.saved_metric.query, link.metadata) for link in saved_metric_links
-        )
-        expected_primary |= saved_by_type["primary"]
-        expected_secondary |= saved_by_type["secondary"]
-
-        for field_name, metric_label, expected_uuids, ordering in (
-            ("primary_metrics_ordered_uuids", "primary", expected_primary, primary_ordering),
-            ("secondary_metrics_ordered_uuids", "secondary", expected_secondary, secondary_ordering),
-        ):
-            if not expected_uuids:
-                continue
-            if ordering is None:
-                raise ValidationError(
-                    f"{field_name} is null but {metric_label} metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_uuids - set(ordering)
-            if missing:
-                raise ValidationError(
-                    f"{field_name} is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-    def _validate_metric_ordering_on_create(self, experiment: Experiment) -> None:
-        """Validate that ordering arrays contain all metric UUIDs (create path)."""
-        self._assert_ordering_covers_metrics(
-            primary_metrics=experiment.metrics or [],
-            secondary_metrics=experiment.metrics_secondary or [],
-            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
-            primary_ordering=experiment.primary_metrics_ordered_uuids,
-            secondary_ordering=experiment.secondary_metrics_ordered_uuids,
-        )
-
     # ------------------------------------------------------------------
     # Launch
     # ------------------------------------------------------------------
@@ -1925,19 +2077,28 @@ class ExperimentService:
     # is flipped through the gate first, so an ApprovalRequired aborts before any
     # experiment mutation.
     def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
+        """Launch a draft experiment: validate readiness, set start_date, activate feature flag.
+
+        A rule-linked experiment does not touch its flag. Its launch stores the snapshot of its rule,
+        which its results read from then on.
+        """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
+        self._reject_warehouse_native_launch(experiment.exposure_criteria)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        self._validate_flag_for_launch(experiment, feature_flag)
+        self._assert_flag_access(feature_flag)
+        if experiment.is_rule_linked:
+            self._validate_rule_for_launch(experiment, feature_flag)
+        else:
+            self._validate_flag_for_launch(experiment, feature_flag)
 
         # The flag may have lost 'control' since create (out-of-band edit), so pin the
         # inferred baseline before it goes live — the fingerprints below and all later
         # results must not depend on variant order. A dangling configured baseline is
         # rejected rather than silently launched with uncomputable results.
-        flag_variant_keys = self._variant_keys(feature_flag.variants)
+        flag_variant_keys = self._variant_keys(self._flag_variants(experiment))
         self.validate_stats_config(experiment.stats_config, flag_variant_keys)
         experiment.stats_config = self._materialize_baseline_variant_key(experiment.stats_config, flag_variant_keys)
         if experiment.excluded_variants:
@@ -1950,12 +2111,16 @@ class ExperimentService:
         # Activate the feature flag through the approval gate first. If approval is
         # required this raises ApprovalRequired (-> 409) before we touch the experiment,
         # so start_date stays None and the experiment is not launched.
-        set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
+        # A rule-linked experiment is one rule of a flag that can serve others, so its launch leaves
+        # the flag as it is. Turning that flag on stays a flag write, with the flag's own review.
+        if not experiment.is_rule_linked:
+            set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
 
         # Set start_date and persist under the experiment row lock. Refresh the metric
         # collections from the locked row first so fingerprints recompute against the current
         # metrics and the launch save can't revert a metric edit another writer committed
         # since this request loaded the experiment.
+        update_fields = ["start_date", "stats_config", "metrics", "metrics_secondary", "version", "updated_at"]
         with transaction.atomic():
             locked_version = (
                 Experiment.objects.select_for_update()
@@ -1965,38 +2130,30 @@ class ExperimentService:
                 or 0
             )
             experiment.refresh_from_db(fields=["metrics", "metrics_secondary"])
+            if experiment.is_rule_linked:
+                # A launch that lost a race to another one must not replace the snapshot the first stored.
+                if Experiment.objects.filter(pk=experiment.pk, start_date__isnull=False).exists():
+                    raise ValidationError("Experiment has already been launched.")
+                # Before the start date, so that the fingerprints below read the snapshot too.
+                experiment.feature_flag_rule_snapshot = self._locked_rule_snapshot(
+                    experiment, validated_variant_keys=flag_variant_keys
+                )
+                update_fields.append("feature_flag_rule_snapshot")
             experiment.start_date = timezone.now()
 
             # Recompute metric fingerprints with the new start_date
-            for metric_field in ["metrics", "metrics_secondary"]:
+            calculation_settings = ExperimentCalculationSettings.from_experiment(experiment)
+            for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = getattr(experiment, metric_field, None)
                 if metrics:
-                    setattr(
-                        experiment,
-                        metric_field,
-                        self._recompute_fingerprints(
-                            metrics,
-                            experiment.start_date,
-                            experiment.stats_config,
-                            experiment.exposure_criteria,
-                            excluded_variants=experiment.excluded_variants or [],
-                        ),
-                    )
+                    setattr(experiment, metric_field, stamp_calculation_keys(metrics, role, calculation_settings))
 
             experiment.version = locked_version + 1
             # stats_config carries the baseline-variant pin materialized above; persist it too.
-            experiment.save(
-                update_fields=[
-                    "start_date",
-                    "stats_config",
-                    "metrics",
-                    "metrics_secondary",
-                    "version",
-                    "updated_at",
-                ]
-            )
+            experiment.save(update_fields=update_fields)
 
-        self._report_experiment_launched(experiment, request=request)
+        self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
+        self._notify_experiment_launched(experiment)
 
         return experiment
 
@@ -2027,6 +2184,10 @@ class ExperimentService:
             raise ValidationError("Experiment is already archived.")
         if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
+        if disable_feature_flag:
+            self._reject_rule_linked(
+                experiment, "disabling its feature flag with the archive", instead="Disable the feature flag itself."
+            )
 
         experiment.archived = True
         self._bump_version_and_save(experiment, update_fields=["archived"])
@@ -2064,6 +2225,9 @@ class ExperimentService:
         routed through the change-request flow). The implicit archive-only cleanup is
         skipped silently when the caller lacks access — the experiment still archives.
         """
+        # A rule-linked experiment is one rule of its flag, so the flag does not follow its archive.
+        if experiment.is_rule_linked:
+            return
         # Lock the row so a concurrent enable can't slip in between the check and the save,
         # which would produce an archived flag that is still active.
         feature_flag = (
@@ -2094,7 +2258,7 @@ class ExperimentService:
             # A side-effect mutation can't be routed through the change-request flow (this runs
             # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
             # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
-            if flag_disable_requires_approval(self.team):
+            if flag_disable_requires_approval(feature_flag.id, team=self.team):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
@@ -2157,7 +2321,8 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -2174,6 +2339,18 @@ class ExperimentService:
             return
 
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            return
+
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
             return
 
         # Gated write inside unarchive_experiment's transaction: safe because an
@@ -2197,12 +2374,14 @@ class ExperimentService:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
+        self._reject_rule_linked(experiment, "pausing", instead="Pause the rule on the feature flag instead.")
 
         feature_flag = experiment.feature_flag
         if feature_flag is None:
             raise ValidationError("Experiment does not have a feature flag linked.")
         if not feature_flag.active:
             raise ValidationError("Experiment is already paused.")
+        self._assert_flag_access(feature_flag)
 
         # Deactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # pause before we report it, leaving the flag active.
@@ -2236,12 +2415,16 @@ class ExperimentService:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
+        self._reject_rule_linked(
+            experiment, "resuming", instead="Turn the feature flag on, or resume the rule on the feature flag."
+        )
 
         feature_flag = experiment.feature_flag
         if feature_flag is None:
             raise ValidationError("Experiment does not have a feature flag linked.")
         if feature_flag.active:
             raise ValidationError("Experiment is not paused.")
+        self._assert_flag_access(feature_flag)
 
         # Reactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # resume before we report it, leaving the flag paused.
@@ -2314,6 +2497,9 @@ class ExperimentService:
         freeze_started_at = time.monotonic()
 
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
+        # The access check runs first so a caller who may not narrow the flag never pays for the
+        # scan, and never leaves a snapshot cohort behind.
+        self._assert_flag_access(experiment.feature_flag)
         self._validate_freeze_exposure_state(experiment)
         # Separate checkpoint so scan_ms measures only the ClickHouse scan — the guard above can
         # lazy-load the flag row, and folding that into scan_ms would misattribute it.
@@ -2375,15 +2561,19 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
-                # but flag approval policies are intentionally field-level and scoped to `active`
-                # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
-                # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
+                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
+                # The `feature_flag.update` policy gates release condition changes on standalone flags
+                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
+                # are gated here (see UpdateFeatureFlagAction in
+                # products/approvals/backend/actions/feature_flags.py).
                 # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
                 # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
-                # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
+                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Mark the write as freeze-driven so the flag's log entry does not read as
+                # a manual targeting edit.
+                locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
                 update_flag(
                     locked_flag,
                     {"filters": new_filters},
@@ -2614,8 +2804,8 @@ class ExperimentService:
         The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
         round-trip through the flag API and are therefore user-editable — treat them as claims,
         not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
-        and no longer referenced by any active flag (the same protection the cohort API enforces
-        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        and no longer referenced by any flag that blocks its deletion through the cohort API.
+        Anything failing verification is skipped rather than fatal — a leftover
         cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
         """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
@@ -2627,12 +2817,12 @@ class ExperimentService:
                     reason="not_a_freeze_snapshot_name",
                 )
                 continue
-            if get_active_flags_using_cohort(cohort):
+            if get_flags_blocking_cohort_deletion(cohort):
                 logger.warning(
                     "experiment_freeze_snapshot_cleanup_skipped",
                     cohort_id=cohort.pk,
                     team_id=self.team.pk,
-                    reason="still_referenced_by_active_flags",
+                    reason="still_referenced_by_flags",
                 )
                 continue
             cohort.deleted = True
@@ -2660,8 +2850,10 @@ class ExperimentService:
             raise ValidationError("Experiment exposure is not frozen.")
 
         flag = experiment.feature_flag
+        self._assert_flag_access(flag)
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
@@ -2741,21 +2933,6 @@ class ExperimentService:
 
         return experiment
 
-    def _cleanup_pr_flag_enabled(self) -> bool:
-        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
-        # customer team by passing it as the "project" group and targeting that group's id on the flag.
-        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
-        return bool(
-            posthoganalytics.feature_enabled(
-                EXPERIMENT_CLEANUP_PR_FLAG,
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                group_properties={"project": {"id": str(self.team.id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _maybe_open_cleanup_pr(
         self,
         experiment: Experiment,
@@ -2763,8 +2940,8 @@ class ExperimentService:
         requested_repository: str | None = None,
         set_repository_as_team_default: bool = False,
     ) -> CleanupRequestSummary:
-        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
-        experiment's feature-flag code, via the Tasks engine.
+        """When opted in (the checkbox), open a draft PR that removes the experiment's feature-flag
+        code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
         break ending an experiment.
@@ -2782,8 +2959,9 @@ class ExperimentService:
             if not conclusion:
                 summary["skip_reason"] = "no_conclusion"
                 return summary
-            if not self._cleanup_pr_flag_enabled():
-                summary["skip_reason"] = "flag_disabled"
+            if experiment.is_rule_linked:
+                # The cleanup plan removes a whole flag from the code, and this flag can serve other rules.
+                summary["skip_reason"] = "flag_rule"
                 return summary
 
             flag_key = experiment.get_feature_flag_key()
@@ -2821,7 +2999,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
                         repository=repository,
                         create_pr=True,
@@ -2877,19 +3055,9 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
-        )
-        if github is None:
+        cached = tasks_repo_selection.team_repository_names(experiment.team_id, team=experiment.team)
+        if cached is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
         candidates = sorted(cached.values(), key=str.lower)
         if not cached:
             # An integration with nothing to target is as good as none — without this, a
@@ -2955,24 +3123,28 @@ class ExperimentService:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
 
         # Look up whether the primary metric reached significance from the
-        # latest cached result in Postgres (ExperimentMetricResult). This is
+        # current stored result in Postgres (ExperimentMetricResult). This is
         # safe to call here because it's a simple indexed lookup — it reads
         # previously cached results, never triggers a ClickHouse query or
         # result computation. Returns None immediately if no results exist yet.
         try:
-            first_metric = experiment.metrics[0] if experiment.metrics else None
-            if first_metric and first_metric.get("uuid"):
-                metric_result = (
-                    ExperimentMetricResult.objects.filter(
-                        experiment=experiment,
-                        metric_uuid=first_metric["uuid"],
-                        status=ExperimentMetricResult.Status.COMPLETED,
-                    )
-                    .order_by("-completed_at")
-                    .first()
-                )
-                if metric_result and metric_result.result:
-                    completed_metadata["significant"] = metric_result.result.get("significant", False)
+            primary_metric = next(iter(build_primary_calculation_configs(experiment)), None)
+            outcome = (
+                MetricResultStore(experiment_id=experiment.id).current_outcome(primary_metric)
+                if primary_metric is not None
+                else None
+            )
+            if outcome is not None:
+                # Significance lives on each variant. The top-level `significant` is a legacy
+                # field that stored results leave null. A variant's value is null when
+                # validation stopped the analysis, so only computed values decide.
+                computed = [
+                    variant["significant"]
+                    for variant in outcome.variant_results
+                    if isinstance(variant.get("significant"), bool)
+                ]
+                if computed:
+                    completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
@@ -3047,6 +3219,11 @@ class ExperimentService:
         """
         if experiment.is_draft:
             raise ValidationError("Experiment is already in draft state.")
+        # The rule snapshot is written once, at the first start. A reset would let a second launch replace it,
+        # while the events of both runs carry the same rule ID.
+        self._reject_rule_linked(
+            experiment, "resetting", instead="Create a new experiment on a new experiment rule instead."
+        )
 
         # Lock the experiment row before _clear_frozen_exposure locks the flag row, so every
         # transaction that holds both locks acquires them experiment-then-flag and can't
@@ -3085,6 +3262,16 @@ class ExperimentService:
 
         return experiment
 
+    @staticmethod
+    def _exposure_freeze_trigger(experiment: Experiment, *, frozen: bool) -> Trigger:
+        """Trigger for a freeze-driven flag rewrite. job_type stays in sync with the
+        describer in frontend/src/scenes/feature-flags/activityDescriptions.tsx."""
+        return Trigger(
+            job_type="experiment_exposure_frozen" if frozen else "experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
+
     def _clear_frozen_exposure(self, experiment: Experiment, *, request: Any | None) -> None:
         """Strip the exposure-freeze narrowing (if any) off the experiment's flag and drop the
         snapshot cohorts.
@@ -3107,7 +3294,10 @@ class ExperimentService:
         if stripped_filters == (flag.filters or {}):
             return
 
+        # The reset strips the freeze narrowing, so tag the write like an unfreeze.
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
+            self._assert_flag_access(flag)
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
             # Non-HTTP callers have no acting user: a system write (user=None) skips the
@@ -3165,10 +3355,14 @@ class ExperimentService:
         """
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
+        self._reject_rule_linked(
+            experiment, "shipping a variant", instead="End the experiment, then replace the rule on the feature flag."
+        )
 
         flag = experiment.feature_flag
         if not flag:
             raise ValidationError("Experiment does not have a linked feature flag.")
+        self._assert_flag_access(flag)
 
         # A frozen experiment's release groups carry a machine-added snapshot-cohort condition.
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
@@ -3216,6 +3410,22 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
             shipped_fields.append("conclusion_comment")
         self._bump_version_and_save(experiment, update_fields=shipped_fields)
+
+        # The flag rewrite logs under the FeatureFlag scope and the experiment save logs only
+        # end_date/conclusion, so without this entry the History tab never names the shipped variant.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="variant_shipped",
+            detail=Detail(
+                name=experiment.name,
+                changes=[Change(type="Experiment", action="created", field="shipped_variant", after=variant_key)],
+            ),
+        )
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
@@ -3359,7 +3569,7 @@ class ExperimentService:
             ):
                 return False
         for field in ("primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"):
-            if field in update_data and update_data[field] != getattr(experiment, field):
+            if field in update_data and list(update_data[field] or []) != list(getattr(experiment, field) or []):
                 return False
         if saved_metrics_data is not None and _links_by_id(saved_metrics_data) != _links_by_id(
             self._current_saved_metric_link_dicts(experiment)
@@ -3377,8 +3587,8 @@ class ExperimentService:
         """Resolve a stale write (client version behind the row) against the current state.
 
         The metric collections merge per uuid (each metric's server-assigned uuid preserves
-        intent across concurrent edits), and client-supplied ordering arrays are reconciled
-        to the current state — the ordering syncs re-derive the rest. Scalar fields merge
+        intent across concurrent edits), and a client-supplied ordering array is taken as sent,
+        because it is a display hint that ranks unknown uuids last. Scalar fields merge
         per field against their base value in ``original`` (see ``_resolve_scalar_updates``):
         only a same-field double edit conflicts, so background writers bumping the version
         (e.g. the running-time calculator auto-save) don't fail unrelated scalar saves.
@@ -3424,19 +3634,6 @@ class ExperimentService:
                 current_version=current_version,
                 conflicting_metric_uuids=conflict_uuids,
             )
-
-        for ordering_field in ("primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"):
-            client_order = update_data.get(ordering_field)
-            if ordering_field in update_data and client_order is not None:
-                current_order = list(getattr(experiment, ordering_field) or [])
-                current_set = set(current_order)
-                # Keep the client's relative order for uuids that still exist, then append
-                # concurrently-added ones. The ordering syncs layer this request's own
-                # adds/removes on top of this reconciled value.
-                update_data[ordering_field] = [
-                    *(u for u in client_order if u in current_set),
-                    *(u for u in current_order if u not in client_order),
-                ]
 
     def update_experiment(
         self,
@@ -3521,10 +3718,17 @@ class ExperimentService:
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+            saved_metric_uuids = self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            # A stored inline metric can carry the uuid of a shared metric this update links, for
+            # example one promoted from it. Send that list through the uuid assignment below so the
+            # inline copy gets a fresh uuid and the two metrics stop sharing results.
+            for field in ("metrics", "metrics_secondary"):
+                stored_metrics = getattr(experiment, field) or []
+                if field not in update_data and any(m.get("uuid") in saved_metric_uuids for m in stored_metrics):
+                    update_data[field] = deepcopy(stored_metrics)
 
-        # Seed the uniqueness set with uuids that must remain stable in the
-        # ordering arrays — any inline metric reusing one of these gets
-        # regenerated to keep ordering entries unambiguous:
+        # Seed the uniqueness set with uuids an inline metric must not reuse, because results,
+        # fingerprints and the ordering are keyed by uuid:
         # - the stored inline metric list NOT being updated (a primary-only
         #   update must not collide with the stored secondary, and vice versa).
         # - saved-metric query uuids (post-update set: the payload's
@@ -3540,18 +3744,14 @@ class ExperimentService:
                 if uuid := metric.get("uuid"):
                     seen_metric_uuids.add(uuid)
         if "saved_metrics_ids" in update_data:
-            seen_metric_uuids |= self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            seen_metric_uuids |= saved_metric_uuids
         else:
             for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
                 if link.saved_metric.query and (uuid := link.saved_metric.query.get("uuid")):
                     seen_metric_uuids.add(uuid)
 
-        # Regenerated dups don't need an ordering remap: the original uuid is
-        # kept on the incumbent so any ordering reference to it remains valid
-        # (including references to saved-metric uuids that happen to be inlined).
-        # _sync_ordering_with_metric_changes runs later and appends the new
-        # regenerated uuids as additions; _sync_ordering_for_saved_metrics_on_update
-        # handles saved-metric link uuids independently.
+        # Regenerated dups need no ordering remap: the incumbent keeps the original uuid, so an
+        # ordering entry for it stays valid, and the ordering ranks a uuid it does not list last.
 
         # `metrics`/`metrics_secondary` are whole-array fields, so changing one metric
         # means resending them all. A metric already on the experiment has been through
@@ -3560,14 +3760,16 @@ class ExperimentService:
         # sections are pooled: moving a metric between them changes which array holds
         # it, not which entity it references. Read before the update is applied, so
         # these are the stored references.
-        persisted_event_names, persisted_action_ids = self._extract_entity_nodes(
+        persisted_event_names, persisted_action_ids = extract_entity_nodes(
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            self.validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(
+                update_data["metrics"], self.team, user=self.user, known_action_ids=persisted_action_ids
+            )
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3575,15 +3777,31 @@ class ExperimentService:
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
-            self.validate_metric_action_ids(
-                update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
+            validate_metric_action_ids(
+                update_data["metrics_secondary"], self.team, user=self.user, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:
                 self.validate_metric_event_names(
                     update_data["metrics_secondary"], known_event_names=persisted_event_names
                 )
 
-        enforce_warehouse_metric_access(
+        if "saved_metrics_ids" in update_data:
+            _, linked_action_ids = extract_entity_nodes(
+                [
+                    link.saved_metric.query
+                    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+                    if link.saved_metric.query
+                ]
+            )
+            validate_metric_action_ids(
+                self._collect_saved_metric_queries(update_data["saved_metrics_ids"]),
+                self.team,
+                user=self.user,
+                known_action_ids=persisted_action_ids | linked_action_ids,
+                require_existing=False,
+            )
+
+        validate_warehouse_metrics(
             [
                 *(update_data.get("metrics") or []),
                 *(update_data.get("metrics_secondary") or []),
@@ -3592,6 +3810,36 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        # An update keeps the criteria as the client sent them. A filled-in default would move the legacy
+        # calculation key, which hashes the stored criteria, and so reset the results. The warehouse-native
+        # rule is the exception, because the runner refuses the experiment until the setting is stored off.
+        if warehouse_native_exposure_config(update_data.get("exposure_criteria")) is not None:
+            update_data = {
+                **update_data,
+                "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
+            }
+        if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # The rule spans the exposure and every metric, so the fields left out of the update are read
+            # from the experiment. An update that touches none of them skips the check, so a connection
+            # removed later does not block an unrelated edit.
+            if "saved_metrics_ids" in update_data:
+                saved_metric_queries = self._collect_saved_metric_queries(update_data["saved_metrics_ids"])
+            else:
+                saved_metric_queries = self._linked_saved_metric_queries(experiment)
+            validate_experiment_warehouse_native_sources(
+                exposure_criteria=update_data.get("exposure_criteria", experiment.exposure_criteria),
+                metrics=[
+                    *(update_data.get("metrics", experiment.metrics) or []),
+                    *(update_data.get("metrics_secondary", experiment.metrics_secondary) or []),
+                    *saved_metric_queries,
+                ],
+                team=self.team,
+                user=self.user,
+            )
+        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # Covers a draft that launches and a launched experiment that switches its sources.
+            if update_data.get("start_date", experiment.start_date) is not None:
+                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -3632,7 +3880,7 @@ class ExperimentService:
         durable_baseline_pin: dict | None = None
         if stats_config_updated or update_variants is not None or launching:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
-            current_variant_keys = self._variant_keys(feature_flag.variants)
+            current_variant_keys = self._variant_keys(self._flag_variants(experiment))
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
@@ -3715,6 +3963,7 @@ class ExperimentService:
         # as the sync above: an ApprovalRequired must leave the pending
         # ChangeRequest intact rather than roll it back.
         if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_access(feature_flag)
             set_flag_active(feature_flag, True, team=self.team, user=self.user, request=context.get("request"))
 
         with transaction.atomic():
@@ -3765,16 +4014,11 @@ class ExperimentService:
             update_data["version"] = locked_version + 1
 
             # --- saved metrics sync (update-in-place) -----------
-            old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
             if update_saved_metrics:
                 existing_links = {
                     link.saved_metric_id: link
                     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
                 }
-
-                old_saved_metric_uuids = self._saved_metric_uuids_by_type(
-                    (link.saved_metric.query, link.metadata) for link in existing_links.values()
-                )
 
                 new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
                 existing_saved_metric_ids = set(existing_links.keys())
@@ -3823,32 +4067,20 @@ class ExperimentService:
             else:
                 excluded_variants = experiment.excluded_variants or []
 
-            for metric_field in ["metrics", "metrics_secondary"]:
+            calculation_settings = ExperimentCalculationSettings.from_configuration(
+                team=self.team,
+                feature_flag=experiment.feature_flag,
+                start_date=start_date,
+                stats_config=stats_config,
+                exposure_criteria=exposure_criteria,
+                only_count_matured_users=only_count_matured_users,
+                excluded_variants=excluded_variants,
+                rule=settings_rule(experiment),
+            )
+            for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
                 if metrics:
-                    update_data[metric_field] = self._recompute_fingerprints(
-                        metrics,
-                        start_date,
-                        stats_config,
-                        exposure_criteria,
-                        only_count_matured_users=only_count_matured_users,
-                        excluded_variants=excluded_variants,
-                    )
-
-            # --- metric ordering sync + validation -----------------------------
-            # Unlike the pure validations hoisted above the flag write, ordering
-            # validation is coupled to the saved-metrics DB sync (it consumes
-            # old_saved_metric_uuids and the ordering mutations above), so it stays
-            # here. The residual — an invalid explicit ordering array combined with a
-            # flag change in the same request — is far narrower than the hoisted cases.
-            self._sync_ordering_with_metric_changes(experiment, update_data)
-            self._sync_ordering_for_saved_metrics_on_update(
-                experiment,
-                update_data,
-                old_saved_metric_uuids,
-                saved_metrics_data if update_saved_metrics else None,
-            )
-            self._validate_metric_ordering_on_update(experiment, update_data)
+                    update_data[metric_field] = stamp_calculation_keys(metrics, role, calculation_settings)
 
             # --- apply changes and save ----------------------------------------
             # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
@@ -3877,6 +4109,16 @@ class ExperimentService:
                     deprecated_config_changed=deprecated_flag_config_changed,
                 )
 
+        if launching:
+            if not _is_imported_concluded(experiment):
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="update_start_date",
+                    request=report_request,
+                    event_source=event_source,
+                )
+            self._notify_experiment_launched(experiment)
+
         return experiment
 
     def _sync_feature_flag_on_update(
@@ -3903,12 +4145,19 @@ class ExperimentService:
         """
         if not (experiment.is_draft or update_feature_flag_params):
             return
+        # A rule-linked experiment never writes its flag. _validate_update_payload has refused the config.
+        if experiment.is_rule_linked:
+            return
 
         holdout = experiment.holdout
         if "holdout" in update_data:
             holdout = update_data["holdout"]
 
         if feature_flag_config:
+            # Checked per branch, not once above: a draft PATCH that touches neither the flag
+            # config nor the holdout falls through without writing the flag, and must not need
+            # flag access to rename an experiment.
+            self._assert_flag_access(feature_flag)
             config_filters = feature_flag_config.get("filters") or {}
             existing_filters = feature_flag.filters or {}
 
@@ -3930,15 +4179,14 @@ class ExperimentService:
             # merged, and variants always resolve against the flag); every other validated filters
             # key is merged as-is over the flag's current filters, so nothing the serializer
             # accepted is silently dropped.
-            new_filters = set_holdout(
+            new_filters = _apply_holdout(
                 {
                     **existing_filters,
                     **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                     "groups": new_groups,
                     "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
                 },
-                holdout_id=holdout.id if holdout else None,
-                exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+                holdout,
             )
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
@@ -3947,15 +4195,10 @@ class ExperimentService:
 
             update_flag(feature_flag, flag_update_data, team=self.team, user=self.user, request=context.get("request"))
         elif "holdout" in update_data:
+            self._assert_flag_access(feature_flag)
             update_flag(
                 feature_flag,
-                {
-                    "filters": set_holdout(
-                        feature_flag.filters,
-                        holdout_id=holdout.id if holdout else None,
-                        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
-                    )
-                },
+                {"filters": _apply_holdout(feature_flag.filters, holdout)},
                 team=self.team,
                 user=self.user,
                 request=context.get("request"),
@@ -3974,6 +4217,14 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
+            for field_name in ("metrics", "metrics_secondary"):
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4031,12 +4282,26 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
+        # `deleted` is nullable, so a restore is any write that leaves it not true. The flag API
+        # rejects a null before this point, but this service has callers of its own.
+        restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
+        if restoring:
+            assert_experiment_restorable(experiment)
+            # Every flag write in this method runs before the restore reaches the database, so
+            # the flag would still read as owned by nothing and the experiment approval policies
+            # would not match it. Ordering the writes the other way would put the flag change
+            # outside the approval gate it has to pass, so a restore carries nothing else.
+            if feature_flag_config or any(update_data.get(field) is not None for field in ("start_date", "holdout")):
+                raise ValidationError(
+                    "Cannot restore an experiment and change its feature flag in one step. "
+                    "Restore the experiment first, then make the other change."
+                )
+
+        if not experiment.deleted and update_data.get("deleted") is True:
+            assert_experiment_deletable(experiment)
+
+        if experiment.is_rule_linked:
+            self._validate_rule_linked_update(experiment, update_data, feature_flag_config)
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not
@@ -4056,7 +4321,10 @@ class ExperimentService:
             if disallowed_fields:
                 raise ValidationError(
                     f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
-                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
+                    f"To change these, migrate the experiment to the new experiments engine first: "
+                    f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
+                    f"(the experiment-migrate tool). It keeps this experiment and returns a new one."
                 )
 
             # Validate end_date if present
@@ -4121,6 +4389,33 @@ class ExperimentService:
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
 
+    def _validate_rule_linked_update(
+        self, experiment: Experiment, update_data: dict, feature_flag_config: dict | None
+    ) -> None:
+        """What an update of an experiment on a feature flag rule cannot do yet."""
+        if feature_flag_config is not None:
+            self._reject_rule_linked(experiment, "changing the flag config from the experiment")
+        if update_data.get("holdout") is not None:
+            raise ValidationError(
+                "A shared holdout cannot apply to an experiment on a feature flag rule. "
+                "Set the holdout on the rule instead."
+            )
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            # Only the launch action stores the rule snapshot that the results read.
+            raise ValidationError(
+                "An experiment on a feature flag rule starts with the launch action, not with a start date."
+            )
+        if experiment.is_launched and "start_date" in update_data and update_data["start_date"] is None:
+            self._reject_rule_linked(
+                experiment,
+                "clearing the start date",
+                instead="Create a new experiment on a new experiment rule instead.",
+            )
+        if "exposure_criteria" in update_data:
+            criteria_error = rule_exposure_criteria_error(update_data["exposure_criteria"])
+            if criteria_error is not None:
+                raise ValidationError(criteria_error)
+
     # ------------------------------------------------------------------
     # Duplication
     # ------------------------------------------------------------------
@@ -4141,6 +4436,11 @@ class ExperimentService:
         means lifecycle operations on either experiment (pause, ship, etc.) will
         affect both. Callers should provide a unique feature_flag_key.
         """
+        self._reject_rule_linked(
+            source_experiment,
+            "duplicating or copying it",
+            instead="Create a new experiment on another experiment rule instead.",
+        )
         target = target_team or self.team
         is_cross_project = target.id != self.team.id
         if feature_flag_key is None:
@@ -4158,9 +4458,25 @@ class ExperimentService:
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.variants:
+            if existing_flag:
+                # The same adoption and access checks create_experiment applies, taken before the
+                # variants are read so a flag this product cannot use surfaces as a validation error
+                # here too, and a flag the user is denied stays a 403 rather than leaking its shape.
+                assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+                service._assert_flag_access(
+                    existing_flag,
+                    next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
+                )
+                # The key is usually defaulted (source key) or slugified from the name, so a collision
+                # with a flag that can't back an experiment must name the key, not the flag's variants.
+                if experiment_eligibility_error(existing_flag.variants):
+                    raise ValidationError(
+                        f"A feature flag with key '{feature_flag_key}' already exists in the target project "
+                        "and can't back an experiment. Choose a different feature flag key."
+                    )
                 clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
@@ -4190,9 +4506,7 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        # Stored criteria can carry unknown top-level keys accepted before writes rejected
-        # them — strip those instead of failing the clone on data the user didn't write.
-        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        cloned_exposure_criteria = source_experiment.exposure_criteria
         self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
@@ -4227,7 +4541,6 @@ class ExperimentService:
             source_experiment.secondary_metrics_ordered_uuids, secondary_remap
         )
 
-        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
             name=clone_name,
@@ -4298,6 +4611,8 @@ class ExperimentService:
         serializer_context: dict | None = None,
     ) -> Cohort:
         """Create an exposure cohort for the experiment."""
+        # The cohort is built from the legacy exposure events, which a rule-linked experiment does not count.
+        self._reject_rule_linked(experiment, "creating an exposure cohort", instead="")
         flag = getattr(experiment, "feature_flag", None)
         if not flag:
             raise ValidationError("Experiment does not have a feature flag")
@@ -4309,11 +4624,9 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_filter = None
-        if exposure_filter_data:
-            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+        entity = _first_legacy_filter_entity(exposure_filter_data) if exposure_filter_data else None
 
-        target_entity: int | str = "$feature_flag_called"
+        target_entities: Sequence[int | str]
         target_entity_type = "events"
         target_filters = [
             {
@@ -4324,26 +4637,27 @@ class ExperimentService:
             }
         ]
 
-        if exposure_filter:
-            entity = exposure_filter.entities[0]
-            if entity.id:
-                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
-                target_entity = entity.id
-                if entity.type == "actions":
-                    try:
-                        target_entity = int(target_entity)
-                    except ValueError:
-                        raise ValidationError("Invalid action ID")
+        if entity is not None and entity.get("id"):
+            if entity["type"] == "actions":
+                target_entity_type = "actions"
+                try:
+                    target_entities = [int(entity["id"])]
+                except ValueError:
+                    raise ValidationError("Invalid action ID")
+            else:
+                target_entities = exposure_event_names(str(entity["id"]))
 
-                target_filters = [
-                    prop.to_dict()
-                    for prop in entity.property_groups.flat
-                    if prop.type in ("event", "feature", "element", "hogql")
-                ]
+            target_filters = [
+                prop.to_dict()
+                for prop in parse_property_group_data(entity.get("properties")).flat
+                if prop.type in ("event", "feature", "element", "hogql")
+            ]
+        else:
+            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
-        cohort_context = {**context, "team": self.team}
+        cohort_context = {**context, "team": self.team, ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY: True}
 
         cohort_serializer = CohortSerializer(
             data={
@@ -4366,6 +4680,7 @@ class ExperimentService:
                                         "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
+                                    for target_entity in target_entities
                                 ],
                             }
                         ],
@@ -4500,6 +4815,10 @@ class ExperimentService:
             else:
                 queryset = queryset.filter(archived=False)
 
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
+
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
                 try:
@@ -4517,9 +4836,27 @@ class ExperimentService:
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
+            tags = _parse_tag_names(query_params.get("tags"))
+            if tags:
+                # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
+                # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
+                experiments_with_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=tags
+                ).values("pk")
+                queryset = queryset.filter(pk__in=experiments_with_tags)
+
+            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            if excluded_tags:
+                # Exclude by ID subquery so an experiment carrying both an excluded and a
+                # non-excluded tag is still reliably filtered out.
+                experiments_with_excluded_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=excluded_tags
+                ).values("pk")
+                queryset = queryset.exclude(pk__in=experiments_with_excluded_tags)
+
         search = query_params.get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search))
+            queryset = queryset.filter(Q(name__icontains=search) | Q(feature_flag__key__icontains=search))
 
         order = query_params.get("order")
         if order:
@@ -4586,14 +4923,13 @@ class ExperimentService:
     # Timeseries
     # ------------------------------------------------------------------
 
-    def get_timeseries_results(
-        self,
-        experiment: Experiment,
-        *,
-        metric_uuid: str,
-        fingerprint: str,
-    ) -> dict:
-        """Retrieve timeseries results for an experiment-metric combination."""
+    def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Retrieve timeseries results for an experiment-metric combination.
+
+        The calculation key comes from the metric's current calculation config, never from the client, so the chart
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
+        """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
         if not experiment.start_date:
@@ -4612,9 +4948,13 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
-        ).order_by("query_to")
+        # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        stored = (
+            MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
+            if calculation_config is not None
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
+        )
 
         completed_count = 0
         failed_count = 0
@@ -4622,18 +4962,11 @@ class ExperimentService:
         no_record_count = 0
         latest_completed_at = None
 
-        results_by_date: dict[date, ExperimentMetricResult] = {}
-        for result in metric_results:
-            query_to_adjusted = result.query_to - timedelta(microseconds=1)
-            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
-            day_in_project_tz = query_to_in_project_tz.date()
-            results_by_date[day_in_project_tz] = result
-
         for experiment_date in experiment_dates:
             date_key = experiment_date.isoformat()
 
-            if experiment_date in results_by_date:
-                metric_result = results_by_date[experiment_date]
+            if experiment_date in stored.by_day:
+                metric_result = stored.by_day[experiment_date]
 
                 if metric_result.status == "completed":
                     timeseries[date_key] = strip_step_sessions(metric_result.result)
@@ -4663,82 +4996,95 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        active_recalculation = (
+            self._active_timeseries_backfill(experiment, metric_uuid) if calculation_config is not None else None
+        )
 
-        first_result = metric_results.first()
-        last_result = metric_results.last()
         response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
-            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
-            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "created_at": stored.earliest.created_at.isoformat()
+            if stored.earliest
+            else experiment.created_at.isoformat(),
+            "updated_at": stored.latest.updated_at.isoformat() if stored.latest else experiment.updated_at.isoformat(),
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
-        from ee.hogai.context.experiment.format import (
-            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy ee.hogai/langgraph chain off the import path
-        )
-
-        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        metric_definition = find_metric_dict(experiment, metric_uuid) or {}
+        response["formatted_results"] = ExperimentTimeseriesFormatter(
+            MetricTimeseries.from_stored(
+                status=overall_status,
+                timeseries=timeseries,
+                is_quantile=metric_definition.get("metric_type") == "quantile",
+            )
+        ).format()
         return response
 
-    def request_timeseries_recalculation(
-        self,
-        experiment: Experiment,
-        *,
-        metric: dict,
-        fingerprint: str,
-    ) -> dict:
-        """Create an idempotent recalculation request for experiment timeseries data."""
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Create an idempotent recalculation request for experiment timeseries data.
+
+        The backfill computes the metric's current definition and files the days under its calculation key, both
+        from the experiment, so the chart finds them.
+        """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
-        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
+            raise ValidationError(
+                "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
+                "Pick a metric from the experiment's metrics."
+            )
+        metric = calculation_config.definition
+        fingerprint = calculation_config.calculation_key()
 
-        if existing_recalculation:
-            return {
-                "id": existing_recalculation.id,
-                "experiment_id": experiment.id,
-                "metric_uuid": existing_recalculation.metric.get("uuid"),
-                "fingerprint": fingerprint,
-                "status": existing_recalculation.status,
-                "created_at": existing_recalculation.created_at.isoformat(),
-                "is_existing": True,
-            }
+        # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
+        validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
-        metric_uuid = metric.get("uuid")
-        if metric_uuid:
-            ExperimentMetricResult.objects.filter(
-                experiment_id=experiment.id,
-                metric_uuid=metric_uuid,
+        with transaction.atomic():
+            # Serialize supersession with each backfill's status check and result write.
+            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
+            # a retry must not run beside it or recompute the days again.
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=calculation_config.metric_id,
+                status=ExperimentTimeseriesRecalculation.Status.FAILED,
+            ).update(status=ExperimentTimeseriesRecalculation.Status.CANCELED)
+            existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
+
+            if existing_recalculation and existing_recalculation.fingerprint != fingerprint:
+                existing_recalculation.status = ExperimentTimeseriesRecalculation.Status.CANCELED
+                existing_recalculation.save(update_fields=["status"])
+                existing_recalculation = None
+
+            if existing_recalculation:
+                return {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": existing_recalculation.fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                    "is_existing": True,
+                }
+
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(
+                calculation_config.metric_id, fingerprint
+            )
+
+            recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+                team=experiment.team,
+                experiment=experiment,
+                metric=metric,
                 fingerprint=fingerprint,
-            ).delete()
-
-        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
-            team=experiment.team,
-            experiment=experiment,
-            metric=metric,
-            fingerprint=fingerprint,
-            status=ExperimentTimeseriesRecalculation.Status.PENDING,
-        )
+                status=ExperimentTimeseriesRecalculation.Status.PENDING,
+            )
 
         return {
             "id": recalculation_request.id,
@@ -4749,6 +5095,28 @@ class ExperimentService:
             "created_at": recalculation_request.created_at.isoformat(),
             "is_existing": False,
         }
+
+    @staticmethod
+    def _active_timeseries_backfill(
+        experiment: Experiment, metric_uuid: str
+    ) -> ExperimentTimeseriesRecalculation | None:
+        """The pending or running backfill of the metric with this uuid, under any key.
+
+        A different key must be canceled before its replacement starts. Workers check this status under the
+        experiment lock before writing, so a superseded query cannot overwrite the replacement's results.
+        """
+        return (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=metric_uuid,
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     # ------------------------------------------------------------------
     # Velocity stats
@@ -4791,169 +5159,6 @@ class ExperimentService:
             "active_experiments": active_experiments,
             "completed_last_30d": completed_last_30d,
         }
-
-    # ------------------------------------------------------------------
-    # Private helpers — update ordering
-    # ------------------------------------------------------------------
-
-    def _sync_ordering_with_metric_changes(self, experiment: Experiment, update_data: dict) -> None:
-        """Sync ordering arrays with inline metric changes during update."""
-        if "metrics" in update_data:
-            old_uuids = {m.get("uuid") for m in experiment.metrics or [] if m.get("uuid")}
-            new_uuids = {m.get("uuid") for m in update_data.get("metrics") or [] if m.get("uuid")}
-
-            added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
-
-            if added or removed:
-                if "primary_metrics_ordered_uuids" in update_data:
-                    current_ordering = list(update_data["primary_metrics_ordered_uuids"] or [])
-                else:
-                    current_ordering = list(experiment.primary_metrics_ordered_uuids or [])
-
-                current_ordering = [u for u in current_ordering if u not in removed]
-                for uuid in added:
-                    if uuid not in current_ordering:
-                        current_ordering.append(uuid)
-
-                update_data["primary_metrics_ordered_uuids"] = current_ordering
-
-        if "metrics_secondary" in update_data:
-            old_uuids = {m.get("uuid") for m in experiment.metrics_secondary or [] if m.get("uuid")}
-            new_uuids = {m.get("uuid") for m in update_data.get("metrics_secondary") or [] if m.get("uuid")}
-
-            added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
-
-            if added or removed:
-                if "secondary_metrics_ordered_uuids" in update_data:
-                    current_ordering = list(update_data["secondary_metrics_ordered_uuids"] or [])
-                else:
-                    current_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
-
-                current_ordering = [u for u in current_ordering if u not in removed]
-                for uuid in added:
-                    if uuid not in current_ordering:
-                        current_ordering.append(uuid)
-
-                update_data["secondary_metrics_ordered_uuids"] = current_ordering
-
-    def _sync_ordering_for_saved_metrics_on_update(
-        self,
-        experiment: Experiment,
-        update_data: dict,
-        old_saved_metric_uuids: dict[str, set[str]],
-        saved_metrics_data: list[dict] | None,
-    ) -> None:
-        """Sync ordering arrays with saved metric changes during update.
-
-        When a saved metric is added or removed, the ordering arrays are kept in
-        sync. The classification rule for the resulting write is:
-
-        - If the user did not supply the ordering field, or supplied a value that
-          equals what auto-sync would have produced, treat the write as bookkeeping
-          and persist it via a muted ``experiment.save(update_fields=...)`` so only
-          the add/remove appears in the activity log.
-        - Otherwise the user layered an explicit reorder on top of the add/remove.
-          Merge their order with the add/remove side effects and let the value flow
-          through the normal ``experiment.save()`` so the reorder is logged.
-        """
-        if saved_metrics_data is None:
-            return
-
-        new_primary_uuids: set[str] = set()
-        new_secondary_uuids: set[str] = set()
-
-        saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
-        if saved_metric_ids_list:
-            saved_metrics = {
-                sm.id: sm
-                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list, team_id=self.team.id)
-            }
-            new_uuids = self._saved_metric_uuids_by_type(
-                (
-                    saved_metric.query if (saved_metric := saved_metrics.get(sm_data["id"])) else None,
-                    sm_data.get("metadata"),
-                )
-                for sm_data in saved_metrics_data
-            )
-            new_primary_uuids = new_uuids["primary"]
-            new_secondary_uuids = new_uuids["secondary"]
-
-        added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
-        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
-        added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
-        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
-
-        # Fields whose new value is purely a side effect of add/remove — save these
-        # via a muted save to avoid logging a spurious "reordered metrics" entry
-        # alongside the add/remove entry.
-        auto_synced_fields: list[str] = []
-
-        def resolve_ordering(
-            field: str,
-            base_ordering: list[str],
-            added: set[str],
-            removed: set[str],
-        ) -> None:
-            auto_sync_result = [u for u in base_ordering if u not in removed]
-            for uuid in added:
-                if uuid not in auto_sync_result:
-                    auto_sync_result.append(uuid)
-
-            user_supplied = field in update_data
-            supplied_value = list(update_data.get(field) or []) if user_supplied else None
-
-            if user_supplied and supplied_value != auto_sync_result:
-                # Real user reorder layered on top of the add/remove. Fold in the
-                # add/remove side effects so we don't lose newly-added UUIDs or
-                # retain newly-removed ones, but keep the user's chosen order.
-                merged = [u for u in supplied_value or [] if u not in removed]
-                for uuid in added:
-                    if uuid not in merged:
-                        merged.append(uuid)
-                update_data[field] = merged
-                # leave it to flow through the normal save() — logged as reorder
-            else:
-                update_data[field] = auto_sync_result
-                auto_synced_fields.append(field)
-
-        if added_primary or removed_primary:
-            resolve_ordering(
-                "primary_metrics_ordered_uuids",
-                list(experiment.primary_metrics_ordered_uuids or []),
-                added_primary,
-                removed_primary,
-            )
-
-        if added_secondary or removed_secondary:
-            resolve_ordering(
-                "secondary_metrics_ordered_uuids",
-                list(experiment.secondary_metrics_ordered_uuids or []),
-                added_secondary,
-                removed_secondary,
-            )
-
-        # Persist auto-synced ordering via a muted save so the add/remove of the
-        # saved metric is the only activity log entry. The user-initiated reorder
-        # path still flows through the normal save() at the end of update_experiment.
-        if auto_synced_fields:
-            for field in auto_synced_fields:
-                setattr(experiment, field, update_data.pop(field))
-            with mute_selected_signals():
-                experiment.save(update_fields=[*auto_synced_fields, "updated_at"])
-
-    def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
-        """Validate ordering arrays contain all metric UUIDs (update path)."""
-        self._assert_ordering_covers_metrics(
-            primary_metrics=update_data.get("metrics", experiment.metrics) or [],
-            secondary_metrics=update_data.get("metrics_secondary", experiment.metrics_secondary) or [],
-            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
-            primary_ordering=update_data.get("primary_metrics_ordered_uuids", experiment.primary_metrics_ordered_uuids),
-            secondary_ordering=update_data.get(
-                "secondary_metrics_ordered_uuids", experiment.secondary_metrics_ordered_uuids
-            ),
-        )
 
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""

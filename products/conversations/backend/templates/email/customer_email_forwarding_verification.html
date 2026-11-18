@@ -2,10 +2,10 @@
 {% block preheader %}PostHog is checking that Gmail forwards messages from this mailbox.{% endblock %}
 {% block heading %}Verify email forwarding{% endblock %}
 {% block section %}
-<p>PostHog sent this email to check that forwarding from this mailbox is working.</p>
-<p>You do not need to do anything. PostHog will connect this email when Gmail forwards the message.</p>
-<p>If you did not request this, you can ignore it.</p>
-<div class="mt muted">
-    <p>Verification reference: posthog-forwarding-challenge:{{ forwarding_challenge }}</p>
-</div>
+    <p>PostHog sent this email to check that forwarding from this mailbox is working.</p>
+    <p>You do not need to do anything. PostHog will connect this email when Gmail forwards the message.</p>
+    <p>If you did not request this, you can ignore it.</p>
+    <div class="mt muted">
+        <p>Verification reference: posthog-forwarding-challenge:{{ forwarding_challenge }}</p>
+    </div>
 {% endblock %}

@@ -16,11 +16,11 @@ import {
 import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 
@@ -34,6 +34,7 @@ export interface ClientWarningsPipelineConfig {
     eventFilterManager: EventFilterManager
     promiseScheduler: PromiseScheduler
     topHog: TopHogRegistry
+    teamsPrefetchEnabled: boolean
 }
 
 interface ClientWarningsPipelineInput {
@@ -48,8 +49,15 @@ export function createClientWarningsPipeline<
     TInput extends ClientWarningsPipelineInput,
     TContext extends ClientWarningsPipelineContext,
 >(config: ClientWarningsPipelineConfig) {
-    const { outputs, teamManager, eventIngestionRestrictionManager, eventFilterManager, promiseScheduler, topHog } =
-        config
+    const {
+        outputs,
+        teamManager,
+        eventIngestionRestrictionManager,
+        eventFilterManager,
+        promiseScheduler,
+        topHog,
+        teamsPrefetchEnabled,
+    } = config
 
     return newCommonIngestionPipeline<TInput, TContext>({
         teamManager,
@@ -62,9 +70,9 @@ export function createClientWarningsPipeline<
         .parseHeaders()
         .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
         .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+        .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
         .parseMessage()
         .resolveTeam()
-        .pipe(createValidateHistoricalMigrationStep())
         .pipe(createValidateEventMetadataStep())
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyEventFiltersStep(eventFilterManager))

@@ -1,23 +1,18 @@
 import './ProjectHomepage.scss'
 
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
-import { WelcomeDialog } from 'scenes/welcome/WelcomeDialog'
-import { wasWelcomeDismissed } from 'scenes/welcome/welcomeDialogLogic'
 
-import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
+import { importAiFirstHomepage, importTodayHome } from './importProjectHomepage'
 
-/** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
-function MaybeWelcomeDialog(): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
-        return null
-    }
-    return <WelcomeDialog />
-}
+const AiFirstHomepage = lazyWithRetry(() => importAiFirstHomepage().then((m) => ({ default: m.AiFirstHomepage })))
+const TodayHome = lazyWithRetry(() => importTodayHome().then((m) => ({ default: m.TodayHome })))
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -25,10 +20,18 @@ export const scene: SceneExport = {
 }
 
 export function ProjectHomepage(): JSX.Element {
+    const { todayHomeEnabled } = useValues(projectHomepageLogic)
     return (
         <div className="flex-1 min-h-0">
-            <AiFirstHomepage />
-            <MaybeWelcomeDialog />
+            <Suspense
+                fallback={
+                    <SceneContentFallback>
+                        <SpinnerOverlay sceneLevel />
+                    </SceneContentFallback>
+                }
+            >
+                {todayHomeEnabled ? <TodayHome /> : <AiFirstHomepage />}
+            </Suspense>
         </div>
     )
 }

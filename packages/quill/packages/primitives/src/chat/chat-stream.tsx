@@ -25,8 +25,12 @@ type ChatStreamProps = React.ComponentProps<'div'> & {
     pinned?: boolean
 }
 
-function ChatStream({ pinned = false, className, children, onScroll, ...props }: ChatStreamProps): React.ReactElement {
+const ChatStream = React.forwardRef<HTMLDivElement, ChatStreamProps>(function ChatStream(
+    { pinned = false, className, children, onScroll, ...props },
+    ref
+) {
     const viewportRef = React.useRef<HTMLDivElement>(null)
+    React.useImperativeHandle(ref, () => viewportRef.current as HTMLDivElement, [])
     const streamRef = React.useRef<HTMLDivElement>(null)
 
     /*
@@ -160,11 +164,14 @@ function ChatStream({ pinned = false, className, children, onScroll, ...props }:
             </div>
         </div>
     )
-}
+})
 
 /** One line of output. Reveals itself as it arrives, while the stream is pinned. */
-function ChatStreamLine({ className, ...props }: React.ComponentProps<'p'>): React.ReactElement {
-    return <p data-slot="stream-line" className={cn('quill-chat-stream__line', className)} {...props} />
-}
+const ChatStreamLine = React.forwardRef<HTMLParagraphElement, React.ComponentProps<'p'>>(function ChatStreamLine(
+    { className, ...props },
+    ref
+) {
+    return <p ref={ref} data-slot="stream-line" className={cn('quill-chat-stream__line', className)} {...props} />
+})
 
 export { ChatStream, ChatStreamLine }

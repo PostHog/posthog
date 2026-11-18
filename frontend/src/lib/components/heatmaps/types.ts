@@ -3,9 +3,20 @@ export type CommonFilters = {
     date_to?: string | null
     filter_test_accounts?: boolean
     cohort_ids?: number[]
+    // Each entry is an event name plus optional property filters, matching what the heatmap event picker emits.
+    events?: HeatmapEventFilter[]
 }
 
-export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'
+export type HeatmapEventFilter = {
+    // Null while a freshly added row is waiting for the user to pick an event.
+    id: string | null
+    name?: string
+    type?: string
+    order?: number
+    properties?: Record<string, any>[]
+}
+
+export type HeatmapKind = 'click' | 'rageclick' | 'deadclick' | 'mousemove' | 'scrolldepth'
 
 export type HeatmapRequestType = {
     type: HeatmapKind
@@ -20,7 +31,7 @@ export type HeatmapRequestType = {
 
 export type HeatmapFilters = {
     enabled: boolean
-    type?: string
+    type?: HeatmapKind
     viewportAccuracy?: number
     aggregation?: HeatmapRequestType['aggregation']
 }
@@ -84,3 +95,6 @@ export type HeatmapEventsResponse = {
     total_count: number
     has_more: boolean
 }
+
+/** `missing` when the page has no posthog-js, which the browser extension can run without. */
+export type ScrollDepthPosthogJsError = 'version' | 'disabled' | 'missing' | null

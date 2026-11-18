@@ -1,4 +1,6 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import posthog from 'posthog-js'
 import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
@@ -477,6 +479,94 @@ function createTouchList(touches: Touch[]): TouchList {
 }
 
 describe('MarkdownNotebook', () => {
+    it('configures explicit columns and removes only their layout, with undo restoring membership', async () => {
+        const onChange = jest.fn()
+        const value =
+            '# Report\n\n<Columns>\n\n<Column>\n\nFirst note.\n\n</Column>\n\n<Column>\n\nSecond note.\n\n</Column>\n\n</Columns>\n\nConclusion.'
+        const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(2)
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await waitFor(() => expect(document.querySelector('.MarkdownNotebook__columns-settings')).toBeNull())
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await userEvent.click(document.querySelector<HTMLElement>('[data-attr=notebook-columns-count-3]')!)
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(3)
+        expect(onChange.mock.lastCall?.[0].match(/<Column>/g)).toHaveLength(3)
+        fireEvent.change(document.querySelector('[data-attr=notebook-column-width]')!, { target: { value: '2' } })
+        expect(onChange.mock.lastCall?.[0]).toContain('<Column width={2}>')
+        expect(onChange.mock.lastCall?.[0]).not.toContain('widths=')
+        await userEvent.click(document.querySelector<HTMLElement>('[data-attr=notebook-columns-remove]')!)
+        expect(container.querySelector('.MarkdownNotebook__columns')).toBeNull()
+        expect(onChange.mock.lastCall?.[0]).toContain('First note.')
+        expect(onChange.mock.lastCall?.[0]).toContain('Second note.')
+        expect(onChange.mock.lastCall?.[0]).toContain('Conclusion.')
+        fireEvent.keyDown(container.querySelector('[data-markdown-notebook-editor]')!, { key: 'z', ctrlKey: true })
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(3)
+    })
+
+    it('moves a component block whose own control holds focus', () => {
+        // A cell's Run button takes focus on click, so the block element itself is not the active
+        // element. Resolving only exact matches moved whatever block still held the caret.
+        const onChange = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('button', { type: 'button', 'data-attr': 'embed-run' }, 'Run'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First\n\n<Embed url="https://posthog.com" />'),
+                onChange,
+                registry,
+            })
+        )
+
+        const embedControl = container.querySelector('[data-attr="embed-run"]') as HTMLButtonElement
+        embedControl.focus()
+
+        fireEvent.keyDown(embedControl, { key: 'ArrowUp', altKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('<Embed url="https://posthog.com" />\n\nFirst'))
+    })
+
+    it('moves the focused block past its neighbour with Alt+Up and Alt+Down', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('First\n\nSecond\n\nThird'), onChange })
+        )
+
+        const secondBlock = getBodyTextBlock(container, 1)
+        secondBlock.focus()
+
+        fireEvent.keyDown(secondBlock, { key: 'ArrowDown', altKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('First\n\nThird\n\nSecond'))
+
+        fireEvent.keyDown(secondBlock, { key: 'ArrowUp', altKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('First\n\nSecond\n\nThird'))
+    })
+
+    it('claims Cmd+S inside a code editor, where the browser would offer to save the page', () => {
+        const onSaveRequested = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Body'), onSaveRequested })
+        )
+
+        // Monaco renders a textarea inside `.monaco-editor`, which every other notebook shortcut
+        // steps around so the editor keeps its own keys. Saving is the exception.
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        const editorInput = document.createElement('textarea')
+        editor.appendChild(editorInput)
+        getBodyTextBlock(container, 0).appendChild(editor)
+
+        fireEvent.keyDown(editorInput, { key: 's', metaKey: true })
+
+        expect(onSaveRequested).toHaveBeenCalledTimes(1)
+    })
+
     it('round-trips supported markdown blocks and inline formatting', () => {
         const markdown = `# Heading
 
@@ -748,19 +838,84 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('round-trips multiline string component props', () => {
-        const markdown = `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`
+    it.each([
+        [
+            'escaped line breaks',
+            `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`,
+            'SummaryCard',
+            { id: TEST_AI_CONVERSATION_ID, summary: '## Summary\nDone' },
+        ],
+        [
+            'literal line breaks',
+            `<PythonV2 title="Event galaxy" code="import pandas as pd
+
+points = pd.DataFrame()" />`,
+            'PythonV2',
+            { title: 'Event galaxy', code: 'import pandas as pd\n\npoints = pd.DataFrame()' },
+        ],
+    ])('round-trips component string props with %s', (_name, markdown, tagName, props) => {
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes[0]).toMatchObject({
             type: 'component',
-            tagName: 'SummaryCard',
-            props: {
-                id: TEST_AI_CONVERSATION_ID,
-                summary: '## Summary\nDone',
-            },
+            tagName,
+            props,
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it.each([
+        ['an escaped tag', '\\<'],
+        ['an unescaped tag with escaped prop source', '<'],
+    ])('recovers a multiline component produced by the prose serializer with %s', (_name, tagStart) => {
+        const markdown = `${tagStart}PythonV2 title="Chart" code="import pandas as pd
+
+\\# Prepare values
+labels = \\[f\\\\"<b>{row}</b>\\\\" for row in rows\\]
+values = rows\\[0\\] \\* 2" />`
+        const recoveredMarkdown = `<PythonV2 title="Chart" code="import pandas as pd
+
+# Prepare values
+labels = [f\\"<b>{row}</b>\\" for row in rows]
+values = rows[0] * 2" />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'PythonV2',
+            props: {
+                title: 'Chart',
+                code: 'import pandas as pd\n\n# Prepare values\nlabels = [f"<b>{row}</b>" for row in rows]\nvalues = rows[0] * 2',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(recoveredMarkdown)
+    })
+
+    it.each([
+        [
+            'an unquoted prop',
+            `<PythonV2 nodeId=p
+
+code=print(1) />`,
+        ],
+        [
+            'an unterminated quoted prop',
+            `<PythonV2 nodeId="p
+
+Following paragraph`,
+        ],
+    ])('does not cross a blank-line boundary for a malformed component with %s', (_name, markdown) => {
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
+        expect(serializeMarkdownNotebook(document)).toEqual(`\\${markdown}`)
+    })
+
+    it('does not scan past the multiline component limit', () => {
+        const markdown = [`<PythonV2 nodeId="p" code="`, ...Array.from({ length: 1_001 }, () => 'x'), `" />`].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
     })
 
     it('serializes bold links in a stable mark order', () => {
@@ -813,6 +968,42 @@ continued line
         expect(windowOpen).not.toHaveBeenCalled()
 
         windowOpen.mockRestore()
+    })
+
+    it('hints Ctrl-click on a hovered link while editing, but not in view mode', () => {
+        jest.useFakeTimers()
+        try {
+            const hoverLink = (mode: 'edit' | 'view'): HTMLAnchorElement => {
+                const { container } = render(
+                    createElement(MarkdownNotebook, {
+                        value: withNotebookTitle('See [docs](https://posthog.com/docs)'),
+                        mode,
+                    })
+                )
+                const link = container.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+                fireEvent.mouseOver(link)
+                act(() => {
+                    jest.advanceTimersByTime(1000)
+                })
+                return link
+            }
+
+            const link = hoverLink('edit')
+            expect(document.body.textContent).toContain('Ctrl + click to open link')
+
+            // Moving onto the surrounding text clears the hint
+            fireEvent.mouseOver(link.parentElement as HTMLElement)
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(document.body.textContent).not.toContain('click to open link')
+
+            // A plain click already opens links in view mode, so the hint would be wrong there
+            hoverLink('view')
+            expect(document.body.textContent).not.toContain('click to open link')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('opens the link editor automatically when the selection is inside a link, without stealing focus', () => {
@@ -1240,15 +1431,20 @@ Last paragraph`)
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
-    it('normalizes the first rendered row into a notebook title', () => {
+    it('normalizes the first rendered row into a notebook title and places the autofocus caret there', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange, autoFocus: true })
+        )
         const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
         const body = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
 
         expect(title).toBeInstanceOf(HTMLElement)
         expect(title.textContent).toEqual('Notebook name')
         expect(body.textContent).toEqual('Body line')
+        expect(title.contains(window.getSelection()?.anchorNode ?? null)).toBe(true)
+        expect(window.getSelection()?.isCollapsed).toBe(true)
+        expect(window.getSelection()?.anchorOffset).toBe(0)
 
         title.textContent = 'Updated name'
         fireEvent.input(title)
@@ -1721,6 +1917,15 @@ Repeated block`),
         componentShell.focus()
 
         expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
+
+        onCaretChange.mockClear()
+        fireEvent.scroll(window)
+        fireEvent.scroll(componentShell)
+        fireEvent.resize(window)
+        expect(onCaretChange).not.toHaveBeenCalled()
+
+        fireEvent(document, new Event('selectionchange'))
+        expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
     })
 
     it('does not open editors or steal focus for blocks that mount on load', () => {
@@ -1732,50 +1937,81 @@ Repeated block`),
         expect(container.querySelector('[data-attr="notebook-comment-editor"]')).toBeNull()
     })
 
-    it('moves the caret with the text when a collaborator inserts before it', () => {
-        const onChange = jest.fn()
-        const onCaretChange = jest.fn()
+    it.each(['remote', 'external'] as const)(
+        'maps the caret without scrolling when an incoming %s edit inserts before it',
+        (source) => {
+            const onChange = jest.fn()
+            const onCaretChange = jest.fn()
+            const { container, rerender } = render(
+                createElement(MarkdownNotebook, {
+                    value: '# Title\n\nHello',
+                    onChange,
+                    onCaretChange,
+                    remoteValue: '# Title\n\nHello',
+                })
+            )
+            const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+            const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
+            expect(paragraphBlock.textContent).toEqual('Hello')
+
+            // Caret at the end of the line while a collaborator types at the beginning.
+            placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+
+            const focus = jest.spyOn(paragraphBlock, 'focus')
+            const scrollIntoView = jest.fn()
+            paragraphBlock.scrollIntoView = scrollIntoView
+
+            rerender(
+                createElement(MarkdownNotebook, {
+                    value: source === 'external' ? '# Title\n\nWell, Hello' : '# Title\n\nHello',
+                    onChange,
+                    onCaretChange,
+                    remoteValue: source === 'remote' ? '# Title\n\nWell, Hello' : '# Title\n\nHello',
+                })
+            )
+
+            const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+            const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
+            expect(updatedBlock.textContent).toEqual('Well, Hello')
+
+            // The caret must still sit at the end of "Hello" — after the remote insertion,
+            // not at the stale numeric offset 5 (which would now be inside "Well,").
+            const range = window.getSelection()?.getRangeAt(0)
+            expect(range?.collapsed).toBe(true)
+            expect(range?.startContainer.textContent).toEqual('Well, Hello')
+            expect(range?.startOffset).toEqual('Well, Hello'.length)
+
+            expect(focus).not.toHaveBeenCalled()
+            expect(scrollIntoView).not.toHaveBeenCalled()
+            focus.mockRestore()
+
+            // The corrected caret is re-published right away so collaborators see it move too.
+            if (source === 'remote') {
+                expect(onCaretChange).toHaveBeenCalledWith({
+                    nodeIndex: 1,
+                    offset: 'Well, Hello'.length,
+                    listItemIndex: undefined,
+                })
+            }
+        }
+    )
+
+    it.each(['outside', 'embedded'] as const)('keeps focus in an %s input during a remote edit', (location) => {
+        const initial = '# Title\n\nHello'
         const { container, rerender } = render(
-            createElement(MarkdownNotebook, {
-                value: '# Title\n\nHello',
-                onChange,
-                onCaretChange,
-                remoteValue: '# Title\n\nHello',
-            })
+            createElement(MarkdownNotebook, { value: initial, remoteValue: initial })
         )
-        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
-        const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
-        expect(paragraphBlock.textContent).toEqual('Hello')
+        const paragraph = getBodyTextBlock(container)
+        placeCaretInElement(paragraph, paragraph.childNodes.length)
+        const input = document.createElement('input')
+        const parent = location === 'embedded' ? container.querySelector('.MarkdownNotebook')! : container
+        parent.appendChild(input)
+        input.focus()
 
-        // Caret at the end of the line while a collaborator types at the beginning.
-        placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+        rerender(createElement(MarkdownNotebook, { value: initial, remoteValue: '# Title\n\nWell, Hello' }))
 
-        rerender(
-            createElement(MarkdownNotebook, {
-                value: '# Title\n\nHello',
-                onChange,
-                onCaretChange,
-                remoteValue: '# Title\n\nWell, Hello',
-            })
-        )
-
-        const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
-        const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
-        expect(updatedBlock.textContent).toEqual('Well, Hello')
-
-        // The caret must still sit at the end of "Hello" — after the remote insertion,
-        // not at the stale numeric offset 5 (which would now be inside "Well,").
-        const range = window.getSelection()?.getRangeAt(0)
-        expect(range?.collapsed).toBe(true)
-        expect(range?.startContainer.textContent).toEqual('Well, Hello')
-        expect(range?.startOffset).toEqual('Well, Hello'.length)
-
-        // The corrected caret is re-published right away so collaborators see it move too.
-        expect(onCaretChange).toHaveBeenCalledWith({
-            nodeIndex: 1,
-            offset: 'Well, Hello'.length,
-            listItemIndex: undefined,
-        })
+        expect(getBodyTextBlock(container).textContent).toEqual('Well, Hello')
+        expect(document.activeElement).toBe(input)
     })
 
     it('keeps the caret in place when a collaborator inserts after it', () => {
@@ -3481,7 +3717,23 @@ ${queryMarkdown}`)
 
     it('moves slash menu selection with arrow keys', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Widget',
+                label: 'Widget',
+                category: 'Code',
+                insertCommand: { category: 'Common' },
+                ViewComponent: () => createElement('div'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                registry,
+                onAskAI: jest.fn(),
+                onChange,
+            })
+        )
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
@@ -3492,9 +3744,9 @@ ${queryMarkdown}`)
         const getSelectedLabel = (): string | null =>
             container.querySelector('.MarkdownNotebook__insert-item[aria-selected="true"]')?.textContent ?? null
 
-        expect(getSelectedLabel()).toEqual('Text')
+        expect(getSelectedLabel()).toEqual('Ask AI')
 
-        for (const label of ['SQL', 'Trend', 'Funnel']) {
+        for (const label of ['Text', 'SQL', 'Widget', 'Trend', 'Funnel']) {
             fireEvent.keyDown(textBlock, { key: 'ArrowDown' })
             expect(getSelectedLabel()).toEqual(label)
         }
@@ -3664,7 +3916,9 @@ ${queryMarkdown}`)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`
+        )
         const aiRequest = onAskAI.mock.calls[0][0]
 
         expect(aiRequest).toEqual(
@@ -3673,11 +3927,12 @@ ${queryMarkdown}`)
                 query: expect.stringContaining('User request:\nAdd a summary here'),
                 source: 'slash',
                 responseNodeId: expect.any(String),
-                responseNodeIndex: 1,
+                responseNodeIndex: 2,
                 responseMarker: 'Thinking...',
-                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
-                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
+                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
+                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
                 selectedMarkdown: undefined,
+                retainedQuestionMarkdown: '**You:** Add a summary here',
             })
         )
         expect(aiRequest.query).not.toContain(TEST_NOTEBOOK_TITLE_MARKDOWN)
@@ -3690,6 +3945,31 @@ ${queryMarkdown}`)
             'For broad edits such as cleaning up, rewriting, reorganizing, or replacing the whole notebook'
         )
         expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
+    })
+
+    it.each([false, true])('blocks Ask AI without consent, with persisted prompt %s', (persisted) => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(persisted ? '<Prompt question="Summarize the chart" />' : ' '),
+                onAskAI,
+                onChange,
+                askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
+                initialInsertMenu: persisted ? undefined : { nodeIndex: 1, query: '' },
+            })
+        )
+        if (persisted) {
+            fireEvent.keyDown(getAIPromptInput(container), { key: 'Enter' })
+        } else {
+            const option = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+            expect(option.textContent).toBe('Ask AI')
+            expect(option.disabled).toBe(true)
+            fireEvent.click(option)
+        }
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(onChange).not.toHaveBeenCalled()
+        expect(container.textContent).not.toContain('Thinking...')
     })
 
     it('opens Ask AI prompts while an AI request is active but blocks submission', () => {
@@ -3956,10 +4236,12 @@ Current AI paragraph`),
                 source: 'slash',
             })
         )
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Summarize this notebook\n\nThinking...`
+        )
     })
 
-    it('keeps the named question above the AI response when enabled', () => {
+    it('keeps the named question above the AI response by default and persists bookmark changes', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -3976,24 +4258,22 @@ Current AI paragraph`),
         ) as HTMLButtonElement
 
         expect(keepQuestionButton).toBeInstanceOf(HTMLButtonElement)
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
+        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
+        expect(onChange).not.toHaveBeenCalled()
 
         fireEvent.click(keepQuestionButton)
 
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion={false} />`
+        )
+
+        fireEvent.click(keepQuestionButton)
         expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
-        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
         expect(onChange).toHaveBeenLastCalledWith(
             `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion />`
         )
-
-        fireEvent.click(keepQuestionButton)
-
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
-        expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`
-        )
-
-        fireEvent.click(keepQuestionButton)
         fireEvent.click(container.querySelector('[aria-label="Send prompt"]') as HTMLButtonElement)
 
         const markdownWithResponse = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Avery:** What is PostHog?\n\nThinking...`
@@ -4007,18 +4287,21 @@ Current AI paragraph`),
         )
     })
 
-    it('submits a persisted Ask AI prompt from the prompt textarea', () => {
+    it('submits a persisted Ask AI prompt without retaining the question when explicitly disabled', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" />`,
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" keepQuestion={false} />`,
                 onAskAI,
                 onChange,
                 createAIConversationId: () => TEST_AI_CONVERSATION_ID,
             })
         )
         const promptBlock = getAIPromptInput(container)
+        expect(
+            container.querySelector('[data-attr="markdown-notebook-ai-keep-question"]')?.getAttribute('aria-pressed')
+        ).toEqual('false')
 
         updateAIPromptInput(promptBlock, 'What happened here?')
         fireEvent.keyDown(promptBlock, { key: 'Enter' })
@@ -4027,6 +4310,7 @@ Current AI paragraph`),
             expect.objectContaining({
                 conversationId: TEST_AI_CONVERSATION_ID,
                 query: expect.stringContaining('User request:\nWhat happened here?'),
+                retainedQuestionMarkdown: undefined,
             })
         )
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
@@ -4282,6 +4566,47 @@ aXbc
         expect(onChange).not.toHaveBeenCalled()
     })
 
+    it.each([
+        [
+            'deletes an empty table',
+            '|  |  |\n| --- | --- |\n|  |  |',
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`,
+        ],
+        ['keeps a table with content', '| A |  |\n| --- | --- |\n|  |  |', undefined],
+    ])('%s on backspace', (_, tableMarkdown, expectedMarkdown) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Intro paragraph\n\n${tableMarkdown}`),
+                onChange,
+            })
+        )
+        const lastCell = Array.from(
+            container.querySelectorAll<HTMLElement>('.MarkdownNotebook__table-cell-content')
+        ).at(-1) as HTMLElement
+
+        placeCaretInElement(lastCell)
+        fireEvent.keyDown(lastCell, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__table-block') === null).toEqual(!!expectedMarkdown)
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(expectedMarkdown)
+    })
+
+    it('deletes a table with content from its delete control', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n| A | B |\n| --- | --- |\n| 1 | 2 |'),
+                onChange,
+            })
+        )
+
+        fireEvent.click(container.querySelector('button[aria-label="Delete table"]') as HTMLButtonElement)
+
+        expect(container.querySelector('.MarkdownNotebook__table-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`)
+    })
+
     it('keeps newly inserted components active for keyboard row actions', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
@@ -4354,7 +4679,7 @@ aXbc
         expect(insertMenu.style.getPropertyValue('--markdown-notebook-insert-menu-width')).toEqual('384px')
     })
 
-    it('uses the boundary gap to open the insert menu before populated rows', () => {
+    it.each([false, true])('uses the boundary gap to open the insert menu before populated rows (btw: %s)', (btw) => {
         const onChange = jest.fn()
         const onAskAI = jest.fn()
         const queryMarkdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
@@ -4363,6 +4688,7 @@ aXbc
                 value: withNotebookTitle(`${queryMarkdown}\n\nIntro paragraph`),
                 onChange,
                 onAskAI,
+                onBtw: btw ? jest.fn() : undefined,
             })
         )
         const addBeforeButton = container.querySelector(
@@ -4384,7 +4710,9 @@ aXbc
         const menuItems = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).map((button) =>
             button.textContent?.trim()
         )
-        expect(menuItems.slice(0, 3)).toEqual(['Ask AI', 'Text', 'SQL'])
+        expect(menuItems.slice(0, btw ? 4 : 3)).toEqual(
+            btw ? ['Ask AI', 'BTW', 'Text', 'SQL'] : ['Ask AI', 'Text', 'SQL']
+        )
 
         const trendButton = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
             (button) => button.textContent === 'Trend'
@@ -5757,6 +6085,37 @@ First paragraph
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`First\` paragraph`)
     })
 
+    it.each([undefined, 'Approve AI data processing first'])(
+        'opens btw from selected text without editing it (disabled: %s)',
+        (askAIDisabledReason) => {
+            const onBtw = jest.fn()
+            const onChange = jest.fn()
+            const value = withNotebookTitle('First paragraph\n\nSecond paragraph')
+            const { container } = render(
+                createElement(MarkdownNotebook, { value, onChange, onBtw, askAIDisabledReason })
+            )
+            const textBlocks = container.querySelectorAll('p.MarkdownNotebook__text-block')
+            selectTextAcrossNodes(
+                getFirstTextNode(textBlocks[0] as HTMLElement),
+                0,
+                getFirstTextNode(textBlocks[1] as HTMLElement),
+                6,
+                true
+            )
+            const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar')!
+            const button = toolbar.querySelector('button[aria-label="BTW"]') as HTMLButtonElement
+            expect(toolbar.querySelectorAll('button')[toolbar.querySelectorAll('button').length - 1]).toBe(button)
+            fireEvent.click(button)
+            if (askAIDisabledReason) {
+                expect(onBtw).not.toHaveBeenCalled()
+            } else {
+                expect(onBtw).toHaveBeenCalledWith({ markdown: value, selectedMarkdown: 'First paragraph\n\nSecond' })
+            }
+            expect(onChange).not.toHaveBeenCalled()
+            expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
+        }
+    )
+
     it('opens an inline AI prompt below highlighted text from the formatting toolbar', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
@@ -5805,9 +6164,11 @@ First paragraph
         expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.markdown).toContain('<ref id=')
-        expect(aiRequest.markdown).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdown).toContain('</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...')
         expect(aiRequest.responseMarker).toEqual('Thinking...')
-        expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdownWithResponse).toContain(
+            '</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...'
+        )
     })
 
     it('opens a selection Ask AI prompt when another Ask AI prompt is already open', () => {
@@ -5971,6 +6332,34 @@ Second`)
                 value: originalClipboard,
             })
         }
+    })
+
+    it.each(['keydown', 'beforeinput'])('splits multiline text at the visible caret via %s', (input) => {
+        const onChange = jest.fn()
+        const value = withNotebookTitle('Red\n**Green**\nBlue ribbon')
+        const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
+        const range = document.createRange()
+        range.setStart(textBlock.lastChild!, 'Blue'.length)
+        range.collapse(true)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+
+        if (input === 'keydown') {
+            fireEvent.keyDown(canvas, { key: 'Enter' })
+        } else {
+            fireBeforeInput(canvas, 'insertParagraph')
+        }
+
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('Red\n**Green**\nBlue\n\n ribbon'))
+        expect(window.getSelection()?.anchorOffset).toBe(0)
+
+        fireBeforeInput(canvas, 'deleteContentBackward')
+
+        expect(onChange).toHaveBeenLastCalledWith(value)
+        expect(window.getSelection()?.anchorNode?.textContent).toBe('Blue ribbon')
+        expect(window.getSelection()?.anchorOffset).toBe('Blue'.length)
     })
 
     it('deletes selected text when pressing Enter and splits at the selection', () => {
@@ -6304,7 +6693,7 @@ Second paragraph`,
         fireEvent.keyDown(aiPromptBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 2).textContent).toEqual('Thinking...')
     })
 
     it('syncs text edits when native input is dispatched from the root editable surface', () => {
@@ -6487,6 +6876,35 @@ second line
 \`\`\``)
     })
 
+    it('opens btw from the slash menu without leaving a prompt or query in the notebook', () => {
+        const onBtw = jest.fn()
+        const onAskAI = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onBtw, onAskAI }))
+        const textBlock = getBodyTextBlock(container)
+        updateContentEditableText(textBlock, '/btw')
+        const option = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
+            (button) => button.textContent === 'BTW'
+        ) as HTMLButtonElement
+        fireEvent.click(option)
+        expect(onBtw).toHaveBeenCalledWith({ markdown: withNotebookTitle(' ') })
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
+        expect(getBodyTextBlock(container).textContent).toBe('')
+    })
+
+    it('opens btw about a component block without changing it', () => {
+        const onBtw = jest.fn()
+        const onChange = jest.fn()
+        const block = '<SQLV2 code="select 1" />'
+        const value = withNotebookTitle(block)
+        const { container } = render(createElement(MarkdownNotebook, { value, onBtw, onChange }))
+        fireEvent.click(container.querySelector('button[aria-label="More actions"]') as HTMLButtonElement)
+        fireEvent.click(screen.getByText('BTW'))
+        expect(onBtw).toHaveBeenCalledWith({ markdown: value, selectedMarkdown: block })
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('submits an Ask AI prompt when Enter is dispatched from the root editable surface', () => {
         const onAskAI = jest.fn()
         const { container } = render(
@@ -6519,7 +6937,7 @@ second line
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: TEST_AI_CONVERSATION_ID,
@@ -8724,6 +9142,68 @@ ${' '}
         expect(document.activeElement).toEqual(getCells()[4])
     })
 
+    it.each([
+        '| Name | Count |\n| --- | --- |\n| Event | 7 |',
+        '| Name | Count |\n| --- | --- |',
+        '| Name |\n| --- |\n| Event |',
+    ])('adds a row with Tab in the last cell of %s', async (value) => {
+        const user = userEvent.setup()
+        const capture = jest.spyOn(posthog, 'capture')
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(value), onChange }))
+        const getCells = (): HTMLElement[] =>
+            Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+        const cells = getCells()
+        const lastCell = cells[cells.length - 1]
+        await user.click(lastCell)
+        await user.tab()
+
+        const columnCount = container.querySelectorAll('th').length
+        expect(getCells()).toHaveLength(cells.length + columnCount)
+        expect(document.activeElement).toEqual(getCells()[cells.length])
+        expect(window.getSelection()?.isCollapsed).toEqual(true)
+        expect(onChange).toHaveBeenCalledTimes(1)
+        expect(capture).toHaveBeenCalledWith('notebook table structure changed', {
+            action: 'add',
+            dimension: 'row',
+            source: 'tab',
+        })
+
+        await user.keyboard('{Control>}z{/Control}')
+        expect(getCells()).toHaveLength(cells.length)
+    })
+
+    it('moves to the preceding block with Shift-Tab in the first table cell', async () => {
+        const user = userEvent.setup()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('| Name |\n| --- |\n| Event |'),
+            })
+        )
+        const cell = container.querySelector('.MarkdownNotebook__table-cell-content') as HTMLElement
+        await user.click(cell)
+        await user.tab({ shift: true })
+        expect(document.activeElement).toEqual(getEditableTextBlocks(container)[0])
+    })
+
+    it('places a clicked cell caret at the end and selects its contents on double-click', async () => {
+        const user = userEvent.setup()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '| Name |\n| --- |\n| **Sample** value |',
+            })
+        )
+        const cell = container.querySelector('td .MarkdownNotebook__table-cell-content') as HTMLElement
+        selectTextInElement(cell, 0, 0)
+        await user.click(cell)
+        expect(window.getSelection()?.isCollapsed).toEqual(true)
+        const range = window.getSelection()?.getRangeAt(0)
+        expect(range?.endContainer.textContent).toEqual(' value')
+        expect(range?.endOffset).toEqual(6)
+        await user.dblClick(cell)
+        expect(window.getSelection()?.toString()).toEqual('Sample value')
+    })
+
     it('adds and removes table rows and columns with controls', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -8776,6 +9256,82 @@ ${' '}
 | --- | --- |
 | Pageview | 12 |`)
     })
+
+    it.each([
+        ['row', 'Add row after row 1', 'Remove row 2', '--table-pointer-x', '350px', 4],
+        ['column', 'Add column after column 2', 'Remove column 3', '--table-pointer-y', '75px', 3],
+    ] as const)(
+        'keeps the snapped %s control near the pointer and clickable',
+        async (dimension, addLabel, removeLabel, pointerProperty, pointerValue, expectedCount) => {
+            const user = userEvent.setup()
+            const onChange = jest.fn()
+            const value = withNotebookTitle('| Name | Count |\n| --- | --- |\n| Event | 7 |\n| Other | 8 |')
+            const originalRect = HTMLElement.prototype.getBoundingClientRect
+            const rectSpy = jest
+                .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+                .mockImplementation(function (this: HTMLElement) {
+                    let left = 100
+                    let top = 200
+                    let width = 400
+                    let height = 120
+                    if (this.matches('tr')) {
+                        top += (this as HTMLTableRowElement).rowIndex * 40
+                        height = 40
+                    } else if (this.matches('th, td')) {
+                        left += (this as HTMLTableCellElement).cellIndex * 200
+                        width = 200
+                        height = 40
+                    } else if (!this.matches('table, .MarkdownNotebook__table-grid')) {
+                        return originalRect.call(this)
+                    }
+                    return {
+                        x: left,
+                        y: top,
+                        left,
+                        top,
+                        width,
+                        height,
+                        right: left + width,
+                        bottom: top + height,
+                        toJSON: () => ({}),
+                    }
+                })
+            try {
+                const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+                const cell = within(container).getByText('Other')
+                fireEvent.mouseMove(cell, { clientX: 450, clientY: 300 })
+                expect(container.querySelector('.MarkdownNotebook__table-control-zone--active')).toBeNull()
+                await user.click(cell)
+                expect(onChange).not.toHaveBeenCalled()
+                fireEvent.mouseMove(cell, { clientX: dimension === 'row' ? 450 : 495, clientY: 275 })
+                const addButton = container.querySelector<HTMLButtonElement>(
+                    `button[aria-label="${addLabel}"]`
+                ) as HTMLButtonElement
+                const zone = addButton.parentElement as HTMLElement
+                expect(zone.classList.contains('MarkdownNotebook__table-control-zone--active')).toEqual(true)
+                expect(zone.style.getPropertyValue(pointerProperty)).toEqual(pointerValue)
+
+                fireEvent.mouseMove(addButton, { clientX: 452, clientY: 278 })
+                expect(zone.classList.contains('MarkdownNotebook__table-control-zone--active')).toEqual(true)
+                expect(zone.style.getPropertyValue(pointerProperty)).toEqual(pointerValue)
+                await user.click(addButton)
+
+                expect(container.querySelectorAll(dimension === 'row' ? 'tr' : 'th')).toHaveLength(expectedCount)
+                expect(onChange).toHaveBeenCalledTimes(1)
+                await user.click(
+                    container.querySelector<HTMLButtonElement>(
+                        `button[aria-label="${removeLabel}"]`
+                    ) as HTMLButtonElement
+                )
+                expect(onChange).toHaveBeenLastCalledWith(value)
+
+                fireEvent.mouseLeave(container.querySelector('.MarkdownNotebook__table-grid') as HTMLElement)
+                expect(container.querySelector('.MarkdownNotebook__table-control-zone--active')).toBeNull()
+            } finally {
+                rectSpy.mockRestore()
+            }
+        }
+    )
 
     it('pastes markdown tables as notebook table blocks', () => {
         const onChange = jest.fn()
@@ -9137,7 +9693,7 @@ After component`,
         )
     })
 
-    it('toggles both component panels from the title button', () => {
+    it('collapses and restores component panels from the cell-type label', () => {
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         const onChange = jest.fn()
         const { container, rerender } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
@@ -9192,7 +9748,7 @@ After component`,
         )
     })
 
-    it('opens the default component panels from the title button without remembered panel state', () => {
+    it('opens the default component panels from the cell-type label without remembered panel state', () => {
         const markdown = `<Query hideFilters hideResults query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
@@ -9340,9 +9896,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9364,9 +9918,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9408,9 +9960,7 @@ After component`,
         const { container } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9424,7 +9974,7 @@ After component`,
     it('does not suggest the query body or schema kinds as the title placeholder', () => {
         const getPlaceholder = (): string => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }
@@ -9452,7 +10002,7 @@ After component`,
         expect(placeholder).toEqual('Add a title')
     })
 
-    it('collapses single-mode component tags locally from the title button', () => {
+    it('collapses single-mode component tags locally from the cell-type label', () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'SummaryCard',
@@ -9526,7 +10076,7 @@ After component`,
         ])
         const getTitleInput = (): HTMLInputElement => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }
@@ -9630,7 +10180,7 @@ After component`,
         expect(fallback?.querySelector('pre')).toBeNull()
     })
 
-    it('collapses unknown component tags locally from the title button', () => {
+    it('collapses unknown component tags locally from the cell-type label', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: `<Tag foo="bar" />`, onChange }))
         const getTitleButton = (): HTMLButtonElement =>

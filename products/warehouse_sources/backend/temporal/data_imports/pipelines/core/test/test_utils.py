@@ -13,6 +13,8 @@ import pyarrow as pa
 import deltalake
 import structlog
 from dateutil import parser
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
@@ -21,12 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     BinaryColumnReporter,
+    NonMappingRowError,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
-    conditional_lru_cache_async,
     evolve_pyarrow_schema,
     hex_encode_id_binary_columns,
     is_safe_numeric_widening,
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    pyarrow_schema_from_arrow_exportable,
     raise_on_nullability_drift,
     reconcile_batch_to_accumulated_schema,
     relax_batch_nullability,
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
+    append_cursor_partition_keys,
     append_partition_key_to_table,
     setup_partitioning,
 )
@@ -102,17 +106,37 @@ def test_table_from_py_list_inconsistent_other_types():
     )
 
 
-def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+def test_table_from_py_list_keeps_the_key_order_of_the_rows():
+    table = table_from_py_list(
+        [
+            {"zeta": 1, "alpha": "a", "mid": None, "beta": 2.5, "omega": "o", "gamma": True, "delta": 3},
+            {"zeta": 2, "alpha": "b", "mid": "m", "beta": 3.5, "omega": "p", "gamma": False, "delta": 4, "late": "x"},
+        ]
+    )
+
+    assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
+
+
+@pytest.mark.parametrize(
+    "masked_columns,shows_cells",
+    [
+        pytest.param(None, True, id="unmasked"),
+        pytest.param(["Revenue"], False, id="masked_column_hides_its_cells"),
+    ],
+)
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error(
+    masked_columns: list[str] | None, shows_cells: bool
+):
     with pytest.raises(TypeError) as exc_info:
-        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}], masked_columns=masked_columns)
 
     message = str(exc_info.value)
     # Preserves the original phrase so source non-retryable matching still fires
     assert "must be real number, not str" in message
-    # Names the column and shows the offending text and blank cells
+    # Names the column, and shows the offending text and blank cells unless the column is masked
     assert "revenue" in message
-    assert "N/A" in message
-    assert "<blank>" in message
+    assert ("N/A" in message) is shows_cells
+    assert ("<blank>" in message) is shows_cells
     # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
     # guidance instead of retrying the same non-numeric cells forever, on every source.
     assert [key for key in Any_Source_Errors if key in message]
@@ -254,6 +278,31 @@ def test_table_from_py_list_with_lists():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "rows,row_type",
+    [
+        # A reporting endpoint whose selected field holds arrays, with column names returned
+        # separately, so every row reaches the pipeline without keys.
+        ([["first", 12], ["second", 34]], "list"),
+        # A selected field holding bare scalars.
+        (["first", "second"], "str"),
+        # Only a later row is keyless, so the check can't stop at the first row.
+        ([{"id": "first"}, ["second", 34]], "list"),
+    ],
+)
+def test_table_from_py_list_rejects_non_mapping_rows(rows, row_type):
+    with pytest.raises(NonMappingRowError) as exc_info:
+        table_from_py_list(rows)
+
+    message = str(exc_info.value)
+    assert row_type in message
+    # Row contents can hold customer data, so only the type is named
+    assert "first" not in message
+    # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
+    # guidance instead of retrying rows whose shape can't change, on every source.
+    assert [key for key in Any_Source_Errors if key in message]
 
 
 def test_table_from_py_list_with_nan():
@@ -619,23 +668,70 @@ def test_table_from_py_list_with_ipv6_address():
     )
 
 
-def test_normalize_table_column_names_prevents_collisions():
-    # Create a table with columns that would collide when normalized
-    table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (Range(4, 5, "[)"), "[4,5)"),
+        (Range(4, 5, "[]"), "[4,5]"),
+        (Range(empty=True), "empty"),
+        (Range(None, None, "()"), "(,)"),
+        (Range(5, None, "[)"), "[5,)"),
+        # A bound holding a space is quoted, the way Postgres writes a timestamp range
+        (
+            Range(datetime.datetime(2020, 1, 1), datetime.datetime(2020, 2, 1), "[)"),
+            '["2020-01-01 00:00:00","2020-02-01 00:00:00")',
+        ),
+        (Multirange([Range(1, 4, "[)"), Range(7, 9, "[)")]), "{[1,4),[7,9)}"),
+        (Multirange([]), "{}"),
+    ],
+)
+def test_table_from_py_list_with_postgres_range(value, expected):
+    # The Postgres source declares a range or multirange column as a string, so without a
+    # conversion pyarrow rejects the psycopg object with "Expected bytes, got a 'Range' object".
+    declared_schema = pa.schema(cast(Any, [pa.field("column", pa.string())]))
+
+    for schema in (None, declared_schema):
+        table = table_from_py_list([{"column": value}, {"column": None}], schema)
+
+        assert table.schema.field("column").type == pa.string()
+        assert table.column("column").to_pylist() == [expected, None]
+
+        # A batch holding no null: numpy reads a multirange as a nested sequence, so a column of
+        # equal length ones flattens into a 2-D array unless the column is built element by element.
+        table = table_from_py_list([{"column": value}], schema)
+
+        assert table.column("column").to_pylist() == [expected]
+
+
+def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
+    # A Postgres array of ranges reaches the JSON fallback, which must render each element as
+    # range text rather than as the psycopg object's Python repr.
+    table = table_from_py_list([{"column": [Range(1, 2, "[)"), Range(3, 4, "[]")]}])
+
+    assert table.column("column").to_pylist() == ['["[1,2)","[3,4]"]']
+
+
+@pytest.mark.parametrize(
+    "source_columns,expected_columns",
+    [
+        (
+            ["foo___bar", "foo_bar", "another___field"],
+            {"_foo_bar": "foo___bar", "foo_bar": "foo_bar", "another_field": "another___field"},
+        ),
+        (["id", ""], {"id": "id", "unnamed_column": ""}),
+        (["id", "   "], {"id": "id", "unnamed_column": "   "}),
+        (["", " "], {"unnamed_column": "", "_unnamed_column": " "}),
+        (["unnamed_column", ""], {"unnamed_column": "unnamed_column", "_unnamed_column": ""}),
+    ],
+)
+def test_normalize_table_column_names(source_columns: list[str], expected_columns: dict[str, str]):
+    table = pa.table([pa.array([f"value of {name!r}"]) for name in source_columns], names=source_columns)
 
     normalized_table = normalize_table_column_names(table)
 
-    # First column gets normalized
-    assert "foo_bar" in normalized_table.column_names
-    # Second column that would collide gets underscore prefix
-    assert "_foo_bar" in normalized_table.column_names
-    # Non-colliding column gets normalized
-    assert "another_field" in normalized_table.column_names
-
-    # Verify the data is preserved
-    assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
-    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
-    assert normalized_table.column("another_field").to_pylist() == ["value3"]
+    assert sorted(normalized_table.column_names) == sorted(expected_columns)
+    for normalized_name, source_name in expected_columns.items():
+        assert normalized_table.column(normalized_name).to_pylist() == [f"value of {source_name!r}"]
 
 
 def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
@@ -1455,6 +1551,9 @@ def _mock_schema(**overrides: Any) -> MagicMock:
     schema.partition_mode_override = overrides.get("partition_mode_override")
     schema.partitioning_keys_override = overrides.get("partitioning_keys_override")
     schema.partitioning_enabled = overrides.get("partitioning_enabled", True)
+    schema.is_append = overrides.get("is_append", False)
+    schema.incremental_field = overrides.get("incremental_field")
+    schema.incremental_field_type = overrides.get("incremental_field_type")
     schema.set_partitioning_enabled = MagicMock()
     return schema
 
@@ -1548,6 +1647,91 @@ async def test_setup_partitioning_no_delta_table_no_partition_keys_returns_uncha
 
     assert result.equals(pa_table)
     assert PARTITION_KEY not in result.column_names
+
+
+@pytest.mark.parametrize(
+    "schema_kwargs, expected",
+    [
+        ({"is_append": True, "incremental_field": "ts", "incremental_field_type": "timestamp"}, ["ts"]),
+        ({"is_append": True, "incremental_field": "day", "incremental_field_type": "date"}, ["day"]),
+        ({"is_append": False, "incremental_field": "ts", "incremental_field_type": "timestamp"}, None),
+        ({"is_append": True, "incremental_field": "seq", "incremental_field_type": "integer"}, None),
+        ({"is_append": True, "incremental_field": None, "incremental_field_type": None}, None),
+        (
+            {
+                "is_append": True,
+                "incremental_field": "ts",
+                "incremental_field_type": "timestamp",
+                "partitioning_keys": ["id"],
+            },
+            None,
+        ),
+    ],
+    ids=[
+        "append_timestamp_cursor",
+        "append_date_cursor",
+        "incremental_sync_can_merge_so_keeps_its_keys",
+        "integer_cursor_is_not_a_date",
+        "no_cursor",
+        "table_already_has_partitioning_keys",
+    ],
+)
+def test_append_cursor_partition_keys(schema_kwargs: dict[str, Any], expected: list[str] | None):
+    assert append_cursor_partition_keys(_mock_schema(**schema_kwargs)) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_mode, expected_partitions, expected_mode",
+    [
+        (None, ["2026-w02", "2026-w02", "2026-w07"], "datetime"),
+        ("md5", None, "md5"),
+    ],
+    ids=["no_mode_from_the_source_uses_the_cursor", "a_mode_from_the_source_wins"],
+)
+async def test_setup_partitioning_new_append_table_is_partitioned_by_its_cursor(
+    source_mode: str | None, expected_partitions: list[str] | None, expected_mode: str
+):
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table(
+        {
+            "id": [1, 2, 3],
+            "ts": pa.array(
+                [
+                    datetime.datetime(2026, 1, 5, 9),
+                    datetime.datetime(2026, 1, 6, 23),
+                    datetime.datetime(2026, 2, 10, 1),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    schema = _mock_schema(
+        is_append=True, incremental_field="ts", incremental_field_type="timestamp", partitioning_enabled=False
+    )
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["id"], partition_count=4, partition_mode=source_mode),
+        logger=logger,
+    )
+
+    assert schema.set_partitioning_enabled.call_args.args[3] == expected_mode
+    if expected_partitions is not None:
+        assert result.column(PARTITION_KEY).to_pylist() == expected_partitions
+        assert schema.set_partitioning_enabled.call_args.args[0] == ["ts"]
+
+
+def test_datetime_partitioning_of_an_integer_that_is_not_seconds_does_not_raise():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    table = pa.table({"ts": [1_760_000_000, 1_760_000_000_000_000_000]})
+
+    result = append_partition_key_to_table(table, None, None, ["ts"], "datetime", "month", logger)
+
+    assert result is not None
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2025-10", "1970-01"]
 
 
 @pytest.mark.asyncio
@@ -1840,6 +2024,40 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
 
 
 @pytest.mark.parametrize(
+    "column_type,expected_type",
+    [
+        (pa.uuid(), pa.binary()),
+        (pa.struct([pa.field("id", pa.uuid())]), pa.struct([pa.field("id", pa.binary())])),
+        (pa.list_(pa.struct([pa.field("id", pa.uuid())])), pa.list_(pa.struct([pa.field("id", pa.binary())]))),
+        (
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.uuid())])),
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.binary())])),
+        ),
+    ],
+)
+def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension(
+    column_type: pa.DataType, expected_type: pa.DataType
+) -> None:
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", column_type, metadata={"source": "test"}), pa.field("name", pa.string())])
+    )
+
+    schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+
+    assert schema.field("id").type == expected_type
+    assert schema.field("id").metadata == {b"source": b"test"}
+    assert schema.field("name").type == pa.string()
+
+
+def test_pyarrow_schema_from_arrow_exportable_reraises_unrelated_errors():
+    not_a_delta_schema = MagicMock(spec=["__arrow_c_schema__"])
+    not_a_delta_schema.__arrow_c_schema__.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        pyarrow_schema_from_arrow_exportable(not_a_delta_schema)
+
+
+@pytest.mark.parametrize(
     "mode,partition_count,partition_size,partition_format,expected",
     [
         # datetime is the reported crash: a persisted `hs_timestamp`/`_creation_time` key that the
@@ -1872,40 +2090,63 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
+@pytest.mark.parametrize(
+    "partition_keys,expected_hash_inputs",
+    [
+        (["id"], ["a1", "b2", "None", "d4"]),
+        (
+            ["seen_at", "id"],
+            [
+                "2024-03-01 10:00:00|a1",
+                "2024-03-01 10:00:00.250000|b2",
+                "None|None",
+                "2024-03-02 00:00:00|d4",
+            ],
+        ),
+        (["id", "dropped_field", "count"], ["a1|None|1", "b2|None|2", "None|None|3", "d4|None|None"]),
+        (["id", "id"], ["a1|a1", "b2|b2", "None|None", "d4|d4"]),
+    ],
+)
+def test_append_partition_key_md5_hashes_only_the_key_values_in_key_order(partition_keys, expected_hash_inputs):
+    rows = pa.table(
+        {
+            "payload": pa.array([{"n": 1}, {"n": 2}, None, {"n": 4}]),
+            "count": pa.array([1, 2, 3, None], type=pa.int64()),
+            "id": pa.array(["a1", "b2", None, "d4"]),
+            "seen_at": pa.array(
+                [
+                    datetime.datetime(2024, 3, 1, 10),
+                    datetime.datetime(2024, 3, 1, 10, 0, 0, 250000),
+                    None,
+                    datetime.datetime(2024, 3, 2),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    table = pa.concat_tables([rows.slice(0, 1), rows.slice(1)])
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=45,
+        partition_size=None,
+        partition_keys=partition_keys,
+        partition_mode="md5",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    assert result.table.column_names == [*table.column_names, PARTITION_KEY]
+    assert result.table.column(PARTITION_KEY).to_pylist() == [
+        str(int(hashlib.md5(value.encode()).hexdigest(), 16) % 45) for value in expected_hash_inputs
+    ]
+
+
 def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
-
-
-class TestConditionalLruCacheAsyncCachePop:
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_miss_returns_none_without_calling_func(self):
-        # A best-effort cleanup path (e.g. releasing an already-fetched delta table) must be able
-        # to check the cache without ever triggering the wrapped function's own I/O — a miss here
-        # used to mean "call the real function", which made cleanup do an unrelated object-storage
-        # call and risk masking the real error with a fresh, spurious one.
-        calls = []
-
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            calls.append(key)
-            return f"value-{key}"
-
-        assert fetch.cache_pop("a") is None
-        assert calls == []
-
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_hit_returns_and_removes_cached_value(self):
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            return f"value-{key}"
-
-        assert await fetch("a") == "value-a"
-
-        assert fetch.cache_pop("a") == "value-a"
-        # Popped, not just read — a second pop finds nothing left to remove.
-        assert fetch.cache_pop("a") is None
 
 
 class TestReconcileBatchToAccumulatedSchema:

@@ -15,6 +15,7 @@ import {
   readRepoFilesBoundedOutput,
   readRepoFilesInput,
   readRepoFilesOutput,
+  readWorkspaceFileInput,
   writeRepoFileInput,
 } from "@posthog/workspace-server/services/fs/schemas";
 
@@ -80,6 +81,15 @@ export const fsRouter = router({
       ctx.container
         .get<FsCapability>(FS_SERVICE)
         .readFileAsBase64(input.filePath),
+    ),
+
+  readWorkspaceFileAsBase64: publicProcedure
+    .input(readWorkspaceFileInput)
+    .output(readRepoFileOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<FsCapability>(FS_SERVICE)
+        .readWorkspaceImageDataUrl(input.workspaceRoot, input.filePath),
     ),
 
   writeRepoFile: publicProcedure

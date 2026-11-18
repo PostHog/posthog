@@ -1,0 +1,111 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Video ad captioning via OpenRouter to Bedrock",
+  "scenario": "A social media scheduling tool routes a short product-teaser video through OpenRouter to an Anthropic model hosted on Amazon Bedrock, asking for an Instagram caption and hashtags for an SEO-driven launch campaign.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "Amazon Bedrock"
+    ],
+    "frameworks": [],
+    "models": [
+      "amazon/nova-2-lite-v1"
+    ],
+    "content_types": [
+      "text",
+      "video_url"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "openrouter_api_key_name": "seo-pipeline-01",
+        "openrouter_source": "openrouter",
+        "openrouter_provider_time_to_first_token_ms": 815,
+        "openrouter_provider_body_end_ms": 1750,
+        "$ai_trace_id": "8f3e2a1c-9b7d-4e6f-a2c8-1d5e9f7b3a6c",
+        "trace_name": "OpenRouter Request",
+        "$ai_latency": 1.75,
+        "$ai_input_cost_usd": 0.0004743,
+        "openrouter_entity_id": "user_E0pr24td0YQbxOtDlK5gAKwQEsS",
+        "openrouter_router_latency_ms": 3,
+        "$ai_provider": "Amazon Bedrock",
+        "$ai_output_tokens_reasoning": 0,
+        "openrouter_provider_request_ms": 3,
+        "$ai_output_tokens": 151,
+        "openrouter_provider_headers_ms": 783,
+        "openrouter_first_token_ms": 818,
+        "$ai_model": "amazon/nova-2-lite-v1",
+        "openrouter_inter_token_latency_ms": 6.213333333333333,
+        "metadata_provider_responses": [
+          {
+            "endpoint_id": "3464250b-1883-7782-d513-184d1581c05e",
+            "id": "e6468a73-3574-756d-d26c-f0f8b92684da",
+            "is_byok": false,
+            "latency": 780,
+            "model_permaslug": "amazon/nova-2-lite-v1",
+            "provider_name": "Amazon Bedrock",
+            "status": 172
+          }
+        ],
+        "$ai_input_tokens": 1581,
+        "$ai_input_tokens_cached": 0,
+        "$ai_output_cost_usd": 0.0003775,
+        "distinct_id": "user_E0pr24td0YQbxOtDlK5gAKwQEsS",
+        "$ai_span_id": "8f3e2a1c-9b7d-4e6f-a2c8-1d5e9f7b3a6c",
+        "$ai_total_cost_usd": 0.0008518,
+        "$ai_span_name": "LLM Generation",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the social captioning assistant for a marketing team. Given a short product video and a request, write one caption suited for the platform mentioned, plus three to five relevant hashtags. Keep the caption under 220 characters, use an upbeat but not salesy tone, and avoid emoji unless the request asks for them. Never invent product claims, prices, or release dates that are not stated in the request. If the video cannot be read, say so plainly instead of guessing at its contents from the filename alone.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Watch this 30-second product teaser and write a punchy Instagram caption plus 3 relevant hashtags for our SEO launch campaign.",
+                "type": "text"
+              },
+              {
+                "type": "video_url",
+                "video_url": {
+                  "url": "cdn.ex.co/v9k2"
+                }
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "Say hello to faster mornings. Our new brew timer learns your schedule and has your coffee ready before your alarm even goes off. Simple to set up, easy to love. #MorningWin #SmartBrew #CoffeeTech #ProductLaunch #NewGadget. If you want a shorter alternative for a Reel cover card, try: Coffee, timed to you. Learns your mornings, skips the wait. #SmartBrew #MorningRoutine #CoffeeGadget #LaunchWeek #TechThatCares. Both versions keep the focus on the learning feature rather than price, since the teaser does not mention a launch date or cost, and I kept emoji out per your house style guide, but a single coffee cup emoji would work fine at the start of either line if the design wants one for visual balance in the feed.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

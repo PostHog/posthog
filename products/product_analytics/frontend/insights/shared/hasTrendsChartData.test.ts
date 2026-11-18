@@ -1,10 +1,10 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { hasTrendsChartData } from './hasTrendsChartData'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
-        action: null,
+        order: 0,
         count: 0,
         data: [],
         days: [],

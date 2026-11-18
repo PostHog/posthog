@@ -1,15 +1,15 @@
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { HogQLQueryString, escapeHogQLString, hogql } from 'lib/utils/hogql'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     DateRange,
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
-    ErrorTrackingFingerprintProjectionQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueEventsQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
-    ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy,
     ErrorTrackingReleasesQuery,
     EventsQuery,
@@ -17,16 +17,12 @@ import {
     NodeKind,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    ErrorTrackingIssueFilter,
-    FilterLogicalOperator,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -38,48 +34,11 @@ import {
     SEARCHABLE_EXCEPTION_PROPERTIES,
 } from './utils'
 
-function withIssueSeverityFilter(
-    filterGroup: UniversalFiltersGroup,
-    severity: ErrorTrackingQueryIssueSeverity | null | undefined
-): UniversalFiltersGroup {
-    if (!severity) {
-        return filterGroup
-    }
-
-    const severityFilter: ErrorTrackingIssueFilter = {
-        key: 'severity',
-        type: PropertyFilterType.ErrorTrackingIssue,
-        operator: PropertyOperator.Exact,
-        value: [severity],
-    }
-    const firstValue = filterGroup.values[0]
-    const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
-        ? firstValue
-        : {
-              type: FilterLogicalOperator.And,
-              values: firstValue ? [firstValue] : [],
-          }
-    const nextValues =
-        firstGroup.type === FilterLogicalOperator.Or && firstGroup.values.length > 0
-            ? [firstGroup, severityFilter]
-            : [...firstGroup.values, severityFilter]
-
-    return {
-        ...filterGroup,
-        values: [
-            {
-                type: FilterLogicalOperator.And,
-                values: nextValues,
-            },
-            ...filterGroup.values.slice(1),
-        ],
-    }
-}
-
 export const errorTrackingQuery = ({
     orderBy,
     status,
     severity,
+    issueTag,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -97,6 +56,8 @@ export const errorTrackingQuery = ({
     ErrorTrackingQuery,
     | 'orderBy'
     | 'status'
+    | 'severity'
+    | 'issueTag'
     | 'dateRange'
     | 'assignee'
     | 'filterTestAccounts'
@@ -108,7 +69,6 @@ export const errorTrackingQuery = ({
     | 'groupTypeIndex'
 > & {
     filterGroup: UniversalFiltersGroup
-    severity?: ErrorTrackingQueryIssueSeverity | null
     columns: string[]
     volumeResolution?: number
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
@@ -119,10 +79,12 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
+            ...(severity ? { severity } : {}),
+            ...(issueTag ? { issueTag } : {}),
             dateRange,
             assignee,
             volumeResolution,
-            filterGroup: withIssueSeverityFilter(filterGroup, severity) as PropertyGroupFilter,
+            filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
@@ -233,10 +195,23 @@ export const errorTrackingIssueEventsQuery = ({
     return eventsQuery
 }
 
-export const errorTrackingFingerprintProjectionQuery = (issueId: string): ErrorTrackingFingerprintProjectionQuery => ({
-    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery,
+export const errorTrackingIssueEventsListQuery = ({
     issueId,
-})
+    source,
+    onlyWithRecording,
+}: {
+    issueId: string
+    source: EventsQuery
+    onlyWithRecording: boolean
+}): ErrorTrackingIssueEventsQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingIssueEventsQuery>({
+        kind: NodeKind.ErrorTrackingIssueEventsQuery,
+        issueId,
+        source,
+        onlyWithRecording,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
+}
 
 export const errorTrackingIssueCorrelationQuery = ({
     events,
@@ -250,12 +225,19 @@ export const errorTrackingIssueCorrelationQuery = ({
     })
 }
 
+// Must match the fingerprint projection runner's defaults, or similarity reads a set of embeddings
+// that the fingerprint map never populated.
+export const FINGERPRINT_EMBEDDING_MODEL = 'text-embedding-3-large-3072'
+export const FINGERPRINT_EMBEDDING_RENDERING = 'type_message_and_stack'
+
 export const errorTrackingDocumentSimilarityQuery = ({
     documentId,
     timestamp,
+    limit,
 }: {
     documentId: string
     timestamp: string
+    limit?: number
 }): DocumentSimilarityQuery => {
     return setLatestVersionsOnQuery<DocumentSimilarityQuery>({
         kind: NodeKind.DocumentSimilarityQuery,
@@ -269,10 +251,11 @@ export const errorTrackingDocumentSimilarityQuery = ({
         order_by: 'distance',
         order_direction: 'asc',
         distance_func: 'cosineDistance',
-        model: 'text-embedding-3-small-1536',
+        model: FINGERPRINT_EMBEDDING_MODEL,
         products: ['error_tracking'],
         document_types: ['fingerprint'],
-        renderings: [],
+        renderings: [FINGERPRINT_EMBEDDING_RENDERING],
+        limit,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
@@ -282,11 +265,39 @@ export const errorTrackingIssueFingerprintsQuery = (
     first_seen: string,
     fingerprints: string[]
 ): HogQLQueryString => {
-    return hogql`SELECT properties.$exception_fingerprint as fingerprint, count() as c, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1])) as samples
+    return hogql`SELECT properties.$exception_fingerprint as fingerprint, count() as c, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1], 'lib', properties.$lib)) as samples
                 FROM events
                 WHERE event = '$exception' and issue_id = ${issue_id} and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${first_seen})
                 GROUP BY properties.$exception_fingerprint`
 }
+
+export const errorTrackingFingerprintSamplesQuery = (fingerprints: string[], since: string): HogQLQueryString => {
+    return hogql`SELECT properties.$exception_fingerprint as fingerprint, any(issue_id) as issue_id, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1], 'lib', properties.$lib)) as samples
+                FROM events
+                WHERE event = '$exception' and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${since})
+                GROUP BY properties.$exception_fingerprint`
+}
+
+export const errorTrackingFingerprintEventQuery = ({
+    fingerprint,
+    after,
+    before,
+}: {
+    fingerprint: string
+    after?: string
+    before?: string
+}): EventsQuery => ({
+    kind: NodeKind.EventsQuery,
+    event: '$exception',
+    select: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    // The window around the fingerprint's first sighting keeps this off a full retention scan.
+    after,
+    before,
+    where: [`properties.$exception_fingerprint = ${escapeHogQLString(fingerprint)}`],
+    orderBy: ['timestamp ASC'],
+    limit: 1,
+    tags: { productKey: ProductKey.ERROR_TRACKING },
+})
 
 export const errorTrackingIssueBreakdownQuery = ({
     breakdownProperty,

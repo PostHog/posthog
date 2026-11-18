@@ -11,8 +11,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range
 from products.batch_exports.backend.temporal.monitoring import (
@@ -31,6 +29,11 @@ from products.batch_exports.backend.temporal.monitoring import (
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     create_clickhouse_tables_and_views,
     truncate_events,
+)
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -56,7 +59,7 @@ async def truncate(clickhouse_client):
 async def batch_export(ateam, temporal_client):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "a-bucket",
             "region": "us-east-1",
@@ -256,6 +259,7 @@ async def test_monitoring_workflow_when_missing_batch_export_runs(
     assert len(runs) == 1
     for run in runs:
         assert run.data_interval_start is not None
+        assert run.data_interval_end is not None
         expected_missing_runs.append((run.data_interval_start, run.data_interval_end))
         await run.adelete()
 
@@ -315,6 +319,7 @@ async def test_monitoring_workflow_when_missing_events(
     for run in runs:
         if run.records_completed and run.records_completed > 1:
             assert run.data_interval_start is not None
+            assert run.data_interval_end is not None
             missing_events = run.records_completed // 2
             expected_missing_events.append(
                 EventCount(

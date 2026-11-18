@@ -7,7 +7,7 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from rest_framework.test import APIClient
 from temporalio.common import RetryPolicy
@@ -30,6 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.settings import AC
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
+    PostgresQueueReplay,
+    ensure_queue_tables_in_test_database,
+    patch_producer_to_test_database,
+    replay_v3_consumer,
+)
 
 BUCKET_NAME = "test-pipeline"
 
@@ -45,7 +51,7 @@ def api_client(user):
             return_value=(True, None),
         ),
         mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_source.bulk_create_external_data_job_schedules",
+            "products.warehouse_sources.backend.presentation.views.external_data_source.base.bulk_create_external_data_job_schedules",
             return_value=[],
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
@@ -92,16 +98,13 @@ def run_data_import_workflow(mock_stripe_client):
         )
 
         with (
-            mock.patch.object(DeltaMaintenance, "compact_table"),
+            mock.patch.object(DeltaMaintenance, "run_scheduled"),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
             ),
             mock.patch("posthoganalytics.capture_exception", return_value=None),
             mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
-                return_value=False,
-            ),
+            patch_producer_to_test_database(),
             mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
             mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
             override_settings(
@@ -116,6 +119,7 @@ def run_data_import_workflow(mock_stripe_client):
                 DATAWAREHOUSE_BUCKET=BUCKET_NAME,
             ),
         ):
+            await sync_to_async(ensure_queue_tables_in_test_database)()
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
                     env.client,
@@ -133,6 +137,8 @@ def run_data_import_workflow(mock_stripe_client):
                         task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
+
+            await replay_v3_consumer(PostgresQueueReplay(), team.id, schema.id, BUCKET_NAME)
 
         run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
         assert run is not None

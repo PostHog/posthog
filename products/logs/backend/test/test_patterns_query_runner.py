@@ -2,8 +2,9 @@ import os
 import re
 import json
 import datetime as dt
+from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -11,7 +12,10 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor, _time_slices
@@ -44,7 +48,311 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = PatternsQueryRunner(team=self.team, query=query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         return response.results
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_mines_stored_patterns_and_retains_body_examples(self) -> None:
+        self._insert(
+            [
+                {**self._log("Archive job run_A7c queued"), "pattern": "Archive job <ID> queued", "pattern_version": 5},
+                {**self._log("Archive job run_B8d queued"), "pattern": "Archive job <ID> queued", "pattern_version": 5},
+                {
+                    **self._log("Processed 12 records " + "🦔" * 4100),
+                    "pattern": "Processed <N> records",
+                    "pattern_version": 5,
+                },
+            ]
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+        patterns = {pattern["pattern"]: pattern for pattern in results["patterns"]}
+
+        assert results["total_count"] == results["scanned_count"] == 3
+        assert patterns["Archive job <ID> queued"]["count"] == 2
+        assert {example["body"] for example in patterns["Archive job <ID> queued"]["examples"]} == {
+            "Archive job run_A7c queued",
+            "Archive job run_B8d queued",
+        }
+        assert patterns["Processed <N> records"]["count"] == 1
+        assert len(patterns["Processed <N> records"]["examples"][0]["body"]) == 4096
+        assert patterns["Processed <N> records"]["examples"][0]["body"].endswith("🦔")
+        assert results["source"] == "stored_patterns"
+        assert results["pattern_version"] == 5
+        assert results["fallback_reason"] is None
+        assert results["represented_count"] == 3
+        assert results["remainder_count"] == 0
+        assert results["sampled"] is False
+        assert patterns["Archive job <ID> queued"]["match_patterns"] == ["Archive job <ID> queued"]
+        assert patterns["Archive job <ID> queued"]["pattern_version"] == 5
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_stored_examples_do_not_repeat_a_body(self) -> None:
+        self._insert(
+            [
+                {**self._log("Retry 7 timed out"), "pattern": "Retry <N> timed out", "pattern_version": 5}
+                for _ in range(12)
+            ]
+            + [
+                {**self._log("Retry 8 timed out", minute=1), "pattern": "Retry <N> timed out", "pattern_version": 5},
+                {**self._log("Retry 9 timed out", minute=2), "pattern": "Retry <N> timed out", "pattern_version": 5},
+            ]
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+
+        pattern = results["patterns"][0]
+        bodies = [example["body"] for example in pattern["examples"]]
+        assert pattern["count"] == 14
+        assert len(bodies) == len(set(bodies))
+        assert set(bodies) == {"Retry 7 timed out", "Retry 8 timed out", "Retry 9 timed out"}
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_json_key_set_groups_split_by_their_message_field(self) -> None:
+        key_set = "<JSON:fields,level,span,target,timestamp>"
+        other_key_set = "<JSON:fields,level,target>"
+
+        def tracing(message: str | None, index: int) -> dict:
+            fields = {"message": message} if message is not None else {"count": index, "padding": "x" * 5000}
+            body = json.dumps(
+                {
+                    "timestamp": f"2026-06-23T12:00:{index % 60:02d}.000000Z",
+                    "level": "ERROR",
+                    "fields": fields,
+                    "target": "svc::auth",
+                    "span": {"content_length": str(index), "name": "export"},
+                }
+            )
+            return {**self._log(body, severity="error"), "pattern": key_set, "pattern_version": 6}
+
+        self._insert(
+            [tracing("upstream refused", i) for i in range(30)]
+            + [tracing(f"frame {i} too large", i) for i in range(20)]
+            + [tracing(None, i) for i in range(5)]
+            + [{**tracing("upstream refused", i), "pattern": other_key_set} for i in range(10)]
+            + [
+                {
+                    **self._log(json.dumps({"fields": {"message": "upstream refused"}, "padding": "x" * 10000})),
+                    "pattern": other_key_set,
+                    "pattern_version": 6,
+                }
+            ]
+            + [{**self._log("Archived 9 files"), "pattern": "Archived <N> files", "pattern_version": 6}] * 10
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+        patterns = {pattern["pattern"]: pattern for pattern in results["patterns"]}
+
+        assert results["source"] == "stored_patterns"
+        # A body past the read cap cannot be parsed, so its row stays in its key-set group.
+        assert set(patterns) == {
+            "upstream refused",
+            "frame <num> too large",
+            "Archived <N> files",
+            key_set,
+            other_key_set,
+        }
+        assert patterns[other_key_set]["count"] == 1
+        assert [pattern["pattern"] for pattern in results["patterns"]].count("upstream refused") == 1
+        assert patterns["upstream refused"]["count"] == 40
+        assert patterns["upstream refused"]["error_count"] == 40
+        assert patterns["frame <num> too large"]["count"] == 20
+        assert patterns[key_set]["count"] == 5
+        assert patterns[key_set]["match_patterns"] == [key_set]
+        assert patterns[key_set]["examples"]
+        assert all("message" not in example["body"] for example in patterns[key_set]["examples"])
+        assert all(len(example["body"]) <= 4096 for example in patterns[key_set]["examples"])
+        assert patterns["Archived <N> files"]["match_patterns"] == ["Archived <N> files"]
+        assert results["represented_count"] == 76
+        assert results["remainder_count"] == 0
+        assert [pattern["pattern"] for pattern in results["patterns"]][:2] == [
+            "upstream refused",
+            "frame <num> too large",
+        ]
+        refined = patterns["upstream refused"]
+        assert refined["match_patterns"] == []
+        assert refined["pattern_version"] is None
+        assert refined["examples"]
+        pivot = self._run(
+            filterGroup={
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "message", "value": refined["match_regex"], "operator": "regex", "type": "log"}
+                        ],
+                    }
+                ],
+            }
+        )
+        # The regex runs on raw bodies, so it also finds the oversized row that stayed in its key-set group.
+        assert pivot["total_count"] == 41
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_a_sampled_json_split_reports_its_counts_as_estimates(self) -> None:
+        # The test schema has no uuid default, and the split samples by a hash of the uuid.
+        key_set = "<JSON:fields,level,target>"
+        self._insert(
+            [
+                {
+                    **self._log(json.dumps({"level": "ERROR", "fields": {"message": f"frame {i} too large"}})),
+                    "uuid": str(uuid4()),
+                    "pattern": key_set,
+                    "pattern_version": 6,
+                }
+                for i in range(200)
+            ]
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.dict(os.environ, {"LOGS_PATTERNS_SAMPLE_LIMIT": "50"}),
+        ):
+            results = self._run()
+
+        assert results["source"] == "stored_patterns"
+        assert results["sampled"] is True
+        assert [pattern["pattern"] for pattern in results["patterns"]] == ["frame <num> too large"]
+        assert results["patterns"][0]["estimated_count"] == 200
+        assert sum(results["patterns"][0]["severity_counts"].values()) == results["patterns"][0]["count"]
+        assert 0 < results["patterns"][0]["count"] <= 50
+
+    @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_body_fallback_does_not_mix_stored_versions(self, enabled: bool, coverage: int, reason: str) -> None:
+        self._insert(
+            [
+                {**self._log(f"Processed {index} records"), "pattern": "unrelated stored shape", "pattern_version": 3}
+                for index in range(coverage)
+            ]
+            + [self._log("Processed 123 records") for _ in range(100 - coverage)]
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            results = self._run()
+        assert results["source"] == "body_mining"
+        assert results["pattern_version"] is None
+        assert results["fallback_reason"] == reason
+        assert results["remainder_count"] is None
+        assert results["patterns"][0]["pattern"] == "Processed <num> records"
+        assert results["patterns"][0]["count"] == 100
+        assert results["patterns"][0]["match_patterns"] == []
+
+    @parameterized.expand([(0, "", False), (5, "Processed <N> records", False), (0, "", True)])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_dominant_version_aggregates_exact_counts_and_discloses_remainder(
+        self, minority_version: int, minority_pattern: str, byte_limited: bool
+    ) -> None:
+        self._insert(
+            [
+                {
+                    **self._log("Processed 123 records", severity="ERROR", minute=1),
+                    "pattern": "Processed <N> records",
+                    "pattern_version": 3,
+                }
+                for _ in range(60)
+            ]
+            + [
+                {**self._log("Archived 456 files", minute=2), "pattern": "Archived <N> files", "pattern_version": 3}
+                for _ in range(39)
+            ]
+            + [{**self._log("Processed 789 records"), "pattern": minority_pattern, "pattern_version": minority_version}]
+        )
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.dict(os.environ, {"LOGS_PATTERNS_HEAD_LIMIT": "10000" if byte_limited else "1"}),
+            patch(
+                "products.logs.backend.patterns_query_runner.STORED_PATTERN_HEAD_MAX_BYTES",
+                42 if byte_limited else 65536,
+            ),
+        ):
+            results = self._run()
+        assert results["source"] == "stored_patterns"
+        assert results["pattern_version"] == 3
+        assert results["pattern_coverage_pct"] == 99
+        assert results["total_count"] == 100
+        assert results["represented_count"] == 60
+        assert results["remainder_count"] == 40
+        pattern = results["patterns"][0]
+        assert pattern["count"] == pattern["estimated_count"] == 60
+        assert pattern["error_count"] == pattern["estimated_error_count"] == 60
+        assert pattern["severity_counts"] == {"error": 60}
+        assert sum(pattern["sparkline"]) == 60
+        assert pattern["volume_share_pct"] == 60
+        pivot = self._run(
+            filterGroup={
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "pattern", "value": pattern["match_patterns"], "operator": "exact", "type": "log"},
+                            {
+                                "key": "pattern_version",
+                                "value": pattern["pattern_version"],
+                                "operator": "exact",
+                                "type": "log",
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        assert pivot["total_count"] == 60
+
+    @parameterized.expand([(True, 5, [60, 50, 40, 30]), (True, 0, [60, 50]), (False, 5, [60, 60])])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_query_budget_covers_stored_queries_and_fallback(
+        self, enabled: bool, version: int, expected_budgets: list[int]
+    ) -> None:
+        self._insert(
+            [{**self._log("Processed 7 records"), "pattern": "Processed <N> records", "pattern_version": version}]
+        )
+        budgets = []
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=enabled),
+            patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock,
+        ):
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                budgets.append(kwargs["settings"].max_execution_time)
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += 10
+                return result
+
+            with patch(
+                "products.logs.backend.patterns_query_runner.execute_hogql_query", side_effect=execute_with_elapsed_time
+            ):
+                results = self._run()
+
+        assert results["total_count"] == 1
+        assert budgets == expected_budgets
+
+    @parameterized.expand([30, 60])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_exhausted_query_budget_raises_instead_of_returning_partial_counts(self, elapsed: int) -> None:
+        self._insert([{**self._log("Processed 7 records"), "pattern": "Processed <N> records", "pattern_version": 5}])
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock,
+        ):
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += elapsed
+                return result
+
+            with (
+                patch(
+                    "products.logs.backend.patterns_query_runner.execute_hogql_query",
+                    side_effect=execute_with_elapsed_time,
+                ) as execute,
+                self.assertRaises(ClickHouseQueryTimeOut),
+            ):
+                self._run()
+            assert execute.call_count == 60 // elapsed
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_mines_templates_from_clickhouse(self) -> None:
         self._insert(
             [
@@ -83,7 +391,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(results["sparkline_buckets"]) == 24
         assert sum(by_template["User <*> not found"]["sparkline"]) == 3
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_sets_sampled_and_caps_scanned_count_above_the_limit(self) -> None:
         self._insert([self._log(f"request {i} handled") for i in range(20)])
 
@@ -95,7 +403,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # total_count reports the full window size even though the sample is capped.
         assert results["total_count"] == 20
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_sampled_runs_are_deterministic(self) -> None:
         # The sample hashes each row's immutable uuid rather than using rand(), so the same
         # window + filters must mine identical patterns on every run. Guards against
@@ -110,7 +418,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert first["patterns"] == second["patterns"]
         assert first["scanned_count"] == second["scanned_count"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_scan_budget_bounds_eligible_rows_via_time_slices(self) -> None:
         # 60 rows, one per minute across a 1h window; a budget of 30 with 6 slices makes only
         # half the window eligible. No hash sampling kicks in (pool < sample limit), so the
@@ -185,28 +493,38 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sample_divisor_rounds_up_to_keep_sample_within_limit(self, total: int, expected: int) -> None:
         assert _sample_divisor(total, sample_limit=10) == expected
 
-    @freeze_time(_FROZEN_NOW)
-    def test_respects_service_filter(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_respects_service_filter(self, stored_patterns: bool) -> None:
         self._insert(
-            [self._log("auth check passed", service="api") for _ in range(3)]
+            [
+                {**self._log("auth check passed", service="api"), "pattern": "auth check passed", "pattern_version": 3}
+                for _ in range(3)
+            ]
             + [self._log("query took too long", service="db") for _ in range(2)]
         )
 
-        results = self._run(serviceNames=["api"])
+        with patch("posthoganalytics.feature_enabled", return_value=stored_patterns):
+            results = self._run(serviceNames=["api"])
 
         assert results["scanned_count"] == 3
         assert results["sampled"] is False
         services_seen = {svc for p in results["patterns"] for svc in p["services"]}
         assert services_seen == {"api"}
+        assert results["source"] == ("stored_patterns" if stored_patterns else "body_mining")
 
-    @freeze_time(_FROZEN_NOW)
-    def test_empty_window_returns_no_patterns(self) -> None:
-        results = self._run()
+    @parameterized.expand([(False,), (True,)])
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_empty_window_returns_no_patterns(self, enabled: bool) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            results = self._run()
 
         assert results["patterns"] == []
         assert results["scanned_count"] == 0
         assert results["total_count"] == 0
         assert results["sampled"] is False
+        assert results["source"] == "body_mining"
+        assert results["fallback_reason"] == ("empty_window" if enabled else "flag_disabled")
 
     def test_blocks_generic_query_runner_access(self) -> None:
         from products.access_control.backend.facade.user_access_control import UserAccessControlError

@@ -16,7 +16,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
+import { KafkaConfigTarget, getKafkaConfigFromEnv, redactKafkaConfig } from './config'
 import { ProducerStatsTracker } from './kafka-producer-metrics'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -42,7 +42,24 @@ export type TopicMessage = {
     messages: MessageWithoutTopic[]
 }
 
-export class KafkaProducerWrapper {
+export type ProducerMessage = {
+    value: MessageValue
+    key: MessageKey
+    topic: string
+    headers?: Record<string, string>
+    /** Explicit target partition. When omitted, librdkafka's default partitioner picks one. */
+    partition?: number
+}
+
+export interface KafkaProducer {
+    produce(message: ProducerMessage): Promise<void>
+    queueMessages(topicMessages: TopicMessage | TopicMessage[]): Promise<void>
+    disconnect(): Promise<void>
+    checkConnection(timeoutMs?: number): Promise<void>
+    checkTopicExists(topic: string, timeoutMs?: number): Promise<void>
+}
+
+export class KafkaProducerWrapper implements KafkaProducer {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
 
@@ -86,7 +103,7 @@ export class KafkaProducerWrapper {
             dr_cb: true,
         }
 
-        logger.info('📝', 'librdkafka producer config', { config: producerConfig })
+        logger.info('📝', 'librdkafka producer config', { config: redactKafkaConfig(producerConfig) })
 
         const producer = new HighLevelProducer(producerConfig)
 
@@ -126,20 +143,7 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async produce({
-        value,
-        key,
-        topic,
-        headers,
-        partition,
-    }: {
-        value: MessageValue
-        key: MessageKey
-        topic: string
-        headers?: Record<string, string>
-        /** Explicit target partition. When omitted, librdkafka's default partitioner picks one. */
-        partition?: number
-    }): Promise<void> {
+    async produce({ value, key, topic, headers, partition }: ProducerMessage): Promise<void> {
         const labels: Record<string, string> = { topic_name: topic }
         if (this.name) {
             labels.producer_name = this.name
@@ -165,6 +169,7 @@ export class KafkaProducerWrapper {
                     timeoutMs: 10_000,
                     sendException: false,
                     timeoutMessage: `Kafka produce callback timeout for topic "${topic}"`,
+                    span: false,
                 },
                 () =>
                     new Promise((resolve, reject) => {

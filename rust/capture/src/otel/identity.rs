@@ -15,6 +15,21 @@ const SPAN_DISTINCT_ID_KEYS: &[&str] = &[
 /// override is set.
 const RESOURCE_DISTINCT_ID_KEYS: &[&str] = &["posthog.distinct_id", "user.id"];
 
+/// A session can span several traces, so its id takes priority over the trace id. The keys and
+/// their order mirror what the AI ingestion pipeline in nodejs/src/ingestion/pipelines/ai/otel
+/// resolves `$ai_session_id` from. Keep the two in step.
+const SESSION_ID_KEYS: &[&str] = &[
+    "$ai_session_id",
+    "ai.telemetry.metadata.$ai_session_id",
+    "ai.settings.context.$ai_session_id",
+    "eve.session.id",
+    "anthropic.session.id",
+    "gen_ai.conversation.id",
+];
+
+/// Changing this value gives every session and trace without an explicit distinct_id a new one.
+const DERIVED_DISTINCT_ID_NAMESPACE: Uuid = Uuid::from_u128(0x392e81d53d134a6fb541bdbf6c865e56);
+
 fn get_string_attr<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
     attrs
         .iter()
@@ -57,6 +72,33 @@ pub fn extract_distinct_id_for_span(
 /// distinct_id rather than scattering them across one-shot UUIDs.
 pub fn request_fallback_distinct_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Distinct id for a span that names no user. The spans of one trace can arrive in separate
+/// requests, and a session produces several traces, so the id is derived from the session id or
+/// the trace id to keep them on one anonymous person. `request_fallback` covers a span that has
+/// neither a session id nor a valid trace id.
+pub fn span_fallback_distinct_id(
+    span_attrs: &[KeyValue],
+    resource: Option<&Resource>,
+    trace_id: &[u8],
+    request_fallback: &str,
+) -> String {
+    for key in SESSION_ID_KEYS {
+        let session_id = get_string_attr(span_attrs, key)
+            .or_else(|| resource.and_then(|r| get_string_attr(&r.attributes, key)));
+        if let Some(session_id) = session_id {
+            return derived_distinct_id(&format!("session:{session_id}"));
+        }
+    }
+    if trace_id.iter().any(|byte| *byte != 0) {
+        return derived_distinct_id(&format!("trace:{}", hex::encode(trace_id)));
+    }
+    request_fallback.to_string()
+}
+
+fn derived_distinct_id(name: &str) -> String {
+    Uuid::new_v5(&DERIVED_DISTINCT_ID_NAMESPACE, name.as_bytes()).to_string()
 }
 
 #[cfg(test)]
@@ -167,6 +209,82 @@ mod tests {
         assert_eq!(
             extract_distinct_id_for_span(&[], None, "fallback-id"),
             "fallback-id"
+        );
+    }
+
+    #[test]
+    fn test_span_fallback_is_stable_per_trace_and_differs_across_traces() {
+        let first = span_fallback_distinct_id(&[], None, &[1; 16], "request");
+        assert_eq!(
+            first,
+            span_fallback_distinct_id(&[], None, &[1; 16], "other-request")
+        );
+        assert_ne!(
+            first,
+            span_fallback_distinct_id(&[], None, &[2; 16], "request")
+        );
+        assert_ne!(first, "request");
+    }
+
+    #[test]
+    fn test_span_fallback_groups_the_traces_of_one_session() {
+        for key in SESSION_ID_KEYS {
+            let attrs = vec![string_kv(key, "session-1")];
+            let first = span_fallback_distinct_id(&attrs, None, &[1; 16], "request");
+            assert_eq!(
+                first,
+                span_fallback_distinct_id(&attrs, None, &[2; 16], "request")
+            );
+            assert_ne!(
+                first,
+                span_fallback_distinct_id(&[], None, &[1; 16], "request")
+            );
+        }
+    }
+
+    #[test]
+    fn test_span_fallback_prefers_the_widest_session_grouping() {
+        let all = vec![
+            string_kv("gen_ai.conversation.id", "thread-1"),
+            string_kv("anthropic.session.id", "session-1"),
+            string_kv("$ai_session_id", "explicit-1"),
+        ];
+        let explicit_only = vec![string_kv("$ai_session_id", "explicit-1")];
+        assert_eq!(
+            span_fallback_distinct_id(&all, None, &[1; 16], "request"),
+            span_fallback_distinct_id(&explicit_only, None, &[1; 16], "request")
+        );
+
+        let session_and_thread = vec![
+            string_kv("gen_ai.conversation.id", "thread-1"),
+            string_kv("anthropic.session.id", "session-1"),
+        ];
+        let session_only = vec![string_kv("anthropic.session.id", "session-1")];
+        assert_eq!(
+            span_fallback_distinct_id(&session_and_thread, None, &[1; 16], "request"),
+            span_fallback_distinct_id(&session_only, None, &[1; 16], "request")
+        );
+    }
+
+    #[test]
+    fn test_span_fallback_reads_the_session_from_the_resource() {
+        let resource = resource_with(vec![string_kv("$ai_session_id", "session-1")]);
+        let on_span = vec![string_kv("$ai_session_id", "session-1")];
+        assert_eq!(
+            span_fallback_distinct_id(&[], Some(&resource), &[1; 16], "request"),
+            span_fallback_distinct_id(&on_span, None, &[2; 16], "request")
+        );
+    }
+
+    #[test]
+    fn test_span_fallback_uses_the_request_id_without_a_valid_trace_id() {
+        assert_eq!(
+            span_fallback_distinct_id(&[], None, &[0; 16], "request"),
+            "request"
+        );
+        assert_eq!(
+            span_fallback_distinct_id(&[], None, &[], "request"),
+            "request"
         );
     }
 

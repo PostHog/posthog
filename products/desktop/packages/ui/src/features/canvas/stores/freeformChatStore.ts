@@ -1,9 +1,8 @@
 import { create } from "zustand";
 
-// Per-canvas VIEW state for a freeform canvas. Source code, version history,
-// and the author context are server-versioned (dashboards.get / source /
-// versions) and the rendered output is the published build's artifact — none of
-// that lives here. This store owns only what the client browses or observes
+// Per-canvas VIEW state for a freeform canvas. Source code and version history
+// are server-versioned (dashboards.get / source / versions) and the rendered
+// output is the published build's artifact — none of that lives here. This store owns only what the client browses or observes
 // locally: the sandbox's runtime-error signal, and which historical version (if
 // any) the user is browsing. Threads are tiny (two nullable strings), so they
 // simply accumulate for the app's lifetime — no eviction.

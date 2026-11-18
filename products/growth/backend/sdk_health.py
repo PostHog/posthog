@@ -36,6 +36,9 @@ MOBILE_SDKS: frozenset[str] = frozenset(
         "posthog-flutter",
         "posthog-react-native",
         "posthog-kmp",
+        "posthog-unity",
+        "posthog-godot",
+        "posthog-unreal",
     }
 )
 
@@ -45,11 +48,24 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-node",
         "posthog-python",
         "posthog-php",
+        "posthog-laravel",
         "posthog-ruby",
         "posthog-go",
         "posthog-server",
         "posthog-dotnet",
         "posthog-elixir",
+        "posthog-node-mcp",
+        "posthog-python-mcp",
+        "posthog-edge",
+        "posthog-convex",
+        "posthog-rails",
+        "posthog-aspnetcore",
+        "posthog-rs",
+        "posthog-rs-mcp",
+        "posthog-go-mcp",
+        "posthog-ruby-mcp",
+        "posthog-roblox",
+        "js",
     }
 )
 
@@ -61,6 +77,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-node": "Node.js",
     "posthog-python": "Python",
     "posthog-php": "PHP",
+    "posthog-laravel": "Laravel",
     "posthog-ruby": "Ruby",
     "posthog-go": "Go",
     LEGACY_JAVA_SDK: "Java (legacy)",
@@ -70,6 +87,21 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-kmp": "Kotlin Multiplatform",
     "posthog-dotnet": ".NET",
     "posthog-elixir": "Elixir",
+    "posthog-unity": "Unity",
+    "posthog-node-mcp": "Node.js MCP",
+    "posthog-python-mcp": "Python MCP",
+    "posthog-edge": "Edge",
+    "posthog-convex": "Convex",
+    "posthog-rails": "Ruby on Rails",
+    "posthog-aspnetcore": "ASP.NET Core",
+    "posthog-rs": "Rust",
+    "posthog-rs-mcp": "Rust MCP",
+    "posthog-godot": "Godot",
+    "posthog-unreal": "Unreal Engine",
+    "posthog-go-mcp": "Go MCP",
+    "posthog-ruby-mcp": "Ruby MCP",
+    "posthog-roblox": "Roblox",
+    "js": "JavaScript Lite",
 }
 
 
@@ -478,7 +510,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
     # these four characters but DOES encode everything else (including space, `/`, `?`, `#`).
     encoded_q = quote(json_dumps(query, separators=(",", ":")), safe="!*'()")
     prefix = f"/project/{project_id}" if project_id is not None else ""
-    return f"{prefix}/activity/explore#q={encoded_q}"
+    return f"{prefix}/activity/events#q={encoded_q}"
 
 
 def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
@@ -758,6 +790,9 @@ def assess_sdk(
     project_id: Optional[int] = None,
 ) -> Optional[SdkAssessment]:
     """Assess a single SDK's health across all versions in use."""
+    if sdk_type == "posthog-python-mcp":
+        # MCP's 0.x integration versions do not identify the installed Python package.
+        usage = [entry for entry in usage if not entry.lib_version.startswith("0.")]
     if not usage:
         return None
 

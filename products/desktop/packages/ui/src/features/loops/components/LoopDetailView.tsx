@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ArrowSquareOutIcon,
   CheckCircleIcon,
   LinkIcon,
   PauseIcon,
@@ -7,9 +8,7 @@ import {
   PlayIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
-import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
-import { useHostTRPC } from "@posthog/host-router/react";
+import { hogFlowRequestDetail } from "@posthog/api-client/hogFlowLoops";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -21,56 +20,53 @@ import {
   Badge,
   Button,
 } from "@posthog/quill";
+import { getCloudUrlFromRegion } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { assertCloudUsageAvailable } from "@posthog/ui/features/billing/preflightCloudUsage";
-import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { Button as ActionButton } from "@posthog/ui/primitives/Button";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
 import { systemTimezone } from "@posthog/ui/primitives/timezone";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
-  canGoBackInHistory,
-  goBackInHistory,
   navigateToLoops,
+  navigateToSpaceLoops,
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
-import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Flex, Text } from "@radix-ui/themes";
 import type { ParsedHistoryState } from "@tanstack/history";
-import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLoop } from "../hooks/useLoop";
+import { useAuthStateValue } from "../../auth/store";
+import { useLoop, useLoopHogFlow } from "../hooks/useLoop";
 import {
   useDeleteLoop,
   useRunLoop,
-  useUpdateLoop,
+  useSetLoopEnabled,
 } from "../hooks/useLoopMutations";
 import { RECENT_RUNS_LIMIT, useLoopRuns } from "../hooks/useLoopRuns";
-import { useSyncLoopSkillBundles } from "../hooks/useLoopSkillBundles";
+import { useLoopScope } from "../hooks/useLoopScope";
 import {
   buildLoopEnabledToggledProps,
   buildLoopViewedProps,
 } from "../loopAnalytics";
 import {
   describeTrigger,
-  loopFireBlockedMessage,
-  loopPausedDescription,
   loopStatusColor,
   loopStatusLabel,
   nextScheduleRun,
   summarizeNotificationDestinations,
 } from "../loopDisplay";
+import { hogFlowTeamSkills, isLoopShapedHogFlow } from "../loopHogFlowMapping";
 import { formatLoopModel } from "../loopModels";
-import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
+import { LoopForeignWorkflowNotice } from "./LoopForeignWorkflowNotice";
 import { LoopForm } from "./LoopForm";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
@@ -90,11 +86,26 @@ export function LoopDetailView({
   loopId: string;
   startEditing?: boolean;
 }) {
-  const hasLoopListOrigin = useLocation({
-    select: (location) => location.state.loopListOrigin === true,
-  });
   const { data: loop, isLoading, isError } = useLoop(loopId);
-  const updateLoop = useUpdateLoop(loopId);
+  const scope = useLoopScope(loop);
+  const spaceChannelId =
+    scope?.kind === "space" && scope.available ? scope.channelId : null;
+  const { data: hogFlow } = useLoopHogFlow(loopId);
+  // A loop-tagged workflow someone reshaped in the workflow editor: the form
+  // would overwrite what they built, so the page goes read-only for it.
+  const foreignWorkflow = !!hogFlow && !isLoopShapedHogFlow(hogFlow);
+  // An archived workflow maps to a paused loop, but resuming it would set it
+  // active again rather than restore it, so it is shown read-only instead.
+  const archived = hogFlow?.status === "archived";
+  const readOnly = foreignWorkflow || archived;
+  const teamSkills = hogFlow ? hogFlowTeamSkills(hogFlow) : [];
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const workflowUrl =
+    cloudRegion && projectId != null
+      ? `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}/workflows/${loopId}/workflow`
+      : null;
+  const setLoopEnabled = useSetLoopEnabled(loopId);
   const deleteLoop = useDeleteLoop();
   const runLoop = useRunLoop(loopId);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -132,7 +143,7 @@ export function LoopDetailView({
       () =>
         spacesLayout && contextTarget ? (
           <LoopSpaceBreadcrumb
-            folderId={contextTarget.folder_id}
+            folderId={contextTarget.channel_id}
             spaceName={contextTarget.name}
             leafLabel={loopName}
           />
@@ -145,26 +156,23 @@ export function LoopDetailView({
 
   const handleToggleEnabled = (enabled: boolean) => {
     if (!loop) return;
-    updateLoop.mutate(
-      { enabled },
-      {
-        onSuccess: () => {
-          track(
-            ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
-            buildLoopEnabledToggledProps(loop, enabled, true),
-          );
-        },
-        onError: (error) => {
-          track(
-            ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
-            buildLoopEnabledToggledProps(loop, enabled, false),
-          );
-          toast.error("Failed to update loop", {
-            description: error.message,
-          });
-        },
+    setLoopEnabled.mutate(enabled, {
+      onSuccess: () => {
+        track(
+          ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
+          buildLoopEnabledToggledProps(loop, enabled, true),
+        );
       },
-    );
+      onError: (error) => {
+        track(
+          ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
+          buildLoopEnabledToggledProps(loop, enabled, false),
+        );
+        toast.error("Failed to update loop", {
+          description: error.message,
+        });
+      },
+    });
   };
 
   const handleRunNow = async () => {
@@ -172,41 +180,18 @@ export function LoopDetailView({
     setRunNowPending(true);
     try {
       if (!(await assertCloudUsageAvailable())) return;
-      const result = await runLoop.mutateAsync();
-      if (result.created) {
-        toast.success("Loop run started");
-        track(ANALYTICS_EVENTS.LOOP_RUN_STARTED, {
-          loop_id: loop.id,
-          task_id: result.task_id,
-          task_run_id: result.task_run_id,
-          runtime_adapter: loop.runtime_adapter,
-          model: loop.model || undefined,
-          trigger_count: loop.triggers.length,
-        });
-      } else if (result.reason === "gate_blocked") {
-        useUsageLimitStore.getState().show({ cause: "org_limit" });
-        track(ANALYTICS_EVENTS.LOOP_RUN_BLOCKED, {
-          loop_id: loop.id,
-          reason: result.reason,
-          overlap_policy: loop.overlap_policy,
-          trigger_count: loop.triggers.length,
-        });
-      } else {
-        toast.error("Run not started", {
-          description: loopFireBlockedMessage(result.reason),
-        });
-        if (result.reason !== "created") {
-          track(ANALYTICS_EVENTS.LOOP_RUN_BLOCKED, {
-            loop_id: loop.id,
-            reason: result.reason,
-            overlap_policy: loop.overlap_policy,
-            trigger_count: loop.triggers.length,
-          });
-        }
-      }
+      await runLoop.mutateAsync();
+      toast.success("Loop run started");
+      track(ANALYTICS_EVENTS.LOOP_RUN_STARTED, {
+        loop_id: loop.id,
+        model: loop.model || undefined,
+        trigger_count: loop.triggers.length,
+      });
     } catch (error) {
       toast.error("Failed to start run", {
-        description: error instanceof Error ? error.message : String(error),
+        description:
+          hogFlowRequestDetail(error) ??
+          (error instanceof Error ? error.message : String(error)),
       });
     } finally {
       setRunNowPending(false);
@@ -219,13 +204,11 @@ export function LoopDetailView({
       onSuccess: () => {
         track(ANALYTICS_EVENTS.LOOP_DELETED, {
           loop_id: loop.id,
-          visibility: loop.visibility,
           enabled: loop.enabled,
           trigger_count: loop.triggers.length,
-          consecutive_failures: loop.consecutive_failures,
         });
         toast.success("Loop deleted");
-        navigateToLoops();
+        leavePage();
       },
       onError: (error) =>
         toast.error("Failed to delete loop", { description: error.message }),
@@ -236,13 +219,21 @@ export function LoopDetailView({
     if (startEditing) setIsEditing(true);
   }, [startEditing]);
 
-  const leavePage = useCallback(() => {
-    if (hasLoopListOrigin && canGoBackInHistory()) {
-      goBackInHistory();
-      return;
-    }
-    navigateToLoops();
-  }, [hasLoopListOrigin]);
+  // The workflow loads after the page opens, so an edit URL can land in the
+  // form before the read-only check has an answer. Back out once it does.
+  useEffect(() => {
+    if (!readOnly) return;
+    setIsEditing(false);
+    setEditDirty(false);
+  }, [readOnly]);
+
+  const leavePage = useCallback(
+    (options?: { ignoreBlocker?: boolean }) => {
+      if (spaceChannelId) navigateToSpaceLoops(spaceChannelId, options);
+      else navigateToLoops(options);
+    },
+    [spaceChannelId],
+  );
 
   const requestLeaveEdit = (action: "back" | "summary") => {
     if (isEditing && editDirty) {
@@ -300,11 +291,7 @@ export function LoopDetailView({
     setEditDirty(false);
     setIsEditing(false);
     if (action === "back") {
-      if (hasLoopListOrigin && canGoBackInHistory()) {
-        getRouterOrNull()?.history.back({ ignoreBlocker: true });
-        return;
-      }
-      navigateToLoops({ ignoreBlocker: true });
+      leavePage({ ignoreBlocker: true });
     } else if (action === "navigation") {
       continueBlockedNavigation();
     }
@@ -360,6 +347,11 @@ export function LoopDetailView({
     return <LoopLoadError />;
   }
 
+  // The workflow run endpoint only accepts schedule triggers; a GitHub loop
+  // fires from its repository.
+  const canRunNow = !readOnly && loop.triggers[0]?.type === "schedule";
+  const githubTriggered = loop.triggers[0]?.type === "github";
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <Flex
@@ -375,7 +367,9 @@ export function LoopDetailView({
             className="w-fit px-0"
           >
             <ArrowLeftIcon size={15} />
-            Back
+            {scope?.kind === "space" && scope.available
+              ? `Loops in ${scope.label}`
+              : "Loops"}
           </Button>
 
           <Flex align="center" justify="between" gap="3" wrap="wrap">
@@ -386,26 +380,29 @@ export function LoopDetailView({
               >
                 {loop.name}
               </Text>
-              <Badge variant={loopStatusBadgeVariant(loop)}>
-                {loopStatusLabel(loop)}
+              <Badge
+                variant={archived ? "default" : loopStatusBadgeVariant(loop)}
+              >
+                {archived ? "Archived" : loopStatusLabel(loop)}
               </Badge>
-              <Badge>{formatVisibility(loop.visibility)}</Badge>
             </Flex>
             <Flex align="center" gap="2">
-              <Button
-                variant="outline"
-                size="sm"
-                loading={updateLoop.isPending}
-                disabled={updateLoop.isPending}
-                onClick={() => handleToggleEnabled(!loop.enabled)}
-              >
-                {loop.enabled ? (
-                  <PauseIcon size={14} />
-                ) : (
-                  <PlayIcon size={14} />
-                )}
-                {loop.enabled ? "Pause" : "Resume"}
-              </Button>
+              {!archived ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={setLoopEnabled.isPending}
+                  disabled={setLoopEnabled.isPending}
+                  onClick={() => handleToggleEnabled(!loop.enabled)}
+                >
+                  {loop.enabled ? (
+                    <PauseIcon size={14} />
+                  ) : (
+                    <PlayIcon size={14} />
+                  )}
+                  {loop.enabled ? "Pause" : "Resume"}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -414,39 +411,43 @@ export function LoopDetailView({
                 <LinkIcon size={14} />
                 Copy link
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={runNowPending}
-                disabled={runNowPending}
-                onClick={() => void handleRunNow()}
-              >
-                <PlayIcon size={14} />
-                Run now
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className={
-                  isEditing
-                    ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
-                    : undefined
-                }
-                onClick={() => {
-                  if (isEditing) {
-                    requestLeaveEdit("summary");
-                    return;
+              {canRunNow ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={runNowPending}
+                  disabled={runNowPending}
+                  onClick={() => void handleRunNow()}
+                >
+                  <PlayIcon size={14} />
+                  Run now
+                </Button>
+              ) : null}
+              {!readOnly ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={
+                    isEditing
+                      ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
+                      : undefined
                   }
-                  setIsEditing(true);
-                }}
-              >
-                {isEditing ? (
-                  <CheckCircleIcon size={14} weight="fill" />
-                ) : (
-                  <PencilSimpleIcon size={14} />
-                )}
-                {isEditing ? "Editing" : "Edit"}
-              </Button>
+                  onClick={() => {
+                    if (isEditing) {
+                      requestLeaveEdit("summary");
+                      return;
+                    }
+                    setIsEditing(true);
+                  }}
+                >
+                  {isEditing ? (
+                    <CheckCircleIcon size={14} weight="fill" />
+                  ) : (
+                    <PencilSimpleIcon size={14} />
+                  )}
+                  {isEditing ? "Editing" : "Edit"}
+                </Button>
+              ) : null}
               <Button
                 variant="destructive"
                 size="sm"
@@ -465,11 +466,13 @@ export function LoopDetailView({
           >
             {loop.description.trim() || "No description"}
           </Text>
-
-          <PausedNotice loop={loop} />
         </Flex>
 
-        {isEditing ? (
+        {archived ? (
+          <LoopArchivedNotice workflowUrl={workflowUrl} />
+        ) : foreignWorkflow ? (
+          <LoopForeignWorkflowNotice workflowUrl={workflowUrl} />
+        ) : isEditing ? (
           <LoopForm
             loop={loop}
             variant="embedded"
@@ -483,7 +486,7 @@ export function LoopDetailView({
           />
         ) : (
           <>
-            <ConfigSummarySection loop={loop} />
+            <ConfigSummarySection loop={loop} teamSkills={teamSkills} />
             <InstructionsSection loop={loop} />
           </>
         )}
@@ -510,8 +513,11 @@ export function LoopDetailView({
                 No runs yet
               </Text>
               <Text className="max-w-sm text-[11.5px] text-gray-10 leading-snug">
-                Runs show up here once this loop fires. Trigger one with Run
-                now, or wait for its next trigger.
+                {canRunNow
+                  ? "Runs show up here once this loop fires. Trigger one with Run now, or wait for its next trigger."
+                  : githubTriggered
+                    ? "Runs show up here once this loop fires. A matching event in the repository starts a run."
+                    : "Runs show up here once this loop fires."}
               </Text>
             </Flex>
           ) : (
@@ -600,64 +606,66 @@ function loopStatusBadgeVariant(
   return "default";
 }
 
-function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
-  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
-}
-
-function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
-  const description = loopPausedDescription(loop);
-  if (!description) return null;
-
+/**
+ * Shown in place of the configuration summary for an archived workflow. The
+ * loop API has no archived state, so resuming from here would set the workflow
+ * active instead of restoring it; restoring happens in PostHog.
+ */
+function LoopArchivedNotice({ workflowUrl }: { workflowUrl: string | null }) {
   return (
-    <Flex
-      align="center"
-      justify="between"
-      gap="3"
-      wrap="wrap"
-      className="rounded-(--radius-2) border border-(--red-6) bg-(--red-2) px-3 py-2"
-    >
-      <Text className="text-(--red-11) text-[12.5px] leading-snug">
-        {description}
-      </Text>
-      {loop.disabled_reason === "usage_limited" ? (
+    <div className="flex flex-col gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-3">
+      <span className="font-medium text-[12.5px] text-gray-12">
+        This loop is archived
+      </span>
+      <span className="text-[12px] text-gray-11 leading-snug">
+        It no longer runs and can't be edited here. Restore it in PostHog to
+        bring it back, or delete it here. Run history stays available.
+      </span>
+      {workflowUrl ? (
         <Button
           variant="outline"
           size="sm"
-          onClick={() =>
-            useUsageLimitStore.getState().show({ cause: "org_limit" })
-          }
+          className="w-fit"
+          onClick={() => openExternalUrl(workflowUrl)}
         >
-          Manage plan
+          <ArrowSquareOutIcon size={14} />
+          Open in PostHog
         </Button>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
-function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
+function ConfigSummarySection({
+  loop,
+  teamSkills,
+}: {
+  loop: LoopSchemas.Loop;
+  teamSkills: string[];
+}) {
   const displayModel = formatLoopModel(loop.runtime_adapter, loop.model);
   const {
     members,
     isLoading: membersLoading,
     isError: membersError,
     isComplete: membersComplete,
-  } = useOrgMembers({ enabled: loop.visibility === "team" });
+  } = useOrgMembers();
   const creator = members.find((member) => member.id === loop.created_by_id);
-  let creatorContent: React.ReactNode = null;
-  if (loop.visibility === "team" && membersError) {
+  let creatorContent: React.ReactNode;
+  if (membersError) {
     creatorContent = "Creator unavailable";
-  } else if (loop.visibility === "team" && membersLoading) {
+  } else if (membersLoading) {
     creatorContent = "Loading…";
-  } else if (loop.visibility === "team" && creator) {
+  } else if (creator) {
     creatorContent = (
-      <Flex align="center" gap="2">
+      <div className="flex items-center gap-2">
         <UserAvatar user={creator} size="xs" />
         {userDisplayName(creator)}
-      </Flex>
+      </div>
     );
-  } else if (loop.visibility === "team" && membersComplete) {
+  } else if (membersComplete) {
     creatorContent = "Former organization member";
-  } else if (loop.visibility === "team") {
+  } else {
     creatorContent = "Creator unavailable";
   }
   const notificationDestinations = summarizeNotificationDestinations(
@@ -677,7 +685,6 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
       >
         <SummaryRow label="Model">
           {[
-            loop.runtime_adapter,
             displayModel,
             loop.reasoning_effort ? `${loop.reasoning_effort} reasoning` : null,
           ]
@@ -685,10 +692,8 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
             .join(" · ")}
         </SummaryRow>
 
-        {loopSkillBundles(loop).length > 0 ? (
-          <SummaryRow label="Skill">
-            <LoopSkillSummary loop={loop} />
-          </SummaryRow>
+        {teamSkills.length > 0 ? (
+          <SummaryRow label="Skills">{teamSkills.join(", ")}</SummaryRow>
         ) : null}
 
         <SummaryRow label="Repository">
@@ -697,9 +702,7 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
             : "None (connector-only loop)"}
         </SummaryRow>
 
-        {loop.visibility === "team" ? (
-          <SummaryRow label="Created by">{creatorContent}</SummaryRow>
-        ) : null}
+        <SummaryRow label="Created by">{creatorContent}</SummaryRow>
 
         <SummaryRow label="Triggers">
           {loop.triggers.length === 0 ? (
@@ -726,103 +729,13 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
   );
 }
 
-function LoopSkillSummary({ loop }: { loop: LoopSchemas.Loop }) {
-  const { localWorkspaces } = useHostCapabilities();
-  const trpc = useHostTRPC();
-  const { data: localSkillData } = useQuery({
-    ...trpc.skills.list.queryOptions(),
-    enabled: localWorkspaces,
-  });
-  const syncSkillBundles = useSyncLoopSkillBundles();
-
-  const primary = primaryLoopSkillBundle(loop);
-  if (!primary) return null;
-  const dependencyCount = loopSkillBundles(loop).length - 1;
-
-  // The one-click refresh must be unambiguous about which skill it snapshots: it
-  // requires exactly one local skill matching the stored name AND source, so a
-  // same-named skill from another source (say, an opened repo) can never silently
-  // replace the loop's snapshot. Ambiguous cases go through the edit form, where
-  // the picker shows each candidate.
-  const candidates = (localSkillData ?? []).filter(
-    (skill) =>
-      skill.name === primary.skill_name &&
-      skill.source === primary.skill_source,
-  );
-  const localMatch = candidates.length === 1 ? candidates[0] : undefined;
-  const updateDisabledReason = !localWorkspaces
-    ? "updating the snapshot needs the desktop app"
-    : localMatch
-      ? null
-      : candidates.length > 1
-        ? `several local skills are named ${primary.skill_name}; pick the right one from the edit form`
-        : `no local ${primary.skill_source} skill named ${primary.skill_name} was found on this machine`;
-
-  const handleUpdate = () => {
-    if (!localMatch || !isUploadableSkillSource(localMatch.source)) return;
-    syncSkillBundles.mutate(
-      {
-        loopId: loop.id,
-        skill: {
-          name: localMatch.name,
-          source: localMatch.source,
-          path: localMatch.path,
-        },
-      },
-      {
-        onSuccess: () => toast.success("Skill snapshot updated"),
-        onError: (error) =>
-          toast.error("Failed to update the skill snapshot", {
-            description: error.message,
-          }),
-      },
-    );
-  };
-
-  return (
-    <Flex align="center" gap="2" wrap="wrap">
-      <Text className="text-[12.5px] text-gray-12">
-        {primary.skill_name}
-        {dependencyCount > 0
-          ? ` (+${dependencyCount} ${dependencyCount === 1 ? "dependency" : "dependencies"})`
-          : ""}
-      </Text>
-      <Text
-        className="text-[11px] text-gray-10"
-        title={new Date(primary.uploaded_at).toLocaleString()}
-      >
-        Snapshot {primary.content_sha256.slice(0, 8)}
-      </Text>
-      <ActionButton
-        variant="soft"
-        color="gray"
-        size="1"
-        loading={syncSkillBundles.isPending}
-        disabled={syncSkillBundles.isPending || !!updateDisabledReason}
-        disabledReason={updateDisabledReason}
-        onClick={handleUpdate}
-      >
-        Update from local skill
-      </ActionButton>
-    </Flex>
-  );
-}
-
 function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
-  const primarySkill = primaryLoopSkillBundle(loop);
-
   return (
     <Flex direction="column" gap="3">
       <Text className="font-medium text-[13px] text-gray-12">Instructions</Text>
       <pre className="max-h-[400px] min-h-[160px] overflow-auto whitespace-pre-wrap rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-3 font-sans text-[12.5px] text-gray-12 leading-relaxed">
         {loop.instructions}
       </pre>
-      {primarySkill ? (
-        <Text className="text-[11px] text-gray-10 leading-snug">
-          This loop runs the {primarySkill.skill_name} skill: the leading /
-          {primarySkill.skill_name} line invokes its attached snapshot.
-        </Text>
-      ) : null}
     </Flex>
   );
 }

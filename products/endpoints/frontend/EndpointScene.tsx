@@ -4,9 +4,12 @@ import { combineUrl, router } from 'kea-router'
 import {
     IconCheck,
     IconClock,
+    IconCode,
     IconCode2,
     IconDatabase,
+    IconDecisionTree,
     IconEndpoints,
+    IconGear,
     IconGraph,
     IconLive,
     IconPause,
@@ -21,6 +24,7 @@ import {
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -42,11 +46,11 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointLineage } from './endpoint-tabs/EndpointLineage'
 import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
@@ -56,6 +60,7 @@ import { VersionBanner } from './endpoint-tabs/VersionBanner'
 import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
+import { EndpointSceneSkeleton } from './EndpointSceneSkeleton'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
@@ -66,16 +71,23 @@ export const scene: SceneExport = {
 }
 
 export function EndpointScene(): JSX.Element {
-    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(endpointSceneLogic)
+    const { endpoint, endpointLoading, endpointMissing, activeTab, viewingVersion, isMaterialized } =
+        useValues(endpointSceneLogic)
     const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
     const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const lineageSavedQueryId = (viewingVersion ?? endpoint)?.materialization?.saved_query_id ?? null
+    const visibleTab =
+        activeTab === EndpointTab.LINEAGE && endpoint && !lineageSavedQueryId ? EndpointTab.QUERY : activeTab
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
+    if (endpointMissing) {
+        return <NotFound object="endpoint" />
+    }
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -122,6 +134,19 @@ export function EndpointScene(): JSX.Element {
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LOGS }).url
                 : undefined,
         },
+        ...(lineageSavedQueryId
+            ? [
+                  {
+                      key: EndpointTab.LINEAGE,
+                      label: 'Lineage',
+                      'data-attr': 'endpoint-lineage-tab',
+                      content: <EndpointLineage savedQueryId={lineageSavedQueryId} />,
+                      link: endpoint
+                          ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LINEAGE }).url
+                          : undefined,
+                  },
+              ]
+            : []),
         {
             key: EndpointTab.HISTORY,
             label: 'History',
@@ -155,7 +180,6 @@ export function EndpointScene(): JSX.Element {
                 status: 'danger',
                 onClick: () => {
                     deleteEndpoint(endpoint.name)
-                    router.actions.push(urls.endpoints())
                 },
                 size: 'small',
             },
@@ -178,7 +202,7 @@ export function EndpointScene(): JSX.Element {
         if (!endpoint) {
             return <></>
         }
-        switch (activeTab) {
+        switch (visibleTab) {
             case EndpointTab.CONFIGURATION:
                 return <EndpointConfiguration />
             case EndpointTab.VERSIONS:
@@ -187,6 +211,8 @@ export function EndpointScene(): JSX.Element {
                 return <EndpointPlayground />
             case EndpointTab.LOGS:
                 return <EndpointLogs />
+            case EndpointTab.LINEAGE:
+                return lineageSavedQueryId ? <EndpointLineage savedQueryId={lineageSavedQueryId} /> : <></>
             case EndpointTab.HISTORY:
                 return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
             case EndpointTab.QUERY:
@@ -228,6 +254,24 @@ export function EndpointScene(): JSX.Element {
                             />
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
+                                onClick={() => router.actions.push(urls.endpoint(endpoint.name))}
+                                data-attr="endpoint-menubar-open-query"
+                            >
+                                <IconCode />
+                                Open query
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.CONFIGURATION }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-open-configuration"
+                            >
+                                <IconGear />
+                                Open configuration
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
                                 onClick={() =>
                                     router.actions.push(
                                         combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.PLAYGROUND }).url
@@ -249,6 +293,19 @@ export function EndpointScene(): JSX.Element {
                                 <IconLive />
                                 View logs
                             </SceneMenuBarItem>
+                            {lineageSavedQueryId && (
+                                <SceneMenuBarItem
+                                    onClick={() =>
+                                        router.actions.push(
+                                            combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.LINEAGE }).url
+                                        )
+                                    }
+                                    data-attr="endpoint-menubar-view-lineage"
+                                >
+                                    <IconDecisionTree />
+                                    View lineage
+                                </SceneMenuBarItem>
+                            )}
                             <SceneMenuBarItem
                                 onClick={() =>
                                     router.actions.push(
@@ -309,7 +366,6 @@ export function EndpointScene(): JSX.Element {
                                 onSave={(tags) => saveTagsInline(tags)}
                                 canEdit
                                 tags={endpoint.tags}
-                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                                 dataAttrKey="endpoint"
                             />
                         </SceneMenuBarPopover>
@@ -329,15 +385,20 @@ export function EndpointScene(): JSX.Element {
                         onGoToLatest={() => setViewingVersion(null)}
                     />
                 )}
-                {!endpointLoading && <EndpointOverview />}
-                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={activeTab} tabs={tabs} />}
+                {endpointLoading && !endpoint ? (
+                    <EndpointSceneSkeleton showTabs={!sceneMenuBarEnabled} />
+                ) : (
+                    <>
+                        <EndpointOverview />
+                        {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                    </>
+                )}
             </SceneContent>
             {endpoint && (
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags
                             tags={endpoint.tags}
-                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                             onSave={(tags) => saveTagsInline(tags)}
                             canEdit
                             dataAttrKey="endpoint"

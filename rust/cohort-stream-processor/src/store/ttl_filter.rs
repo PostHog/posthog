@@ -137,7 +137,10 @@ fn filter_name() -> CString {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cohort_core::seed::CoverageStartMs;
+
     use crate::stage1::person_record::{PersonRecord, Stamp};
+    use crate::store::SliceCoverage;
 
     fn record_with_last_seen(last_seen_ms: i64) -> Vec<u8> {
         let mut record = PersonRecord::absent();
@@ -173,6 +176,10 @@ mod tests {
     #[test]
     fn malformed_values_are_always_kept() {
         let mut filter = factory_at(40 * MS_PER_DAY, 30).create(context()); // cutoff = day 10
+
+        // Slice coverage records share the CF.
+        let complete = SliceCoverage::Complete.encode();
+        let since_day_one = SliceCoverage::Since(CoverageStartMs(MS_PER_DAY)).encode();
         for value in [
             [].as_slice(),
             &[FORMAT_VERSION], // version only
@@ -180,6 +187,8 @@ mod tests {
             // tightest truncation the length guard must reject.
             &[FORMAT_VERSION, 0, 0, 0, 0, 0, 0, 0, 0],
             &[0xFF; 32], // wrong version byte, plenty long
+            &complete,
+            &since_day_one,
         ] {
             assert!(
                 matches!(filter.filter(0, b"k", value), Decision::Keep),

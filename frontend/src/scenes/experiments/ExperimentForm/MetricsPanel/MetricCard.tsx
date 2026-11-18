@@ -7,9 +7,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import type { MetricContext } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
-import { experimentMetricModalLogic } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { getDefaultMetricTitle, getMetricTag } from '~/scenes/experiments/MetricsView/shared/utils'
+
+import type { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { metricUsesWarehouseNativeSource } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { MetricConversionWindow } from './MetricConversionWindow'
 import { MetricEventDetails } from './MetricEventDetails'
@@ -97,7 +99,9 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
                         <MetricOutlierHandling metric={metric} />
                     </div>
 
-                    <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
+                    {!metricUsesWarehouseNativeSource(metric) && (
+                        <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
+                    )}
                 </div>
             </div>
         </div>

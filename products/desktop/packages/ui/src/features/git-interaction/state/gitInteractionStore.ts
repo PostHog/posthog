@@ -4,12 +4,9 @@ import { persist } from "zustand/middleware";
 import type {
   CommitNextStep,
   CreatePrStep,
-  GitMenuActionId,
   PushMode,
   PushState,
 } from "../types";
-
-export type { CommitNextStep, PushMode, PushState };
 
 export interface CreatePrDraftValues {
   branchName: string;
@@ -265,26 +262,3 @@ export const useGitInteractionStore = create<GitInteractionStore>()(
     },
   ),
 );
-
-export function getGitInteractionActionLabel(
-  actionId: GitMenuActionId,
-): string {
-  switch (actionId) {
-    case "commit":
-      return "Commit";
-    case "push":
-      return "Push";
-    case "sync":
-      return "Sync";
-    case "publish":
-      return "Publish Branch";
-    case "create-pr":
-      return "Create PR";
-    case "view-pr":
-      return "View PR";
-    case "branch-here":
-      return "New branch";
-    default:
-      return "Git Action";
-  }
-}

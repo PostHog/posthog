@@ -239,8 +239,8 @@ fn parity_report() {
     println!("===============================================================\n");
 
     // Regression gate: the Rust VM must match Node on every committed corpus program. The whole
-    // corpus passes today (36/36), so any mismatch (ran but diverged) or error (VM bailed) is a
-    // real parity regression and fails the test.
+    // corpus passes, so any mismatch (ran but diverged) or error (VM bailed) is a real parity
+    // regression and fails the test.
     assert!(total > 0, "no corpus programs found");
     assert!(
         mismatch.is_empty() && errored.is_empty(),

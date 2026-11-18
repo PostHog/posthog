@@ -66,6 +66,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         {
             capture_console_log_opt_in: boolean
             session_recording_retention_period: string
+            organization_id: string
             is_ai_training_opted_in: boolean
         } & Pick<Team, 'id' | 'api_token'>
     >(
@@ -73,6 +74,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         `
             SELECT
                 t.id,
+                t.organization_id,
                 t.api_token,
                 t.capture_console_log_opt_in,
                 t.session_recording_retention_period,
@@ -89,6 +91,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         (acc, row) => {
             acc[row.api_token] = {
                 teamId: row.id,
+                organizationId: row.organization_id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
             }

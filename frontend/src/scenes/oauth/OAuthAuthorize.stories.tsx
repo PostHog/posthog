@@ -1,34 +1,71 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-// Override the server-injected oauth_application context for a story. Set synchronously before
-// the story (and its consent logic) mounts, and restored on unmount so story order can't leak.
+// Every story shares one server-injected app context, so a key a story writes outlives it.
+// Snapshot the listed keys synchronously before the story (and its consent logic) mounts, apply
+// any override, and put the previous values back on unmount so story order can't leak.
+function useAppContextOverride(keys: readonly string[], apply?: (appContext: any) => void): void {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    const original = useRef<Record<string, unknown>>()
+    if (!original.current) {
+        original.current = Object.fromEntries(keys.map((key) => [key, appContext[key]]))
+        apply?.(appContext)
+    }
+    useEffect(
+        () => () => {
+            Object.assign(appContext, original.current)
+        },
+        [appContext]
+    )
+}
+
 function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
     return function OAuthApplicationDecorator(Story): JSX.Element {
-        const appContext = (window as any).POSTHOG_APP_CONTEXT
-        const original = useRef<{ value: unknown }>()
-        if (!original.current) {
-            original.current = { value: appContext.oauth_application }
+        useAppContextOverride(['oauth_application'], (appContext) => {
             appContext.oauth_application = { ...appContext.oauth_application, ...overrides }
-        }
-        useEffect(
-            () => () => {
-                appContext.oauth_application = original.current?.value
-            },
-            [appContext]
-        )
+        })
         return <Story />
     }
 }
 
-const pushAuthorize = (scope?: string): void => {
+// Writes the scope resolution the server would have sent for the story's `oauthRequest`, before the scene mounts.
+const withScopeResolution: Decorator = function ScopeResolutionDecorator(Story, { parameters }): JSX.Element {
+    const { scope, resolvedScopes, alreadyGrantedScopes } = (parameters.oauthRequest ?? {}) as {
+        scope?: string
+        resolvedScopes?: string[]
+        alreadyGrantedScopes?: string[]
+    }
+    useAppContextOverride(['oauth_scope_resolution'], (appContext) => {
+        appContext.oauth_scope_resolution = {
+            scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
+            was_defaulted: !scope,
+            already_granted_scopes: alreadyGrantedScopes ?? [],
+            ...(alreadyGrantedScopes ? { earlier_access: { scoped_teams: [], scoped_organizations: [] } } : {}),
+        }
+    })
+    return <Story />
+}
+
+// The app shell has a `100vh` min-height, so when the viewport at capture time is taller than the
+// card, the shell grows to the viewport and adds a blank strip below the card. Let the shell hug its
+// content so only the card sets the height.
+const withContentSceneHeight: Decorator = function ContentSceneHeightDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'.Navigation3000 { min-height: 0 !important; }'}</style>
+            <Story />
+        </>
+    )
+}
+
+// `pageUrl` opens the consent page on mount. A push 500 ms later first rendered the default route, and a
+// capture could catch a leftover of it as a blank strip below the card.
+const authorizeParameters = (scope?: string, resolvedScopes?: string[]): Record<string, unknown> => {
     const params = new URLSearchParams({
         client_id: 'test-client-id',
         redirect_uri: 'https://app.example.com/oauth/callback',
@@ -36,9 +73,12 @@ const pushAuthorize = (scope?: string): void => {
         state: 'test-state',
         ...(scope ? { scope } : {}),
     })
-    router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
+    return { pageUrl: `${urls.oauthAuthorize()}?${params.toString()}`, oauthRequest: { scope, resolvedScopes } }
 }
 
+// One story per rendering of the consent screen, not per scope combination: what a level pick
+// grants, and how a required floor clamps it, is asserted in oauthAuthorizeLogic.test.ts, where a
+// reader sees the result instead of inferring it from a screenshot.
 const meta: Meta = {
     title: 'Scenes-App/OAuth/Authorize',
     parameters: {
@@ -50,37 +90,15 @@ const meta: Meta = {
         },
     },
     decorators: [
+        withScopeResolution,
         mswDecorator({
             get: {
-                // The logic loads projects per organization for users that have organizations
                 '/api/organizations/:organization_id/projects/': {
                     results: [
                         {
                             id: 1,
                             name: 'Default Project',
                             organization: '1',
-                        },
-                    ],
-                },
-                '/api/projects/': {
-                    results: [
-                        {
-                            id: 1,
-                            name: 'Default Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
-                        },
-                        {
-                            id: 2,
-                            name: 'Analytics Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
                         },
                     ],
                 },
@@ -98,85 +116,125 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Identity-only request (openid/email/profile): permissions render as a plain checkmark list
-// with no access selectors and no bulk actions.
-export const DefaultScopes: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize())
-        return <App />
+// Both required scopes show a lock, and experiment:read is required without being requested.
+export const FewPermissions: Story = {
+    decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
+    render: () => <App />,
+    parameters: authorizeParameters('openid email feature_flag:read query:read dashboard:write insight:write'),
+}
+
+// The narrow width is an OAuth popup window, where group labels truncate.
+export const ManyPermissions: Story = {
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: ['feature_flag:read'] })],
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters(
+            'openid profile email organization:read project:read project:write feature_flag:write ' +
+                'experiment:write insight:write dashboard:write query:read survey:write ' +
+                'event_definition:write error_tracking:read logs:read'
+        ),
+        testOptions: { viewportWidths: ['narrow', 'wide'] },
     },
 }
 
-// Explicit request where every requested scope is required: rows render as a plain locked
-// checkmark list (no access selectors) and the bulk actions are hidden, since there is nothing
-// to choose.
-export const AllScopesRequired: Story = {
+export const StepUp: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters('openid email insight:read dashboard:write feature_flag:write'),
+        oauthRequest: {
+            scope: 'openid email insight:read dashboard:write feature_flag:write',
+            alreadyGrantedScopes: ['openid', 'email', 'insight:read', 'dashboard:read'],
+        },
+    },
+}
+
+export const FullAccess: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters('*'),
+}
+
+export const IdentityOnly: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters('openid email profile'),
+}
+
+// A client that sends no `scope` at all: the server defaults the request to the app's ceiling, and a
+// banner says so.
+export const DefaultScopes: Story = {
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters(undefined, ['openid', 'email', 'profile', 'feature_flag:write', 'query:read']),
+}
+
+// The logo is a third-party icon this repo already serves, so the snapshot never reaches out to a
+// host we do not control.
+export const WithApplicationLogo: Story = {
+    decorators: [withOAuthApplication({ name: 'Zapier', logo_uri: '/static/services/zapier.png' })],
+    render: () => <App />,
+    parameters: authorizeParameters(),
+}
+
+// Sets the server flag that says one of the user's organizations has access-control rules.
+// The story below shows the notice this flag adds under the permission list.
+const withAccessControls: Decorator = function AccessControlsDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_consent_access_controls_apply'], (appContext) => {
+        appContext.oauth_consent_access_controls_apply = true
+    })
+    return <Story />
+}
+
+export const AccessControlsApply: Story = {
+    decorators: [withAccessControls, withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters('openid feature_flag:write query:read'),
+}
+
+const withEmaIssuerConsent: Decorator = function EmaIssuerConsentDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_ema_issuer_consent'], (appContext) => {
+        appContext.oauth_ema_issuer_consent = {
+            scope: 'ema_issuer:manage',
+            organizations: [
+                { id: '1', name: 'Hedgebox', verified_domains: ['hedgebox.net'], disabled_reason: null },
+                {
+                    id: '2',
+                    name: 'Hedgebox staging',
+                    verified_domains: [],
+                    disabled_reason: 'Only admins of this organization can set up enterprise-managed auth.',
+                },
+            ],
+        }
+    })
+    return <Story />
+}
+
+export const EnterpriseManagedAuthSetup: Story = {
+    decorators: [withContentSceneHeight, withEmaIssuerConsent, withOAuthApplication({ name: 'Claude' })],
+    render: () => <App />,
+    parameters: authorizeParameters('ema_issuer:manage', ['ema_issuer:manage']),
+}
+
+export const NoOrganization: Story = {
     decorators: [
-        withOAuthApplication({
-            required_scopes: ['experiment:read', 'experiment:write', 'query:read', 'feature_flag:write'],
+        withOAuthApplication({ required_scopes: [] }),
+        mswDecorator({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        uuid: '018e1b6b-0000-0000-0000-000000000002',
+                        email: 'test@posthog.com',
+                        first_name: 'Test',
+                        organization: null,
+                        organizations: [],
+                        team: null,
+                    },
+                ],
+            },
         }),
     ],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('experiment:read experiment:write query:read feature_flag:write'))
-        return <App />
-    },
-}
-
-// Broad/deferred request (nothing required): every row gets a No access / Read / Write selector
-// capped at the requested level, plus the Select all / Read-only / Deselect all bulk actions.
-// This is the MCP case.
-export const AllScopesOptional: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('experiment:read experiment:write query:read feature_flag:write'))
-        return <App />
-    },
-}
-
-// Mixed: feature_flag:write is required but only read was requested (locked at write), and
-// experiment:read is required but unrequested (an extra locked row). Both render in the
-// checkmark list with a "Required" tag, while the rest keep their access selectors.
-export const WithRequiredScopes: Story = {
-    decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:read query:read dashboard:write'))
-        return <App />
-    },
-}
-
-// A required read floor below a requested write: the row keeps its selector but "No access" is
-// disabled — the user can drop the grant to read, never below the floor.
-export const RequiredReadFloorWithOptionalWrite: Story = {
-    decorators: [withOAuthApplication({ required_scopes: ['feature_flag:read'] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:write insight:write query:read'))
-        return <App />
-    },
-}
-
-// Wildcard request: a single "All PostHog data" row where Read expands to every grantable
-// object's read scope and Write grants `*`.
-export const WildcardScope: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('*'))
-        return <App />
-    },
-}
-
-// A long optional list (every scope the PostHog MCP server supports) — the case the bulk
-// actions exist for.
-export const ManyOptionalScopes: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() =>
-            pushAuthorize(
-                'openid profile email user:read user:write organization:read project:read project:write ' +
-                    'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
-                    'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
-                    'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
-            )
-        )
-        return <App />
-    },
+    render: () => <App />,
+    parameters: { ...authorizeParameters(), testOptions: { snapshotBrowsers: [] } },
 }

@@ -9,6 +9,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.prompt_references import resolve_prompt_references
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -32,8 +34,10 @@ def _get_managed_prompt(team: Team | None, prompt_name: str, fallback: str) -> s
     try:
         result = get_prompt_by_name_from_cache(team, prompt_name)
         if result and "prompt" in result:
-            PULSE_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="managed").inc()
-            return normalize_prompt_to_string(result["prompt"])
+            resolved = resolve_prompt_references(team, normalize_prompt_to_string(result["prompt"]))
+            if resolved is not None:
+                PULSE_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="managed").inc()
+                return resolved
     except Exception as exc:
         capture_exception(exc)
         logger.warning("pulse_managed_prompt_fetch_failed", prompt_name=prompt_name, error=str(exc))

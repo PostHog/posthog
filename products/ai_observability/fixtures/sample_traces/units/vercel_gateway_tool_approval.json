@@ -1,0 +1,335 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Hashtag suggestion agent with human approval",
+  "scenario": "A level-sharing platform called levelshare runs a Vercel AI SDK agent that proposes hashtags for a newly submitted canyon-themed level. The agent calls a generate_hashtags tool, waits for the uploader's approval through a human-in-the-loop step, and applies the approved tags.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_generation": 1,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/vercel-ai",
+      "posthog-node"
+    ],
+    "providers": [
+      "gateway"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "claude-sonnet-5"
+    ],
+    "content_types": [
+      "json",
+      "text",
+      "tool-approval-request",
+      "tool-call",
+      "tool-result"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_cache_creation_input_tokens": 0,
+        "$ai_cache_read_input_tokens": 22767,
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "39eda17b2ba39680",
+        "$ai_session_id": "be04c36c-7861-70d2-82cf-a6579738e22a",
+        "$ai_span_id": "064391680da48b96",
+        "$ai_total_cost_usd": 0.0098954,
+        "$ai_trace_id": "c238a1a7e2948e03d2a67078fdfc4d39",
+        "$geoip_disable": true,
+        "workspace_id": "ws_7f3a9c2e1b8d4479a9c3f1",
+        "app.ai.telemetry.workspaceId": "ws_7f3a9c2e1b8d4479a9c3f1",
+        "deployment.environment": "production",
+        "app.ai.telemetry.metadata.sessionId": "be04c36c-7861-70d2-82cf-a6579738e22a",
+        "app.ai.telemetry.metadata.threadId": "12f7c754-5008-7cc8-4a23-ed45db9f4bc1",
+        "app.ai.telemetry.metadata.userId": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "app.ai.telemetry.metadata.runId": "99e43189-40f1-702b-ceec-4b399467c374",
+        "session.user.id": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "ai.usage.cachedInputTokens": 22767,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 22767,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 25028,
+        "ai.usage.outputTokens": 82,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 25110,
+        "service.name": "levelshare",
+        "$ai_cache_reporting_exclusive": false,
+        "$ai_span_name": "suggest-hashtags",
+        "$ai_latency": 1.918838467,
+        "posthog_distinct_id": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_input": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Level 214"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "input": {
+                  "hashtags": [
+                    "#proceduralcanyonchase",
+                    "#speedrunok",
+                    "#hardcoreplatforming",
+                    "#onehitcheckpoints",
+                    "#ropebridges"
+                  ]
+                }
+              },
+              {
+                "type": "tool-approval-request",
+                "approvalId": "aitxt-Xmg0HFjxrdRtPxrBJ33tHvxb",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "message": "Hashtags approved.",
+                    "approvalResult": {
+                      "status": "user_g0SBeBTb",
+                      "approvedHashtags": {
+                        "hashtags": [
+                          "#proceduralcanyonchase",
+                          "#speedrunok",
+                          "#hardcoreplatforming",
+                          "#onehitcheckpoints",
+                          "#ropebridges"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": "Called generate_hashtags with proposed tags #proceduralcanyonchase,\n#speedrunok, #hardcoreplatforming, #onehitcheckpoints, #ropebridges;\nuser approved the suggestion and all five tags were applied to the level.",
+        "$ai_input_state": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Level 214"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 2,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_cache_creation_input_tokens": 0,
+        "$ai_cache_read_input_tokens": 22767,
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "064391680da48b96",
+        "$ai_session_id": "be04c36c-7861-70d2-82cf-a6579738e22a",
+        "$ai_span_id": "49718b5f8c8c2583",
+        "$ai_trace_id": "c238a1a7e2948e03d2a67078fdfc4d39",
+        "$geoip_disable": true,
+        "workspace_id": "ws_7f3a9c2e1b8d4479a9c3f1",
+        "app.ai.telemetry.workspaceId": "ws_7f3a9c2e1b8d4479a9c3f1",
+        "deployment.environment": "production",
+        "app.ai.telemetry.metadata.sessionId": "be04c36c-7861-70d2-82cf-a6579738e22a",
+        "app.ai.telemetry.metadata.threadId": "12f7c754-5008-7cc8-4a23-ed45db9f4bc1",
+        "app.ai.telemetry.metadata.userId": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "app.ai.telemetry.metadata.runId": "99e43189-40f1-702b-ceec-4b399467c374",
+        "session.user.id": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "app.ai.telemetry.metadata.latencyMsRaw": 42.87392897135618,
+        "ai.usage.cachedInputTokens": 22767,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 22767,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 0,
+        "ai.usage.inputTokens": 25028,
+        "ai.usage.outputTokens": 82,
+        "ai.usage.reasoningTokens": 0,
+        "ai.usage.totalTokens": 25110,
+        "service.name": "levelshare",
+        "$ai_input_tokens": 25028,
+        "$ai_output_tokens": 82,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_span_name": "generateText.doGenerate",
+        "$ai_provider": "gateway",
+        "$ai_latency": 1.915366886,
+        "posthog_distinct_id": "545f1a00-94ff-7928-4c03-56d3e33d06b2",
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 0,
+        "$ai_input": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Level 214"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "input": {
+                  "hashtags": [
+                    "#proceduralcanyonchase",
+                    "#speedrunok",
+                    "#hardcoreplatforming",
+                    "#onehitcheckpoints",
+                    "#ropebridges"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "message": "Hashtags approved.",
+                    "approvalResult": {
+                      "status": "user_g0SBeBTb",
+                      "approvedHashtags": {
+                        "hashtags": [
+                          "#proceduralcanyonchase",
+                          "#speedrunok",
+                          "#hardcoreplatforming",
+                          "#onehitcheckpoints",
+                          "#ropebridges"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": "Called generate_hashtags with proposed tags #proceduralcanyonchase,\n#speedrunok, #hardcoreplatforming, #onehitcheckpoints, #ropebridges;\nuser approved the suggestion and all five tags were applied to the level.",
+        "$ai_tools": "[\"search_levels\", \"fetch_level_metadata\", \"moderate_level_text\", \"publish_level_tags\", \"generate_hashtags\"]"
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 2089,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_session_id": "be04c36c-7861-70d2-82cf-a6579738e22a",
+        "$lib": "posthog-node",
+        "$lib_version": "5.34.1",
+        "$ai_trace_id": "c238a1a7e2948e03d2a67078fdfc4d39",
+        "$geoip_disable": true,
+        "$ai_latency": 2.085,
+        "$ai_span_name": "suggest-hashtags",
+        "$ai_input_state": [
+          {
+            "content": [
+              {
+                "text": "Level 214",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "hashtags": [
+                    "#proceduralcanyonchase",
+                    "#speedrunok",
+                    "#hardcoreplatforming",
+                    "#onehitcheckpoints",
+                    "#ropebridges"
+                  ]
+                },
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "type": "tool-call"
+              },
+              {
+                "approvalId": "aitxt-Xmg0HFjxrdRtPxrBJ33tHvxb",
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "type": "tool-approval-request"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "message": "Hashtags approved.",
+                    "approvalResult": {
+                      "approvedHashtags": {
+                        "hashtags": [
+                          "#proceduralcanyonchase",
+                          "#speedrunok",
+                          "#hardcoreplatforming",
+                          "#onehitcheckpoints",
+                          "#ropebridges"
+                        ]
+                      },
+                      "status": "user_g0SBeBTb"
+                    }
+                  }
+                },
+                "toolCallId": "call_7f3a9c2e1b8d4479a9c3f1e2d4b6a8",
+                "toolName": "generate_hashtags",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          }
+        ],
+        "$ai_output_state": "Called generate_hashtags with proposed tags #proceduralcanyonchase,\n#speedrunok, #hardcoreplatforming, #onehitcheckpoints, #ropebridges;\nuser approved the suggestion and all five tags were applied to the level."
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "Vercel AI SDK over OTel: trace and spans built from OTel, tool approval request"
+}

@@ -24,6 +24,7 @@ common-kafka = { path = "../common/kafka", optional = true }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
+futures = { workspace = true }
 governor = { workspace = true }
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
@@ -36,7 +37,7 @@ url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 json5 = "1.3"
 thiserror = { workspace = true }
 sha1 = "0.10.6"
@@ -115,11 +116,13 @@ required-features = ["flags-cache-builder"]
 workspace = true
 
 [dev-dependencies]
-rstest = "0.26"
+jsonschema = { version = "0.60", default-features = false }
+rstest = "0.28"
 assert-json-diff = { workspace = true }
-common-s3 = { path = "../common/s3" }
+common-s3 = { path = "../common/s3", features = ["mock-client"] }
 reqwest = { workspace = true }
-futures = "0.3.30"
+tempfile = "3"
+testcontainers = { workspace = true }
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-util = { workspace = true }

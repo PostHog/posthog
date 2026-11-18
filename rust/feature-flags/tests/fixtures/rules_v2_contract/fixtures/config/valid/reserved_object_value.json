@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "return_type": "object",
+  "default_value": {
+    "layout": "standard"
+  },
+  "rules": [
+    {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "rule_type": "targeted_release",
+      "targeting": {
+        "properties": []
+      },
+      "value": {
+        "layout": "compact",
+        "options": [
+          1,
+          true,
+          null
+        ]
+      }
+    }
+  ]
+}

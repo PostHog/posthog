@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted mocks ---
@@ -35,6 +36,16 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: {
+          update: {
+            sessionUpdate: "tool_call" | "tool_call_update";
+            toolCallId: string;
+            status?: string;
+            rawInput?: unknown;
+            rawOutput?: unknown;
+            _meta?: unknown;
+          };
+        }) => Promise<void>;
       }
     | undefined,
 }));
@@ -135,9 +146,9 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
   isAnthropicModel: vi.fn((model) => model.owned_by === "anthropic"),
-  isBlockedModelId: vi.fn().mockReturnValue(false),
   isCloudflareModel: vi.fn((model) => model.owned_by === "cloudflare"),
   isModalModel: vi.fn((model) => model.owned_by === "modal"),
+  isOfferedModel: vi.fn().mockReturnValue(true),
   isOpenAIModel: vi.fn((model) => model.owned_by === "openai"),
   pickAllowedModel: vi.fn((_models, preferredModelId) => preferredModelId),
 }));
@@ -151,9 +162,12 @@ vi.mock("./context-wiki", () => ({
 }));
 
 vi.mock("./codex-home", () => ({
+  getCodexCloudHomeDir: vi.fn(() => "/mock/codex-cloud"),
+  getCodexCloudAuthFilePath: vi.fn(() => "/mock/codex-cloud/auth.json"),
   cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
   getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
   prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+  writeCodexGatewayProvider: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -175,12 +189,13 @@ vi.mock("node:fs", async (importOriginal) => {
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
   shouldAutoApprovePermissionRequest,
 } from "./agent";
+import { cleanupCodexHome, writeCodexGatewayProvider } from "./codex-home";
 import { AgentServiceEvent } from "./schemas";
 
 // --- Test helpers ---
@@ -208,8 +223,12 @@ function createMockDependencies() {
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
+      gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
-      ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
+      ensureGatewayProxy: vi.fn().mockResolvedValue({
+        proxyUrl: "http://127.0.0.1:9999",
+        mode: "legacy",
+      }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
         apiUrl: credentials.apiHost,
@@ -314,6 +333,71 @@ describe("AgentService", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rejects old cleanup while a newer cloud login owns the file", async () => {
+    vi.spyOn(fs.promises, "mkdir").mockResolvedValue(undefined);
+    const remove = vi.spyOn(fs.promises, "rm").mockResolvedValue(undefined);
+    await service.getCodexCloudAuthTerminal("attempt-1");
+    await expect(
+      service.getCodexCloudAuthTerminal("attempt-2"),
+    ).rejects.toThrow("in progress");
+    service.finishCodexCloudAuth("attempt-1");
+    await service.getCodexCloudAuthTerminal("attempt-2");
+    remove.mockClear();
+    service.finishCodexCloudAuth("attempt-1");
+    await expect(service.removeCodexCloudAuthFile("attempt-1")).rejects.toThrow(
+      "no longer active",
+    );
+    expect(remove).not.toHaveBeenCalled();
+    await service.removeCodexCloudAuthFile("attempt-2");
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  describe("claude auth terminal", () => {
+    it.each([
+      { action: "login" as const, expected: "'auth' 'login'" },
+      { action: "logout" as const, expected: "'auth' 'logout'" },
+      { action: "setup-token" as const, expected: "'setup-token'" },
+    ])(
+      "describes the claude auth $action terminal",
+      async ({ action, expected }) => {
+        const terminal = await service.getClaudeAuthTerminal(action);
+
+        expect(terminal.command).toContain(
+          "/mock/appPath/.vite/build/claude-cli/claude",
+        );
+        expect(terminal.command).toContain(expected);
+        expect(terminal.additionalEnv.CLAUDE_CONFIG_DIR).toMatch(
+          /[\\/]\.claude$/,
+        );
+        expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+      },
+    );
+
+    it("stops active subscription sessions when logout starts", async () => {
+      const sessions = (
+        service as unknown as { sessions: Map<string, unknown> }
+      ).sessions;
+      const cleanedUp: string[] = [];
+      vi.spyOn(
+        service as unknown as { cleanupSession: (id: string) => Promise<void> },
+        "cleanupSession",
+      ).mockImplementation((taskRunId: string) => {
+        cleanedUp.push(taskRunId);
+        return Promise.resolve();
+      });
+      sessions.set("run-sub-1", {
+        config: { claudeModelAccess: "own-subscription" },
+      });
+      sessions.set("run-gw-1", {
+        config: { claudeModelAccess: "posthog-gateway" },
+      });
+
+      await service.getClaudeAuthTerminal("logout");
+
+      expect(cleanedUp).toEqual(["run-sub-1"]);
+    });
+  });
+
   describe("context wiki mount", () => {
     const credentials = {
       apiHost: "https://app.posthog.test",
@@ -331,7 +415,6 @@ describe("AgentService", () => {
       ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
-      "POSTHOG_API_KEY",
       "POSTHOG_PERSONAL_API_KEY",
       "POSTHOG_CONTEXT_LAYER_PATH",
       "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
@@ -349,35 +432,30 @@ describe("AgentService", () => {
       }
     });
 
-    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
-    // absent while impersonating — so an impersonation credential must never
-    // reach the agent subprocess as a publish token.
+    // The publish token is whatever the auth adapter hands out; it stays null
+    // for impersonated sessions so that credential never reaches a subprocess.
     it.each([
-      ["the auth sync wrote one", "synced-key", "synced-key"],
-      ["the session is impersonated", undefined, undefined],
-    ])(
-      "exposes a publish token only when %s",
-      async (_label, apiKey, expected) => {
-        if (apiKey) {
-          process.env.POSTHOG_API_KEY = apiKey;
-        }
-        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+      ["a session the adapter covers", "gateway-token", "gateway-token"],
+      ["an impersonated session", null, undefined],
+    ])("exposes the publish token for %s", async (_label, token, expected) => {
+      vi.mocked(
+        deps.agentAuthAdapter.gatewayPublishToken,
+      ).mockResolvedValueOnce(token);
+      mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await mountContextWiki();
+      const wiki = await mountContextWiki();
 
-        expect(wiki).toEqual({
-          path: mount.path,
-          commitsPath: mount.commitsPath,
-          personalApiKey: expected,
-        });
-      },
-    );
+      expect(wiki).toEqual({
+        path: mount.path,
+        commitsPath: mount.commitsPath,
+        personalApiKey: expected,
+      });
+    });
 
     // The mount travels per-session precisely because the harness adapters
     // snapshot process.env at spawn time — a global write here would let
     // concurrent session starts leak one session's token into another.
     it("never writes the wiki vars to shared process.env", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
       await mountContextWiki();
@@ -388,7 +466,6 @@ describe("AgentService", () => {
     });
 
     it("threads the mount into agent.run as a per-session value", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValue(mount);
 
       await service.startSession(baseSessionParams);
@@ -400,10 +477,24 @@ describe("AgentService", () => {
           contextWiki: {
             path: mount.path,
             commitsPath: mount.commitsPath,
-            personalApiKey: "synced-key",
+            personalApiKey: "gateway-token",
           },
         }),
       );
+    });
+  });
+
+  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+    deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
+      new Error("PostHog session ended"),
+    );
+
+    await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "https://gateway.example.com",
+      authToken: "gateway-token",
+      projectId: 1,
     });
   });
 
@@ -432,8 +523,15 @@ describe("AgentService", () => {
       "claude",
     );
 
-    expect(fetchGatewayModels).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 1 }),
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://127.0.0.1:9999",
+      authToken: "gateway-token",
+      projectId: 1,
+    });
+    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+      "https://us.posthog.com",
+      1,
+      { awaitRecheck: false },
     );
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
@@ -441,6 +539,48 @@ describe("AgentService", () => {
       options: expect.arrayContaining([
         expect.objectContaining({ value: "moonshotai/kimi-k3" }),
       ]),
+    });
+  });
+
+  it("groups models by provider when allHarnessModels is set", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+      {
+        id: "gpt-5.6-sol",
+        owned_by: "openai",
+        context_window: 400_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+      true,
+    );
+
+    const modelOption = options.find((option) => option.id === "model");
+    expect(modelOption).toMatchObject({
+      type: "select",
+      options: [
+        {
+          group: "anthropic",
+          options: [expect.objectContaining({ value: "claude-opus-4-8" })],
+        },
+        {
+          group: "openai",
+          options: [expect.objectContaining({ value: "gpt-5.6-sol" })],
+        },
+      ],
     });
   });
 
@@ -498,6 +638,59 @@ describe("AgentService", () => {
       expect(deps.agentAuthAdapter.buildMcpServers).not.toHaveBeenCalled();
       expect(deps.mcpAppsService.addServerConfigs).not.toHaveBeenCalled();
     });
+  });
+
+  describe("MCP tool result forwarding", () => {
+    it.each([
+      [
+        "legacy claudeCode channel (Claude adapter)",
+        { claudeCode: { toolName: "mcp__posthog__query" } },
+      ],
+      [
+        "canonical posthog channel (Codex adapter)",
+        {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      ],
+    ])(
+      "forwards tool input/result to McpAppsService for the %s",
+      async (_label, meta) => {
+        await service.startSession(baseSessionParams);
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-1",
+            rawInput: { sql: "SELECT 1" },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { sql: "SELECT 1" },
+        );
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tc-1",
+            status: "completed",
+            rawOutput: { content: [{ type: "text", text: "42 rows" }] },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { content: [{ type: "text", text: "42 rows" }] },
+          false,
+        );
+      },
+    );
   });
 
   describe("reconnect", () => {
@@ -651,6 +844,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });
@@ -715,6 +909,71 @@ describe("AgentService", () => {
       const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
       expect(claudeMcp).toHaveLength(1);
       expect(codexMcp).toEqual(claudeMcp);
+    });
+
+    it("hands the CLIs the proxy placeholder, never the OAuth token", async () => {
+      await service.startSession(baseSessionParams);
+
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          gatewayUrl: "http://127.0.0.1:9999",
+          gatewayApiKey: "posthog-code-auth-proxy",
+        }),
+      );
+    });
+
+    it("names the Codex base URL in its home config instead of argv", async () => {
+      await service.startSession({ ...baseSessionParams, adapter: "codex" });
+
+      expect(writeCodexGatewayProvider).toHaveBeenCalledWith(
+        "/mock/codex-home",
+        "http://127.0.0.1:9999/v1",
+        expect.anything(),
+      );
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({ codexBaseUrlInConfig: true }),
+      );
+    });
+
+    it("refuses to start Codex when the gateway config write fails", async () => {
+      vi.mocked(writeCodexGatewayProvider).mockResolvedValueOnce(false);
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow(/Codex gateway config/);
+      expect(mockAgentRun).not.toHaveBeenCalled();
+    });
+
+    it("removes the Codex home when a Codex session fails to start", async () => {
+      vi.mocked(cleanupCodexHome).mockClear();
+      mockAgentRun.mockRejectedValueOnce(new Error("spawn failed"));
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow("spawn failed");
+      expect(cleanupCodexHome).toHaveBeenCalledWith(
+        expect.any(String),
+        "run-1",
+      );
+    });
+
+    it("pins the session to the gateway mode chosen at start", async () => {
+      deps.agentAuthAdapter.ensureGatewayProxy.mockResolvedValueOnce({
+        proxyUrl: "http://127.0.0.1:9998",
+        mode: "go",
+      });
+
+      const session = await service.startSession(baseSessionParams);
+
+      expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+        baseSessionParams.apiHost,
+        baseSessionParams.projectId,
+      );
+      expect(session?.gatewayMode).toBe("go");
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {
@@ -1278,7 +1537,7 @@ describe("AgentService", () => {
         const prompt = buildChannelPrompt(systemPromptOverride);
 
         expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
-        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_PROMPT_LEAD);
         expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
           prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );

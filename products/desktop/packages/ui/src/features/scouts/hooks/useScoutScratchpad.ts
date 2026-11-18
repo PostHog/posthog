@@ -1,5 +1,9 @@
 import type { ScoutScratchpadEntry } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import {
+  readQuerySnapshot,
+  useWriteQuerySnapshot,
+} from "@posthog/ui/hooks/useQuerySnapshot";
 import { useAuthStateValue } from "../../auth/store";
 import { scoutQueryKeys } from "./scoutQueryKeys";
 
@@ -19,7 +23,8 @@ const SCRATCHPAD_FETCH_LIMIT = 500;
  */
 export function useScoutScratchpad() {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
-  return useAuthenticatedQuery<ScoutScratchpadEntry[]>(
+  const snapshot = `scouts.scratchpad.${projectId ?? "none"}`;
+  const query = useAuthenticatedQuery<ScoutScratchpadEntry[]>(
     scoutQueryKeys.scratchpad(projectId),
     (client) =>
       projectId
@@ -30,6 +35,10 @@ export function useScoutScratchpad() {
     {
       enabled: !!projectId,
       staleTime: 30_000,
+      initialData: () => readQuerySnapshot<ScoutScratchpadEntry[]>(snapshot),
+      initialDataUpdatedAt: 0,
     },
   );
+  useWriteQuerySnapshot(snapshot, query.data, !query.isFetching);
+  return query;
 }

@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "Opaque cursor returned by the previous page.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas whose comments to list.",
+            "type": "string"
+        },
+        "include_resolved": {
+            "default": false,
+            "description": "Whether to include resolved comment threads.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of root comments to return.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

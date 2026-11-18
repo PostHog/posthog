@@ -4,35 +4,40 @@ import { useCallback, useMemo } from 'react'
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { shortTimeZone } from 'lib/utils/timezones'
+import { formatAggregationValue } from 'scenes/insights/utils'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
+import { CompareLabelType, IntervalType } from '~/types'
+
 import {
     FormattedDateOptions,
     getDatumTitle,
     getFormattedDate,
     getTooltipTitle,
     SeriesDatum,
-} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { teamLogic } from 'scenes/teamLogic'
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+import { getResultSeriesName } from './resultSeriesName'
+import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type InsightSeriesMetaBase = {
-    action?: ActionFilter
-    /** Series name for rows without an `action` — formula series carry their formula label here. */
+    series?: ResultSeries
+    /** Series name for rows without a series node — formula series carry their formula label here. */
     series_name?: string
     breakdown_value?: string | number | string[] | null
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
     order?: number
-    filter?: SeriesDatum['filter']
 }
 
 type InsightSeriesTooltipEntry<Meta extends InsightSeriesMetaBase> = TooltipContext<Meta>['seriesData'][number]
@@ -54,14 +59,16 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     /** Override the auto-derived date header — stickiness passes an interval-count integer
      *  rather than a date, so the default calendar formatter would produce the wrong label. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
-    /** Override the value formatter — pie chart passes slice share alongside the raw count. */
-    renderCount?: (value: number) => string
+    /** Override the value formatter: pie slice share, or the funnel counts behind a rate from the entry's meta. */
+    renderCount?: (value: number, entry: InsightSeriesTooltipEntry<Meta>) => string
     /** Override the row label — lifecycle uses the status name rather than the event name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
     /** Sort rows by value descending. Pass false to preserve visual top-to-bottom order. */
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Append a total row that sums the series at the hovered point (stacked bars). */
+    showTotal?: boolean
     /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
@@ -95,24 +102,21 @@ function formatRowValue(
 /** Spells out the weekday on daily buckets, matching the classic insight tooltip. */
 function formatHeaderDate(date: string | undefined, options: FormattedDateOptions): string {
     const formattedDate = getFormattedDate(date, options)
-    if (options.interval !== 'day' || typeof date !== 'string') {
+    if (typeof date !== 'string') {
         return formattedDate
     }
-    const parsed = parseDateInTimezone(date, options.timezone ?? 'UTC')
-    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}` : formattedDate
+    const timezone = options.timezone ?? 'UTC'
+    const parsed = parseDateInTimezone(date, timezone)
+    const tzSuffix = ` (${shortTimeZone(timezone, parsed.isValid() ? parsed.toDate() : undefined) ?? 'UTC'})`
+    if (options.interval !== 'day') {
+        return `${formattedDate}${tzSuffix}`
+    }
+    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}${tzSuffix}` : `${formattedDate}${tzSuffix}`
 }
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
 
-/** How rows must identify the series they belong to:
- *  `none` — single series (or no way to tell them apart), no identifier needed;
- *  `name` — series names differ, the name alone identifies a row;
- *  `letter-and-name` — several series share a display name (e.g. the same event added
- *  twice with different math/filters), so the name is prefixed with the series letter
- *  (A, B, …) shown in the insight editor. */
-export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
-
-/** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
+/** `SeriesDatum` plus the series name for rows whose meta has no series node (formula series). */
 type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
 
 interface SeriesLabelProps {
@@ -157,7 +161,7 @@ export function SeriesLabel({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'currentColor', borderColor: 'currentColor' }}
             >
-                {alphabet[datum.action?.order ?? datum.order]}
+                {alphabet[datum.series?.order ?? datum.order]}
             </SeriesGlyph>
         ) : null
 
@@ -186,7 +190,7 @@ export function SeriesLabel({
                     value is what tells the rows apart, and a long event name would otherwise
                     truncate it away. The letter and the separator stay put. */}
                 <span className="opacity-50 truncate min-w-0 shrink">
-                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
+                    {(datum.series ? getResultSeriesName(datum.series) : null) ?? datum.series_name ?? datum.label}
                 </span>
                 <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
             </>
@@ -233,6 +237,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    showTotal,
     footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -252,35 +257,17 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: meta.action,
+                series: meta.series,
                 series_name: meta.series_name,
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             })
         })
         return m
     }, [context.seriesData, context.dataIndex])
 
-    const seriesIdentification = useMemo((): SeriesIdentification => {
-        // One entry per series entity — breakdown/compare rows of one series share its `order`.
-        // Formula series have no `action`, but their `order` still identifies the formula they
-        // came from, with `series_name` carrying the formula label.
-        const nameByEntity = new Map<number | string, string>()
-        for (const d of datumByKey.values()) {
-            if (d.action) {
-                const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
-                nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
-            } else if (d.series_name != null) {
-                nameByEntity.set(d.order, d.series_name)
-            }
-        }
-        if (nameByEntity.size <= 1) {
-            return 'none'
-        }
-        return new Set(nameByEntity.values()).size < nameByEntity.size ? 'letter-and-name' : 'name'
-    }, [datumByKey])
+    const seriesIdentification = useMemo(() => getSeriesIdentification(datumByKey.values()), [datumByKey])
 
     const compareDates = useMemo((): Partial<Record<CompareLabelType, string>> => {
         const dates: Partial<Record<CompareLabelType, string>> = {}
@@ -336,11 +323,11 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
             return formatAggregationValue(
-                datum?.action?.math_property,
+                datum?.series?.math?.math_property,
                 value,
                 (v) =>
                     formatRowValue(v, {
-                        override: renderCount,
+                        override: renderCount ? (rowValue) => renderCount(rowValue, entry) : undefined,
                         showPercentView,
                         isPercentStackView,
                         trendsFilter,
@@ -411,6 +398,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             {...context}
             sortedByValue={sortedByValue}
             hideZeroRows={hideZeroRows}
+            showTotal={showTotal}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}

@@ -77,6 +77,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "mapExtractKeyLike": HogQLFunctionMeta("mapExtractKeyLike", 2, 2),
     "mapApply": HogQLFunctionMeta("mapApply", 2, 2),
     "mapFilter": HogQLFunctionMeta("mapFilter", 2, 2),
+    "mapExists": HogQLFunctionMeta("mapExists", 2, 2),
     "mapUpdate": HogQLFunctionMeta("mapUpdate", 2, 2),
     # bit
     "bitAnd": HogQLFunctionMeta("bitAnd", 2, 2),
@@ -192,8 +193,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
-    "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
-    "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
+    "least": HogQLFunctionMeta("least", 2, None, case_sensitive=False),
+    "greatest": HogQLFunctionMeta("greatest", 2, None, case_sensitive=False),
     "indexHint": HogQLFunctionMeta("indexHint", 1, 1),
     "extractIPv4Substrings": HogQLFunctionMeta("extractIPv4Substrings", 1, 1),
     # time window
@@ -218,6 +219,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "LpNormalize": HogQLFunctionMeta("LpNormalize", 2, 2),
     "cosineDistance": HogQLFunctionMeta("cosineDistance", 2, 2),
     # window functions
+    "grouping": HogQLFunctionMeta("grouping", 1, None, signatures=[((UnknownType(),), IntegerType())]),
     "rank": HogQLFunctionMeta("rank"),
     "dense_rank": HogQLFunctionMeta("dense_rank"),
     "row_number": HogQLFunctionMeta("row_number"),
@@ -259,6 +261,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
         signatures=[((StringType(),), StringType())],
     ),
+    # Reads an aggregate function state as a plain value. The underscore keeps it out of autocomplete and
+    # marks it private: Python-built queries over the raw sessions tables use it, and it can change or go
+    # away without notice.
+    "_finalizeAggregation": HogQLFunctionMeta("finalizeAggregation", 1, 1),
 }
 
 

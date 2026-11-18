@@ -27,7 +27,7 @@
         min-width: 0;
         padding-inline: 0.25rem;
         margin-inline: -0.25rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         color: var(--muted-foreground);
         text-decoration: none;

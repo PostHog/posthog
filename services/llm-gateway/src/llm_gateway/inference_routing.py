@@ -48,7 +48,7 @@ from llm_gateway.cloudflare import (
     make_cloudflare_responses_call,
 )
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG, evaluate_flag
+from llm_gateway.flags import GLM_MODAL_FLAG, evaluate_flag
 from llm_gateway.modal import (
     is_modal_configured,
     is_modal_served_model,
@@ -106,14 +106,10 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
     return await evaluate_flag(GLM_MODAL_FLAG, user.distinct_id) or False
 
 
-async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
+def _route_to_baseten(model: str, settings: Settings) -> bool:
     if not is_baseten_configured(settings):
         return False
-    if model in BASETEN_EXCLUSIVE_MODELS:
-        return True
-    if model != BASETEN_PUBLIC_MODEL:
-        return False
-    return await evaluate_flag(GLM_BASETEN_FLAG, user.distinct_id) or False
+    return model in BASETEN_EXCLUSIVE_MODELS or model == BASETEN_PUBLIC_MODEL
 
 
 async def _send_provider_request(
@@ -168,7 +164,7 @@ async def _send_inference_request(
     model = request_data["model"]
     settings = get_settings()
 
-    if await _route_to_baseten(model, user, settings):
+    if _route_to_baseten(model, settings):
         api_base, api_key = ensure_baseten_configured(settings)
         return await _send_provider_request(
             request_data, user, is_streaming, product, baseten_config, make_baseten_call(api_base, api_key)

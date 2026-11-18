@@ -2,10 +2,10 @@
 database "posthog" {
   patch_table "kafka_hog_invocation_results" {
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_hog_invocation_results'"
-      group_name           = "kafka_group_name = 'clickhouse_hog_invocation_results'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_hog_invocation_results"
+      group_name           = "clickhouse_hog_invocation_results"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 100000
       skip_broken_messages = 100

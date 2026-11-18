@@ -1,3 +1,7 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+
 import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFiltersType,
@@ -105,6 +109,25 @@ describe('hogFunctionTemplateListLogic - deliveryType filter', () => {
         const logic = buildLogic()
         logic.actions.setFilters({ deliveryType: 'realtime' })
         expect(logic.values.filteredTemplates.map((t) => t.id)).toEqual(['template-slack'])
+    })
+
+    it('shows the delivery type from the first render when manual templates wait for fetched ones', async () => {
+        let resolveTemplates: (value: { results: HogFunctionTemplateType[] }) => void = () => {}
+        jest.spyOn(api.hogFunctions, 'listTemplates').mockReturnValue(
+            new Promise((resolve) => {
+                resolveTemplates = resolve
+            })
+        )
+        const logic = hogFunctionTemplateListLogic.build({ type: 'destination', manualTemplates: [batchTemplate] })
+        logic.mount()
+        expect(logic.values.hasMultipleDeliveryTypes).toBe(false)
+
+        logic.actions.loadHogFunctionTemplates()
+        expect(logic.values.hasMultipleDeliveryTypes).toBe(true)
+
+        resolveTemplates({ results: [realtimeTemplate] })
+        await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesSuccess'])
+        expect(logic.values.hasMultipleDeliveryTypes).toBe(true)
     })
 
     it('applies the deliveryType filter in the search branch too', () => {

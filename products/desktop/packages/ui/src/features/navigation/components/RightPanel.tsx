@@ -218,7 +218,7 @@ function useDrawnSide(
 }
 
 /** Every side belongs to a session, so nothing below this runs elsewhere. */
-export function RightPanel() {
+function RightPanelImpl() {
   const { taskId } = useActiveSession();
   // Keyed by session: carrying per-session state across a navigation draws the
   // previous session's panel over the new one for a frame.
@@ -319,3 +319,6 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
     </>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const RightPanel = memo(RightPanelImpl);

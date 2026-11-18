@@ -1,11 +1,6 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamDataWarehouseConfig(models.Model):
@@ -19,8 +14,10 @@ class TeamDataWarehouseConfig(models.Model):
         related_name="+",
     )
 
+    # Set when the project got its default sync failure alert, or already had a warehouse source
+    # alert of its own at that time. Alerts are hard deleted, so this is what stops the default
+    # coming back after a person deletes it.
+    default_failure_alert_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         app_label = "data_warehouse"
-
-
-register_team_extension_signal(TeamDataWarehouseConfig, logger=logger)

@@ -5,14 +5,14 @@ import { type ErrorInfo, useMemo } from 'react'
 import { type TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { type ChartParams, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarHorizontalTooltip } from './FunnelBarHorizontalTooltip'
 import {
     buildFunnelBarHorizontalCompareData,
@@ -20,6 +20,7 @@ import {
     type FunnelBarHorizontalSegmentMeta,
 } from './funnelBarHorizontalTransforms'
 import { GlyphColumn } from './GlyphColumn'
+import { openFunnelSegmentPersons } from './openFunnelSegmentPersons'
 import { SingleStepBar } from './SingleStepBar'
 import { StepFooter } from './StepFooter'
 import { StepHeader } from './StepHeader'
@@ -40,7 +41,6 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 export function FunnelBarHorizontalChart({
     showPersonsModal: showPersonsModalProp = true,
-    inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useChartTheme()
@@ -57,14 +57,16 @@ export function FunnelBarHorizontalChart({
         querySource,
         isComparedFunnel,
         insightData,
+        hasPartialBreakdownSelection,
     } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const steps = visibleStepsWithConversionMetrics
+    // One flag drives both the bar's click handler and the tooltip's "Click to view …" hint, so the
+    // hint can never promise a drill-in the bar doesn't do.
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
-    const interactive = showPersonsModal && !inCardView
     const isUnordered = funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
     const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
@@ -99,55 +101,11 @@ export function FunnelBarHorizontalChart({
                 {steps.map((step, stepIndex) => {
                     const isOptional = isStepOptional(stepIndex + 1)
 
-                    const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
-                        // Stacked breakdown + compare: the drop-off band aggregates every value for the
-                        // period, so open the period's whole-step drop-off — compare-scoped, but with no
-                        // breakdown filter. Pure compare tags each drop-off with its period's
-                        // breakdownIndex instead, so it routes through the series branch below.
-                        if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
-                            if (meta.compareLabel) {
-                                openPersonsModalForSeries({
-                                    step,
-                                    series: {
-                                        ...step,
-                                        breakdown: undefined,
-                                        breakdown_value: undefined,
-                                        compare_label: meta.compareLabel,
-                                    },
-                                    converted: false,
-                                })
-                            }
-                            return
-                        }
-                        // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
-                        // route the matching period series (converted vs. dropped-off) — handled before the
-                        // generic drop-off branch, which would otherwise open the aggregate step.
-                        if (
-                            isComparedFunnel &&
-                            meta.breakdownIndex != null &&
-                            step.nested_breakdown?.[meta.breakdownIndex]
-                        ) {
-                            openPersonsModalForSeries({
-                                step,
-                                series: step.nested_breakdown[meta.breakdownIndex],
-                                converted: !meta.isDropOff,
-                            })
-                            return
-                        }
-                        if (meta.isDropOff) {
-                            openPersonsModalForStep({ step, converted: false })
-                            return
-                        }
-                        if (meta.breakdownIndex != null && step.nested_breakdown?.[meta.breakdownIndex]) {
-                            openPersonsModalForSeries({
-                                step,
-                                series: step.nested_breakdown[meta.breakdownIndex],
-                                converted: true,
-                            })
-                            return
-                        }
-                        openPersonsModalForStep({ step, converted: true })
-                    }
+                    const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void =>
+                        openFunnelSegmentPersons(step, meta, isComparedFunnel, {
+                            openPersonsModalForStep,
+                            openPersonsModalForSeries,
+                        })
 
                     const renderTooltip = (ctx: TooltipContext<FunnelBarHorizontalSegmentMeta>): JSX.Element | null => (
                         <FunnelBarHorizontalTooltip
@@ -155,9 +113,11 @@ export function FunnelBarHorizontalChart({
                             step={step}
                             stepIndex={stepIndex}
                             firstStep={steps[0]}
+                            querySource={querySource}
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}
+                            isPartialBreakdownSelection={hasPartialBreakdownSelection}
                             resolvedDateRange={insightData?.resolved_date_range}
                             compareTo={querySource?.compareFilter?.compare_to}
                         />
@@ -178,6 +138,7 @@ export function FunnelBarHorizontalChart({
                                     step={step}
                                     stepIndex={stepIndex}
                                     previousStep={steps[stepIndex - 1]}
+                                    querySource={querySource}
                                     isUnordered={isUnordered}
                                     isOptional={isOptional}
                                 />
@@ -187,7 +148,7 @@ export function FunnelBarHorizontalChart({
                                             key={bar.series[0].key}
                                             stepData={bar}
                                             theme={theme}
-                                            interactive={interactive}
+                                            interactive={showPersonsModal}
                                             onSegmentClick={onSegmentClick}
                                             renderTooltip={renderTooltip}
                                             onError={handleChartError}
@@ -198,7 +159,7 @@ export function FunnelBarHorizontalChart({
                                     <SingleStepBar
                                         stepData={stepsData[stepIndex]}
                                         theme={theme}
-                                        interactive={interactive}
+                                        interactive={showPersonsModal}
                                         onSegmentClick={onSegmentClick}
                                         renderTooltip={renderTooltip}
                                         onError={handleChartError}

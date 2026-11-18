@@ -9,15 +9,17 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled, ValidationError
 
+from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.data_catalog.backend.logic.execution import prepare_execution_query, run_metric
+from products.data_catalog.backend.logic.execution import MAX_METRIC_RUN_PAGES, prepare_execution_query, run_metric
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
 
@@ -53,7 +55,16 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         body = response.json()
-        assert set(body) >= {"status", "is_drifted", "unit", "kind", "results", "compiled_query", "query_status"}
+        assert set(body) >= {
+            "status",
+            "is_drifted",
+            "unit",
+            "kind",
+            "results",
+            "columns",
+            "compiled_query",
+            "query_status",
+        }
         assert body["kind"] == "HogQLQuery"
         assert body["is_drifted"] is False
         assert "/sql?open_query=" in body["posthog_url"]
@@ -65,6 +76,44 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         direct_json = direct.model_dump(mode="json") if hasattr(direct, "model_dump") else direct
         assert body["results"] == direct_json["results"]
         assert body["results"] == [[3]]
+        assert body["columns"] == ["c"]
+
+    @parameterized.expand(
+        [
+            ("one_page", 400, False),
+            ("two_pages", 1500, False),
+            ("past_the_page_limit", MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS + 500, True),
+        ]
+    )
+    def test_long_series_pages_with_offset_up_to_the_page_limit(
+        self, _name: str, row_count: int, expect_page_limit: bool
+    ) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="long_series",
+            description="d",
+            definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count}) order by number"},
+        )
+
+        page = run_metric(team=self.team, metric=metric, user=self.user)
+        assert page["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
+        rows = list(page["results"])
+        for _ in range(MAX_METRIC_RUN_PAGES):
+            if page["next_offset"] is None:
+                break
+            page = self.client.post(
+                f"/api/projects/{self.team.id}/data_catalog/metrics/long_series/run/",
+                {"offset": page["next_offset"]},
+                format="json",
+            ).json()
+            rows += page["results"]
+
+        reachable_rows = min(row_count, MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS)
+        assert [row[0] for row in rows] == list(range(reachable_rows))
+        assert page["next_offset"] is None
+        assert page["has_more"] is expect_page_limit
+        assert (page["paging_stopped_reason"] is not None) is expect_page_limit
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing
@@ -76,6 +125,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         assert body["kind"] == "EventsNode"
         assert body["results"][0]["count"] == 3
+        assert body["columns"] is None
 
 
 class TestMetricRunPreparation(APIBaseTest):
@@ -150,33 +200,61 @@ class TestMetricRunPreparation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("exposed_hogql", ExposedHogQLError("no such table"), ValidationError),
-            ("exposed_clickhouse", ExposedCHQueryError("memory limit"), ValidationError),
-            ("concurrency", ConcurrencyLimitExceeded("too many"), Throttled),
-            ("unexpected", RuntimeError("engine bug"), RuntimeError),
+            ("exposed_hogql", ExposedHogQLError("no such table"), ValidationError, None),
+            ("exposed_clickhouse", ExposedCHQueryError("memory limit"), ValidationError, None),
+            ("concurrency", ConcurrencyLimitExceeded("too many"), Throttled, CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS),
+            ("unexpected", RuntimeError("engine bug"), RuntimeError, None),
         ]
     )
     def test_engine_exceptions_keep_their_http_semantics(
-        self, _name: str, engine_error: Exception, expected: type[Exception]
+        self, _name: str, engine_error: Exception, expected: type[Exception], expected_wait: int | None
     ) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=_HOGQL)
         with patch(_PROCESS_QUERY, side_effect=engine_error):
-            with self.assertRaises(expected):
+            with self.assertRaises(expected) as raised:
                 run_metric(team=self.team, metric=metric, user=self.user)
+        assert getattr(raised.exception, "wait", None) == expected_wait
         metric.refresh_from_db()
         assert metric.last_run_at is None
 
     @parameterized.expand(
         [
-            ("date_from", {"date_from": "-7d"}, "date_from"),
-            ("date_to", {"date_to": "-1d"}, "date_to"),
-            ("interval", {"interval": "week"}, "interval"),
+            ("truncated_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": True}, True, 1000),
+            ("complete_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": False}, False, 1000),
+            ("collapsed_breakdown", _EVENTS_NODE, {"results": [{"count": 1}], "hasMore": True}, False, None),
         ]
     )
-    def test_hogql_date_override_names_the_provided_field(self, _name: str, params: dict, expected_field: str) -> None:
+    def test_truncation_is_reported_only_from_row_paginator_metadata(
+        self, _name: str, definition: dict, payload: dict, expected_has_more: bool, expected_row_limit: int | None
+    ) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=definition)
+
+        with patch(_PROCESS_QUERY, return_value=payload):
+            envelope = run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert envelope["has_more"] is expected_has_more
+        assert envelope["row_limit"] == expected_row_limit
+
+    @parameterized.expand(
+        [
+            ("date_from", _HOGQL, {"date_from": "-7d"}, "date_from"),
+            ("date_to", _HOGQL, {"date_to": "-1d"}, "date_to"),
+            ("interval", _HOGQL, {"interval": "week"}, "interval"),
+            ("offset_on_trends", _EVENTS_NODE, {"offset": 1000}, "offset"),
+            (
+                "offset_past_page_limit",
+                _HOGQL,
+                {"offset": MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS},
+                "offset",
+            ),
+        ]
+    )
+    def test_rejected_override_names_the_provided_field(
+        self, _name: str, definition: dict, params: dict, expected_field: str
+    ) -> None:
         # The rejection must point at whichever date param the caller actually sent, not always date_from.
         with self.assertRaises(ValidationError) as ctx:
-            prepare_execution_query(_HOGQL, **params)
+            prepare_execution_query(definition, **params)
         detail = cast(dict, ctx.exception.detail)
         assert expected_field in detail
 

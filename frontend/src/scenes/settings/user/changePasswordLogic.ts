@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -30,6 +31,8 @@ export interface changePasswordLogicValues {
     changePasswordValidationErrors: DeepPartialMap<ChangePasswordForm, ValidationErrorType>
     isChangePasswordSubmitting: boolean
     isChangePasswordValid: boolean
+    passwordResetEmailSent: boolean
+    passwordResetEmailSentLoading: boolean
     showChangePasswordErrors: boolean
     validatedPassword: ValidatedPasswordResult
 }
@@ -39,6 +42,21 @@ export interface changePasswordLogicActions {
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
+    requestPasswordResetEmail: () => any
+    requestPasswordResetEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    requestPasswordResetEmailSuccess: (
+        passwordResetEmailSent: boolean,
+        payload?: any
+    ) => {
+        passwordResetEmailSent: boolean
+        payload?: any
+    }
     resetChangePassword: (values?: ChangePasswordForm) => {
         values?: ChangePasswordForm
     }
@@ -121,6 +139,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                 const hasPassword = values.user?.has_password ?? false
 
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                     await api.update('api/users/@me/', {
                         password,
                         ...(hasPassword ? { current_password } : {}),
@@ -140,6 +159,28 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                 }
             },
         },
+    })),
+    loaders(({ values }) => ({
+        passwordResetEmailSent: [
+            false,
+            {
+                // The same endpoint the login page's "Forgot password?" link posts to.
+                requestPasswordResetEmail: async () => {
+                    const email = values.user?.email
+                    if (!email) {
+                        return false
+                    }
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                        await api.create('api/reset/', { email })
+                        return true
+                    } catch (e: any) {
+                        lemonToast.error(e.detail ?? 'Could not send a reset link. Please try again.')
+                        return false
+                    }
+                },
+            },
+        ],
     })),
     selectors({
         validatedPassword: [

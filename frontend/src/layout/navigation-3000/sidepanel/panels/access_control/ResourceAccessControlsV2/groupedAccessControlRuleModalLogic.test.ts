@@ -153,8 +153,8 @@ describe('groupedAccessControlRuleModalLogic', () => {
         })
     })
 
-    describe('toolsDisabledReason (selector logic)', () => {
-        function toolsDisabledReason(loading: boolean, canEdit: boolean, isOrgAdmin: boolean): string | undefined {
+    describe('productsDisabledReason (selector logic)', () => {
+        function productsDisabledReason(loading: boolean, canEdit: boolean, isOrgAdmin: boolean): string | undefined {
             if (loading) {
                 return 'Loading...'
             }
@@ -162,7 +162,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
                 return 'Cannot edit'
             }
             if (isOrgAdmin) {
-                return 'User is an organization admin and has access to all tools'
+                return 'User is an organization admin and has access to all products'
             }
             return undefined
         }
@@ -170,14 +170,14 @@ describe('groupedAccessControlRuleModalLogic', () => {
         it.each([
             [true, true, false, 'Loading...'],
             [false, false, false, 'Cannot edit'],
-            [false, true, true, 'User is an organization admin and has access to all tools'],
+            [false, true, true, 'User is an organization admin and has access to all products'],
             [false, true, false, undefined],
         ])('loading=%s canEdit=%s isOrgAdmin=%s => %s', (loading, canEdit, isOrgAdmin, expected) => {
-            expect(toolsDisabledReason(loading, canEdit, isOrgAdmin)).toBe(expected)
+            expect(productsDisabledReason(loading, canEdit, isOrgAdmin)).toBe(expected)
         })
 
         it('loading takes priority over canEdit and isOrgAdmin', () => {
-            expect(toolsDisabledReason(true, false, true)).toBe('Loading...')
+            expect(productsDisabledReason(true, false, true)).toBe('Loading...')
         })
     })
 

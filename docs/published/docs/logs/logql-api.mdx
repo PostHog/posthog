@@ -1,0 +1,75 @@
+---
+title: Query logs with LogQL
+sidebar: Docs
+showTitle: true
+---
+
+PostHog exposes a Loki-compatible query API over your logs. Tools that speak LogQL, such as Grafana's Loki data source or `logcli`, can query PostHog logs without a Loki server.
+
+## Endpoint
+
+Point your Loki client at the logs API of your project:
+
+```text
+https://us.posthog.com/api/projects/:project_id/logs
+```
+
+Use `eu.posthog.com` for EU Cloud. The client appends the standard Loki paths, so a range query goes to:
+
+```text
+GET|POST /api/projects/:project_id/logs/loki/api/v1/query_range
+```
+
+Supported paths:
+
+| Path                             | Purpose                          |
+| -------------------------------- | -------------------------------- |
+| `loki/api/v1/query`              | Instant query                    |
+| `loki/api/v1/query_range`        | Range query                      |
+| `loki/api/v1/labels`             | List label names                 |
+| `loki/api/v1/label/:name/values` | List values for one label        |
+| `loki/api/v1/series`             | List log streams                 |
+| `loki/api/v1/index/stats`        | Stream statistics for a selector |
+| `loki/api/v1/status/buildinfo`   | Build information                |
+
+The API is read-only. `push` is not exposed. Send logs with the [OpenTelemetry exporter](/docs/logs/installation) instead.
+
+## Authentication
+
+Authenticate with a [personal API key](/docs/api#authentication) that has the `logs:read` scope. Send it as a bearer token:
+
+```bash
+curl --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
+  --get "https://us.posthog.com/api/projects/$PROJECT_ID/logs/loki/api/v1/query_range" \
+  --data-urlencode 'query={service_name="api"} |= "error"' \
+  --data-urlencode 'start=2026-09-01T00:00:00Z' \
+  --data-urlencode 'end=2026-09-01T01:00:00Z' \
+  --data-urlencode 'limit=100'
+```
+
+The query only sees logs of the project in the URL. A `team_id` parameter in the query is ignored.
+
+## Grafana
+
+1. Add a **Loki** data source.
+2. Set the URL to `https://us.posthog.com/api/projects/<project_id>/logs`.
+3. Under **HTTP headers**, add `Authorization` with the value `Bearer <personal API key>`.
+4. Save and test.
+
+Query errors keep the Loki error format, so Grafana shows them inline.
+
+## Rate limits
+
+The endpoint uses the project's ClickHouse read-byte budget. Snuffle reports the bytes that ClickHouse read after each query, and that amount is taken from a Redis token bucket. The bucket refills continuously and has a capped balance.
+
+When the budget is empty, the next request returns `429` with `Retry-After`. Grafana dashboards with many panels can use different amounts because each panel is charged for its actual ClickHouse read volume, not one request.
+
+## Self-hosted
+
+The endpoint proxies to [Snuffle](https://github.com/PostHog/snuffle), which runs next to the logs ClickHouse cluster. Configure it with these environment variables on the web pods:
+
+| Variable                                    | Purpose                                                                                              |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SNUFFLE_APM_URL`                           | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                              |
+| `SNUFFLE_APM_USER` / `SNUFFLE_APM_PASSWORD` | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user. |
+| `SNUFFLE_APM_TIMEOUT_SECONDS`               | Upstream request timeout. Default `60`.                                                              |

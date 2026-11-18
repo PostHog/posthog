@@ -7,7 +7,7 @@
 //! - [`EvictionQueue`] — the per-worker, deadline-ordered structure, drained soonest-first.
 //! - [`run_sweep_loop`] — the periodic timer that, each tick, asks a [`Sweeper`] to drain due keys.
 //! - [`due_before_ms`] — the `now − safety_margin` cutoff the worker feeds to
-//!   [`EvictionQueue::pop_due`].
+//!   [`EvictionQueue::due_keys`] and [`EvictionQueue::take_due`].
 
 pub mod dispatch;
 pub mod eviction_queue;

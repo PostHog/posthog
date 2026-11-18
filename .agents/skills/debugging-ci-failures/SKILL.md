@@ -5,13 +5,14 @@ description: >
   and answers broad CI-health questions ("is CI red?", "is master green today?",
   "what's broken right now?"). Use when the user asks why CI is red, asks for the
   current CI or master status, or mentions a failing check, GitHub Actions run,
-  Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
+  Depot runner, Depot CI run, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Start with the `hogli ci:insights` digest (cross-run CI history
-  from engineering analytics), then guides read-only inspection, failure
-  classification, smallest local reproduction with hogli, and safe reporting
-  without rerunning CI or posting to GitHub. Running unattended as the
-  "Master-red diagnosis" workflow: see references/master-red-incident.md.
+  build failure. Interactive runs start with the `hogli ci:insights` digest
+  (cross-run CI history from engineering analytics), then use read-only
+  inspection, failure classification, the smallest local reproduction with
+  hogli, and safe reporting without rerunning CI or posting to GitHub. Running
+  unattended as the "Master-red diagnosis" workflow: see
+  references/master-red-incident.md for its sandbox-compatible first step.
 ---
 
 # Debugging PostHog CI failures
@@ -22,12 +23,16 @@ Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
-Always start with the `hogli ci:insights` digest. It aggregates across runs and
-branches, which `gh` cannot do cheaply, and tells you whether a failure is
-likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
-authoritative for one run's current state and attribution. Use the digest to
-decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
-what failed in a given run.
+For an interactive investigation, start with the `hogli ci:insights` digest.
+It aggregates across runs and branches, which `gh` cannot do cheaply, and tells
+you whether a failure is likely trunk-borne, gate-only, or isolated to a small
+set of branches. `gh` is authoritative for one run's current state and
+attribution. Use the digest to decide _what_ to inspect; use `gh` to confirm
+_whose_ failure it is and exactly what failed in a given run.
+
+The unattended Master-red workflow is the exception.
+Follow [its reference](references/master-red-incident.md), which defines a first
+step that works in the task sandbox.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
@@ -54,7 +59,8 @@ Report an outage as an outage, name the component, and stop recommending reruns.
 
 Do not do any of these without explicit approval in the current conversation:
 
-- Rerun or cancel a GitHub Actions run.
+- Rerun or cancel a GitHub Actions run, or retry, rerun, or cancel a Depot CI run.
+  The exception is a check-job run from your working tree, see "Run a Depot CI check job from your working tree".
 - Post a GitHub comment, PR review, or issue comment through any CLI, MCP, or
   API tool.
 - Push commits, force-push, rename branches, or delete branches.
@@ -68,7 +74,7 @@ overwrite unrelated work.
 
 ## Workflow
 
-### 1. Start with CI insights (always first)
+### 1. Start with CI insights for interactive investigations
 
 `hogli ci:insights` reads PostHog's own engineering analytics — the cross-run
 failure history a single run can't show. Consult it before any raw `gh` log
@@ -144,10 +150,11 @@ overlap its own. The lane script over-reports targets on purpose, so in
 practice that is most of the queue. So:
 
 - The failing run is on that branch, never on the PR's head SHA. Take it from
-  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+  `trunk merge status <n>` (`/merging-prs` step 4), not `gh pr checks`. Trunk publishes no check run here.
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
+  Backend tests run on Depot CI. The `Backend CI on Depot / Django Tests Pass on Depot` check links to the Depot run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -156,7 +163,41 @@ practice that is most of the queue. So:
 - The branch names one PR but carries many. A failure on it is not evidence
   against that PR until you find the change that caused it; the branch's other
   merge commits are the first suspects.
+- A `…-bisection` branch is the exception to "the other merge commits are the
+  first suspects": Trunk creates it after a batch fails, and it carries only
+  master plus the one PR. The test PR's body names the master SHA it is based
+  on; if master's run at that SHA passed the same test, the failure is an
+  environment-dependent race (`fixing-flaky-tests` step 1), not this PR's.
 - In the digest this is the `blocking_merge_queue` state.
+
+### 3. Read the CI report comment (for a PR)
+
+Before reading logs, read the shared CI report comment. It collects independent
+CI signals and advisories in many sections.
+
+Read the full raw comment, not GitHub's collapsed view. This command finds it
+even when the PR has many comments:
+
+```bash
+gh api --paginate "repos/<owner>/<repo>/issues/<pr>/comments?per_page=100" \
+  --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- posthog-ci-report -->"))) | .body'
+```
+
+Inspect every `ci-report:section` block, including unknown sections. Record its
+title, status, summary, and links. Do not stop at the first `fail` section or
+treat the comment heading as an overall verdict.
+
+- Treat `fail` as a lead, and match it to the current job.
+- Treat `alert` and `warn` as non-blocking findings. Review their details and
+  follow their stated action, but do not call either a failed job unless its
+  job failed.
+- `ok` and `info` are not test results.
+- A missing report means the reporter did not run or could not write. It does
+  not prove the PR is healthy.
+
+The report is a summary. A section without a head SHA or run link can be stale.
+Confirm it against the current job. If it disagrees with the current logs,
+report the mismatch and use the logs for the cause.
 
 Inspect read-only:
 
@@ -184,7 +225,7 @@ has pushed, so an earlier push's failure is still there.
 
 Extract these before classifying:
 
-- Workflow name or file, e.g. `.github/workflows/ci-backend.yml`.
+- Workflow name or file, e.g. `.depot/workflows/ci-backend.yml`.
 - Job name, e.g. `backend-tests (4/10)`.
 - Step name, e.g. `Run pytest`.
 - Failing command and the smallest useful output excerpt.
@@ -206,6 +247,36 @@ instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
 token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
+
+#### Backend tests on Depot CI
+
+Use the Depot CLI for Backend CI runs and logs. `gh run` only lists GitHub Actions runs.
+The required checks are `Backend CI on Depot / Test results` and `Backend CI on Depot / Django Tests Pass on Depot`.
+`Test results` lists failing tests in its summary:
+
+```bash
+gh api 'repos/PostHog/posthog/commits/<sha>/check-runs?check_name=Backend%20CI%20on%20Depot%20/%20Test%20results' \
+  --jq '.check_runs[0].output.summary'
+```
+
+A passing draft run does not post `Test results`. GitHub shows it as expected until the PR is ready for review, so do not wait for that check on a draft.
+
+GitHub's Re-run button does nothing on a Depot check.
+A `/depot retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
+With the user's permission, post that comment.
+With a Depot login, `depot ci retry <run-id> --failed --workflow <workflow-id>` does the same without a comment.
+The flox environment installs the `depot` CLI. Outside an activated flox shell, run it as `flox activate -- depot ...`.
+A run that Depot still shows as running past its job timeouts is stuck. Cancel the stuck job with `depot ci cancel` before you retry.
+
+Read more of the failure from Depot with the `depot` CLI.
+Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the details link of a Depot check.
+For logs, artifacts, and test results, load the `depot-ci` skill.
+Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs.
+If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
+Without it, ask the user to run `! depot login --clear`.
+Do not run it yourself: it waits on a browser sign-in.
+Every PostHog engineer gets an invite to the Depot org. A user without access checks their email for it, or requests one in #team-devex.
+Without Depot access, use `/depot retry` to retry the run and read its `Test results` summary through the GitHub API.
 
 ## Classification
 
@@ -247,8 +318,8 @@ is copy-ready; that skill also owns the wider investigation.
 Read the result as:
 
 - **Low percentage, recent hours mostly green** — transient. Report and move on.
-  For a queued PR, recommend re-enqueueing rather than a code change; posting
-  `/trunk merge` yourself needs approval, per the Safety rules above.
+  For a queued PR, recommend re-enqueueing rather than a code change; running
+  `trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
   telling people to retry. Check <https://www.githubstatus.com/> before
   attributing it to this repository; a platform incident makes every other
@@ -281,6 +352,28 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 `hogli dev:reset` as a shortcut. Do NOT bypass hooks with `--no-verify`.
 
+### Run a Depot CI check job from your working tree
+
+Fix with the local `hogli` command first.
+Use `depot ci run` only when that command passes locally and the job still fails in CI.
+It tests your working tree on Depot without a push. The `depot-ci` skill has the flags.
+
+```bash
+depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
+```
+
+- `<job>` is `repo-checks` or `sdk-major-guard`. Always pass `--job`: the whole workflow is over Depot's inline size limit.
+- Any other job needs approval. CLI runs skip test selection, and `check-migrations` and `check-openapi-types` mishandle the patch.
+- `repo-checks` skips its pull-request-only steps on a CLI run, so a green run does not cover them.
+- At most 2 runs per task without approval.
+- Ask before every run when `HEAD` is an open PR's head: the run posts its checks to that commit.
+- Only tracked files reach the patch. `git add` new files first.
+- `--ssh-after-step` bills for the whole pause. Use it only with approval, then `depot ci cancel`.
+
+After each run, poll `depot ci status <run-id>` (`--wait` needs CLI 2.102.19+).
+On failure, read `depot ci diagnose --job <job-id> --output json`, and confirm it against `depot ci logs <attempt-id>`.
+Reproduce and fix locally before the next run. At the cap, stop and report the run ids and the remaining blocker.
+
 ## PostHog CI notes
 
 - Most PostHog jobs run on `depot-ubuntu-latest` or `depot-ubuntu-latest-16`.
@@ -292,6 +385,8 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   browser through the chrome-devtools MCP. `status.depot.dev` covers the case
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
+- A PR can route its backend tests to Depot CI.
+  Read the failure there, see "Backend tests on Depot CI" above.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
@@ -312,13 +407,12 @@ Excerpt:
   <up to 40 lines, trimmed around the failure>
 
 Classification: <class from the table>
-Shadow run:     <yes | no>
 Likely cause:   <one sentence>
 Local repro:    <exact command, or "none">
 Next action (needs your approval):
   - <push fix | rerun job | update snapshot | none>
 ```
 
-If the classification is `infra / runner` or a shadow run, say so and stop;
+If the classification is `infra / runner`, say so and stop;
 do not propose a code change. For `infra / runner`, include the base rate and
 whether a retry is warranted.

@@ -43,11 +43,15 @@ const DURATION = '7.2s'
 const STARTS = ['0s', '-1.2s', '-2.4s', '-3.6s', '-4.8s', '-6s']
 const EASE_IN_OUT = '0.42 0 0.58 1'
 
-function ChatGlobe({ className, ...props }: React.ComponentProps<'svg'>): React.ReactElement {
+const ChatGlobe = React.forwardRef<SVGSVGElement, React.ComponentProps<'svg'>>(function ChatGlobe(
+    { className, ...props },
+    ref
+) {
     const reducedMotion = useReducedMotion()
 
     return (
         <svg
+            ref={ref}
             data-quill
             data-slot="globe"
             viewBox={VIEW_BOX}
@@ -99,6 +103,6 @@ function ChatGlobe({ className, ...props }: React.ComponentProps<'svg'>): React.
             )}
         </svg>
     )
-}
+})
 
 export { ChatGlobe }

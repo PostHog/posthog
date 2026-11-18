@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "note": {
+            "description": "The person's context for why the report was or was not useful, up to 4000 characters.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "sentiment": {
+            "description": "The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).",
+            "enum": ["positive", "negative"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "sentiment", "note"],
+    "type": "object"
+}

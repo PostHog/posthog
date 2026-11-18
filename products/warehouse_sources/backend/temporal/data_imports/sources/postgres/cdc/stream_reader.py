@@ -8,8 +8,8 @@ approach — batch reads on a schedule.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -18,13 +18,16 @@ import structlog
 import psycopg.errors
 from psycopg import sql
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import PgOutputDecoder
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _is_connection_dropped_error,
     _safe_close_connection,
+    get_enforced_unique_keys,
     get_primary_key_columns,
 )
 
@@ -65,6 +68,7 @@ class PgCDCConnectionParams:
     user: str
     password: str = field(repr=False)
     require_ssl: bool = False
+    tls: TLSOptions | None = None
     slot_name: str = ""
     publication_name: str = ""
 
@@ -100,7 +104,7 @@ class PgCDCStreamReader:
             from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
             source_impl = PostgresSource()
-            config = source_impl.parse_config(self._source.job_inputs or {})
+            config = source_impl.parse_config(SourceInputsStore.load(self._source))
             tunnel_cm = source_impl.with_ssh_tunnel(config, self._source.team_id)
             self._effective_host, self._effective_port = tunnel_cm.__enter__()
             self._tunnel_cm = tunnel_cm
@@ -127,6 +131,8 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                tls=self._params.tls,
+                team_id=self._source.team_id if self._source is not None else None,
                 # statement_timeout (30m) is a server-side ceiling so a stalled WAL decode can't
                 # hang the streaming connection indefinitely; it bounds a single peek, the caller's
                 # soft deadline bounds the whole run. idle_in_transaction_session_timeout=0 stops the
@@ -155,8 +161,8 @@ class PgCDCStreamReader:
 
         ``upto_nchanges`` bounds one peek: ``pg_logical_slot_peek_binary_changes`` stops once a
         transaction's COMMIT pushes the decoded-change count past it. It never splits a
-        transaction, so a single large transaction is still returned in full (the decoder's own
-        buffer guard bounds that case). ``None`` reads the whole backlog.
+        transaction, so a single large transaction is still returned in full (the decoder spills it
+        to a temporary file rather than holding it in memory). ``None`` reads the whole backlog.
 
         ``on_row`` is invoked once per fetched WAL row so the caller can heartbeat during a long
         decode — the decoder yields nothing until a COMMIT, so a big transaction would otherwise
@@ -236,6 +242,35 @@ class PgCDCStreamReader:
                 time.sleep(0.5 * 2**attempt)
                 self._conn = conn = self._open_streaming_connection()
 
+    def current_position(self) -> str | None:
+        """Read the source's flushed end-of-WAL LSN.
+
+        The caller takes this before it peeks, so a run that decodes nothing can still release the
+        WAL it examined. It must be the flush pointer, not pg_current_wal_lsn(): logical decoding
+        reads only flushed WAL, so the write pointer can name records a later peek never examines.
+        With synchronous_commit=off a commit can sit in that gap, and advancing the slot past it
+        would drop the change. The flush pointer read here is always at or below every later peek's
+        end of WAL, which makes the caller's "everything below this was examined" claim exact.
+
+        Returns None when the position cannot be read, which includes a source in recovery, where
+        pg_current_wal_flush_lsn() is not callable. The caller then leaves the slot where it is, so
+        a failure here costs retention rather than data.
+        """
+        if self._conn is None:
+            return None
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT pg_current_wal_flush_lsn()::text")
+                row = cur.fetchone()
+            self._conn.commit()
+        except Exception:
+            # The rollback reaches the same connection that just failed, so it can fail too.
+            with suppress(Exception):
+                self._conn.rollback()
+            logger.warning("current_wal_lsn_read_failed", slot_name=self._params.slot_name, exc_info=True)
+            return None
+        return row[0] if row else None
+
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.
 
@@ -262,6 +297,8 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                tls=self._params.tls,
+                team_id=self._source.team_id if self._source is not None else None,
             ),
             logger,
         )
@@ -311,6 +348,15 @@ class PgCDCStreamReader:
             raise RuntimeError("Not connected. Call connect() first.")
         return get_primary_key_columns(self._conn, schema_name, table_names)
 
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
+        """Column sets that no two rows of a table can hold at the same time, per table."""
+        if self._conn is None:
+            raise RuntimeError("Not connected. Call connect() first.")
+        return get_enforced_unique_keys(self._conn, schema_name, table_names)
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
+        self._decoder.set_key_change_columns(columns_by_table)
+
     @property
     def truncated_tables(self) -> list[str]:
         """Tables that received a TRUNCATE during the last read_changes() call."""
@@ -324,7 +370,7 @@ class PgCDCStreamReader:
         return self._decoder.get_key_columns(table_name)
 
     @property
-    def last_commit_end_lsn(self) -> str | None:
+    def last_commit_position(self) -> str | None:
         """End LSN of the most recently committed transaction.
 
         Non-None even when only TRUNCATE messages were decoded (no ChangeEvents).
@@ -342,6 +388,7 @@ class PgCDCStreamReader:
         return self._last_rows_consumed
 
     def close(self) -> None:
+        self._decoder.close()
         if self._conn is not None:
             self._conn.close()
             self._conn = None

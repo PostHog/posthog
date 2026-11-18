@@ -1,14 +1,11 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { resolveService } from "@posthog/di/container";
 import { toast } from "@posthog/ui/primitives/toast";
-import { useReviewNavigationStore } from "../code-review/reviewNavigationStore";
-import { DEFAULT_TAB_IDS } from "../panels/panelConstants";
-import { usePanelLayoutStore } from "../panels/panelLayoutStore";
-import { findTabInTree } from "../panels/panelTree";
 import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "./agentPromptSender";
+import { showTaskChat } from "./showTaskChat";
 
 /**
  * Sends a prompt to the agent session for a task, collapses the review
@@ -32,19 +29,7 @@ export function sendPromptToAgent(
       return false;
     });
 
-  const { getReviewMode, setReviewMode } = useReviewNavigationStore.getState();
-  if (getReviewMode(taskId) === "expanded") {
-    setReviewMode(taskId, "split");
-  }
-
-  const { taskLayouts, setActiveTab } = usePanelLayoutStore.getState();
-  const layout = taskLayouts[taskId];
-  if (layout) {
-    const result = findTabInTree(layout.panelTree, DEFAULT_TAB_IDS.LOGS);
-    if (result) {
-      setActiveTab(taskId, result.panelId, DEFAULT_TAB_IDS.LOGS);
-    }
-  }
+  showTaskChat(taskId);
 
   return sendPromise;
 }

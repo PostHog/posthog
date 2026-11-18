@@ -49,22 +49,33 @@ Reference concepts:
 
 Ranked by how much it matters for the current use case (watching a live agent run).
 
-1. **Gap awareness (the real hole).** The server **detects** when a reader's resume point
-   has been trimmed out of the window (`resumePointTrimmed` / `detectResumeGap` in
-   `src/lib/redis-stream.ts`, surfaced as the `stream:resume_gap` metric) but it does
-   **not tell the reader**. It silently continues from the oldest surviving event. So a
-   client that reconnects after a long gap, or watches a long run, can silently miss a
-   span of events and never know. Durable streaming's whole point is that the reader
-   either receives every event or is explicitly told it lost some. This is already a known
-   deferral: S3 hydration on resume gap is out of scope for now (see the `ResumeGap`
-   comment in `src/lib/types.ts` and `DESIGN.md`). Closing it means either a
-   client-visible "you missed events from A to B" signal, a backfill from durable storage,
-   or both.
-2. **Bounded retention.** "Durable" here means roughly a 6h TTL plus a ~20k event
-   `MAXLEN` (`STREAM_TTL_SECONDS`, `STREAM_MAX_LENGTH` in `src/lib/constants.ts`), after
-   which data is gone. That bound is the cause of gap awareness above. It is fine for
-   watching a run live, but not for replaying a run's stream much later. If long replay
-   becomes a goal, this is the lever.
+1. **Gap awareness.** The server detects when a reader's resume point has been trimmed
+   out of the window (`resumePointTrimmed` / `detectResumeGap` in
+   `src/lib/redis-stream.ts`, surfaced as the `stream:resume_gap` metric), on attach and
+   again once a reader has waited `STREAM_CURSOR_RECHECK_STALL_MS` in total since
+   the last check, whether in one pause or in many short ones. A reader that
+   opened with `?resync=1` is told: the connection closes with an `end` frame carrying
+   `{"type":"resync","reason":"trimmed"}` (also when the stream of a finished run has
+   expired), and a failed trim check closes it with a stream error. The reader drops
+   its cursor and reopens without `Last-Event-ID`, cursorless so the surviving window
+   replays: the run log trails the live stream and holds a streaming message only once
+   the turn coalesces it into one entry, so a reader that reopens at `?start=latest`
+   can miss the message it was receiving. It buffers live frames, reads the durable run
+   log and deduplicates the replay against it by agent event id, covering both the
+   `first_event_id..event_id` range of a coalesced entry and every id in its
+   `covered_event_ids`. A reader without the
+   flag still silently continues from the oldest surviving event, so it can miss a span
+   of events and never know. Server-side backfill from durable storage (S3 hydration)
+   stays out of scope (see the `ResumeGap` comment in `src/lib/types.ts` and
+   `DESIGN.md`).
+2. **Bounded retention.** "Durable" here means a sliding 6h TTL while the run is live,
+   a 30 minute drain window after the terminal sentinel, and a 5,000 event `MAXLEN`
+   (`STREAM_TTL_SECONDS`, `STREAM_COMPLETED_TTL_SECONDS`, `STREAM_MAX_LENGTH` in
+   `src/lib/constants.ts`), after which data is gone. A reader arriving after expiry gets
+   `Stream not available`; the durable transcript lives in the run's session logs
+   (`session_logs` on the task-run API). That bound is the cause of gap awareness above.
+   It is fine for watching a run live, but not for replaying a run's stream much later.
+   If long replay becomes a goal, this is the lever.
 3. **No "caught up to the tail" signal.** A reader cannot tell when it transitions from
    replaying history to being live at the tail. This is minor for a live UI, which just
    keeps tailing, but it is a real durable-streaming concept that is not exposed.
@@ -80,23 +91,23 @@ Ranked by how much it matters for the current use case (watching a live agent ru
 
 ## Summary
 
-| Concept                                      | Status                                    |
-| -------------------------------------------- | ----------------------------------------- |
-| Resume from last position                    | Have                                      |
-| Stable ordered positions                     | Have                                      |
-| Catch-up then live tail                      | Have                                      |
-| No-skip / no-duplicate within window         | Have                                      |
-| Idempotent, ordered append (single producer) | Have                                      |
-| Completion consistency                       | Have                                      |
-| Durable, observable EOF                      | Have                                      |
-| Keepalive, reconnect robustness              | Have                                      |
-| Backpressure to slow readers                 | Have                                      |
-| Multi-reader fan-out                         | Have                                      |
-| Gap awareness on trimmed resume              | **Missing** (detected, not signalled)     |
-| Retention beyond ~6h / ~20k                  | **Partial** (bounded, then dropped)       |
-| Caught-up-to-tail signal                     | Missing                                   |
-| Producer fencing across writers              | Partial (single-producer by construction) |
-| Forking / subscriptions / consumer groups    | Missing (not needed)                      |
+| Concept                                      | Status                                         |
+| -------------------------------------------- | ---------------------------------------------- |
+| Resume from last position                    | Have                                           |
+| Stable ordered positions                     | Have                                           |
+| Catch-up then live tail                      | Have                                           |
+| No-skip / no-duplicate within window         | Have                                           |
+| Idempotent, ordered append (single producer) | Have                                           |
+| Completion consistency                       | Have                                           |
+| Durable, observable EOF                      | Have                                           |
+| Keepalive, reconnect robustness              | Have                                           |
+| Backpressure to slow readers                 | Have                                           |
+| Multi-reader fan-out                         | Have                                           |
+| Gap awareness on trimmed resume              | **Partial** (signalled to `?resync=1` readers) |
+| Retention beyond 6h live / 30m terminal      | **Partial** (bounded, then dropped)            |
+| Caught-up-to-tail signal                     | Missing                                        |
+| Producer fencing across writers              | Partial (single-producer by construction)      |
+| Forking / subscriptions / consumer groups    | Missing (not needed)                           |
 
 We have resumability, ordering, idempotent append and durable closure, which is the meat
 of durable streaming. The two gaps that actually matter are **gap awareness** (the silent

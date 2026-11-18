@@ -6,9 +6,10 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

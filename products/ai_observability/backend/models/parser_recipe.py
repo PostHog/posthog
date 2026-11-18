@@ -3,7 +3,9 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-MAX_SOURCE_LENGTH = 100_000
+from ..facade.contracts import PARSER_RECIPE_MAX_SOURCE_LENGTH
+
+MAX_SOURCE_LENGTH = PARSER_RECIPE_MAX_SOURCE_LENGTH
 
 
 class ParserRecipe(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -13,7 +15,7 @@ class ParserRecipe(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
     trace view; the frontend owns the merge against its bundled defaults.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
     source = models.TextField()
 

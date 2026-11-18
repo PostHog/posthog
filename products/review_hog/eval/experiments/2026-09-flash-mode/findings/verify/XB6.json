@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB6",
+    "cluster": null,
+    "is_real": true,
+    "severity": "consider",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 uses the product read route, which posthog/product_db_router.py:27-34 sends to the reader outside tests. Sync writes the connecting user at presentation/views.py:461-464 before returning success at 467-470. For a config already enabled on the writer, a settings request before replica replay can therefore return false despite committed readiness. review_hog/backend/api/settings.py:72-81 exposes that result; CodeReviewScene.tsx:1063-1068 actively disables opt-in, and reviewHogSettingsLogic.ts:443-452,801-811,954-956 stores it with no automatic polling after replica recovery. Reload/remount or another settings request is required to clear the false disabled state.",
+            "refutation": "I first checked whether a successful initial sync actually enables repositories, whether the flag gates backend work, and whether users can still opt out. New sync rows intentionally default disabled (views.py:312-315), actual review creation checks the writer at tasks.py:1138-1146, and an enabled inbox switch remains switchable off (CodeReviewScene.tsx:1064-1066). These refute a broad review-loss or universal setup failure. They do not prevent a stale false response from blocking opt-in after a config becomes enabled and synced on the writer. The surviving issue is a minor replica-timing UI snag with a refresh workaround, hence consider."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 leaves the readiness exists query on the normal product read route. posthog/product_db_router.py:27-40 chooses the reader for production reads and writer for updates, and products/stamphog/AGENTS.md:61 confirms replicated product storage. When the first synced repository is enabled on the writer before replication, this query can still report no ready config. ReviewHog CodeReviewScene.tsx:1063-1068 disables an off toggle on that response; reviewHogSettingsLogic.ts:446,801-807,954-955 loads settings on mount without a connection-state catchup poll, so opt-in remains blocked until another load.",
+            "refutation": "First checked the setup semantics and impact. Sync creates new rows disabled at Stamphog presentation/views.py:307-315, so a successful connection alone correctly leaves readiness false; the affected transition is completing setup by enabling the synced repo. An already-on switch remains operable at CodeReviewScene.tsx:1064-1066, and the actual review worker independently reads the writer at tasks.py:1138-1146. tests/test_settings_api.py:49-75 verifies readiness predicates, but the router uses the writer in tests and cannot expose lag. The real issue is only a transient, refresh-recoverable UI obstruction, thus consider rather than should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "stamphog/backend/facade/api.py:120-124 performs an unpinned readiness read. products/db_routing.yaml:2-3 plus posthog/product_db_router.py:27-40 route that model's production reads to stamphog_db_reader and writes to stamphog_db_writer. Rebinding an already-enabled config updates its connecting user at stamphog/backend/presentation/views.py:461-464; before replication, the reader can still lack the qualifying binding. A similarly immediate read after enabling a new config can also return false. review_hog/frontend/CodeReviewScene.tsx:1063-1068 disables the currently-off opt-in on that result, and reviewHogSettingsLogic.ts:443-451,801-811 retains it until another settings load/update.",
+            "refutation": "I checked the premise that a fresh sync necessarily makes a repository ready. New sync rows are deliberately enabled=False (presentation/views.py:312-315), so a false result in that common case is correct. The remaining supported case is an already-enabled config being bound or a newly synced config subsequently enabled, followed by a read before replica catch-up. The frontend keeps an already-on toggle interactive, and the actual worker pins its eligibility query to the writer (tasks/tasks.py:1136-1146). The proven impact is a transient opt-in obstruction recoverable by reloading, not failed approvals; severity is consider."
+        }
+    ]
+}

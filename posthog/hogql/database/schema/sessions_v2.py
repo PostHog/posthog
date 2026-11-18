@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.hogql import ast
@@ -18,19 +19,25 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import (
+    DEFAULT_BOUNCE_RATE_DURATION_SECONDS,
+    finalize_aggregation,
+    null_if_empty,
+    select_session_property_values,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV2,
     build_session_id_literal_pushdown_predicate,
     build_session_id_v7_pushdown_predicate,
     build_session_property_pre_aggregation_predicate,
+    top_level_conjuncts,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import clone_expr
 
-from posthog.queries.insight import insight_sync_execute
-from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode
+from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode, SessionTableVersion
 
 if TYPE_CHECKING:
     from posthog.schema import CustomChannelRule
@@ -197,6 +204,7 @@ def select_from_sessions_table_v2(
     node: ast.SelectQuery,
     context: HogQLContext,
     extra_where: Optional[ast.Expr] = None,
+    channel_type_per_row: bool = False,
 ):
     from posthog.hogql import ast
 
@@ -211,6 +219,15 @@ def select_from_sessions_table_v2(
             name="nullIf",
             args=[
                 ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])]),
+                ast.Constant(value="null"),
+            ],
+        )
+
+    def arg_min_row_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(name="_finalizeAggregation", args=[ast.Field(chain=[table_name, field_name])]),
                 ast.Constant(value="null"),
             ],
         )
@@ -399,28 +416,37 @@ def select_from_sessions_table_v2(
                 ),
             ],
         )
-    aggregate_fields["$channel_type"] = create_channel_type_expr(
-        context.modifiers.customChannelTypeRules,
-        ChannelTypeExprs(
-            campaign=aggregate_fields["$entry_utm_campaign"],
-            medium=aggregate_fields["$entry_utm_medium"],
-            source=aggregate_fields["$entry_utm_source"],
-            url=aggregate_fields["$entry_current_url"],
-            hostname=aggregate_fields["$entry_hostname"],
-            pathname=aggregate_fields["$entry_pathname"],
-            referring_domain=aggregate_fields["$entry_referring_domain"],
-            has_gclid=ast.Call(
-                name="isNotNull",
-                args=[aggregate_fields["$entry_gclid"]],
+
+    def channel_type_from(entry_field: Callable[[str], ast.Expr]) -> ast.Expr:
+        entry_url = null_if_empty(entry_field("entry_url"))
+        return create_channel_type_expr(
+            context.modifiers.customChannelTypeRules,
+            ChannelTypeExprs(
+                campaign=null_if_empty(entry_field("initial_utm_campaign")),
+                medium=null_if_empty(entry_field("initial_utm_medium")),
+                source=null_if_empty(entry_field("initial_utm_source")),
+                url=entry_url,
+                hostname=ast.Call(name="domain", args=[entry_url]),
+                pathname=ast.Call(name="path", args=[entry_url]),
+                referring_domain=null_if_empty(entry_field("initial_referring_domain")),
+                has_gclid=ast.Call(name="isNotNull", args=[null_if_empty(entry_field("initial_gclid"))]),
+                has_fbclid=ast.Call(name="isNotNull", args=[null_if_empty(entry_field("initial_fbclid"))]),
+                gad_source=null_if_empty(entry_field("initial_gad_source")),
             ),
-            has_fbclid=ast.Call(
-                name="isNotNull",
-                args=[aggregate_fields["$entry_fbclid"]],
-            ),
-            gad_source=aggregate_fields["$entry_gad_source"],
-        ),
-        timings=context.timings,
-    )
+            timings=context.timings,
+        )
+
+    if channel_type_per_row:
+        # Every argMin state in a stored row holds the values of that row's earliest event, so the
+        # channel type of the row with the lowest min_timestamp is the channel type of the session.
+        # This keeps one aggregate state per session instead of one per channel type input.
+        # argMin skips NULL values, which is safe because a channel type always has a value.
+        aggregate_fields["$channel_type"] = ast.Call(
+            name="argMin",
+            args=[channel_type_from(arg_min_row_field), ast.Field(chain=[table_name, "min_timestamp"])],
+        )
+    else:
+        aggregate_fields["$channel_type"] = channel_type_from(arg_min_merge_field)
     # some aliases for people upgrading from v1 to v2
     aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]
     aggregate_fields["$exit_pathname"] = aggregate_fields["$end_pathname"]
@@ -511,14 +537,7 @@ def build_direct_session_id_in_pushdown(
     if occurrence_type is None:
         return None
 
-    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
-        if isinstance(expr, ast.And):
-            return [t for sub in expr.exprs for t in flatten_and(sub)]
-        if isinstance(expr, ast.Call) and expr.name == "and":
-            return [t for sub in expr.args for t in flatten_and(sub)]
-        return [expr]
-
-    for term in flatten_and(node.where):
+    for term in top_level_conjuncts(node.where):
         if not isinstance(term, ast.CompareOperation) or term.op not in (
             ast.CompareOperationOp.In,
             ast.CompareOperationOp.GlobalIn,
@@ -685,10 +704,21 @@ def join_events_table_to_sessions_table_v2(
         if pre_agg_where is not None:
             extra_where = ast.And(exprs=[extra_where, pre_agg_where]) if extra_where is not None else pre_agg_where
 
+    channel_type_only = set(join_to_add.fields_accessed) - {"session_id_v7"} == {"$channel_type"}
     join_expr = ast.JoinExpr(
-        table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context, extra_where=extra_where)
+        table=select_from_sessions_table_v2(
+            join_to_add.fields_accessed,
+            node,
+            context,
+            extra_where=extra_where,
+            channel_type_per_row=channel_type_only,
+        )
     )
-    join_expr.join_type = "LEFT JOIN"
+    # Without GLOBAL, every events shard runs its own copy of the sessions subquery at the same
+    # time. A channel type lookup covers every session in the date range, so the copies can
+    # exhaust the memory of the sessions nodes. GLOBAL runs the subquery once and sends the
+    # result to the shards.
+    join_expr.join_type = "GLOBAL LEFT JOIN" if channel_type_only else "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     if context.modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
         join_expr.constraint = ast.JoinConstraint(
@@ -777,44 +807,38 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
 
 
 # NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
-SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
-    "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
-    "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
-    "$entry_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
-    "$entry_utm_medium": "finalizeAggregation(initial_utm_medium)",
-    "$entry_utm_term": "finalizeAggregation(initial_utm_term)",
-    "$entry_utm_content": "finalizeAggregation(initial_utm_content)",
-    "$entry_gclid": "finalizeAggregation(initial_gclid)",
-    "$entry_gad_source": "finalizeAggregation(initial_gad_source)",
-    "$entry_gclsrc": "finalizeAggregation(initial_gclsrc)",
-    "$entry_dclid": "finalizeAggregation(initial_dclid)",
-    "$entry_gbraid": "finalizeAggregation(initial_gbraid)",
-    "$entry_wbraid": "finalizeAggregation(initial_wbraid)",
-    "$entry_fbclid": "finalizeAggregation(initial_fbclid)",
-    "$entry_msclkid": "finalizeAggregation(initial_msclkid)",
-    "$entry_twclid": "finalizeAggregation(initial_twclid)",
-    "$entry_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
-    "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
-    "$entry_igshid": "finalizeAggregation(initial_igshid)",
-    "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
-    "$entry__kx": "finalizeAggregation(initial__kx)",
-    "$entry_irclid": "finalizeAggregation(initial_irclid)",
-    "$entry_pathname": "path(finalizeAggregation(entry_url))",
-    "$entry_current_url": "finalizeAggregation(entry_url)",
-    "$end_current_url": "finalizeAggregation(end_url)",
-    "$end_pathname": "path(finalizeAggregation(end_url))",
-    "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
-    "$vitals_lcp": "finalizeAggregation(vitals_lcp)",
+SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {
+    "$entry_referring_domain": finalize_aggregation("initial_referring_domain"),
+    "$entry_utm_source": finalize_aggregation("initial_utm_source"),
+    "$entry_utm_campaign": finalize_aggregation("initial_utm_campaign"),
+    "$entry_utm_medium": finalize_aggregation("initial_utm_medium"),
+    "$entry_utm_term": finalize_aggregation("initial_utm_term"),
+    "$entry_utm_content": finalize_aggregation("initial_utm_content"),
+    "$entry_gclid": finalize_aggregation("initial_gclid"),
+    "$entry_gad_source": finalize_aggregation("initial_gad_source"),
+    "$entry_gclsrc": finalize_aggregation("initial_gclsrc"),
+    "$entry_dclid": finalize_aggregation("initial_dclid"),
+    "$entry_gbraid": finalize_aggregation("initial_gbraid"),
+    "$entry_wbraid": finalize_aggregation("initial_wbraid"),
+    "$entry_fbclid": finalize_aggregation("initial_fbclid"),
+    "$entry_msclkid": finalize_aggregation("initial_msclkid"),
+    "$entry_twclid": finalize_aggregation("initial_twclid"),
+    "$entry_li_fat_id": finalize_aggregation("initial_li_fat_id"),
+    "$entry_mc_cid": finalize_aggregation("initial_mc_cid"),
+    "$entry_igshid": finalize_aggregation("initial_igshid"),
+    "$entry_ttclid": finalize_aggregation("initial_ttclid"),
+    "$entry__kx": finalize_aggregation("initial__kx"),
+    "$entry_irclid": finalize_aggregation("initial_irclid"),
+    "$entry_pathname": ast.Call(name="path", args=[finalize_aggregation("entry_url")]),
+    "$entry_current_url": finalize_aggregation("entry_url"),
+    "$end_current_url": finalize_aggregation("end_url"),
+    "$end_pathname": ast.Call(name="path", args=[finalize_aggregation("end_url")]),
+    "$last_external_click_url": finalize_aggregation("last_external_click_url"),
+    "$vitals_lcp": finalize_aggregation("vitals_lcp"),
 }
 
 
 def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team: "Team"):
-    # lazy import keeps the raw-sessions SQL module (Django ORM) off this module's import path
-    from posthog.models.raw_sessions.sessions_v2 import (  # noqa: PLC0415
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
-    )
-
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
@@ -835,23 +859,21 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
-        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+        value_expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR.get(key)
 
-        if not expr:
+        if value_expr is None:
             return []
 
-        if search_term:
-            return insight_sync_execute(
-                RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
-                {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
-                query_type="get_session_property_values_with_value",
-                team_id=team.pk,
-            )
-        return insight_sync_execute(
-            RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL.format(property_expr=expr),
-            {"team_id": team.pk, "key": key},
-            query_type="get_session_property_values",
-            team_id=team.pk,
+        return select_session_property_values(
+            team,
+            session_table_version=SessionTableVersion.V2,
+            table="raw_sessions",
+            value_expr=value_expr,
+            order_by="session_id_v7",
+            search_term=search_term,
+            recent_sessions_only=parse_expr(
+                "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) >= now() - INTERVAL 30 DAY"
+            ),
         )
     if isinstance(field_definition, BooleanDatabaseField):
         # ideally we'd be able to just send [[True], [False]]

@@ -2,10 +2,10 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-/** Sidebar + deep-link id for the Logs → Configuration → Retention rules setting. */
-export const LOGS_RETENTION_RULES_SETTING_ID = 'logs-retention-rules' as const
+/** Sidebar + deep-link id for the Logs → Configuration → Retention setting, which holds the rules table. */
+export const LOGS_RETENTION_RULES_SETTING_ID = 'logs-retention' as const
 
-/** Logs scene, Configuration tab, environment logs section, Retention rules item (query + hash for deep links). */
+/** Logs scene, Configuration tab, environment logs section, Retention item (query + hash for deep links). */
 export function logsRetentionRulesSettingsUrl(): string {
     return combineUrl(
         urls.logs(),

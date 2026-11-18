@@ -2,12 +2,14 @@ import { z } from 'zod'
 
 import { buildForwardedContext, resolveConnectionTarget, seedForwardedContext } from '@/lib/connection-forwarding'
 import { ExecCommandError } from '@/lib/errors'
+import { formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const schema = z.object({
+    // `integrations-list` returns the id as a number, so accept the value as it comes from there.
     connection_id: z
-        .string()
+        .union([z.string(), z.number().int()])
         .describe(
             'Id of the PostHog connection to run through. List them with `integrations-list` filtered by `kind=posthog`.'
         ),
@@ -96,20 +98,24 @@ export function createConnectionCallTool(
 
             // Check the arguments before touching the connection, so a malformed call fails here
             // rather than after a cross-region round trip, as an opaque 400 from the other project.
-            const parsedArguments = target.schema.safeParse(params.arguments ?? {})
+            const rawArguments = params.arguments ?? {}
+            const firstPass = target.schema.safeParse(rawArguments, { reportInput: true })
+            const rewrapped = firstPass.success
+                ? undefined
+                : repairArgumentNesting(firstPass.error, rawArguments, target.schema)
+            const parsedArguments = rewrapped ? target.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
             if (!parsedArguments.success) {
                 throw new ExecCommandError(
-                    `Arguments for \`${params.tool}\` are invalid: ${parsedArguments.error.issues
-                        .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-                        .join('; ')}`,
+                    formatInputValidationError(target.name, parsedArguments.error, rawArguments, target.schema),
                     'usage'
                 )
             }
 
+            const connectionId = String(params.connection_id)
             const localProjectId = await context.stateManager.getProjectId()
-            const connectionTarget = await resolveConnectionTarget(context, localProjectId, params.connection_id)
+            const connectionTarget = await resolveConnectionTarget(context, localProjectId, connectionId)
             const forwarded = buildForwardedContext(context, {
-                connectionId: params.connection_id,
+                connectionId,
                 localProjectId,
                 target: connectionTarget,
             })

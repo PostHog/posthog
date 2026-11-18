@@ -36,6 +36,7 @@ export const cohortsCreateBodyNameMax = 400
 export const cohortsCreateBodyDescriptionMax = 1000
 
 export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
+export const cohortsCreateBodyCreateStaticPersonIdsMax = 1000
 
 export const CohortsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(cohortsCreateBodyNameMax).nullish(),
@@ -69,8 +70,18 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
+    realtime_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+        ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .max(cohortsCreateBodyCreateStaticPersonIdsMax)
+        .default(cohortsCreateBodyCreateStaticPersonIdsDefault)
+        .describe('Person UUIDs to add to a new static cohort.'),
 })
 
 export const cohortsUpdateBodyNameMax = 400
@@ -78,6 +89,7 @@ export const cohortsUpdateBodyNameMax = 400
 export const cohortsUpdateBodyDescriptionMax = 1000
 
 export const cohortsUpdateBodyCreateStaticPersonIdsDefault = []
+export const cohortsUpdateBodyCreateStaticPersonIdsMax = 1000
 
 export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(cohortsUpdateBodyNameMax).nullish(),
@@ -111,8 +123,18 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
+    realtime_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+        ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .max(cohortsUpdateBodyCreateStaticPersonIdsMax)
+        .default(cohortsUpdateBodyCreateStaticPersonIdsDefault)
+        .describe('Person UUIDs to add to a new static cohort.'),
 })
 
 export const cohortsPartialUpdateBodyNameMax = 400
@@ -120,6 +142,7 @@ export const cohortsPartialUpdateBodyNameMax = 400
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
 
 export const cohortsPartialUpdateBodyCreateStaticPersonIdsDefault = []
+export const cohortsPartialUpdateBodyCreateStaticPersonIdsMax = 1000
 
 export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
@@ -153,12 +176,41 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
+    realtime_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+        ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .max(cohortsPartialUpdateBodyCreateStaticPersonIdsMax)
+        .default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault)
+        .describe('Person UUIDs to add to a new static cohort.'),
 })
 
+export const cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax = 1000
+
 export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
-    person_ids: zod.array(zod.uuid()).optional().describe('List of person UUIDs to add to the cohort'),
+    person_ids: zod
+        .array(zod.uuid())
+        .max(cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax)
+        .optional()
+        .describe(
+            'Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.'
+        ),
+})
+
+/**
+ * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them.
+ */
+export const CohortsRealtimeCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .describe(
+            "True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort."
+        ),
 })
 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({

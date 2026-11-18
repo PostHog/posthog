@@ -8,16 +8,16 @@ import { Spinner } from '@posthog/lemon-ui'
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { getExportsContentRetrieveUrl } from '~/generated/core/api'
+// Long enough for a thumbnail render to land, short enough that a reader still sees the frame appear.
+const THUMBNAIL_RETRY_MS = 45_000
 
 interface RecordingPreviewProps {
     sessionId: string
     /** Instant the player seeks to when the frame is clicked. */
     seekTime?: Dayjs
-    /** Exported screenshot of that moment, shown as the frame's background while it can be fetched. */
-    exportedAssetId?: number | null
+    /** Image of that moment, shown as the frame's background while it can be fetched. */
+    thumbnailSrc?: string
     alt: string
 }
 
@@ -26,14 +26,33 @@ interface RecordingPreviewProps {
  * it opens the recording in the player modal at `seekTime`. Disables itself, instead of opening an
  * empty player, when the recording wasn't captured or has expired.
  */
-export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: RecordingPreviewProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const [thumbnailFailed, setThumbnailFailed] = useState(false)
+export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: RecordingPreviewProps): JSX.Element {
+    // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch usually 404s.
+    // One delayed retry covers that; between the two the frame is unmounted, so nothing waits on a dead image.
+    const [attempt, setAttempt] = useState(0)
+    const [waiting, setWaiting] = useState(false)
+    const [gaveUp, setGaveUp] = useState(false)
 
-    const thumbnailSrc =
-        currentTeamId !== null && exportedAssetId != null && !thumbnailFailed
-            ? getExportsContentRetrieveUrl(String(currentTeamId), exportedAssetId)
-            : undefined
+    useEffect(() => {
+        setAttempt(0)
+        setWaiting(false)
+        setGaveUp(false)
+    }, [thumbnailSrc])
+
+    useEffect(() => {
+        if (!waiting) {
+            return
+        }
+        const timer = setTimeout(() => {
+            setAttempt(1)
+            setWaiting(false)
+        }, THUMBNAIL_RETRY_MS)
+        return () => clearTimeout(timer)
+    }, [waiting])
+
+    const onError = (): void => (attempt === 0 ? setWaiting(true) : setGaveUp(true))
+
+    const src = thumbnailSrc && !waiting && !gaveUp ? `${thumbnailSrc}?attempt=${attempt}` : undefined
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
     const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
@@ -61,29 +80,29 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
                 data-attr="inbox-signal-recording-preview"
                 className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
             >
-                {thumbnailSrc && (
+                {src && (
                     // Defer this full-frame screenshot: the evidence rail opens expanded and can hold
                     // one preview per replay signal, so eager loading fetches frames never scrolled to.
                     <img
-                        src={thumbnailSrc}
+                        src={src}
                         alt={alt}
                         className="absolute inset-0 size-full object-cover"
                         loading="lazy"
                         decoding="async"
-                        onError={() => setThumbnailFailed(true)}
+                        onError={onError}
                     />
                 )}
                 <div
                     className={clsx(
                         'absolute inset-0 flex items-center justify-center transition-colors motion-reduce:transition-none',
-                        thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
+                        src ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
                     )}
                 >
                     {recordingCheckLoading ? (
-                        <Spinner className={clsx('text-2xl', thumbnailSrc ? 'text-white' : 'text-tertiary')} />
+                        <Spinner className={clsx('text-2xl', src ? 'text-white' : 'text-tertiary')} />
                     ) : (
                         <IconPlay
-                            className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
+                            className={clsx('size-10 drop-shadow', src ? 'text-white' : 'text-tertiary')}
                             aria-hidden
                         />
                     )}

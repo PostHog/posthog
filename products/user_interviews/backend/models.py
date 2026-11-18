@@ -29,7 +29,10 @@ class UserInterviewClassification(models.TextChoices):
 
 
 class UserInterview(UUIDTModel, CreatedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    """The user interviews product is retired. The model stays so that Django keeps cascading
+    team and user deletes into its table. A later migration removes the model and drops the table."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     interviewee_emails = ArrayField(
         models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]), default=list
     )
@@ -75,7 +78,10 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
 
 
 class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    """The user interviews product is retired. The model stays so that Django keeps cascading
+    team and user deletes into its table. A later migration removes the model and drops the table."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     interviewee_emails = ArrayField(
         models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
         default=list,
@@ -101,7 +107,10 @@ class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
 
 
 class IntervieweeContext(UUIDTModel, CreatedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    """The user interviews product is retired. The model stays so that Django keeps cascading
+    team and user deletes into its table. A later migration removes the model and drops the table."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     topic = models.ForeignKey(
         UserInterviewTopic,
         on_delete=models.CASCADE,

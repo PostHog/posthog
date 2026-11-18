@@ -6,7 +6,7 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
+import { InsightQueryNode, WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     EXPERIENCE_PER_BAND,
@@ -25,15 +25,20 @@ import {
 
 type WebVitalsContentProps = {
     webVitalsQueryResponse?: WebVitalsQueryResponse
+    querySource: InsightQueryNode
     isLoading: boolean
 }
 
-export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVitalsContentProps): JSX.Element => {
+export const WebVitalsContent = ({
+    webVitalsQueryResponse,
+    querySource,
+    isLoading,
+}: WebVitalsContentProps): JSX.Element => {
     const { webVitalsTab, webVitalsPercentile } = useValues(webAnalyticsLogic)
 
     const value = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, webVitalsTab, webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile, webVitalsTab]
+        () => getMetric(webVitalsQueryResponse?.results, querySource, webVitalsTab, webVitalsPercentile),
+        [webVitalsQueryResponse, querySource, webVitalsPercentile, webVitalsTab]
     )
 
     const withMilliseconds = (values: number[]): string =>

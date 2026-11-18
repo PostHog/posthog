@@ -255,3 +255,89 @@ test('Event satisfies no filter groups and is dropped', () => {
     const processedEvent = processEvent(event, meta_or)
     expect(processedEvent).toBeUndefined()
 })
+
+test('a regex filter with a pathological pattern stays linear', () => {
+    // The built-in engine backtracks exponentially on this nested-quantifier pattern.
+    // RE2 evaluates it in linear time, so the bound stays small.
+    const regexFilters: Filter[] = [{ property: '$pathname', type: 'string', operator: 'regex', value: '(x+x+)+y' }]
+    const regexMeta = {
+        global: { filters: regexFilters, eventsToDrop: [] },
+    } as unknown as LegacyTransformationPluginMeta
+    const event = createEvent({ properties: { $pathname: 'x'.repeat(40) } }) as unknown as PluginEvent
+
+    const start = performance.now()
+    processEvent(event, regexMeta)
+    const elapsedMs = performance.now() - start
+
+    expect(elapsedMs).toBeLessThan(1000)
+})
+
+test('a regex pattern RE2 cannot compile does not throw and is treated as no match', () => {
+    // Lookahead is valid JavaScript regex but RE2 rejects it. The keep-if-match filter should
+    // process the event without throwing, treating the incompatible pattern as no match.
+    const regexFilters: Filter[] = [{ property: '$pathname', type: 'string', operator: 'regex', value: '(?=/admin)' }]
+    const regexMeta = {
+        global: { filters: regexFilters, eventsToDrop: [] },
+    } as unknown as LegacyTransformationPluginMeta
+    const event = createEvent({ properties: { $pathname: '/admin' } }) as unknown as PluginEvent
+
+    expect(() => processEvent(event, regexMeta)).not.toThrow()
+    // No match, so the keep-if-match filter is not satisfied and the event is dropped.
+    expect(processEvent(event, regexMeta)).toBeUndefined()
+})
+
+// Patterns cover the feature families real filter-out configs use in production: alternation,
+// escaped separators (\. \/), anchors, wildcard tails, and shorthand classes (\d). RE2 must
+// match these identically to the old RegExp engine, otherwise events are wrongly kept or dropped.
+test.each([
+    [
+        'alternation and escaped dot matches',
+        '$current_url',
+        'regex',
+        '(google|bing|duckduckgo)\\.com',
+        'https://google.com/search',
+        true,
+    ],
+    [
+        'alternation and escaped dot does not match',
+        '$current_url',
+        'regex',
+        '(google|bing|duckduckgo)\\.com',
+        'https://example.org/',
+        false,
+    ],
+    ['escaped path segment matches', '$pathname', 'regex', '\\/(admin|internal)\\/', '/app/admin/users', true],
+    ['anchored full string matches', 'page', 'regex', '^(home|quests)$', 'home', true],
+    ['anchored full string rejects a superstring', 'page', 'regex', '^(home|quests)$', 'homepage', false],
+    ['wildcard tail matches', 'quickActionId', 'regex', 'app\\/.*', 'app/anything/here', true],
+    ['shorthand digit class matches', 'userId', 'regex', 'user_\\d+', 'user_1234', true],
+    [
+        'not_regex keeps a non-match',
+        '$current_url',
+        'not_regex',
+        '(facebook|twitter)\\.com',
+        'https://example.org/',
+        true,
+    ],
+    [
+        'not_regex drops a match',
+        '$current_url',
+        'not_regex',
+        '(facebook|twitter)\\.com',
+        'https://facebook.com/me',
+        false,
+    ],
+])('regex operator via RE2: %s', (_label, property, operator, value, propValue, shouldKeep) => {
+    const regexMeta = {
+        global: { filters: [{ property, type: 'string', operator, value }], eventsToDrop: [] },
+    } as unknown as LegacyTransformationPluginMeta
+    const event = createEvent({ properties: { [property]: propValue } }) as unknown as PluginEvent
+
+    const processed = processEvent(event, regexMeta)
+
+    if (shouldKeep) {
+        expect(processed).toEqual(event)
+    } else {
+        expect(processed).toBeUndefined()
+    }
+})

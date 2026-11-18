@@ -33,7 +33,7 @@ export function InvestigationAgentSettings({
                         <span className="flex items-center gap-1">
                             Run investigation agent when this alert fires
                             <Tooltip
-                                title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                title="On each check where this alert fires, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. It runs up to 3 times per firing episode, then stops until the alert stops firing."
                                 placement="right"
                                 delayMs={0}
                             >
@@ -53,7 +53,7 @@ export function InvestigationAgentSettings({
                         <span className="flex items-center gap-1">
                             Wait for the verdict before notifying
                             <Tooltip
-                                title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                title="Only the first fire of an episode waits, by about 30 to 90 seconds, while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed. Later fires notify right away, and a changed verdict arrives as a follow-up."
                                 placement="right"
                                 delayMs={0}
                             >

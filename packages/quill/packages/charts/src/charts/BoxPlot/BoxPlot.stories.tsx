@@ -103,6 +103,47 @@ export const MultiSeriesGrouped: Story = {
     },
 }
 
+const WAIT_HOURS: BoxPlotSeries[] = [
+    {
+        key: 'wait',
+        label: 'Wait (hours)',
+        color: '',
+        data: [d(0.2, 1.5, 4, 9, 12, 60), d(0.1, 0.8, 2.5, 6, 8, 96)],
+    },
+]
+
+export const Horizontal: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <BoxPlot
+                    series={WAIT_HOURS}
+                    labels={['This author', 'Repo']}
+                    theme={theme}
+                    config={{ showGrid: true, axisOrientation: 'horizontal' }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const HorizontalLogScale: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <BoxPlot
+                    series={WAIT_HOURS}
+                    labels={['This author', 'Repo']}
+                    theme={theme}
+                    config={{ showGrid: true, axisOrientation: 'horizontal', yScaleType: 'log' }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const NoGrid: Story = {
     render: () => {
         const theme = useReactiveTheme()

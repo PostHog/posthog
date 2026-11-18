@@ -40,7 +40,7 @@ export interface InputWithSuggestionsDropdownProps {
     /** Notified as the popover search term changes, for sources that load suggestions server-side
      *  (e.g. a large repository list). Client-side filtering of the current suggestions still applies. */
     onSearchChange?: (term: string) => void
-    /** Text shown when `suggestions` is empty after loading. */
+    /** Text shown when `suggestions` is empty after loading and no search term is filtering them. */
     emptyMessage?: string
     /** Text shown when the search term filters out every suggestion. Receives the current term. */
     noMatchMessage?: (term: string) => string
@@ -117,7 +117,7 @@ export function InputWithSuggestionsDropdown({
                         <p className="m-0 px-2 py-1 text-xs text-secondary flex items-center gap-1">
                             <Spinner /> {loadingMessage}
                         </p>
-                    ) : suggestions.length === 0 ? (
+                    ) : suggestions.length === 0 && !searchTerm.trim() ? (
                         <p className="m-0 px-2 py-1 text-xs text-secondary">{emptyMessage}</p>
                     ) : filtered.length === 0 ? (
                         <p className="m-0 px-2 py-1 text-xs text-secondary">{noMatchMessage(searchTerm)}</p>

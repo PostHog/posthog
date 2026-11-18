@@ -7,11 +7,11 @@ import { fetchStreamed } from '~/common/utils/request'
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
+import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
+import { BOT_NAME, REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
-const BOT_NAME = 'PostHogImageFetcherBot'
-const USER_AGENT = `${BOT_NAME}/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
 const CONFIG_BODY_LIMIT = 500 * 1024
 const CONFIG_REDIRECT_LIMIT = 5
 const CONFIG_FRESH_MS = 24 * 60 * 60 * 1000
@@ -19,10 +19,14 @@ const CONFIG_REFRESH_MS = 23 * 60 * 60 * 1000
 const CONFIG_RETRY_MS = 60 * 60 * 1000
 const CONFIG_STORAGE_MS = 30 * 24 * 60 * 60 * 1000
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const UTF8_BYTE_ORDER_MARK = [0xef, 0xbb, 0xbf]
+const JSON_WHITESPACE_BYTES = new Set([' ', '\t', '\n', '\r'].map((character) => character.charCodeAt(0)))
+const JSON_ARRAY_START_BYTE = '['.charCodeAt(0)
 
 export type ConfigurationFetchResult =
     | { outcome: 'available'; body: string; cache: HttpCacheMetadata }
-    | { outcome: 'absent' | 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
+    | { outcome: 'absent'; cache?: HttpCacheMetadata; nonArrayBody?: boolean }
+    | { outcome: 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
     | { outcome: 'deferred'; reason: ConfigurationRequestBlockReason }
 
 export type ConfigurationRequestBlockReason =
@@ -54,7 +58,7 @@ export interface ConfigurationRequestScheduler {
 
 type ConfigurationHop =
     | { kind: 'redirect'; location: string; cache: HttpCacheMetadata }
-    | { kind: 'done'; result: ConfigurationFetchResult }
+    | { kind: 'done'; result: ConfigurationFetchResult; reason?: ConfigurationFetchReason }
 
 export class HttpConfigurationFetcher {
     constructor(
@@ -64,13 +68,23 @@ export class HttpConfigurationFetcher {
     ) {}
 
     public async fetch(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        return await ImageFetchProcessingMetrics.measure('configuration_fetch', () =>
+            this.fetchConfiguration(origin, file)
+        )
+    }
+
+    private async fetchConfiguration(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        const complete = (
+            result: ConfigurationFetchResult,
+            reason: ConfigurationFetchReason = result.outcome
+        ): ConfigurationFetchResult => ImageFetchProcessingMetrics.observeConfigurationFetch(file, result, reason)
         const deadlineMs = Date.now() + this.timeoutMs
         let target = new URL(file === 'robots' ? '/robots.txt' : '/.well-known/tdmrep.json', origin)
         const registrableDomain = politenessKey(target.hostname)
         for (let redirects = 0; ; redirects++) {
             const canonical = canonicalizeUrl(target.toString())
             if (!canonical) {
-                return { outcome: 'refused' }
+                return complete({ outcome: 'refused' }, 'invalid_url')
             }
             target = new URL(canonical.fetch)
             let scheduled:
@@ -79,26 +93,26 @@ export class HttpConfigurationFetcher {
             try {
                 scheduled = await this.scheduler.run(target, deadlineMs, () => this.hop(target, file, deadlineMs))
             } catch {
-                return { outcome: 'unreachable' }
+                return complete({ outcome: 'unreachable' }, Date.now() >= deadlineMs ? 'timeout' : 'request_error')
             }
             if (!scheduled.ran) {
-                return { outcome: 'deferred', reason: scheduled.reason }
+                return complete({ outcome: 'deferred', reason: scheduled.reason })
             }
             const hop = scheduled.value
             if (hop.kind === 'done') {
-                return hop.result
+                return complete(hop.result, hop.reason)
             }
             if (redirects >= CONFIG_REDIRECT_LIMIT) {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'redirect_limit')
             }
             try {
                 const redirectTarget = new URL(hop.location, target)
                 if (politenessKey(redirectTarget.hostname) !== registrableDomain) {
-                    return { outcome: 'unreachable', cache: hop.cache }
+                    return complete({ outcome: 'unreachable', cache: hop.cache }, 'cross_domain_redirect')
                 }
                 target = redirectTarget
             } catch {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'invalid_redirect')
             }
         }
     }
@@ -110,8 +124,9 @@ export class HttpConfigurationFetcher {
         try {
             response = await fetchStreamed(target.toString(), {
                 timeoutMs: Math.max(1, deadlineMs - Date.now()),
+                allowH2: true,
                 headers: {
-                    'user-agent': USER_AGENT,
+                    ...REQUEST_IDENTITY_HEADERS,
                     accept: file === 'robots' ? 'text/plain,*/*;q=0.1' : 'application/json,*/*;q=0.1',
                     'accept-encoding': 'identity',
                     ...this.signer.headersForGet(target.toString()),
@@ -140,7 +155,7 @@ export class HttpConfigurationFetcher {
             return complete(
                 location
                     ? { kind: 'redirect', location, cache }
-                    : { kind: 'done', result: { outcome: 'unreachable', cache } }
+                    : { kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'missing_location' }
             )
         }
         if (response.status === 404 || response.status === 410) {
@@ -149,28 +164,40 @@ export class HttpConfigurationFetcher {
         }
         if (response.status === 429 || response.status >= 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({
+                kind: 'done',
+                result: { outcome: 'unreachable', cache },
+                reason: response.status === 429 ? 'http_429' : 'http_5xx',
+            })
         }
         if (response.status >= 400 && response.status < 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'refused', cache } })
+            return complete({ kind: 'done', result: { outcome: 'refused', cache }, reason: `http_${response.status}` })
         }
         if (response.status !== 200) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'unexpected_status' })
         }
         const body = await response.read(CONFIG_BODY_LIMIT)
+        // This check comes before the size and UTF-8 checks, so that an oversized or non-UTF-8 HTML page also means that the origin has no tdmrep.json (README 3.14).
+        if (file === 'tdmrep' && cannotBeJsonArray(body)) {
+            return complete({
+                kind: 'done',
+                result: { outcome: 'absent', cache, nonArrayBody: true },
+                reason: 'not_json_array',
+            })
+        }
         if (body.overLimit && file === 'tdmrep') {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'body_limit' })
         }
         let text: string
         try {
             text = new TextDecoder('utf-8', { fatal: true }).decode(body.bytes, { stream: body.overLimit })
         } catch {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_utf8' })
         }
-        if (file === 'tdmrep' && !isValidTdmrepDocument(text)) {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+        if (file === 'tdmrep' && !Array.isArray(parseTdmrepDocument(text))) {
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_document' })
         }
         return complete({ kind: 'done', result: { outcome: 'available', body: text, cache } })
     }
@@ -315,18 +342,25 @@ export class ConfigurationPolicyService {
             previous = undefined
         }
         if (previous && previous.refreshAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         if (previous?.status === 'unreachable' && previous.retryAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         const key = configurationCacheKey(origin, file)
         let request = this.inFlight.get(key)
+        const source = request ? 'shared' : 'network'
         if (!request) {
             request = this.fetcher.fetch(origin, file).finally(() => this.inFlight.delete(key))
             this.inFlight.set(key, request)
         }
-        const fetched = await request
+        const fetched = await request.catch((error) => {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, 'error')
+            throw error
+        })
+        ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, fetched.outcome)
         if (fetched.outcome === 'deferred') {
             return {
                 item: previous ?? unreachableItem(origin, file, nowMs),
@@ -334,7 +368,13 @@ export class ConfigurationPolicyService {
                 deferredReason: fetched.reason,
             }
         }
-        if (fetched.outcome === 'unreachable' && previous && previous.status !== 'unreachable') {
+        const nonArrayBodyReplacesFile =
+            fetched.outcome === 'absent' && fetched.nonArrayBody === true && previous?.status === 'available'
+        if (
+            (fetched.outcome === 'unreachable' || nonArrayBodyReplacesFile) &&
+            previous &&
+            previous.status !== 'unreachable'
+        ) {
             const retained = {
                 ...previous,
                 refreshAtMs: nowMs + CONFIG_RETRY_MS,
@@ -526,23 +566,35 @@ function tdmrepRefuses(parsed: unknown, url: URL): boolean {
             continue
         }
         if (wildcardPatternMatchesPathname(rule.location, url.pathname)) {
-            return rule['tdm-reservation'] === 1
+            return isTdmReservation(rule['tdm-reservation'])
         }
     }
     return false
 }
 
-function isValidTdmrepDocument(body: string): boolean {
-    const parsed = parseTdmrepDocument(body)
-    return (
-        Array.isArray(parsed) &&
-        parsed.every(
-            (rule) =>
-                isObject(rule) &&
-                typeof rule.location === 'string' &&
-                (rule['tdm-reservation'] === 0 || rule['tdm-reservation'] === 1)
-        )
-    )
+function isTdmReservation(value: unknown): boolean {
+    // TDMRep reads "1" and true as protocol errors, which mean no reservation. README 3.13 reads them as a reservation, because a site that writes them intends to reserve.
+    return value === 1 || value === '1' || value === true
+}
+
+function cannotBeJsonArray(body: { bytes: Uint8Array; overLimit: boolean }): boolean {
+    const firstByte = firstByteAfterJsonWhitespace(body.bytes)
+    if (firstByte === undefined) {
+        return !body.overLimit
+    }
+    return firstByte !== JSON_ARRAY_START_BYTE
+}
+
+function firstByteAfterJsonWhitespace(bytes: Uint8Array): number | undefined {
+    let index = hasUtf8ByteOrderMark(bytes) ? UTF8_BYTE_ORDER_MARK.length : 0
+    while (index < bytes.length && JSON_WHITESPACE_BYTES.has(bytes[index])) {
+        index++
+    }
+    return index < bytes.length ? bytes[index] : undefined
+}
+
+function hasUtf8ByteOrderMark(bytes: Uint8Array): boolean {
+    return UTF8_BYTE_ORDER_MARK.every((byte, index) => bytes[index] === byte)
 }
 
 async function parsedRobotsConfiguration(

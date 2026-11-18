@@ -1,4 +1,5 @@
-from collections.abc import Mapping
+import csv
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Optional
 
@@ -14,13 +15,23 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 
+from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
 from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
+    ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceType,
+    WarehouseColumnAnnotationDescriptionSource,
+)
+
+# ClickHouse runs in docker-compose and reaches object storage by its service name. OBJECT_STORAGE_ENDPOINT is the
+# address for this process, and a localhost address there would make ClickHouse connect to itself.
+_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT = "http://objectstorage:19000"
 
 
 def create_data_warehouse_table_from_csv(
@@ -114,3 +125,122 @@ def create_data_warehouse_table_from_csv(
             pass
 
     return (table, source, credential, df, cleanUp)
+
+
+def _object_storage_keys() -> tuple[str, str]:
+    access_key, access_secret = OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+    if not access_key or not access_secret:
+        raise Exception("Missing S3 credentials")
+    return access_key, access_secret
+
+
+def _write_rows_csv(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    rows: Sequence[Sequence[object]],
+    test_bucket: str,
+    keys: tuple[str, str],
+) -> str:
+    access_key, access_secret = keys
+    folder = f"{OBJECT_STORAGE_BUCKET}/{test_bucket}{XDIST_SUFFIX}/team_{team.id}/{table_name}"
+    fs = s3fs.S3FileSystem(
+        client_kwargs={
+            "region_name": "us-east-1",
+            "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": access_secret,
+        },
+    )
+    with fs.open(f"{folder}/data.csv", "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns)
+        writer.writerows(rows)
+    return f"{_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT}/{folder}/*.csv"
+
+
+def _csv_table(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    url_pattern: str,
+    source: ExternalDataSource | None,
+    keys: tuple[str, str],
+) -> DataWarehouseTable:
+    access_key, access_secret = keys
+    credential = DataWarehouseCredential.objects.create(team=team, access_key=access_key, access_secret=access_secret)
+    return DataWarehouseTable.objects.create(
+        team=team,
+        name=table_name,
+        format=DataWarehouseTable.TableFormat.CSVWithNames,
+        external_data_source=source,
+        credential=credential,
+        url_pattern=url_pattern,
+        columns=columns,
+    )
+
+
+def create_synced_table_from_rows(
+    team: Team,
+    *,
+    source_type: ExternalDataSourceType,
+    schema_name: str,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    rows: Sequence[Sequence[object]],
+    descriptions: Mapping[str, str],
+    test_bucket: str,
+    description_source: WarehouseColumnAnnotationDescriptionSource = WarehouseColumnAnnotationDescriptionSource.CANONICAL,
+) -> SyncedWarehouseTable:
+    """Install the state a completed source sync leaves: rows in object storage, the source, schema and table rows,
+    and the table's annotations. ``""`` in ``descriptions`` is the table-level one.
+    """
+    keys = _object_storage_keys()
+    url_pattern = _write_rows_csv(
+        team, table_name=table_name, columns=columns, rows=rows, test_bucket=test_bucket, keys=keys
+    )
+
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id=f"{schema_name}_source",
+        connection_id=f"{schema_name}_connection",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=source_type,
+    )
+    table = _csv_table(team, table_name=table_name, columns=columns, url_pattern=url_pattern, source=source, keys=keys)
+    ExternalDataSchema.objects.create(
+        team=team,
+        name=schema_name,
+        source=source,
+        table=table,
+        status=ExternalDataSchema.Status.COMPLETED,
+        initial_sync_complete=True,
+    )
+    for column_name, description in descriptions.items():
+        WarehouseColumnAnnotation.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name=column_name,
+            description=description,
+            description_source=description_source,
+            is_user_edited=description_source == WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+        )
+    return SyncedWarehouseTable(table_id=table.id, name=table.name)
+
+
+def create_table_from_rows(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    rows: Sequence[Sequence[object]],
+    test_bucket: str,
+) -> DataWarehouseTable:
+    """Install a table over rows in object storage that no source owns, such as a materialized view's table."""
+    keys = _object_storage_keys()
+    url_pattern = _write_rows_csv(
+        team, table_name=table_name, columns=columns, rows=rows, test_bucket=test_bucket, keys=keys
+    )
+    return _csv_table(team, table_name=table_name, columns=columns, url_pattern=url_pattern, source=None, keys=keys)

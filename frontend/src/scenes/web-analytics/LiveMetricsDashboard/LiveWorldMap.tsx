@@ -1,10 +1,10 @@
-import '~/scenes/insights/views/WorldMap/WorldMap.scss'
-
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect } from 'react'
 
 import { gradateColor } from 'lib/utils/colors'
-import { countryVectors } from 'scenes/insights/views/WorldMap/countryVectors'
+
+import 'products/product_analytics/frontend/insights/trends/WorldMap/WorldMap.scss'
+import { countryVectors } from 'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors'
 
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { liveWorldMapLogic } from './liveWorldMapLogic'

@@ -1,4 +1,4 @@
-import { Flex, Text } from "@radix-ui/themes";
+import { cn } from "@posthog/quill";
 import type { ReactNode } from "react";
 
 /**
@@ -20,15 +20,15 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <Flex direction="column" gap="2" className={className}>
-      <Text as="label" className="font-medium text-[13px] text-gray-12">
+    <div className={cn("flex flex-col gap-2", className)}>
+      <span className="font-medium text-[13px] text-gray-12">
         {label}
         {required ? <span className="ml-0.5 text-(--accent-9)">*</span> : null}
-      </Text>
+      </span>
       {children}
       {hint ? (
-        <Text className="text-[12px] text-gray-10 leading-snug">{hint}</Text>
+        <span className="text-[12px] text-gray-10 leading-snug">{hint}</span>
       ) : null}
-    </Flex>
+    </div>
   );
 }

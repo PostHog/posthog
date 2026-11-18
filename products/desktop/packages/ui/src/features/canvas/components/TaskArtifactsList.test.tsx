@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   runs: [] as TaskRun[],
   openArtifactTab: vi.fn(),
+  openInboxReport: vi.fn(),
   openExternalUrl: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
   commentsError: false,
@@ -53,6 +54,9 @@ vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => mocks.openArtifactTab,
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => mocks.openInboxReport,
 }));
 vi.mock("@posthog/ui/features/git-interaction/usePrArtifact", () => ({
   usePrArtifact: (url: string) => ({
@@ -141,6 +145,7 @@ describe("TaskArtifactsList", () => {
     mocks.taskRunsRefreshKeys = [];
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
+    mocks.openInboxReport.mockReset();
     mocks.openExternalUrl.mockReset();
     mocks.getCloudAttachmentPreviewUrl.mockReset();
     useReviewNavigationStore.setState({
@@ -237,7 +242,7 @@ describe("TaskArtifactsList", () => {
     const row = screen.getByText("report.md").closest("[data-artifact-card]");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
-    expect(within(row as HTMLElement).getByText("Agent · 17 KB")).toBeTruthy();
+    expect(within(row as HTMLElement).getByText("17 KB")).toBeTruthy();
   });
 
   it("lists a PostHog reference beside file artifacts and opens its artifact tab", () => {
@@ -282,6 +287,35 @@ describe("TaskArtifactsList", () => {
     ).toBeNull();
   });
 
+  it("opens an Inbox report reference in the native report view", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          {
+            id: "phref-report-1",
+            name: "Checkout errors increased",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "report",
+              object_id: "report-1",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    fireEvent.click(screen.getByText("Checkout errors increased"));
+    expect(mocks.openInboxReport).toHaveBeenCalledWith("report-1");
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
+  });
+
   it("keeps artifacts visible when comment counts fail", () => {
     mocks.commentsError = true;
     mocks.runs = [
@@ -291,7 +325,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeInTheDocument();
-    expect(screen.getByText("Agent · 17 KB")).toBeInTheDocument();
+    expect(screen.getByText("17 KB")).toBeInTheDocument();
   });
 
   // The threads themselves live in the Comments tab now, so the pane must not
@@ -416,7 +450,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.getByText(/ · 2 KB$/)).toBeInTheDocument();
+    expect(screen.getByText(/^2 KB · /)).toBeInTheDocument();
     expect(
       screen.getByLabelText("Choose a version of report.md"),
     ).toHaveTextContent("v2");
@@ -472,7 +506,7 @@ describe("TaskArtifactsList", () => {
 
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
-    expect(screen.getByText(/ · 1 KB$/)).toBeInTheDocument();
+    expect(screen.getByText(/^1 KB · /)).toBeInTheDocument();
     fireEvent.click(screen.getByText("report.md"));
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",

@@ -4,8 +4,14 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getFlutterInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+const DEFAULT_FLUTTER_SDK_VERSION = '5.24.0'
+
+export const getFlutterInstallSteps = (
+    ctx: OnboardingComponentsContext,
+    options?: { minVersion?: string }
+): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
+    const flutterSdkVersion = options?.minVersion ?? DEFAULT_FLUTTER_SDK_VERSION
 
     return [
         {
@@ -20,7 +26,7 @@ export const getFlutterInstallSteps = (ctx: OnboardingComponentsContext): StepDe
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.24.0
+                                    posthog_flutter: ^${flutterSdkVersion}
                                 `,
                             },
                         ]}
@@ -181,9 +187,9 @@ export const getFlutterEventStep = (ctx: OnboardingComponentsContext): StepDefin
     }
 }
 
-export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
-    ...getFlutterInstallSteps(ctx),
-    getFlutterEventStep(ctx),
-]
+export const getFlutterSteps = (
+    ctx: OnboardingComponentsContext,
+    options?: { minVersion?: string }
+): StepDefinition[] => [...getFlutterInstallSteps(ctx, options), getFlutterEventStep(ctx)]
 
 export const FlutterInstallation = createInstallation(getFlutterSteps)

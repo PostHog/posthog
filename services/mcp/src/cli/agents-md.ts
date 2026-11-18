@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 import agentsMdPrompt from './agents-md-snippet.md'
-import { errorCode } from './utils'
+import { assertResolvesInside, errorCode } from './utils'
 
 const OPEN_TAG = '<posthog>'
 const CLOSE_TAG = '</posthog>'
@@ -15,7 +15,11 @@ export const AGENTS_MD_SNIPPET = `${OPEN_TAG}\n${AGENTS_MD_PROMPT}\n${CLOSE_TAG}
 const MANAGED_BLOCK_PATTERN = /<posthog>[\s\S]*?<\/posthog>/
 
 export async function installAgentsMdSnippet(opts: { cwd?: string; filePath?: string } = {}): Promise<string> {
-    const targetPath = path.resolve(opts.filePath ?? path.join(opts.cwd ?? process.cwd(), 'AGENTS.md'))
+    const cwd = opts.cwd ?? process.cwd()
+    const targetPath = path.resolve(opts.filePath ?? path.join(cwd, 'AGENTS.md'))
+    if (!opts.filePath) {
+        await assertResolvesInside(cwd, targetPath, '. Pass --path to choose the file to update.')
+    }
     let existing = ''
     try {
         existing = await fs.readFile(targetPath, 'utf-8')

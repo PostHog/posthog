@@ -2,9 +2,9 @@ import type {
   PiCommand,
   PiNativeModelInfo,
   PiQueueSnapshot,
-  PiSessionStats,
   PiSessionStatus,
   PiThinkingLevel,
+  PiUsageStats,
 } from "@posthog/agent/pi/types";
 import type {
   AgentConversationEvent,
@@ -30,6 +30,7 @@ export interface PiSessionError {
 export interface PiControllerSessionState {
   connectionState: SessionStatus;
   events: AgentConversationEvent[];
+  historyVersion: number;
   models: Array<Pick<PiNativeModelInfo, "provider" | "id">>;
   modelsLoaded: boolean;
   thinkingLevels: PiThinkingLevel[];
@@ -37,7 +38,7 @@ export interface PiControllerSessionState {
   commands: PiCommand[];
   queue: PiQueueSnapshot;
   status?: PiSessionStatus;
-  stats?: PiSessionStats;
+  stats?: PiUsageStats;
   cloudStatus?: TaskRunStatus;
   error?: PiSessionError;
   authRestoring: boolean;
@@ -59,6 +60,7 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
   return {
     connectionState: "connecting",
     events: [],
+    historyVersion: 0,
     models: [],
     modelsLoaded: false,
     thinkingLevels: [],

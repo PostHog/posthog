@@ -24,11 +24,6 @@ def canonical_query_hash(query: dict) -> str:
     return hashlib.sha256(json.dumps(upgrade(deepcopy(query)), sort_keys=True).encode()).hexdigest()
 
 
-def effective_insight_query(insight: Insight) -> Optional[dict]:
-    """The insight's query, converting legacy ``filters``-only insights via query_from_filters."""
-    return insight.query or insight.query_from_filters
-
-
 def fetch_insight(team_id: int, short_id: str, *, include_deleted: bool = False) -> Optional[Insight]:
     manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
     return manager.filter(team_id=team_id, short_id=short_id).first()
@@ -58,7 +53,7 @@ def compute_drift(metrics: Iterable[Metric]) -> dict[UUID, bool]:
         if insight is None or insight.deleted:
             result[metric.id] = True
             continue
-        current_query = effective_insight_query(insight)
+        current_query = insight.query
         if not current_query:
             result[metric.id] = True
             continue

@@ -2,7 +2,14 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import { PredicateIndexUsage, PredicateIndexVerdict, PredicateScope } from '~/queries/schema/schema-general'
+import {
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    PredicateQuickfix,
+    PredicateScope,
+} from '~/queries/schema/schema-general'
+
+import { QueryIndexUsageFixActions } from './QueryIndexUsageFixActions'
 
 // `Indexed` is deliberately not a success tag. It means an index covers the comparison, which is a
 // schema fact; whether granules are actually dropped depends on data we do not look at.
@@ -30,9 +37,20 @@ const SCOPE_PREFIXES: Partial<Record<PredicateScope, string>> = {
 
 interface QueryIndexUsageTableProps {
     predicates: PredicateIndexUsage[]
+    /** The report describes an older version of the query, so a query edit would land in the wrong place. */
+    stale?: boolean
+    onApplyQuickfix?: (quickfix: PredicateQuickfix) => void
+    onFixWithAI?: (prompt: string) => void
+    fixWithAILoading?: boolean
 }
 
-export function QueryIndexUsageTable({ predicates }: QueryIndexUsageTableProps): JSX.Element | null {
+export function QueryIndexUsageTable({
+    predicates,
+    stale,
+    onApplyQuickfix,
+    onFixWithAI,
+    fixWithAILoading,
+}: QueryIndexUsageTableProps): JSX.Element | null {
     if (predicates.length === 0) {
         return null
     }
@@ -50,6 +68,13 @@ export function QueryIndexUsageTable({ predicates }: QueryIndexUsageTableProps):
                         <div className="flex flex-col gap-1 px-2 py-1 text-xs">
                             <p className="mb-0">{predicate.message}</p>
                             {predicate.fix && <p className="mb-0 font-semibold">{predicate.fix}</p>}
+                            <QueryIndexUsageFixActions
+                                predicate={predicate}
+                                stale={stale}
+                                onApplyQuickfix={onApplyQuickfix}
+                                onFixWithAI={onFixWithAI}
+                                fixWithAILoading={fixWithAILoading}
+                            />
                         </div>
                     ),
                 }}

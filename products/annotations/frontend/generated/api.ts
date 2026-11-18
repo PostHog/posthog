@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AnnotationApi,
     AnnotationsListParams,
+    ChangeFeedApi,
+    ChangeFeedListParams,
     PaginatedAnnotationListApi,
     PatchedAnnotationApi,
 } from './api.schemas'
@@ -153,5 +155,36 @@ export const annotationsDestroy = async (projectId: string, id: number, options?
     return apiMutator<unknown>(getAnnotationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getChangeFeedListUrl = (projectId: string, params?: ChangeFeedListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/change_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/change_feed/`
+}
+
+/**
+ * Lists the changes that can affect production in a time window, newest first: feature flag and experiment edits, error tracking releases, and annotations. Use it to find what changed just before an error spike or a metric drop. Changes the user has no access to are left out.
+ * @summary List recent production changes
+ */
+export const changeFeedList = async (
+    projectId: string,
+    params?: ChangeFeedListParams,
+    options?: RequestInit
+): Promise<ChangeFeedApi> => {
+    return apiMutator<ChangeFeedApi>(getChangeFeedListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

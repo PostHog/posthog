@@ -2,9 +2,17 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, {
+    CellClickArgs,
+    // CellMouseEvent, onCellContextMenu, and event.preventGridDefault() are beta-only APIs from the
+    // exactly-pinned react-data-grid 7.0.0-beta.47; a manual bump could reshape them without a semver signal.
+    CellMouseEvent,
+    DataGridProps,
+    RenderHeaderCellProps,
+    SortColumn,
+} from 'react-data-grid'
 
 import {
     IconCode,
@@ -24,29 +32,35 @@ import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTab
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
-import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
-import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
+import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
+import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from '~/queries/nodes/DataVisualization/Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -60,7 +74,6 @@ import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import {
     type AccessControlFilterWarning,
     type DataTableNode,
-    type DataWarehouseSyncWarning,
     type HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -73,6 +86,9 @@ import {
 } from '~/types'
 
 import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
+import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
+import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import {
     copyTableToCsv,
@@ -80,11 +96,11 @@ import {
     copyTableToJson,
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
+import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
-import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -382,7 +398,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )
@@ -585,13 +605,42 @@ interface OutputPaneProps {
     onShareTab?: () => void
 }
 
+/** The copyable text for a right-clicked grid cell, or null when the cell should fall through to the
+ *  native context menu. Exported so the branches below (details column, empty value, HogQLX skip) are
+ *  unit-testable, mirroring extractCellText in LemonTable. */
+export function extractGridCellValue(columnKey: string, row: Record<string, any>): string | null {
+    if (columnKey === '__details') {
+        return null
+    }
+    const value = row[columnKey]
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    // HogQLX-shaped values render as rich content (links, sparklines, recording buttons) via
+    // renderHogQLX; copying String(value) would put the internal AST JSON on the clipboard, so skip
+    // them and let the native menu handle the cell instead.
+    if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+        return null
+    }
+    return String(value)
+}
+
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
-        useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        hasQueryInput,
+        isEmbeddedMode,
+        metadata,
+        metadataLoading,
+        indexReportStale,
+        fixErrorsLoading: fixWithAILoading,
+    } = useValues(sqlEditorLogic)
+    const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -602,6 +651,13 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const visualizationLogic = useMountedLogic(dataVisualizationLogic)
+    const chartRecommendationLogic = aiChartRecommendationLogic({
+        visualizationProps: visualizationLogic.props,
+        tabId: tabId || '',
+    })
+    const { choosingChart } = useValues(chartRecommendationLogic)
+    const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
@@ -621,6 +677,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+    const [selectedJson, setSelectedJson] = useState<object | null>(null)
 
     const setProgress = useCallback((loadId: string, progress: number) => {
         setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
@@ -641,14 +698,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedRow(row)
-                            }}
-                        />
+                        <LemonButton size="xsmall" icon={<IconExpand45 />} onClick={() => setSelectedRow(row)} />
                     </div>
                 ),
             },
@@ -708,7 +758,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 }
 
                 // Hack to get bools to render in the data grid
-                if (type && type.indexOf('Bool') !== -1) {
+                if (cleanClickhouseType(type) === 'Bool') {
                     return {
                         ...baseColumn,
                         renderCell: (props: any) => {
@@ -726,6 +776,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                     renderCell: (props: any) => {
                         const columnKey = `${column}_${index}`
                         const value = props.row[columnKey]
+                        if (response.column_formats?.[index] === 'mcp_harness' && typeof value === 'string') {
+                            return <HarnessLabel category={value} />
+                        }
                         if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
                             try {
                                 const parsedHogQLX = JSON.parse(value)
@@ -740,7 +793,23 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             return <TZLabel time={value} timestampStyle="absolute" />
                         }
 
-                        return value
+                        const parsedJson: unknown =
+                            typeof value === 'string' && cleanClickhouseType(type) === 'String'
+                                ? tryJsonParse(value)
+                                : null
+                        if (!parsedJson || typeof parsedJson !== 'object') {
+                            return value
+                        }
+
+                        return (
+                            <button
+                                type="button"
+                                className="block h-full w-full truncate text-left"
+                                onClick={() => setSelectedJson(parsedJson)}
+                            >
+                                {value}
+                            </button>
+                        )
                     },
                 }
             }) ?? []),
@@ -797,6 +866,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        showQueryScan: !biMode,
         isEmbeddedMode,
     }
     const sharedActionsProps = {
@@ -828,10 +898,10 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
         </div>
     ) : splitView ? (
-        <div className="flex flex-1 min-h-0 bg-dark">
+        <div className="flex flex-1 min-h-0 bg-dark @max-[48rem]/sql-output:flex-col @max-[48rem]/sql-output:overflow-y-auto">
             <div
                 ref={splitPaneRef}
-                className="relative flex min-w-64 flex-col bg-white dark:bg-black"
+                className="relative flex min-w-64 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:!w-full @max-[48rem]/sql-output:!max-w-full @max-[48rem]/sql-output:min-h-64 @max-[48rem]/sql-output:shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
@@ -849,9 +919,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 <div className="flex flex-1 min-h-0 relative bg-dark border-r">
                     <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                 </div>
-                <Resizer {...splitResizerProps} />
+                <div className="@max-[48rem]/sql-output:hidden">
+                    <Resizer {...splitResizerProps} />
+                </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
+            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:min-h-80 @max-[48rem]/sql-output:shrink-0">
                 {showToolbar ? (
                     <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                         <div className="flex min-h-[41px] gap-2 ml-4">
@@ -894,11 +966,36 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     )
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
-            <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
-            {outputContent}
-            <div className="flex justify-between px-2 border-t">
-                <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
+        <div className="OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+            <QueryIndexUsageBar
+                predicates={metadata?.index_usage ?? []}
+                refreshing={metadataLoading}
+                stale={indexReportStale}
+                onApplyQuickfix={applyIndexQuickfix}
+                onFixWithAI={fixIndexUsageWithAI}
+                fixWithAILoading={fixWithAILoading}
+            />
+            {choosingChart ? (
+                <div
+                    className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 border-t"
+                    data-attr="sql-editor-chart-loading"
+                    aria-busy="true"
+                >
+                    <div className="flex items-center gap-2" role="status">
+                        <Spinner />
+                        <span>Choosing a chart…</span>
+                    </div>
+                    <LemonButton size="small" type="secondary" onClick={skipRecommendation}>
+                        Show results now
+                    </LemonButton>
+                </div>
+            ) : (
+                outputContent
+            )}
+            <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
+                    {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
+                </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
                     <QueryExecutionDetails />
@@ -911,6 +1008,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 columns={response?.columns || []}
                 columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
+            <LemonModal title="JSON" isOpen={selectedJson !== null} onClose={() => setSelectedJson(null)} width={800}>
+                <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words font-mono">
+                    {selectedJson ? JSON.stringify(selectedJson, null, 2) : ''}
+                </pre>
+            </LemonModal>
         </div>
     )
 }
@@ -925,13 +1027,17 @@ function InternalDataTableVisualization(
         responseLoading,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const {
+        seriesBreakdownData,
+        chartData: { xData: _xData, yData: _yData },
+    } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
     const { editingInsight } = useValues(sqlEditorLogic)
 
@@ -956,14 +1062,7 @@ function InternalDataTableVisualization(
                 embedded
             />
         )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
         component = (
             <BindLogic logic={insightLogic} props={{ dashboardItemId: editingInsight?.short_id, doNotLoad: true }}>
                 <SqlChart
@@ -977,18 +1076,19 @@ function InternalDataTableVisualization(
                     insightNumericId={editingInsight?.id || 'new'}
                     showAnnotations={isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
                 />
             </BindLogic>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-2"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -1003,14 +1103,44 @@ function InternalDataTableVisualization(
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+                className="p-2"
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     if (props.embedded && !props.showSettingsPanel) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div
+                className={clsx(
+                    'DataVisualization InsightCard__viz',
+                    effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
+                )}
+            >
+                {component}
+            </div>
+        )
     }
 
     return (
@@ -1035,7 +1165,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     if (!warnings || warnings.length === 0) {
         return null
     }
-    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const syncWarnings = warehouseSyncWarnings(warnings)
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
         <>
@@ -1046,24 +1176,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     data-attr="sql-editor-output-pane-sync-warnings"
                 >
                     Some warehouse sources used by this query are out of date — results may not reflect current data:
-                    <ul className="list-disc pl-5">
-                        {syncWarnings.map((warning, index) => (
-                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                                {trimRedundantTail(warning.message)}
-                                {warning.source_id && (
-                                    <>
-                                        {' '}
-                                        <Link
-                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
-                                            target="_blank"
-                                        >
-                                            Manage source
-                                        </Link>
-                                    </>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
+                    <WarehouseSyncWarningList warnings={syncWarnings} />
                 </LemonBanner>
             )}
             {acWarnings.length > 0 && (
@@ -1084,7 +1197,13 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     )
 }
 
-const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+const ErrorState = ({
+    responseError,
+    sourceQuery,
+    queryCancelled,
+    response,
+    showQueryScan,
+}: any): JSX.Element | null => {
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
@@ -1107,6 +1226,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                         <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                     }
                 />
+                {showQueryScan && <EditorQueryScanBanner />}
             </div>
         </div>
     )
@@ -1143,13 +1263,33 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
+    // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
+    const handleGridCellContextMenu = useCallback(
+        (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
+            const text = extractGridCellValue(args.column.key, args.row)
+            if (text === null) {
+                closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
+                return
+            }
+            args.selectCell()
+            event.preventGridDefault()
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -1186,6 +1326,7 @@ const Content = ({
                 sourceQuery={sourceQuery}
                 queryCancelled={queryCancelled}
                 response={response}
+                showQueryScan={showQueryScan}
             />
         )
     }
@@ -1194,23 +1335,25 @@ const Content = ({
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div
-                    className="flex flex-1 flex-col justify-center items-center border-t gap-4 p-4"
+                    className="flex min-w-0 flex-1 flex-col justify-center items-center border-t gap-4 p-4"
                     data-attr="sql-editor-output-pane-empty-state"
                 >
                     <span className="text-secondary">
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
+                    {showAgentHints ? (
+                        <WarehouseWizardHint
+                            className="max-w-140"
+                            fallback={
+                                <MCPUseCaseCard
+                                    surfaceKey="sql.execute"
+                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                    className="max-w-140"
+                                />
+                            }
+                        />
+                    ) : null}
                 </div>
             )
         }
@@ -1218,6 +1361,7 @@ const Content = ({
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
+                {showQueryScan && <EditorQueryScanBanner />}
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1267,20 +1411,28 @@ const Content = ({
                 className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
-                </span>
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
+                {singleStatement ? (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    </span>
+                ) : (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
+                        multiple statements with <code>;</code> to run them independently.
+                    </span>
+                )}
+                {showAgentHints ? (
+                    <WarehouseWizardHint
+                        className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
+                    />
+                ) : null}
             </div>
         )
     }
@@ -1289,6 +1441,7 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
+                {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (
@@ -1299,7 +1452,9 @@ const Content = ({
                             rows={sortedRows}
                             sortColumns={sortColumns}
                             onSortColumnsChange={setSortColumns}
+                            onCellContextMenu={handleGridCellContextMenu}
                         />
+                        {copyMenu}
                     </TabScroller>
                 )}
             </div>

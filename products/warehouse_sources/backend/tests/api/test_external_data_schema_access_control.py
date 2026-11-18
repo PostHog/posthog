@@ -194,3 +194,34 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         resp = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/reload/")
         self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("delete_action",), ("drop_on_mode_change",)])
+    def test_history_table_lock_blocks_deleting_it(self, path):
+        # The schema resolves through its own table, so the history table's rule is checked on its own.
+        self.schema.sync_type = ExternalDataSchema.SyncType.CDC
+        self.schema.sync_type_config = {"cdc_table_mode": "consolidated" if path == "delete_action" else "both"}
+        self.schema.save()
+        history = DataWarehouseTable.objects.create(
+            name="teststripe_customers_history",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            external_data_source=self.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+        self._grant(self.editor_user, "external_data_source", None, "editor")
+        self._grant(self.editor_user, "warehouse_table", str(history.id), "viewer")
+
+        self.client.force_login(self.editor_user)
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}"
+        if path == "delete_action":
+            response = self.client.delete(f"{url}/history_table/")
+        else:
+            response = self.client.patch(
+                f"{url}/", {"cdc_table_mode": "consolidated", "drop_history_table": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        history.refresh_from_db()
+        self.schema.refresh_from_db()
+        self.assertFalse(history.deleted)
+        self.assertEqual(self.schema.cdc_table_mode, "consolidated" if path == "delete_action" else "both")

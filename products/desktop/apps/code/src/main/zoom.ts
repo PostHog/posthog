@@ -66,7 +66,7 @@ function runAfterWheelZoom(window: ZoomWindow, action: () => void): void {
   state.deferredActions.push(action);
 }
 
-export function setWindowZoom(window: ZoomWindow, level: number): void {
+function setWindowZoom(window: ZoomWindow, level: number): void {
   if (window.webContents.isDestroyed()) return;
   const nextLevel = clampZoomLevel(level);
   const state = zoomStates.get(window);

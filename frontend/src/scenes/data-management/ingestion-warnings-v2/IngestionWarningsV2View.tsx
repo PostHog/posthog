@@ -21,7 +21,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     WARNING_TYPE_RENDERER,
@@ -190,9 +189,7 @@ export function IngestionWarningsV2View(): JSX.Element {
             />
             {showProductIntro ? (
                 <ProductIntroduction
-                    productName="Ingestion warnings"
                     thingName="ingestion warning"
-                    productKey={ProductKey.INGESTION_WARNINGS}
                     isEmpty={true}
                     titleOverride={`Nice! No ingestion warnings in the past ${filters.window}`}
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."

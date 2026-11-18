@@ -7,11 +7,13 @@ import {
 
 describe("thinking activities", () => {
   it("selects from a bounded random value", () => {
-    expect(pickThinkingActivity(0)).toBe("Booping");
+    expect(pickThinkingActivity(0)).toBe(THINKING_ACTIVITIES[0]);
     expect(pickThinkingActivity(1)).toBe(THINKING_ACTIVITIES.at(-1));
   });
 
   it("always advances when the random pick matches the current activity", () => {
-    expect(pickNextThinkingActivity("Booping", 0)).toBe("Crunching");
+    expect(pickNextThinkingActivity(THINKING_ACTIVITIES[0], 0)).toBe(
+      THINKING_ACTIVITIES[1],
+    );
   });
 });

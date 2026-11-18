@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 # Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
-# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
+# `nodejs/src/logs/sampling/filter-group-match.ts` and
 # `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
 # deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
 # evaluator in the Node ingestion worker. The breadth cap is the more
@@ -72,6 +72,19 @@ def filter_group_leaf_value_count(node: Any) -> int:
         if total > MAX_FILTER_GROUP_LEAF_VALUES:
             return total
     return total
+
+
+def filter_group_has_leaf(node: Any, depth: int = 0) -> bool:
+    """True when the tree holds at least one filter. The app always sends a group, so an
+    empty one is the "no filters" case. Counts value-less leaves such as `is_set`."""
+    if not isinstance(node, dict):
+        return False
+    if depth > MAX_FILTER_GROUP_DEPTH:
+        return True
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return bool(node)
+    return any(filter_group_has_leaf(child, depth + 1) for child in values)
 
 
 def filter_group_has_oversized_value(node: Any) -> bool:

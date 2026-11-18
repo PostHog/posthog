@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 
 from parameterized import parameterized
 
@@ -186,7 +186,7 @@ class TestCustomerStripeMetadataResolution(RevenueAnalyticsTestBase):
         self.view_name = f"stripe.posthog_test.{CUSTOMER_SCHEMA.source_suffix}"
 
     def _query_metadata(self) -> dict[str, dict]:
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(f"SELECT id, metadata FROM {self.view_name} ORDER BY id"),
                 self.team,

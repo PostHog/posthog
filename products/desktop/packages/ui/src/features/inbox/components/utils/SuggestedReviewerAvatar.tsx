@@ -1,4 +1,5 @@
 import { cn } from "@posthog/quill";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import posthogIcon from "../../assets/posthog-icon.svg";
 
 const SIZE = {
@@ -35,7 +36,11 @@ export function SuggestedReviewerAvatar({
         <img
           src={posthogIcon}
           alt=""
-          className={cn("shrink-0 object-contain", config.className, className)}
+          className={cn(
+            "shrink-0 rounded-full object-contain",
+            config.className,
+            className,
+          )}
         />
       );
     }
@@ -43,14 +48,16 @@ export function SuggestedReviewerAvatar({
     return (
       <span
         aria-hidden
-        className={cn("shrink-0", config.className, className)}
+        className={cn("shrink-0 rounded-full", config.className, className)}
       />
     );
   }
 
   return (
     <img
-      src={`https://github.com/${githubLogin}.png?size=${config.pixels}`}
+      src={cachedImageUrl(
+        `https://github.com/${githubLogin}.png?size=${config.pixels}`,
+      )}
       alt=""
       className={cn(
         "github-avatar shrink-0 rounded-full",

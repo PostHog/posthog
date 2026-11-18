@@ -362,6 +362,43 @@ class TestCertificationAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/data_catalog/certifications/"
 
+    def test_list_filters_status_before_pagination(self) -> None:
+        certified = TableCertification.objects.for_team(self.team.id).create(
+            team=self.team, table=_table(self.team, "approved_source"), status=CertificationStatus.CERTIFIED
+        )
+        TableCertification.objects.for_team(self.team.id).create(
+            team=self.team, table=_table(self.team, "proposed_source"), status=CertificationStatus.PROPOSED
+        )
+
+        response = self.client.get(self.url, {"status": "certified", "limit": "1"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == 1
+        assert [row["id"] for row in response.json()["results"]] == [str(certified.id)]
+
+    @parameterized.expand(
+        [
+            ("table_name", "table", False),
+            ("view_name", "view", False),
+            ("table_notes", "table", True),
+            ("view_notes", "view", True),
+        ]
+    )
+    def test_search_matches_target_names_and_notes(self, name: str, target_type: str, match_notes: bool) -> None:
+        target_factory = _table if target_type == "table" else _view
+        target_field = "table" if target_type == "table" else "saved_query"
+        target = target_factory(self.team, name="retention" if match_notes else "activation")
+        matched = TableCertification.objects.for_team(self.team.id).create(
+            team=self.team, notes="activation" if match_notes else "", **{target_field: target}
+        )
+        unrelated = target_factory(self.team, name="unrelated")
+        TableCertification.objects.for_team(self.team.id).create(team=self.team, **{target_field: unrelated})
+
+        response = self.client.get(self.url, {"search": "what is activation"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["id"] for row in response.json()["results"]] == [str(matched.id)]
+
     def test_create_and_certify(self) -> None:
         table = _table(self.team)
         created = self.client.post(self.url, {"table_id": str(table.id)}, format="json")

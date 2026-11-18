@@ -3,9 +3,9 @@
 //!
 //! The deterministic oracle is the whole point: an independent `HashMap<BehavioralKey, deadline>` of each
 //! key's *live* (post-reschedule) deadline. Stepping a fake `now` in 30 s increments and draining
-//! `pop_due(now − margin)` each step, we assert every key evicts **exactly once**, at the **first**
-//! step where `live_deadline + safety_margin < now`, never earlier, with the queue length equal to
-//! the not-yet-evicted count throughout.
+//! `due_keys` + `take_due` at `now − margin` each step, we assert every key evicts **exactly once**,
+//! at the **first** step where `live_deadline + safety_margin < now`, never earlier, with the queue
+//! length equal to the not-yet-evicted count throughout.
 
 use std::collections::HashMap;
 
@@ -28,6 +28,16 @@ fn key(i: usize) -> BehavioralKey {
         Uuid::from_u128(0x00C0_FFEE_0000_0000_u128 + i as u128),
         LeafStateKey((i as u128).to_le_bytes()),
     )
+}
+
+/// One sweep pass over the queue: select every due key, then claim each one. Selection and claim are
+/// separate calls in production too, so the oracle drives the pair the worker drives.
+fn drain(queue: &mut EvictionQueue<BehavioralKey>, cutoff: i64) -> Vec<(BehavioralKey, i64)> {
+    let selected: Vec<BehavioralKey> = queue.due_keys(cutoff, usize::MAX).copied().collect();
+    selected
+        .into_iter()
+        .filter_map(|key| queue.take_due(&key, cutoff).map(|deadline| (key, deadline)))
+        .collect()
 }
 
 #[test]
@@ -82,7 +92,7 @@ fn one_day_of_events_evicts_each_key_once_at_its_deadline() {
         assert!(steps < 100_000, "simulation failed to converge");
 
         let cutoff = due_before_ms(now, MARGIN_MS);
-        while let Some((evicted_key, deadline)) = queue.pop_due(cutoff) {
+        for (evicted_key, deadline) in drain(&mut queue, cutoff) {
             let live = oracle[&evicted_key];
             assert_eq!(deadline, live, "a key evicts carrying its live deadline");
             assert!(
@@ -112,7 +122,7 @@ fn one_day_of_events_evicts_each_key_once_at_its_deadline() {
     assert_eq!(queue.peek_next_deadline(), None);
 
     // Every eviction lands within one sweep step after the ideal `deadline + margin` instant. The
-    // window is half-open `(ideal, ideal + STEP]`: strict `<` in `pop_due` means a deadline+margin
+    // window is half-open `(ideal, ideal + STEP]`: strict `<` in `take_due` means a deadline+margin
     // exactly on a step boundary is held one more step, firing at `ideal + STEP`.
     for (k, &fired_at) in &evicted {
         let ideal = oracle[k] + MARGIN_MS;
@@ -140,10 +150,10 @@ fn cancelled_keys_never_evict() {
 
     // Step well past the deadline + margin and drain.
     let cutoff = due_before_ms(deadline + MARGIN_MS + STEP_MS, MARGIN_MS);
-    let mut evicted = Vec::new();
-    while let Some((k, _)) = queue.pop_due(cutoff) {
-        evicted.push(k);
-    }
+    let evicted: Vec<BehavioralKey> = drain(&mut queue, cutoff)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
 
     assert_eq!(evicted.len(), 5, "only the non-cancelled keys evict");
     for i in (0..10).step_by(2) {

@@ -7,7 +7,7 @@ files and read them back: the DB stays the source of truth, files are a projecti
 The fingerprint is the identity agents author against -- re-creating a semantically identical check
 upserts instead of duplicating -- so it must depend only on what the check *asserts*, never on
 presentation (name, description, tags, owner). ``subject_uuid`` here is the id of whichever subject
-FK the check carries (saved query or table); the file format keeps the loose pair so it stays
+FK the check carries (saved query, table, or metric); the file format keeps the loose pair so it stays
 portable.
 """
 
@@ -50,6 +50,24 @@ def to_config_entry(check: dict[str, Any]) -> dict[str, Any]:
 def from_config_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Read a config-file entry back into check fields, filling defaults for anything omitted."""
     return CheckConfigEntry.model_validate(entry).model_dump()
+
+
+# Every field a check can leave unset because it was added after checks existed. A type that carries
+# one dumps it as null, and a null the older row never stored would change its fingerprint.
+_LATE_OPTIONAL_FIELDS = ("lookback_hours", "to_lookback_hours")
+
+
+def canonical_config(parsed: BaseModel) -> dict[str, Any]:
+    """The config as it is stored and hashed.
+
+    An unset lookback window is dropped rather than written as null, so a check authored before the
+    window existed keeps the fingerprint it already has.
+    """
+    canonical = parsed.model_dump(mode="json")
+    for name in _LATE_OPTIONAL_FIELDS:
+        if canonical.get(name) is None:
+            canonical.pop(name, None)
+    return canonical
 
 
 def compute_fingerprint(

@@ -79,6 +79,7 @@ export function DurationFilter({
             }
         >
             <LemonButton
+                data-attr="filters-duration-open"
                 type={type ?? 'secondary'}
                 size={size ?? 'small'}
                 onClick={() => {

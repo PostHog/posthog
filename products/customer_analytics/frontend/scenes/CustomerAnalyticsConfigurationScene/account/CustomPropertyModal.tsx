@@ -36,6 +36,7 @@ import {
     CustomPropertySourceMode,
     CustomPropertyTargetType,
     customPropertyDefinitionsLogic,
+    keyColumnLabel,
 } from './customPropertyDefinitionsLogic'
 import {
     DISPLAY_TYPE_OPTIONS,
@@ -204,7 +205,7 @@ function PersonSourceEditor(): JSX.Element {
             </span>
         ),
     }))
-    const keyColumnLabel = isGroup ? 'group key column' : 'distinct ID column'
+    const keyColumnLabelText = keyColumnLabel(customPropertyForm.targetType)
     // Bulk mapping needs the key column chosen first, since that is what it excludes. Naming the
     // reason in the disabled state keeps a wide table from being mapped with its identifier in it.
     const mapAllDisabledReason = !customPropertyForm.warehouseSource
@@ -212,7 +213,7 @@ function PersonSourceEditor(): JSX.Element {
         : selectedTableColumnsLoading
           ? 'Loading columns'
           : !customPropertyForm.keyColumn?.trim()
-            ? `Choose the ${keyColumnLabel} first`
+            ? `Choose the ${keyColumnLabelText} first`
             : !mappableColumns.length
               ? 'Every column is mapped already'
               : undefined
@@ -408,8 +409,8 @@ function PersonSourceEditor(): JSX.Element {
                     {warningCount > 0 && (
                         <span className="text-warning text-xs">
                             {warningCount === 1
-                                ? '1 mapped property needs a look before you save.'
-                                : `${warningCount} mapped properties need a look before you save.`}
+                                ? '1 mapping needs a look before you save.'
+                                : `${warningCount} mappings need a look before you save.`}
                         </span>
                     )}
                     <div className="flex items-center gap-2">
@@ -427,9 +428,9 @@ function PersonSourceEditor(): JSX.Element {
                         </LemonButton>
                     </div>
                     <span className="text-secondary text-xs">
-                        Mapping every column keeps the warehouse column names. The {keyColumnLabel} is left out, because
-                        its values identify the {entityLabel} rather than describing it. Nothing is saved until you
-                        create the property, so you can edit or remove any row first.
+                        Mapping every column keeps the warehouse column names. The {keyColumnLabelText} is left out,
+                        because its values identify the {entityLabel} rather than describing it. Nothing is saved until
+                        you create the property, so you can edit or remove any row first.
                     </span>
                 </div>
             )}
@@ -530,9 +531,11 @@ export function CustomPropertyModal(): JSX.Element {
         selectedSourceColumns,
         savedQueriesLoading,
         definitionsLoading,
+        editingHasWorkflowReference,
         editingReferences,
         newWorkflowUrlLoading,
         targetTypeLocked,
+        profileMappingDisabledReason,
     } = useValues(customPropertyDefinitionsLogic)
     const {
         closeModal,
@@ -554,7 +557,7 @@ export function CustomPropertyModal(): JSX.Element {
 
     // While a workflow references the property it stays workflow-sourced no matter what is picked
     // here, so the other options are locked until it's removed from the workflow(s).
-    const lockedToWorkflow = editingReferences.length > 0 && !hasExistingSource
+    const lockedToWorkflow = editingHasWorkflowReference && !hasExistingSource
     const sourceModeOptions = SOURCE_MODE_OPTIONS.map((option) =>
         option.value !== 'workflow' && lockedToWorkflow
             ? {
@@ -565,13 +568,6 @@ export function CustomPropertyModal(): JSX.Element {
             : option
     )
 
-    // A new person/group source needs at least one complete column → property pair. The mapping rows
-    // aren't LemonFields, so this gates the submit button rather than showing a per-field error.
-    const missingPersonMapping =
-        isProfileTarget &&
-        !hasExistingSource &&
-        !customPropertyForm.columnMappings.some((mapping) => mapping.column.trim() && mapping.property.trim())
-
     const submitDisabledReason =
         // The select-options gate is account-only — the Type field is hidden for person, where a
         // leftover 'select' from switching targets would otherwise wedge the submit button.
@@ -579,13 +575,12 @@ export function CustomPropertyModal(): JSX.Element {
         customPropertyForm.displayType === 'select' &&
         customPropertyForm.options.length === 0
             ? 'Add at least one option'
-            : missingPersonMapping
-              ? 'Map at least one column to a property'
-              : targetType === 'account' && sourceMode === 'data_warehouse' && noViews
-                ? 'No materialized views are available'
-                : targetType === 'account' && sourceMode === 'workflow' && editingReferences.length === 0
-                  ? 'Create a workflow that updates this property first'
-                  : undefined
+            : (profileMappingDisabledReason ??
+              (targetType === 'account' && sourceMode === 'data_warehouse' && noViews
+                  ? 'No materialized views are available'
+                  : targetType === 'account' && sourceMode === 'workflow' && !editingHasWorkflowReference
+                    ? 'Create a workflow that updates this property first'
+                    : undefined))
 
     return (
         <LemonModal
@@ -775,19 +770,19 @@ export function CustomPropertyModal(): JSX.Element {
                                     </LemonField>
                                 </>
                             ))}
-                        {sourceMode === 'workflow' && (
-                            <div className="flex flex-col gap-2">
-                                <div className="flex items-center justify-between">
-                                    <span className="font-semibold">Workflows updating this property</span>
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconRefresh />}
-                                        tooltip="Refresh"
-                                        onClick={loadDefinitions}
-                                        loading={definitionsLoading}
-                                    />
-                                </div>
-                                {editingReferences.length > 0 ? (
+                        {sourceMode === 'workflow' &&
+                            (editingReferences.length > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-semibold">Workflows updating this property</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            tooltip="Refresh"
+                                            onClick={loadDefinitions}
+                                            loading={definitionsLoading}
+                                        />
+                                    </div>
                                     <div className="flex flex-col gap-1">
                                         {editingReferences.map((reference) => (
                                             <div
@@ -805,24 +800,25 @@ export function CustomPropertyModal(): JSX.Element {
                                             </div>
                                         ))}
                                     </div>
-                                ) : (
-                                    <div className="border rounded p-4 flex flex-col items-center gap-2 text-center">
-                                        <span className="text-secondary">
-                                            No workflows update this property yet. Create one with an "Update account
-                                            property" action that sets this property — the editor opens in a new tab.
-                                            Once you save the workflow there, refresh this list.
-                                        </span>
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={createWorkflowForProperty}
-                                            loading={newWorkflowUrlLoading}
-                                        >
-                                            Create workflow
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                                </div>
+                            ) : editingHasWorkflowReference ? (
+                                <LemonBanner type="warning">You don't have access to view the workflow.</LemonBanner>
+                            ) : (
+                                <div className="border rounded p-4 flex flex-col items-center gap-2 text-center">
+                                    <span className="text-secondary">
+                                        No workflows update this property yet. Create one with an "Update account
+                                        property" action that sets this property — the editor opens in a new tab. Once
+                                        you save the workflow there, refresh this list.
+                                    </span>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={createWorkflowForProperty}
+                                        loading={newWorkflowUrlLoading}
+                                    >
+                                        Create workflow
+                                    </LemonButton>
+                                </div>
+                            ))}
                     </>
                 )}
             </Form>

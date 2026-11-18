@@ -16,17 +16,7 @@
 use std::fmt;
 
 use crate::api::CaptureError;
-
-/// Event names the endpoint accepts. Anything else is a client sending ordinary
-/// analytics to the AI path.
-pub const ALLOWED_AI_EVENTS: [&str; 6] = [
-    "$ai_generation",
-    "$ai_trace",
-    "$ai_span",
-    "$ai_embedding",
-    "$ai_metric",
-    "$ai_feedback",
-];
+use crate::v0_request::AI_LANE_NAME_PREFIX;
 
 /// Which `CaptureError` a rejection becomes, and so which HTTP status the client
 /// sees. Preserved per-condition from before the enum existed.
@@ -81,8 +71,8 @@ pub enum AiRejection {
     EventUuidRequired,
     EventUuidInvalid(String),
 
-    // AI-specific validation
-    EventNameNotAllowed(String),
+    // AI-specific validation.
+    EventNameNotAiPrefixed(String),
     AiModelMissing,
     AiModelNotString,
     AiModelEmpty,
@@ -136,10 +126,8 @@ impl AiRejection {
             Self::EventUuidRequired => "Event UUID is required".to_string(),
             Self::EventUuidInvalid(e) => format!("Invalid UUID format: {e}"),
 
-            Self::EventNameNotAllowed(event_name) => format!(
-                "Event name must be one of: {}, got '{}'",
-                ALLOWED_AI_EVENTS.join(", "),
-                event_name
+            Self::EventNameNotAiPrefixed(event_name) => format!(
+                "Event name must start with '{AI_LANE_NAME_PREFIX}', got '{event_name}'"
             ),
             Self::AiModelMissing => "Event properties must contain '$ai_model'".to_string(),
             Self::AiModelNotString => "$ai_model must be a string".to_string(),
@@ -178,7 +166,7 @@ impl AiRejection {
             | Self::DistinctIdEmpty
             | Self::EventUuidRequired
             | Self::EventUuidInvalid(_)
-            | Self::EventNameNotAllowed(_)
+            | Self::EventNameNotAiPrefixed(_)
             | Self::AiModelMissing
             | Self::AiModelNotString
             | Self::AiModelEmpty => ErrorKind::Parsing,
@@ -291,8 +279,8 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
                 "Invalid UUID format: invalid length",
             ),
             (
-                AiRejection::EventNameNotAllowed("$pageview".to_string()),
-                "Event name must be one of: $ai_generation, $ai_trace, $ai_span, $ai_embedding, $ai_metric, $ai_feedback, got '$pageview'",
+                AiRejection::EventNameNotAiPrefixed("$pageview".to_string()),
+                "Event name must start with '$ai_', got '$pageview'",
             ),
             (
                 AiRejection::AiModelMissing,
@@ -411,7 +399,7 @@ mod tests {
     #[case::missing_event_part(AiRejection::MissingEventPart, 400)]
     #[case::unknown_field(AiRejection::UnknownField("x".to_string()), 400)]
     #[case::event_not_json(AiRejection::EventPartNotJson, 400)]
-    #[case::event_name_not_allowed(AiRejection::EventNameNotAllowed("$pageview".to_string()), 400)]
+    #[case::event_name_not_ai_prefixed(AiRejection::EventNameNotAiPrefixed("$pageview".to_string()), 400)]
     #[case::ai_model_missing(AiRejection::AiModelMissing, 400)]
     #[case::event_part_too_big(AiRejection::EventPartTooBig { size: 1, max: 0 }, 413)]
     #[case::combined_too_big(AiRejection::EventAndPropertiesTooBig { size: 1, max: 0 }, 413)]
@@ -423,7 +411,7 @@ mod tests {
 
     #[test]
     fn message_survives_the_round_trip_through_ai_failure() {
-        let rejection = AiRejection::EventNameNotAllowed("$pageview".to_string());
+        let rejection = AiRejection::EventNameNotAiPrefixed("$pageview".to_string());
         let expected = rejection.message();
 
         let failure: AiFailure = rejection.into();

@@ -12,6 +12,7 @@ import {
   isInboxDetailPath,
   isPullRequestReport,
   isReportTabReport,
+  isRestorableReport,
   matchesReviewerScope,
   partitionRunsTabReports,
   teammateInboxScope,
@@ -36,6 +37,32 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
     ...overrides,
   };
 }
+
+describe("isRestorableReport", () => {
+  it("restores a suppressed report with no refund", () => {
+    expect(isRestorableReport(fakeReport({ status: "suppressed" }))).toBe(true);
+  });
+
+  it("does not restore a suppressed report that was refunded", () => {
+    // The backend `state` action 409s on suppressed → potential for a refunded
+    // report, so Restore would be a dead-end.
+    expect(
+      isRestorableReport(
+        fakeReport({
+          status: "suppressed",
+          refund: { id: "ref-1", reason: "pr_not_useful" },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["resolved", "ready", "deleted"] as const)(
+    "does not restore a %s report",
+    (status) => {
+      expect(isRestorableReport(fakeReport({ status }))).toBe(false);
+    },
+  );
+});
 
 describe("isDismissedReport", () => {
   it.each(["suppressed", "resolved"] as const)(

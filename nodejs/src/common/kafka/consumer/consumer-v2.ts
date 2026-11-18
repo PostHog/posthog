@@ -31,6 +31,7 @@ import {
     consumerBatchSize,
     consumerBatchSizeKb,
     consumerBatchUtilization,
+    consumerBatchUtilizationBytes,
     consumerDrainDuration,
     consumerDrainTimeouts,
     consumerPolls,
@@ -55,6 +56,10 @@ export type KafkaConsumerV2Config = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     fetchBatchSize?: number
+    fetchBatchMaxBytes?: number
+    maxBackgroundTasks?: number
+    backgroundTaskTimeoutMs?: number
+    rebalanceTimeoutMs?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -73,6 +78,8 @@ type RebalanceEvent =
 type TaskEntry = {
     settled: Promise<void>
 }
+
+const valueBytes = (messages: Message[]): number => messages.reduce((acc, m) => acc + (m.value?.length ?? 0), 0)
 
 const partitionKey = (tp: { topic: string; partition: number }): string => `${tp.topic}/${tp.partition}`
 
@@ -103,7 +110,7 @@ export class KafkaConsumerV2 {
 
     // Latched on the first backgroundTask failure: blocks further offset stores and
     // makes the loop exit on the next tick so the pod replays from the last good commit.
-    private fatalError: unknown | undefined
+    private fatalError: Error | undefined
 
     // Optional async hook invoked with the partitions being revoked, after the in-flight
     // drain and while the partitions are still assigned, before the unassign. The drain and
@@ -112,8 +119,14 @@ export class KafkaConsumerV2 {
     // revoke during disconnect — callers flush explicitly before disconnecting.
     private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
+    // Optional hook invoked with the offsets that the auto offset store passed to librdkafka and
+    // librdkafka accepted. It runs in batch order and never for a failed batch or a fenced
+    // partition, so a caller can track how far each partition is durably done.
+    private onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
+
     // Tunables (resolved at construction)
     private fetchBatchSize: number
+    private fetchBatchMaxBytes: number
     private batchTimeoutMs: number
     private maxBackgroundTasks: number
     private backgroundTaskTimeoutMs: number
@@ -138,10 +151,12 @@ export class KafkaConsumerV2 {
             .substring(2, 8)}`
 
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchMaxBytes = config.fetchBatchMaxBytes ?? defaultConfig.CONSUMER_BATCH_SIZE_KB * 1024
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
-        this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
-        this.drainTimeoutMs = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.backgroundTaskTimeoutMs =
+            config.backgroundTaskTimeoutMs ?? defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
+        this.drainTimeoutMs = config.rebalanceTimeoutMs ?? defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
@@ -249,17 +264,27 @@ export class KafkaConsumerV2 {
         return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
+    public hasFailed(): boolean {
+        return this.fatalError !== undefined
+    }
+
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
+        // After a background task failed, an offset stored here could pass the failed batch.
+        if (this.fatalError) {
+            throw new Error('Refusing to store offsets after a background task failed', { cause: this.fatalError })
+        }
         this.rdKafkaConsumer.offsetsStore(offsets)
     }
 
     public async connect(
         eachBatch: EachBatch,
-        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>,
+        onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
     ): Promise<void> {
         this.onPartitionsRevoked = onPartitionsRevoked
+        this.onOffsetsStored = onOffsetsStored
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
             logger.info('📝', 'kafka_consumer_v2_connected', { groupId: this.config.groupId, topic: this.config.topic })
@@ -343,18 +368,56 @@ export class KafkaConsumerV2 {
         } finally {
             // Drain whatever is left before letting the caller's disconnect() return.
             await this.drainAll('shutdown')
+            this.answerPendingRebalances()
+        }
+    }
+
+    /**
+     * Answer rebalance events that were queued but never handled because the loop stopped.
+     * librdkafka blocks disconnect() until the application responds to a pending cooperative
+     * rebalance, so leaving one unanswered hangs shutdown. Nothing polls any more, so an
+     * assignment answered here delivers no messages and is released by the final REVOKE that
+     * disconnect() routes through rebalanceCallback.
+     */
+    private answerPendingRebalances(): void {
+        while (this.rebalanceQueue.length > 0) {
+            const event = this.rebalanceQueue.shift()!
+            if (event.type === 'ERROR') {
+                continue
+            }
+            try {
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    if (event.type === 'ASSIGN') {
+                        this.rdKafkaConsumer.incrementalAssign(event.partitions)
+                    } else {
+                        this.rdKafkaConsumer.incrementalUnassign(event.partitions)
+                    }
+                } else if (event.type === 'ASSIGN') {
+                    this.rdKafkaConsumer.assign(event.partitions)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+            } catch (error) {
+                logger.warn('🔁', 'kafka_consumer_v2_pending_rebalance_answer_failed', {
+                    type: event.type,
+                    error: String(error),
+                })
+            }
         }
     }
 
     private async fetchAndDispatch(eachBatch: EachBatch): Promise<void> {
-        const messages = await retryIfRetriable(() =>
-            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-        )
+        const messages =
+            this.fetchBatchMaxBytes > 0 ? await this.fetchBatchWithinBytes() : await this.consume(this.fetchBatchSize)
 
         consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
-        consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+        const bytes = valueBytes(messages)
+        consumerBatchSizeKb.observe(bytes / 1024)
         consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
+        if (this.fetchBatchMaxBytes > 0) {
+            consumerBatchUtilizationBytes.labels({ groupId: this.config.groupId }).set(bytes / this.fetchBatchMaxBytes)
+        }
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -378,6 +441,36 @@ export class KafkaConsumerV2 {
         const offsets = findOffsetsToCommit(messages)
         this.trackTask(result, offsets)
         await this.applyBackpressure()
+    }
+
+    /** consume(n) fills a batch to n under a backlog whatever the message sizes, so this pulls one at a time. */
+    private async fetchBatchWithinBytes(): Promise<Message[]> {
+        const batch = await this.consume(1)
+        let bytes = valueBytes(batch)
+        // Only the first pull waits, so a lane that is caught up is not delayed once per message.
+        this.rdKafkaConsumer.setDefaultConsumeTimeout(0)
+        try {
+            while (
+                this.running &&
+                batch.length > 0 &&
+                batch.length < this.fetchBatchSize &&
+                bytes < this.fetchBatchMaxBytes
+            ) {
+                const next = await this.consume(1)
+                if (next.length === 0) {
+                    break
+                }
+                batch.push(...next)
+                bytes += valueBytes(next)
+            }
+        } finally {
+            this.rdKafkaConsumer.setDefaultConsumeTimeout(this.batchTimeoutMs)
+        }
+        return batch
+    }
+
+    private consume(count: number): Promise<Message[]> {
+        return retryIfRetriable(() => promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(count, cb)))
     }
 
     private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[]): void {
@@ -408,7 +501,8 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                this.fatalError ??= error
+                this.fatalError ??=
+                    error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
             } finally {
                 stopBackgroundTimer?.()
             }
@@ -625,7 +719,9 @@ export class KafkaConsumerV2 {
                 error: String(error),
                 offsets,
             })
+            return
         }
+        this.onOffsetsStored?.(offsets)
     }
 
     // === Rebalance callback — pure event source, mutates nothing except the queue ===

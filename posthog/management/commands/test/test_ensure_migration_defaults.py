@@ -1,14 +1,28 @@
 import re
 from collections.abc import Iterator
+from io import StringIO
 from typing import Any
 
-from django.test import SimpleTestCase
+from unittest.mock import patch
 
+from django.contrib.auth.models import Group as AuthGroup
+from django.core.management import call_command
+from django.test import SimpleTestCase, TestCase
+
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 
 from posthog.schema import InsightVizNode
 
-from posthog.management.commands.ensure_migration_defaults import _FEATURE_FLAG_TEMPLATE, _PRODUCT_ANALYTICS_TEMPLATE
+from posthog.admin.console.registry import console
+from posthog.management.commands.ensure_migration_defaults import (
+    _FEATURE_FLAG_TEMPLATE,
+    _PRODUCT_ANALYTICS_TEMPLATE,
+    _STREAMLIT_OAUTH_CLIENT_ID,
+)
+from posthog.models.oauth import OAuthApplication
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 _PLACEHOLDER = re.compile(r"^\{([A-Z0-9_]+)\}$")
 
@@ -53,7 +67,7 @@ class TestSeededDashboardTemplates(SimpleTestCase):
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_insight_tile_carries_a_query(self, _label: str, _template: dict[str, Any], tile: dict[str, Any]) -> None:
         assert tile.get("query"), "create_from_template builds insights from `query`, so a tile without one is blank"
-        assert "filters" not in tile, "legacy `filters` is never read; convert with filter_to_query instead"
+        assert "filters" not in tile, "legacy `filters` is never read; author the tile in `query` shape instead"
 
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_insight_tile_query_matches_the_schema(
@@ -68,3 +82,24 @@ class TestSeededDashboardTemplates(SimpleTestCase):
     ) -> None:
         declared = {variable["id"] for variable in template.get("variables", [])}
         assert _placeholders(tile.get("query")) <= declared
+
+
+class TestEnsureMigrationDefaults(TestCase):
+    @parameterized.expand([("with an OIDC key", "-----FAKE KEY-----", True), ("without an OIDC key", "", False)])
+    def test_seeds_every_default_and_creates_the_oauth_app_only_when_rs256_can_sign(
+        self, _label: str, oidc_key: str, expects_oauth_app: bool
+    ) -> None:
+        OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).delete()
+        template_name = _PRODUCT_ANALYTICS_TEMPLATE["template_name"]
+        DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).delete()
+        staff_groups = console.staff_groups()
+        AuthGroup.objects.filter(name__in=staff_groups).delete()
+
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", oidc_key):
+            call_command("ensure_migration_defaults", stdout=StringIO())
+
+        assert staff_groups, "No console owner has a staff group, so the group seed checks nothing."
+        assert set(AuthGroup.objects.filter(name__in=staff_groups).values_list("name", flat=True)) == staff_groups
+        assert OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists() is expects_oauth_app
+        # Seeded after the OAuth app, so its presence proves the command ran to the end.
+        assert DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).exists()

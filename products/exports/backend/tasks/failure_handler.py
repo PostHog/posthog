@@ -1,38 +1,21 @@
 import sys
 from ssl import SSLError
+from typing import TypedDict
 
 from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
-from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
-from posthog.hogql.errors import (
-    QueryError,
-    ResolutionError,
-    SyntaxError as HogQLSyntaxError,
-)
-
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import (
-    CH_TRANSIENT_ERRORS,
-    CHQueryErrorCannotParseUuid,
-    CHQueryErrorIllegalAggregation,
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorInvalidJoinOnExpression,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorNumberOfArgumentsDoesntMatch,
-    CHQueryErrorTooManyBytes,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorUnknownFunction,
-    CHQueryErrorUnknownIdentifier,
-    CHQueryErrorUnknownTable,
-    CHQueryErrorUnsupportedMethod,
-)
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS as COMMON_USER_QUERY_ERRORS
+from posthog.query_creator_access import CreatorLeftOrganizationError
 from posthog.storage.object_storage import ObjectStorageError
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 # =============================================================================
 # Export Failure Classification
@@ -56,6 +39,34 @@ FAILURE_TYPE_RENDERER_UNKNOWN = "renderer_unknown"
 FAILURE_TYPE_OTHER = "other"
 FAILURE_TYPE_UNKNOWN = "unknown"
 
+# Low-cardinality dimensions for SLO events. Keep these stable: they are intended
+# for breakdowns and alerts, unlike exception messages or stack traces.
+SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED = "renderer_rate_limited"
+SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE = "renderer_unavailable"
+SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT = "renderer_timeout"
+SLO_FAILURE_CATEGORY_QUERY = "query"
+SLO_FAILURE_CATEGORY_QUERY_CAPACITY = "query_capacity"
+SLO_FAILURE_CATEGORY_STORAGE = "storage"
+SLO_FAILURE_CATEGORY_TRANSIENT_DEPENDENCY = "transient_dependency"
+SLO_FAILURE_CATEGORY_APPLICATION = "application"
+SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT = "activity_timeout"
+
+SLO_FAILURE_COMPONENT_BROWSERLESS = "browserless"
+SLO_FAILURE_COMPONENT_QUERY = "query"
+SLO_FAILURE_COMPONENT_STORAGE = "object_storage"
+SLO_FAILURE_COMPONENT_DEPENDENCY = "dependency"
+SLO_FAILURE_COMPONENT_EXPORTER = "exporter"
+SLO_FAILURE_COMPONENT_EXPORT_WORKER = "export_worker"
+
+
+class ExportFailureDetails(TypedDict):
+    failure_category: str
+    failure_component: str
+    failure_retryable: bool
+
+
+RATE_LIMIT_MESSAGE_PREFIX_CHARS = 8_000
+
 # Video renders fail with a code from the recording rasterizer rather than a Python exception, so they
 # classify by code (RASTERIZATION_ERROR_CODES in
 # nodejs/src/session-replay/recording-rasterizer/errors.ts). A code absent here classifies as
@@ -73,6 +84,10 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     "DATA_LOAD_FAILED": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_FAILED": FAILURE_TYPE_SYSTEM,
+    "S3_DOWNLOAD_FAILED": FAILURE_TYPE_SYSTEM,
+    "S3_DOWNLOAD_EMPTY": FAILURE_TYPE_SYSTEM,
+    "THUMBNAIL_EXTRACT_FAILED": FAILURE_TYPE_SYSTEM,
+    "THUMBNAIL_EMPTY_OUTPUT": FAILURE_TYPE_SYSTEM,
     "INIT_FAILED": FAILURE_TYPE_SYSTEM,
     "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
     "TARGET_CLOSED": FAILURE_TYPE_SYSTEM,
@@ -98,6 +113,10 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "DATA_LOAD_FAILED": "We could not load this recording's data. Try the export again in a few minutes.",
     "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
     "S3_UPLOAD_FAILED": "The finished video could not be saved. Try the export again.",
+    "S3_DOWNLOAD_FAILED": "The source video could not be read. Try again.",
+    "S3_DOWNLOAD_EMPTY": "The source video is no longer stored. Render it again to create a new one.",
+    "THUMBNAIL_EXTRACT_FAILED": "A still frame could not be taken from the video. Try again.",
+    "THUMBNAIL_EMPTY_OUTPUT": "The video has no frame at that point. Pick an earlier time.",
     "INIT_FAILED": "The video renderer could not start. Try the export again.",
     "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
     "TARGET_CLOSED": "The video renderer stopped before it finished. Try the export again.",
@@ -140,7 +159,11 @@ class ExcelColumnLimitExceeded(Exception):
 class InvalidExportContext(Exception):
     """Raised when an export's export_context lacks a renderable target."""
 
-    pass
+    def __init__(self, message: str, *, reportable: bool = False):
+        super().__init__(message)
+        # Set when PostHog built the context wrong (no target, no handler), not the customer. The SLO
+        # still counts it as a user failure, but error tracking must see it.
+        self.reportable = reportable
 
 
 class RetryableExportError(Exception):
@@ -162,28 +185,11 @@ EXCEPTIONS_TO_RETRY = (
 )
 
 USER_QUERY_ERRORS = (
-    QueryError,
-    HogQLSyntaxError,
-    ValidationError,  # DRF validation of the user's query (e.g. a funnel with fewer than two steps)
-    ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
-    ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorUnknownFunction,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorIllegalAggregation,
-    CHQueryErrorNumberOfArgumentsDoesntMatch,
-    CHQueryErrorUnknownIdentifier,
-    CHQueryErrorTooManyBytes,
-    CHQueryErrorCannotParseUuid,
-    ClickHouseQuerySizeExceeded,
-    CHQueryErrorUnsupportedMethod,
-    ResolutionError,
-    CHQueryErrorInvalidJoinOnExpression,
-    CHQueryErrorUnknownTable,
+    *COMMON_USER_QUERY_ERRORS,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
+    UserAccessControlError,  # The export creator has no access to a resource the query needs
+    CreatorLeftOrganizationError,
 )
 
 TIMEOUT_ERRORS = (
@@ -200,6 +206,14 @@ SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
 # playwright's TimeoutError.__name__ is also "TimeoutError" (aliased on import), so it's already
 # covered here without needing the class itself.
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
+
+# Capacity saturation, not a fault in the query itself: query-scheduling limits and server-wide or
+# per-user memory pressure. posthog.errors.classify_query_error groups the same three as
+# RATE_LIMITED, so keep this set aligned — otherwise a single capacity incident splits across the
+# query and transient_dependency categories instead of aggregating under query_capacity.
+QUERY_CAPACITY_ERROR_NAMES = frozenset(
+    cls.__name__ for cls in (ConcurrencyLimitExceeded, ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded)
+)
 
 
 def _is_playwright_timeout(exception: BaseException) -> bool:
@@ -224,10 +238,12 @@ def classify_failure_type(exception: Exception | str) -> str:
     if isinstance(exception, Exception):
         if isinstance(exception, TIMEOUT_ERRORS) or _is_playwright_timeout(exception):
             return FAILURE_TYPE_TIMEOUT_GENERATION
-        if isinstance(exception, USER_QUERY_ERRORS):
-            return FAILURE_TYPE_USER
+        # Some transient errors subclass a user-query error (a file change mid-read is an
+        # ExposedCHQueryError), so retryable types win, matching the name path below.
         if isinstance(exception, EXCEPTIONS_TO_RETRY):
             return FAILURE_TYPE_SYSTEM
+        if isinstance(exception, USER_QUERY_ERRORS):
+            return FAILURE_TYPE_USER
         return FAILURE_TYPE_UNKNOWN
 
     # Stored exception-class names (historical rows, backfill) only carry the name, so fall back to
@@ -243,7 +259,77 @@ def classify_failure_type(exception: Exception | str) -> str:
     return FAILURE_TYPE_UNKNOWN
 
 
+def is_reportable_export_failure(exception: Exception) -> bool:
+    if isinstance(exception, InvalidExportContext) and exception.reportable:
+        return True
+    return classify_failure_type(exception) != FAILURE_TYPE_USER
+
+
 def is_user_query_error_type(exception_type: str | None) -> bool:
     if exception_type is None:
         return False
     return classify_failure_type(exception_type) == FAILURE_TYPE_USER
+
+
+def export_slo_failure_details(exception: Exception | str) -> ExportFailureDetails:
+    """Return safe, low-cardinality SLO dimensions for an export failure.
+
+    This deliberately does not include the exception message. It is emitted on
+    every failed export/subscription SLO and must be safe to aggregate broadly.
+    """
+
+    exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
+    message = str(exception)[:RATE_LIMIT_MESSAGE_PREFIX_CHARS].lower() if isinstance(exception, Exception) else ""
+
+    if exception_type == BrowserlessUnavailable.__name__:
+        if any(marker in message for marker in ("429", "too many requests", "rate limit", "rate_limited")):
+            return {
+                "failure_category": SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+                "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+                "failure_retryable": True,
+            }
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
+            "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+            "failure_retryable": True,
+        }
+
+    if exception_type in TIMEOUT_ERROR_NAMES:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+            "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+            "failure_retryable": exception_type != ExportCancelled.__name__,
+        }
+
+    if exception_type in QUERY_CAPACITY_ERROR_NAMES:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+            "failure_component": SLO_FAILURE_COMPONENT_QUERY,
+            "failure_retryable": True,
+        }
+
+    if exception_type == ObjectStorageError.__name__ or "s3" in exception_type.lower():
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_STORAGE,
+            "failure_component": SLO_FAILURE_COMPONENT_STORAGE,
+            "failure_retryable": True,
+        }
+
+    failure_type = classify_failure_type(exception)
+    if failure_type == FAILURE_TYPE_USER:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_QUERY,
+            "failure_component": SLO_FAILURE_COMPONENT_QUERY,
+            "failure_retryable": False,
+        }
+    if failure_type == FAILURE_TYPE_SYSTEM:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_TRANSIENT_DEPENDENCY,
+            "failure_component": SLO_FAILURE_COMPONENT_DEPENDENCY,
+            "failure_retryable": True,
+        }
+    return {
+        "failure_category": SLO_FAILURE_CATEGORY_APPLICATION,
+        "failure_component": SLO_FAILURE_COMPONENT_EXPORTER,
+        "failure_retryable": False,
+    }

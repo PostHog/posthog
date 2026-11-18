@@ -21,7 +21,13 @@ export interface RowFilterTarget {
     id?: string
     name?: string
     row_filters?: RowFilter[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** `operators` limits the comparisons a column accepts; without it every operator is offered. */
+    available_columns?: readonly {
+        name: string
+        data_type?: string
+        is_nullable?: boolean
+        operators?: readonly string[]
+    }[]
 }
 
 interface RowFilterEditorProps {
@@ -76,12 +82,26 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
     const categoryFor = (column: string): RowFilterColumnCategory =>
         classifyColumnType(available.find((c) => c.name === column)?.data_type)
 
+    const operatorsFor = (column: string): RowFilterOperator[] => {
+        const allowed = available.find((c) => c.name === column)?.operators
+        return allowed ? ROW_FILTER_OPERATORS.filter((op) => allowed.includes(op)) : ROW_FILTER_OPERATORS
+    }
+
+    const defaultOperatorFor = (column: string): RowFilterOperator => {
+        const operators = operatorsFor(column)
+        return operators.includes(DEFAULT_OPERATOR) ? DEFAULT_OPERATOR : (operators[0] ?? DEFAULT_OPERATOR)
+    }
+
     const addFilter = (): void => {
         const firstColumn = available[0]?.name ?? ''
         const category = categoryFor(firstColumn)
         applyFilters([
             ...filters,
-            { column: firstColumn, operator: DEFAULT_OPERATOR, value: defaultValueForCategory(category) },
+            {
+                column: firstColumn,
+                operator: defaultOperatorFor(firstColumn),
+                value: defaultValueForCategory(category),
+            },
         ])
     }
 
@@ -99,6 +119,9 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                 // On column change, reset the value if the type category changed (don't carry a
                 // date string onto an integer column).
                 if (patch.column && patch.column !== filter.column) {
+                    if (!operatorsFor(patch.column).includes(merged.operator)) {
+                        merged.operator = defaultOperatorFor(patch.column)
+                    }
                     const prevCategory = categoryFor(filter.column)
                     const nextCategory = categoryFor(patch.column)
                     if (prevCategory !== nextCategory) {
@@ -142,7 +165,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                             <LemonSelect
                                 value={filter.operator}
                                 onChange={(value) => patchFilter(index, { operator: value as RowFilterOperator })}
-                                options={ROW_FILTER_OPERATORS.map((op) => ({
+                                options={operatorsFor(filter.column).map((op) => ({
                                     value: op,
                                     label: op,
                                     labelInMenu: rowFilterOperatorLabel(op),

@@ -3,3 +3,5 @@ owners: []
 rules:
     - match: '/*'
       owners: team-devex
+    - match: '/skills/building-product-empty-states/'
+      owners: team-growth

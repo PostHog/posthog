@@ -1,0 +1,77 @@
+{
+    "cluster": 44,
+    "issue": "stamphog_inbox_pr_create_run_failed log omits the error=str(e) structured field its siblings include",
+    "files": ["products/stamphog/backend/tasks/tasks.py:1236", "tasks.py:1149", "tasks.py:1164", "tasks.py:1236"],
+    "august_registry_tally": "1 real of 2 verified",
+    "earlier_members": [
+        {
+            "id": "P22",
+            "verdicts": [
+                {
+                    "source": "July judge-setP.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "products/stamphog/backend/tasks/tasks.py:1236 \u2014 `logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number)` indeed lacks `error=str(e)`, unlike siblings at :1149 (`stamphog_inbox_pr_config_resolution_failed`, has `error=str(e)`) and :1164 (`stamphog_inbox_pr_fetch_failed`, has `error=str(e)`). However all three use `logger.exception`, which logs the exception message and full traceback via exc_info, and the handler re-raises via `.retry(exc=e)` at :1237 identically to the siblings.",
+                    "notes": "The narrow inconsistency exists, but the claimed problem (\"drops the exception detail\") does not: logger.exception captures the message and traceback, so nothing is lost \u2014 only a redundant structured `error` kwarg differs. No behavioral difference, failure is still logged and retried. Pure structured-logging style/consistency; below the review bar."
+                }
+            ]
+        },
+        {
+            "id": "N21",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "tasks.py:1236 \u2014 logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number) omits error=str(e); siblings in the same function include it (tasks.py:1149 stamphog_inbox_pr_config_resolution_failed with error=str(e); tasks.py:1164 stamphog_inbox_pr_fetch_failed with error=str(e)), as do the process_pull_request_event failure paths (e.g. lines 826, 878). Line 1237 re-raises via retry(exc=e), and logger.exception captures the full traceback, so no information is lost \u2014 only the structured error field for log filtering.",
+                    "notes": "Factually accurate but purely a logging-convention consistency nit: the exception message/traceback is already auto-captured by logger.exception and the failure is retried, so nothing is hidden. Adding error=str(e) is a valid one-line improvement for structured-log filterability, not a defect."
+                }
+            ]
+        },
+        {
+            "id": "O22",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "Verified in worktree: products/stamphog/backend/tasks/tasks.py:1236 is `logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number)` with no `error=str(e)`, while siblings at :1149 (`stamphog_inbox_pr_config_resolution_failed`) and :1164 (`stamphog_inbox_pr_fetch_failed`) include it. But `logger.exception` records exc_info (full exception message + traceback) automatically, so no error detail is dropped \u2014 the title's claim is inaccurate. Line 1237 also re-raises via Celery retry, so the failure is fully surfaced. The :1161 `logger.warning` rate-limit path likewise omits `error=`, so the field isn't even a uniform in-function convention.",
+                    "notes": "The field omission exists as described, but the claimed consequence (lost error detail) is false \u2014 logger.exception captures everything via traceback. Adding `error=str(e)` would be a one-word cosmetic consistency tweak for structured-field filtering, purely stylistic, below the defect bar."
+                }
+            ]
+        }
+    ],
+    "this_experiment_findings": [
+        {
+            "id": "GC11",
+            "run": "glm-high-1bc",
+            "title": "Run-creation failure log drops the exception message the sibling handlers include",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": "1235-1237",
+            "priority": "consider",
+            "problem": "`stamphog_inbox_pr_create_run_failed` logs via `logger.exception` with `repository` and `pr_number` but no `error=str(e)`, while every comparable handler in this module (`stamphog_pr_event_create_run_failed`, `stamphog_pr_event_config_resolution_failed`, `stamphog_inbox_pr_fetch_failed`, ...) includes the error string. The exception body still lands in the trace via `logger.exception`, so this is a consistency gap rather than lost signal, but it makes the new event harder to alert on uniformly.",
+            "suggestion": "Add `error=str(e)` to the log call to match the module's existing convention.",
+            "match_reason": "Same claim and anchor (tasks.py:1236): stamphog_inbox_pr_create_run_failed omits error=str(e) that sibling handlers include.",
+            "fresh_votes": [
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "In /Users/woutut/.worktrees/posthog/frozen-75215/products/stamphog/backend/tasks/tasks.py:1235-1237, the `except Exception as e` block calls `logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number)` and then `raise ... retry(exc=e)`. The claimed difference is real. Sibling handlers pass `error=str(e)`, for example at lines 1089 (`stamphog_pr_event_create_run_failed`), 1149 (`stamphog_inbox_pr_config_resolution_failed`) and 1164 (`stamphog_inbox_pr_fetch_failed`). This one handler leaves it out.",
+                    "refutation": "This is a style and consistency point, not a defect. `logger.exception` already records the full traceback and the exception message, and the finding admits that nothing is lost (\"a consistency gap rather than lost signal\"). The event name `stamphog_inbox_pr_create_run_failed` is unique, so an alert can match on it without an `error` field. After the log, the task re-raises through `retry(exc=e)`, so Celery also records the exception. No user-facing behavior, data or alerting breaks. The rubric treats a style preference as not a real finding."
+                },
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "In products/stamphog/backend/tasks/tasks.py:1236, `logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number)` does leave out `error=str(e)`. Its siblings include it: line 826 (merged_pr_record_failed), line 1089 (pr_event_create_run_failed), line 1149 (inbox_pr_config_resolution_failed) and line 1164 (inbox_pr_fetch_failed). So the inconsistency the finding describes is real.",
+                    "refutation": "This is a style and consistency point, not a defect. `logger.exception` already records the full traceback and the exception message, as the finding itself admits. Line 1237 then re-raises through `process_inbox_pr_review.retry(exc=e)`, so Celery also records the error. No diagnostic information is lost, and no behavior is wrong. The claim that the missing field makes alerting harder is speculative: the event name alone identifies the failure. By the rubric, a style preference or a duplicated safeguard does not count as a real finding."
+                },
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "The consistency gap is real. At products/stamphog/backend/tasks/tasks.py:1236 the call is `logger.exception(\"stamphog_inbox_pr_create_run_failed\", repository=repository, pr_number=pr_number)` with no `error=str(e)`. Every other `logger.exception` in the module passes `error=str(e)`: lines 751, 802, 826, 862, 878, 901, 920, 933, 953, 976, 985, 1004, 1084, 1089, 1149 and 1164. That includes the sibling handlers `stamphog_pr_event_create_run_failed` (1089), `stamphog_inbox_pr_config_resolution_failed` (1149) and `stamphog_inbox_pr_fetch_failed` (1164).",
+                    "refutation": "The finding is a style and consistency point, not a defect. The trigger can happen in production: any exception inside the create-run transaction at lines ~1195-1234 reaches this handler. But nothing breaks when it does. `logger.exception` records the full traceback, including the exception type and message. The task then re-raises through `process_inbox_pr_review.retry(exc=e)` at line 1237, so Celery keeps the exception too. No diagnostic information is lost, and the finding says so itself (\"a consistency gap rather than lost signal\"). The only effect it names is that alerting on a missing `error` field is less uniform. I found nothing in the repo that alerts on that field, so this is a style preference and is not real by the rubric."
+                }
+            ]
+        }
+    ]
+}

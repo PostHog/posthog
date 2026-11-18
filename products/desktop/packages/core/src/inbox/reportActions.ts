@@ -1,15 +1,35 @@
 import { buildDiscussReportPrompt as buildSharedDiscussReportPrompt } from "@posthog/shared";
 import { buildInboxDeeplink } from "@posthog/shared/deeplink";
-import type { SignalReport } from "@posthog/shared/types";
+import type {
+  SignalReport,
+  SignalReportClaimUser,
+} from "@posthog/shared/types";
 
 /**
  * Should the Create PR action be offered on this report?
  *
  * Mirrors the server-side autostart rules: only when the report is ready and
  * actually actionable, or when it's blocked on user input the user can supply.
- * Hidden once an implementation PR exists or the issue is already fixed.
+ * Hidden while linked task state is unknown, implementation work is live, an
+ * implementation PR is open, or the issue is already fixed.
  */
-export function canCreateImplementationPr(report: SignalReport): boolean {
+export function canCreateImplementationPr(
+  report: SignalReport,
+  context: {
+    hasLiveImplementationTask?: boolean;
+    isTaskLookupPending?: boolean;
+  } = {},
+): boolean {
+  if (report.is_self_improvement_report && !report.repo_slug) {
+    return false;
+  }
+  if (
+    context.hasLiveImplementationTask ||
+    context.isTaskLookupPending ||
+    report.implementation_in_flight
+  ) {
+    return false;
+  }
   // A merged PR doesn't block: a report that outlived its fix (evidence kept
   // arriving) legitimately gets another attempt.
   if (report.implementation_pr_url && !report.implementation_pr_merged) {
@@ -24,6 +44,68 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     );
   }
   return false;
+}
+
+export type ImplementationClaimStep =
+  | { kind: "start" }
+  | { kind: "confirm_own_agent" }
+  | {
+      kind: "take_over";
+      holder: SignalReportClaimUser;
+      claimId: string | null;
+      viaAgent: boolean;
+    }
+  | { kind: "blocked"; reason: string };
+
+/**
+ * What Create PR must do about the report's claim before it starts a run.
+ * Mirrors the server: only a run in flight blocks, the user's own claim and a
+ * task's claim do not, and a teammate's claim has to be taken over first. The
+ * user's own agent may already be opening a PR, so that case asks first.
+ */
+export function implementationClaimStep(
+  report: Pick<SignalReport, "assignee" | "implementation_in_flight">,
+  currentUserUuid: string | null | undefined,
+): ImplementationClaimStep {
+  if (report.implementation_in_flight) {
+    return {
+      kind: "blocked",
+      reason: "A pull request run is already in progress for this report.",
+    };
+  }
+  const assignee = report.assignee;
+  if (!assignee || assignee.kind === "task" || assignee.kind === "system") {
+    return { kind: "start" };
+  }
+  const holder =
+    assignee.kind === "agent"
+      ? (assignee.responsible_user ?? assignee.user ?? null)
+      : (assignee.user ?? null);
+  if (!holder) {
+    return {
+      kind: "blocked",
+      reason: "Someone else is working on this report.",
+    };
+  }
+  if (holder.uuid !== currentUserUuid) {
+    return {
+      kind: "take_over",
+      holder,
+      claimId: assignee.claim_id ?? null,
+      viaAgent: assignee.kind === "agent",
+    };
+  }
+  return assignee.kind === "agent"
+    ? { kind: "confirm_own_agent" }
+    : { kind: "start" };
+}
+
+export function claimHolderName(holder: SignalReportClaimUser): string {
+  const name = [holder.first_name, holder.last_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" ");
+  return name || holder.email || "A teammate";
 }
 
 interface BuildCreatePrReportPromptOptions {

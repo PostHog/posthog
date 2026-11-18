@@ -6,6 +6,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { tryJsonParse } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
@@ -14,23 +15,30 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { MetricsQueryLanguage, NodeKind } from '~/queries/schema/schema-general'
 import { UniversalFiltersGroup } from '~/types'
 
-import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
+import { MetricQueryIntervalEnumApi, OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import {
-    DEFAULT_AGGREGATION,
     DEFAULT_DATE_FROM,
-    METRIC_AGGREGATIONS,
+    MAX_CLAUSES,
     MetricAggregation,
+    MetricRangeFunction,
+    MetricsViewerClause,
+    createViewerClause,
+    isMetricAggregation,
+    isMetricRangeFunction,
     metricsViewerLogic,
+    sanitizeFormulaInput,
+    splitLegacyAggregation,
     toKnownMetricType,
 } from './components/metricsViewerLogic'
 
 export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 
-export type MetricsSceneActiveTab = 'overview' | 'viewer' | 'sql' | 'fundamentals'
-const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer', 'sql', 'fundamentals']
+export type MetricsSceneActiveTab = 'overview' | 'viewer' | 'sql' | 'alerts'
+const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer', 'sql', 'alerts']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'overview'
 
 // kea-router pre-parses JSON-looking params, so anything a user types into the URL can reach
@@ -46,23 +54,142 @@ const isValidFilterGroup = (group: any): group is UniversalFiltersGroup =>
     group.values.length > 0 &&
     group.values.every(isValidInnerGroup)
 
+// Legacy single-clause params, written for one plain clause so old links stay short
+// and other products' link builders (metricsLinks.ts) keep working unchanged.
+const LEGACY_VIEWER_PARAMS = [
+    'metricName',
+    'metricType',
+    'rangeFunction',
+    'aggregation',
+    'groupBy',
+    'filterGroup',
+] as const
+// PromQL and SQL queries are written as `language` plus the query text in `query`.
+const TEXT_LANGUAGES: MetricsQueryLanguage[] = ['promql', 'sql']
+
+const isMetricQueryInterval = (value: unknown): value is MetricQueryIntervalEnumApi =>
+    typeof value === 'string' && (Object.values(MetricQueryIntervalEnumApi) as string[]).includes(value)
+
+// A clause's alias must satisfy the backend's identifier rules (formulas reference it).
+const CLAUSE_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
+
+// The URL codec's clause shape: only the fields a link needs — no active index,
+// defaults omitted. Parse and serialize both speak this type, so a
+// field added to one direction fails to compile until the other carries it too.
+interface UrlViewerClause {
+    name: string
+    metricName: string
+    rangeFunction?: MetricRangeFunction
+    aggregation?: MetricAggregation
+    metricType?: OtelMetricTypeEnumApi
+    groupBy?: string[]
+    filterGroup?: UniversalFiltersGroup
+}
+
+const serializeViewerClause = (clause: MetricsViewerClause): UrlViewerClause => ({
+    name: clause.name,
+    metricName: clause.metricName.trim(),
+    ...(clause.rangeFunction ? { rangeFunction: clause.rangeFunction } : {}),
+    ...(clause.aggregation ? { aggregation: clause.aggregation } : {}),
+    ...(clause.selectedMetricType ? { metricType: clause.selectedMetricType } : {}),
+    ...(clause.groupByKeys.length ? { groupBy: clause.groupByKeys } : {}),
+    ...(objectsEqual(clause.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER) ? {} : { filterGroup: clause.filterGroup }),
+})
+
+// The `clauses` param is attacker-controlled JSON (kea-router pre-parses it), so every
+// field is validated before it can reach the viewer; any invalid entry rejects the whole
+// param, mirroring how a malformed legacy filterGroup is ignored.
+const parseClausesParam = (raw: unknown): MetricsViewerClause[] | null => {
+    // The Array.isArray check below rejects tryJsonParse's undefined fallback.
+    const parsed = typeof raw === 'string' ? tryJsonParse(raw) : raw
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > MAX_CLAUSES) {
+        return null
+    }
+    const seenNames = new Set<string>()
+    const clauses: MetricsViewerClause[] = []
+    for (const item of parsed) {
+        if (typeof item !== 'object' || item === null) {
+            return null
+        }
+        const name = typeof item.name === 'string' && CLAUSE_NAME_PATTERN.test(item.name) ? item.name : null
+        const metricName = typeof item.metricName === 'string' ? item.metricName : ''
+        if (!name || seenNames.has(name) || !metricName.trim()) {
+            return null
+        }
+        seenNames.add(name)
+        if (
+            item.aggregation != null &&
+            !isMetricAggregation(item.aggregation) &&
+            !isMetricRangeFunction(item.aggregation)
+        ) {
+            return null
+        }
+        if (item.rangeFunction != null && !isMetricRangeFunction(item.rangeFunction)) {
+            return null
+        }
+        const legacy = splitLegacyAggregation(item.aggregation)
+        const aggregation = legacy.aggregation
+        // A split needs an aggregation to combine each group's series.
+        const groupByKeys =
+            aggregation && Array.isArray(item.groupBy) && item.groupBy.every((key: unknown) => typeof key === 'string')
+                ? (item.groupBy as string[])
+                : []
+        clauses.push({
+            name,
+            metricName,
+            selectedMetricType: toKnownMetricType(typeof item.metricType === 'string' ? item.metricType : undefined),
+            rangeFunction: item.rangeFunction ?? legacy.rangeFunction,
+            aggregation,
+            filterGroup: isValidFilterGroup(item.filterGroup) ? item.filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+            groupByKeys,
+        })
+    }
+    return clauses
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface metricsSceneLogicValues {
-    aggregation: MetricAggregation // metricsViewerLogic
+    aggregation: MetricAggregation | null // metricsViewerLogic
     dateFrom: string | null // metricsViewerLogic
     dateTo: string | null // metricsViewerLogic
     filterGroup: UniversalFiltersGroup // metricsViewerLogic
+    formula: string // metricsViewerLogic
     groupByKeys: string[] // metricsViewerLogic
+    interval: string | null // metricsViewerLogic
+    language: MetricsQueryLanguage // metricsViewerLogic
     metricName: string // metricsViewerLogic
+    namedClauses: MetricsViewerClause[] // metricsViewerLogic
+    queryText: string // metricsViewerLogic
+    rangeFunction: MetricRangeFunction | null // metricsViewerLogic
     selectedMetricType: OtelMetricTypeEnumApi | null // metricsViewerLogic
+    viewerClauses: MetricsViewerClause[] // metricsViewerLogic
     activeTab: MetricsSceneActiveTab
     isRestoringFromUrl: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface metricsSceneLogicActions {
-    setAggregation: (aggregation: MetricAggregation) => {
-        aggregation: MetricAggregation
+    applyQuery: (query: import('~/queries/schema').MetricsQuery) => {
+        query: import('~/queries/schema').MetricsQuery
+    } // metricsViewerLogic
+    backfillClauses: (updates: import('./components/metricsViewerLogic').MetricsViewerClauseBackfill[]) => {
+        updates: import('./components/metricsViewerLogic').MetricsViewerClauseBackfill[]
+    } // metricsViewerLogic
+    duplicateClause: (index: number) => {
+        index: number
+    } // metricsViewerLogic
+    removeClause: (index: number) => {
+        index: number
+    } // metricsViewerLogic
+    setAggregation: (aggregation: MetricAggregation | null) => {
+        aggregation: MetricAggregation | null
+    } // metricsViewerLogic
+    setClauses: (
+        clauses: MetricsViewerClause[],
+        formula: string
+    ) => {
+        clauses: MetricsViewerClause[]
+        formula: string
     } // metricsViewerLogic
     setDateFrom: (dateFrom: string | null) => {
         dateFrom: string | null
@@ -73,20 +200,32 @@ export interface metricsSceneLogicActions {
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
     } // metricsViewerLogic
+    setFormula: (formula: string) => {
+        formula: string
+    } // metricsViewerLogic
     setGroupByKeys: (groupByKeys: string[]) => {
         groupByKeys: string[]
+    } // metricsViewerLogic
+    setInterval: (interval: string | null) => {
+        interval: string | null
     } // metricsViewerLogic
     setMetricName: (metricName: string) => {
         metricName: string
     } // metricsViewerLogic
-    setRecommendedAggregation: (aggregation: MetricAggregation) => {
-        aggregation: MetricAggregation
+    setQueryText: (queryText: string) => {
+        queryText: string
+    } // metricsViewerLogic
+    setRangeFunction: (rangeFunction: MetricRangeFunction | null) => {
+        rangeFunction: MetricRangeFunction | null
     } // metricsViewerLogic
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     } // metricsViewerLogic
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
+    }
+    openViewerForDerivedSeries: () => {
+        value: true
     }
     setActiveTab: (activeTab: MetricsSceneActiveTab) => {
         activeTab: MetricsSceneActiveTab
@@ -106,7 +245,22 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
     connect(() => ({
         values: [
             metricsViewerLogic,
-            ['metricName', 'selectedMetricType', 'aggregation', 'dateFrom', 'dateTo', 'groupByKeys', 'filterGroup'],
+            [
+                'metricName',
+                'selectedMetricType',
+                'aggregation',
+                'rangeFunction',
+                'dateFrom',
+                'dateTo',
+                'interval',
+                'groupByKeys',
+                'filterGroup',
+                'viewerClauses',
+                'namedClauses',
+                'formula',
+                'language',
+                'queryText',
+            ],
         ],
         actions: [
             metricsViewerLogic,
@@ -114,16 +268,26 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 'setMetricName',
                 'setSelectedMetricType',
                 'setAggregation',
-                'setRecommendedAggregation',
+                'setRangeFunction',
                 'setDateFrom',
                 'setDateTo',
+                'setInterval',
                 'setGroupByKeys',
                 'setFilterGroup',
+                'setClauses',
+                'setFormula',
+                'removeClause',
+                'duplicateClause',
+                'backfillClauses',
+                'applyQuery',
+                'setQueryText',
             ],
         ],
     })),
     actions({
         setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
+        // The setup check found derived series but no ingested metrics.
+        openViewerForDerivedSeries: true,
         setRestoringFromUrl: (restoring: boolean) => ({ restoring }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -133,7 +297,13 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         // can tell a restore from the user touching a control.
         isRestoringFromUrl: [false, { setRestoringFromUrl: (_, { restoring }) => restoring }],
     }),
-    listeners(({ cache }) => ({
+    listeners(({ actions, values, cache }) => ({
+        openViewerForDerivedSeries: () => {
+            // A link to a tab wins, so only a bare /metrics visit switches.
+            if (!router.values.searchParams.activeTab && values.activeTab === DEFAULT_ACTIVE_TAB) {
+                actions.setActiveTab('viewer')
+            }
+        },
         keepSqlEditorMounted: ({ editorTabId }) => {
             if (cache.sqlEditorTabId === editorTabId) {
                 return
@@ -163,30 +333,86 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 ) {
                     actions.setActiveTab(requested as MetricsSceneActiveTab)
                 }
-                // metricName first: its listener latches the metric type and a recommended
-                // aggregation, which the explicit URL params below then override.
-                const metricName = params.metricName != null ? String(params.metricName) : ''
-                if (metricName !== values.metricName) {
-                    actions.setMetricName(metricName)
+                const textLanguage = TEXT_LANGUAGES.find((language) => language === params.language)
+                if (!textLanguage && values.language !== 'builder') {
+                    // A builder link leaves PromQL or SQL; the clause params below then fill the builder.
+                    actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [] })
                 }
-                const metricType = toKnownMetricType(
-                    typeof params.metricType === 'string' ? params.metricType : undefined
-                )
-                if (metricType && metricType !== values.selectedMetricType) {
-                    actions.setSelectedMetricType(metricType)
-                }
-                const aggregation =
-                    typeof params.aggregation === 'string' &&
-                    METRIC_AGGREGATIONS.includes(params.aggregation as MetricAggregation)
-                        ? (params.aggregation as MetricAggregation)
-                        : null
-                if (aggregation && aggregation !== values.aggregation) {
-                    actions.setAggregation(aggregation)
-                } else if (!aggregation && !metricName && values.aggregation !== DEFAULT_AGGREGATION) {
-                    // A bare URL resets to the clean-slate default. With a metric but no
-                    // aggregation param (a hand-written link), the recommended aggregation
-                    // latched by setMetricName stays.
-                    actions.setAggregation(DEFAULT_AGGREGATION)
+                if (textLanguage) {
+                    // The text query is the whole query, so the builder params do not apply.
+                    const queryText = typeof params.query === 'string' ? params.query : ''
+                    if (textLanguage !== values.language || queryText !== values.queryText) {
+                        actions.applyQuery({
+                            kind: NodeKind.MetricsQuery,
+                            clauses: [],
+                            language: textLanguage,
+                            [textLanguage]: queryText,
+                        })
+                    }
+                } else if (params.clauses) {
+                    // A present-but-invalid clauses param is ignored outright, like a malformed
+                    // filterGroup — falling through to the legacy branch would collapse the
+                    // multi-series state on screen.
+                    const parsedClauses = parseClausesParam(params.clauses)
+                    if (parsedClauses) {
+                        const formula = typeof params.formula === 'string' ? sanitizeFormulaInput(params.formula) : ''
+                        if (
+                            formula !== values.formula ||
+                            !objectsEqual(
+                                parsedClauses.map(serializeViewerClause),
+                                values.namedClauses.map(serializeViewerClause)
+                            )
+                        ) {
+                            actions.setClauses(parsedClauses, formula)
+                        }
+                    }
+                } else {
+                    // A legacy (single-clause) link means "show this one metric": collapse
+                    // any multi-clause state first, so the appliers below land on clause 'a'.
+                    if (values.viewerClauses.length > 1) {
+                        actions.setClauses([createViewerClause('a')], '')
+                    } else if (values.formula) {
+                        actions.setFormula('')
+                    }
+                    // metricName first: its listener latches the metric type.
+                    const metricName = params.metricName != null ? String(params.metricName) : ''
+                    if (metricName !== values.metricName) {
+                        actions.setMetricName(metricName)
+                    }
+                    const metricType = toKnownMetricType(
+                        typeof params.metricType === 'string' ? params.metricType : undefined
+                    )
+                    if (metricType && metricType !== values.selectedMetricType) {
+                        actions.setSelectedMetricType(metricType)
+                    }
+                    // Links written before range functions carry `rate` or `increase` as the aggregation.
+                    const legacy = splitLegacyAggregation(params.aggregation)
+                    const rangeFunction = isMetricRangeFunction(params.rangeFunction)
+                        ? params.rangeFunction
+                        : legacy.rangeFunction
+                    if (rangeFunction !== values.rangeFunction) {
+                        actions.setRangeFunction(rangeFunction)
+                    }
+                    const aggregation = legacy.aggregation
+                    if (aggregation !== values.aggregation) {
+                        actions.setAggregation(aggregation)
+                    }
+                    const groupByKeys = aggregation ? (parseTagsFilter(params.groupBy) ?? []) : []
+                    if (!objectsEqual(groupByKeys, values.groupByKeys)) {
+                        actions.setGroupByKeys(groupByKeys)
+                    }
+                    if (params.filterGroup) {
+                        // Malformed filterGroup JSON parses to undefined and fails validation.
+                        const filterGroup =
+                            typeof params.filterGroup === 'string'
+                                ? tryJsonParse(params.filterGroup)
+                                : params.filterGroup
+                        if (isValidFilterGroup(filterGroup) && !objectsEqual(filterGroup, values.filterGroup)) {
+                            actions.setFilterGroup(filterGroup)
+                        }
+                    } else if (!objectsEqual(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filterGroup)) {
+                        actions.setFilterGroup(DEFAULT_UNIVERSAL_GROUP_FILTER)
+                    }
                 }
                 const dateFrom =
                     typeof params.dateFrom === 'string' && params.dateFrom ? params.dateFrom : DEFAULT_DATE_FROM
@@ -197,22 +423,9 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 if (dateTo !== values.dateTo) {
                     actions.setDateTo(dateTo)
                 }
-                const groupByKeys = parseTagsFilter(params.groupBy) ?? []
-                if (!objectsEqual(groupByKeys, values.groupByKeys)) {
-                    actions.setGroupByKeys(groupByKeys)
-                }
-                if (params.filterGroup) {
-                    try {
-                        const filterGroup =
-                            typeof params.filterGroup === 'string' ? JSON.parse(params.filterGroup) : params.filterGroup
-                        if (isValidFilterGroup(filterGroup) && !objectsEqual(filterGroup, values.filterGroup)) {
-                            actions.setFilterGroup(filterGroup)
-                        }
-                    } catch {
-                        // Ignore malformed filterGroup JSON in the URL
-                    }
-                } else if (!objectsEqual(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filterGroup)) {
-                    actions.setFilterGroup(DEFAULT_UNIVERSAL_GROUP_FILTER)
+                const interval = isMetricQueryInterval(params.interval) ? params.interval : null
+                if (interval !== values.interval) {
+                    actions.setInterval(interval)
                 }
             } finally {
                 actions.setRestoringFromUrl(false)
@@ -232,20 +445,54 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             cache.isSyncingUrl = true
             const result = syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
-                updateSearchParams(params, 'metricName', values.metricName, '')
-                updateSearchParams(params, 'metricType', values.selectedMetricType, null)
-                if (values.metricName) {
-                    // Never dropped while a metric is picked: 'sum' is both the default and a
-                    // valid explicit choice, so a link that omitted it would restore with the
-                    // metric type's recommended aggregation instead of the one on screen.
-                    params.aggregation = values.aggregation
+                // A blank just-added row is unsaved work in progress, not link state.
+                const namedClauses = values.namedClauses
+                const useClausesEncoding = namedClauses.length > 1 || (!!values.formula && namedClauses.length > 0)
+                if (values.language !== 'builder') {
+                    params.language = values.language
+                    params.query = values.queryText
+                    delete params.clauses
+                    delete params.formula
+                    for (const legacyParam of LEGACY_VIEWER_PARAMS) {
+                        delete params[legacyParam]
+                    }
+                } else if (useClausesEncoding) {
+                    delete params.language
+                    delete params.query
+                    // The two encodings must never disagree, so whichever one is written
+                    // deletes the other's params.
+                    params.clauses = namedClauses.map(serializeViewerClause)
+                    updateSearchParams(params, 'formula', values.formula, '')
+                    for (const legacyParam of LEGACY_VIEWER_PARAMS) {
+                        delete params[legacyParam]
+                    }
                 } else {
-                    delete params.aggregation
+                    delete params.language
+                    delete params.query
+                    delete params.clauses
+                    delete params.formula
+                    // Serialize the named clause, not the focused one — with a blank just-added
+                    // row focused, the active clause is empty while the chart still shows the
+                    // named one, and writing the blank would drop the metric from the link.
+                    // A lone unnamed clause still writes its filters, as the single-series
+                    // viewer always did.
+                    const clause =
+                        values.namedClauses[0] ?? (values.viewerClauses.length === 1 ? values.viewerClauses[0] : null)
+                    updateSearchParams(params, 'metricName', clause?.metricName.trim() ?? '', '')
+                    updateSearchParams(params, 'metricType', clause?.selectedMetricType ?? null, null)
+                    updateSearchParams(params, 'rangeFunction', clause?.rangeFunction ?? null, null)
+                    updateSearchParams(params, 'aggregation', clause?.aggregation ?? null, null)
+                    updateSearchParams(params, 'groupBy', clause?.groupByKeys ?? [], [] as string[])
+                    updateSearchParams(
+                        params,
+                        'filterGroup',
+                        clause?.filterGroup ?? DEFAULT_UNIVERSAL_GROUP_FILTER,
+                        DEFAULT_UNIVERSAL_GROUP_FILTER
+                    )
                 }
                 updateSearchParams(params, 'dateFrom', values.dateFrom, DEFAULT_DATE_FROM)
                 updateSearchParams(params, 'dateTo', values.dateTo, null)
-                updateSearchParams(params, 'groupBy', values.groupByKeys, [] as string[])
-                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
+                updateSearchParams(params, 'interval', values.interval, null)
                 return params
             })
             queueMicrotask(() => {
@@ -258,11 +505,19 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             setMetricName: () => syncUrl(),
             setSelectedMetricType: () => syncUrl(),
             setAggregation: () => syncUrl(),
-            setRecommendedAggregation: () => syncUrl(),
+            setRangeFunction: () => syncUrl(),
             setDateFrom: () => syncUrl(),
             setDateTo: () => syncUrl(),
+            setInterval: () => syncUrl(),
             setGroupByKeys: () => syncUrl(),
             setFilterGroup: () => syncUrl(),
+            setClauses: () => syncUrl(),
+            setFormula: () => syncUrl(),
+            removeClause: () => syncUrl(),
+            duplicateClause: () => syncUrl(),
+            backfillClauses: () => syncUrl(),
+            applyQuery: () => syncUrl(),
+            setQueryText: () => syncUrl(),
         }
     }),
 ])

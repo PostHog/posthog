@@ -1,26 +1,24 @@
+import type { WorkflowHealthItemApi } from '../generated/api.schemas'
 import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
-/** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
 export interface HealthRun {
     conclusion: string | null
     startedAt: string | null
     durationSeconds: number | null
-    /** Re-run attempt (1 for the first); a 2nd+ attempt is a re-run. */
+    /** 1 for the first attempt. A higher attempt is a re-run. */
     runAttempt?: number | null
 }
 
-/** Billable minutes + estimated cost rolled up across the window; null fields when jobs aren't synced. */
+/** The fields are null when jobs aren't synced. */
 export interface CostSummary {
     billableMinutes: number | null
     estimatedCostUsd: number | null
 }
 
-/** A single run's cost rolled up from its jobs, plus the count of billable jobs still in flight. */
 export interface RunCostSummary extends CostSummary {
     unsettledJobs: number
 }
 
-/** Minimal job shape the run-cost roll-up needs; WorkflowJobApi satisfies it. */
 export interface CostableJob {
     runner_provider: string
     duration_seconds: number | null
@@ -29,77 +27,64 @@ export interface CostableJob {
 
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
+/** Every field must be answerable from both the server's window figures and a page of runs. */
 export interface HealthSummary {
     state: WorkflowState
     totalRuns: number
-    completedRuns: number
+    conclusiveRuns: number
     passedRuns: number
     failures: number
-    running: number
-    /** Runs that were a 2nd+ attempt. */
     reruns: number
-    /** Passes ÷ completed runs (null when nothing has settled). */
+    /** Passes divided by conclusive runs. Null when no run reached a verdict. */
     passRate: number | null
     medianSeconds: number | null
     p95Seconds: number | null
-    lastFailureAt: string | null
-    latestConclusion: string | null
 }
 
-// At or above this decisive-failure rate a workflow whose latest run still passed reads as "degraded".
-// Keyed off failures, not pass rate, so cancellations (neither pass nor failure) don't drag the verdict.
+// At or above this decisive-failure rate a workflow whose latest run passed reads as degraded.
+// The rate counts failures and not passes, so a cancellation does not move the verdict.
 const DEGRADED_FAILURE_RATE = 0.1
 // Below this success rate a currently-green workflow counts as flaky in the fleet rollup.
 const FLAKY_SUCCESS_RATE = 0.9
 
-// One workflow's row, reduced to what the fleet rollup needs.
 export interface FleetRow {
     runCount: number
     successRate: number | null
-    /** Workflow name — lets the fleet verdict name what's failing rather than restate the count. */
     workflowName?: string
-    /** Most recent completed run failed; null when nothing has completed for that workflow. */
+    /** Null when nothing has completed for that workflow. */
     latestRunFailed: boolean | null
-    /** Last decisive failure in the window, or null if there was none — so a low success rate driven by
-     *  skips/cancels (not failures) isn't mistaken for flakiness. */
     lastFailureAt?: string | null
     billableMinutes?: number | null
     estimatedCostUsd?: number | null
-    /** Per-bucket completed/success counts — the weights behind the fleet-wide pass rate. */
-    buckets?: { completed: number; successes: number }[]
-    /** Runs in the window that were a 2nd+ attempt. */
+    /** Per-bucket outcome counts that weight the fleet-wide pass rate. */
+    buckets?: { successes: number; failures: number }[]
     rerunCycles?: number
 }
 
 export interface FleetSummary {
     state: WorkflowState
     workflowCount: number
-    /** Workflows whose latest run has settled (so they're either green or red right now). */
+    /** Workflows whose latest run has settled. */
     settledWorkflows: number
     failingNow: number
-    /** Names of the currently-failing workflows (what the verdict subline names). */
     failingWorkflowNames: string[]
-    /** Currently green but below the success-rate floor — flaky. */
+    /** Currently green but below the success-rate floor. */
     flakyNow: number
     totalRuns: number
-    /** Passes ÷ completed runs across every row's buckets; null when nothing has completed. */
+    /** Passes divided by conclusive runs across every row's buckets. Null when none reached a verdict. */
     passRate: number | null
-    /** Re-runs (attempt > 1) summed across workflows. */
     rerunCycles: number
     billableMinutes: number | null
     estimatedCostUsd: number | null
 }
 
 // A completed run that settled in under this many seconds did no real CI work. The common shape is a
-// gate job deciding the rest of the workflow should be skipped (path filters, eligibility checks): the
-// run "succeeds" in seconds with every other job skipped. Those runs are noise on duration surfaces —
-// they pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
+// gate job that decides the rest of the workflow should be skipped, so the run succeeds in seconds.
+// Those runs pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
 export const NO_OP_RUN_MAX_SECONDS = 10
 
-/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}): completed fast with a benign conclusion —
- *  the same set `verdictTag` paints as non-warning (passing or cancelled). Everything else is kept
- *  regardless of speed: decisive failures (broken config fails in seconds) and attention-needing
- *  conclusions like action_required or startup_failure are signal, not noise. */
+/** Completed fast with a passing or cancelled conclusion. Every other conclusion is kept at any speed,
+ *  because a broken config fails in seconds and action_required or startup_failure need attention. */
 export function isNoOpRun(run: Pick<HealthRun, 'conclusion' | 'durationSeconds'>): boolean {
     return (
         run.conclusion != null &&
@@ -117,77 +102,81 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
     return sortedAsc[Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil(q * sortedAsc.length) - 1))]
 }
 
+/** Shared by both summaries so a page of runs and the server's figures never disagree on the verdict. */
+function workflowState(latestRunFailed: boolean | null, conclusiveRuns: number, failures: number): WorkflowState {
+    if (latestRunFailed == null) {
+        return 'unknown'
+    }
+    if (latestRunFailed) {
+        return 'failing'
+    }
+    if (conclusiveRuns > 0 && failures / conclusiveRuns >= DEGRADED_FAILURE_RATE) {
+        return 'degraded'
+    }
+    return 'healthy'
+}
+
+export function workflowHealthSummary(item: WorkflowHealthItemApi): HealthSummary {
+    const failures = item.conclusive_run_count - item.successful_run_count
+    return {
+        state: workflowState(item.latest_run_failed, item.conclusive_run_count, failures),
+        totalRuns: item.run_count,
+        conclusiveRuns: item.conclusive_run_count,
+        passedRuns: item.successful_run_count,
+        failures,
+        reruns: item.rerun_cycles ?? 0,
+        passRate: item.success_rate,
+        medianSeconds: item.p50_seconds,
+        p95Seconds: item.p95_seconds,
+    }
+}
+
 /**
- * Verdict + headline stats for one workflow's runs. Durations and rates are over completed runs only —
- * an unsettled run is excluded, never counted as a failure.
+ * Durations use successful runs. Rates use conclusive runs, so an unsettled or non-verdict run is
+ * never counted as a failure.
  */
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
-    const running = runs.length - completed.length
-    // Strictly 'success' (not skipped/neutral), mirroring the endpoint's success_rate so surfaces agree.
-    const passed = completed.filter((run) => run.conclusion === 'success').length
+    const successful = completed.filter((run) => run.conclusion === 'success')
+    const passed = successful.length
     const failures = completed.filter((run) => isDecisiveFailure(run.conclusion)).length
+    const conclusiveRuns = passed + failures
     const reruns = runs.filter((run) => (run.runAttempt ?? 1) > 1).length
-    const passRate = completed.length ? passed / completed.length : null
+    const passRate = conclusiveRuns > 0 ? passed / conclusiveRuns : null
 
-    // No-op runs stay in the counts and pass rate (they are real runs) but not in the duration
-    // percentiles, so the median/p95 tiles agree with the activity chart, which hides them too. The
-    // all-duration fallback is reserved for ZERO real samples (an intentionally fast workflow, where
-    // "—" would be wrong): even a lone real execution is a more honest median than gate-run noise.
-    const allDurations = completed.map((run) => run.durationSeconds).filter((d): d is number => d != null)
-    const realDurations = completed
+    // No-op successes stay in the counts and pass rate but not in the duration percentiles, so the
+    // median and p95 agree with the activity chart. The all-duration fallback is reserved for zero
+    // real successes because an intentionally fast workflow still needs a duration.
+    const allDurations = successful.map((run) => run.durationSeconds).filter((d): d is number => d != null)
+    const realDurations = successful
         .filter((run) => !isNoOpRun(run))
         .map((run) => run.durationSeconds)
         .filter((d): d is number => d != null)
     const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
-    const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
-    const latestConclusion = byStartDesc[0]?.conclusion ?? null
-    const lastFailureAt =
-        completed
-            .filter((run) => isDecisiveFailure(run.conclusion))
-            .map((run) => run.startedAt)
-            .filter((at): at is string => !!at)
-            .sort()
-            .at(-1) ?? null
-
-    let state: WorkflowState
-    if (completed.length === 0) {
-        state = 'unknown'
-    } else if (isDecisiveFailure(latestConclusion)) {
-        state = 'failing'
-    } else if (failures / completed.length >= DEGRADED_FAILURE_RATE) {
-        state = 'degraded'
-    } else {
-        state = 'healthy'
-    }
+    const latest = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0]
+    const latestRunFailed = latest ? isDecisiveFailure(latest.conclusion) : null
 
     return {
-        state,
+        state: workflowState(latestRunFailed, conclusiveRuns, failures),
         totalRuns: runs.length,
-        completedRuns: completed.length,
+        conclusiveRuns,
         passedRuns: passed,
         failures,
-        running,
         reruns,
         passRate,
         medianSeconds: percentileSorted(durations, 0.5),
         p95Seconds: percentileSorted(durations, 0.95),
-        lastFailureAt,
-        latestConclusion,
     }
 }
 
-/** Fleet verdict + rollups across all workflows: every settled workflow red → "failing"; any red or
- *  flaky → "degraded"; else "healthy". */
+/** The fleet is failing when every settled workflow is red, and degraded when any is red or flaky. */
 export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     const workflowCount = rows.length
     const settledWorkflows = rows.filter((row) => row.latestRunFailed != null).length
     const failingRows = rows.filter((row) => row.latestRunFailed === true)
     const failingNow = failingRows.length
     const failingWorkflowNames = failingRows.map((row) => row.workflowName).filter((name): name is string => !!name)
-    // Flaky = currently green, below the success-rate floor, AND actually failed in the window. The
-    // lastFailureAt gate keeps a low success rate from skips/cancels (no real failures) reading as flaky.
     const flakyNow = rows.filter(
         (row) =>
             row.latestRunFailed === false &&
@@ -197,19 +186,19 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     ).length
     const totalRuns = rows.reduce((sum, row) => sum + row.runCount, 0)
 
-    // Completed-run-weighted, so a 3-run workflow can't move the fleet as much as a 3,000-run one.
-    let completedRuns = 0
+    // Weighted by conclusive runs, so a small workflow cannot move the fleet as much as a busy one.
+    let conclusiveRuns = 0
     let passedRuns = 0
     for (const row of rows) {
         for (const bucket of row.buckets ?? []) {
-            completedRuns += bucket.completed
+            conclusiveRuns += bucket.successes + bucket.failures
             passedRuns += bucket.successes
         }
     }
-    const passRate = completedRuns > 0 ? passedRuns / completedRuns : null
+    const passRate = conclusiveRuns > 0 ? passedRuns / conclusiveRuns : null
     const rerunCycles = rows.reduce((sum, row) => sum + (row.rerunCycles ?? 0), 0)
 
-    // Free runners report null — a bare sum would turn "no cost data" into a misleading $0.00.
+    // Free runners report null, and a bare sum would turn missing cost data into $0.00.
     const hasBillable = rows.some((row) => row.billableMinutes != null)
     const hasEstimatedCost = rows.some((row) => row.estimatedCostUsd != null)
     const billableMinutes = hasBillable ? rows.reduce((sum, row) => sum + (row.billableMinutes ?? 0), 0) : null
@@ -241,6 +230,28 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     }
 }
 
+export interface OrderableWorkflowRow {
+    workflowName: string
+    runCount: number
+    mergeQueueRunCount: number
+}
+
+/** A workflow the merge queue runs on its gate branches, so it blocks a merge from landing. It is the
+ *  closest proxy for a required check that the run data carries. */
+export function isGatingWorkflow(row: OrderableWorkflowRow): boolean {
+    return row.mergeQueueRunCount > 0
+}
+
+/** The name tiebreak keeps equal run counts in a fixed order, so the table does not reshuffle between renders. */
+export function orderWorkflowHealthRows<T extends OrderableWorkflowRow>(rows: T[]): T[] {
+    return [...rows].sort(
+        (a, b) =>
+            Number(isGatingWorkflow(b)) - Number(isGatingWorkflow(a)) ||
+            b.runCount - a.runCount ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
+}
+
 /**
  * Roll a run's jobs up to one cost figure, mirroring the backend cost model (logic/cost.py): only
  * self-hosted runners are billable, and a job contributes once settled. Returns null when there's
@@ -249,13 +260,13 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
 export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
     const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
     const costed = billable.filter((job) => job.estimated_cost_usd != null)
-    // Null cost on a finished job = unpriced tier, not "still running" — only no-duration jobs are unsettled.
+    // A null cost on a finished job means an unpriced tier. Only a job with no duration is unsettled.
     const unsettledJobs = billable.filter((job) => job.duration_seconds == null).length
     if (costed.length === 0 && unsettledJobs === 0) {
         return null
     }
     if (costed.length === 0) {
-        // Billable jobs still running, none settled — keep the tile rather than report a misleading $0.00.
+        // Billable jobs are still running and none has settled, so the tile stays instead of showing $0.00.
         return { billableMinutes: null, estimatedCostUsd: null, unsettledJobs }
     }
     const billableMinutes = costed.reduce((sum, job) => sum + (job.duration_seconds ?? 0) / 60, 0)

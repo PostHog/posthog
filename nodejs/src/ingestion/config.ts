@@ -17,6 +17,7 @@ import {
 } from '~/common/config/kafka-topics'
 import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
+import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/common/ai-event-limits'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
@@ -25,6 +26,9 @@ import {
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
+
+/** Default for FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: '' excludes nobody, so the allowlist alone decides. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS = ''
 
 // =============================================================================
 // Infrastructure sub-config types
@@ -71,7 +75,6 @@ export type KafkaConsumerBaseConfig = Pick<
     | 'CONSUMER_LOG_STATS_LEVEL'
     | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
     | 'CONSUMER_MAX_BACKGROUND_TASKS'
-    | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
     | 'CONSUMER_AUTO_CREATE_TOPICS'
 >
 
@@ -144,6 +147,18 @@ export type IngestionConsumerConfig = {
     INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
     INGESTION_API_GRPC_READ_MAX_BYTES: number
     INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+    // A sub-batch in flight longer than this drains the worker and exits it. `0` disables it.
+    // Keep it above the consumer's INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (60s)
+    // and above the longest batch without a soft budget. librdkafka's
+    // message.timeout.ms is also 300s (the ingestion producers do not set it),
+    // so at the 300s default a produce that is about to time out can trip it.
+    INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: number
+    // The consumer fences a sub-batch it has waited INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS
+    // for, so an ack later than that is replayed anyway.
+    INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: number
+    // After the drain, the normal stop can wait on the dependency the stuck
+    // sub-batch waits on, so the process exits with code 1 after this long.
+    INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -152,6 +167,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    // Teams whose batch person writes merge per key with the row. Comma-separated team IDs, or '*'; empty means none.
+    PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
@@ -168,6 +185,14 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // The saga's per-source move guard in SYNC mode; an over-limit source
+    // comes back skipped_move_limit for the merge-mode policy.
+    PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
+    PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
+    // Re-send budget per batch for merges refused at admission, measured from the batch's
+    // first refusal and shared by every merge and step retry in it. Keep it well under
+    // CONSUMER_LOOP_STALL_THRESHOLD_MS, which the whole batch has to fit in.
+    PERSON_MERGE_NOT_APPLIED_WAIT_MS: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -185,19 +210,15 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
-    // source person row (is_deleted = true, version stamped in the same transaction, properties
-    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
-    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
-    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
-    // teams; empty means no teams.
-    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
-    // Teams whose person creation claims an existing unreachable posthog_person row holding
-    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
-    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
-    // for everyone else the probe is wasted load on the hottest write statement.
-    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
-    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
+    // Teams whose merges lock the person rows and write the survivor in the transaction; other teams queue it for
+    // the next flush. Enable after PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST. Team IDs, or '*'; empty means none.
+    PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: string
+    // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
+    // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
+    // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -210,6 +231,12 @@ export type IngestionConsumerConfig = {
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
 
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
+
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
@@ -221,6 +248,7 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -233,16 +261,20 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams held back from the personless default even when the allowlist is '*': '' for none, '*' to disable the default for every team, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: string
     /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called fork into the flag_evaluations ClickHouse table
-    /** 'disabled' | 'dual_write' (produce to flag_evaluations while the event continues to events) */
+    /** 'disabled' | 'dual_write' (produce to flag_evaluations). With dual_write the event also continues to events unless its organization is on FLAG_EVALUATIONS_ONLY. */
     INGESTION_FLAG_EVALUATIONS_MODE: string
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_FLAG_EVALUATIONS_TEAMS: string
     /** Comma-separated team IDs never forked, even when TEAMS is '*' */
     INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: string
+    /** Rollback for FLAG_EVALUATIONS_ONLY. True keeps writing $feature_flag_called to events for organizations on that mode, as if they were on READ_FLAG_EVALUATIONS. */
+    INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: boolean
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -330,6 +362,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
         INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
         INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
+        INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: 300_000,
+        INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: 60_000,
+        INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: 30_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -338,6 +373,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
@@ -353,13 +389,18 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
+        PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSON_MERGE_NOT_APPLIED_WAIT_MS: 20_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
-        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
@@ -368,6 +409,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
@@ -378,6 +423,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
 
         // Per-token/distinct_id restrictions
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -389,6 +435,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
         EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.
@@ -402,6 +449,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
         INGESTION_FLAG_EVALUATIONS_TEAMS: '',
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: '',
+        INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: false,
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
@@ -431,7 +479,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
-        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
         // can't monopolize the S3 socket pool.
@@ -476,6 +525,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
     INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
 
@@ -511,6 +563,8 @@ export type IngestionOutputsConfig = {
 
     INGESTION_OUTPUT_TOPHOG_TOPIC: string
     INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
+
+    INGESTION_OUTPUTS_DISABLED: boolean
 }
 
 export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
@@ -527,6 +581,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         // createFlagEvaluationsService.
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
         INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // An empty topic skips the startup topic-existence check. While it is empty, a
+        // FLAG_EVALUATIONS_ONLY team's flag calls reach no realtime destination, so set it
+        // on every lane that sets INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. Enable
+        // ordering: (1) create the realtime_only_events_json topic, (2) start the CDP
+        // consumers that read it, (3) set INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC. A
+        // consumer group that joins after step 3 can start past the first routed calls.
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
@@ -552,5 +614,6 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
         INGESTION_OUTPUT_TOPHOG_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUTS_DISABLED: false,
     }
 }

@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -29,7 +29,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install autogen-agentchat "autogen-ext[openai]" openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                            pip install autogen-agentchat "autogen-ext[openai]" openai opentelemetry-sdk "posthog[otel]~=8.0" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>
@@ -109,9 +109,10 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** To capture LLM events anonymously, omit the `posthog.distinct_id` resource
+                            attribute and don't set a distinct ID in the PostHog context. See our docs on [anonymous vs
+                            identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn
+                            more.
                         </Markdown>
                     </Blockquote>
 
@@ -125,7 +126,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python'] }),
     ]
 }
 

@@ -11,6 +11,7 @@ chrono = { workspace = true }
 common-liveness = { path = "../liveness" }
 envconfig = { workspace = true }
 health = { path = "../health" }
+lifecycle = { path = "../lifecycle" }
 lz4 = { workspace = true }
 metrics = { workspace = true }
 rdkafka = { workspace = true }
@@ -23,4 +24,4 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.28"

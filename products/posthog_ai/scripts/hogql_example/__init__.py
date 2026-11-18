@@ -15,9 +15,8 @@ _cached_team: Any = None
 
 # Used as the synthetic "now" for relative date ranges (e.g. "-7d") so the
 # rendered HogQL is reproducible and doesn't drift between builds. Pinned per
-# runner instead of via freezegun: freezegun monkey-patches `datetime.datetime`
-# process-globally, which is not thread-safe and corrupts unrelated workers
-# (Temporal activities, Django request handlers) running in the same process.
+# runner instead of via a clock mock: clock mocks are process-global, so they hand
+# unrelated workers in the same process the wrong time.
 # Tz-aware UTC so QueryDateRange.now_with_timezone (which calls .astimezone)
 # produces output that doesn't depend on the build machine's local timezone.
 FROZEN_TIME = "2025-12-10T00:00:00+00:00"

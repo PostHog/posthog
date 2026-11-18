@@ -79,7 +79,6 @@ export const FILE_WATCHER_SERVICE = Symbol.for(
   "posthog.host.main.file-watcher.service",
 );
 export const FS_SERVICE = Symbol.for("posthog.host.main.fs.service");
-export const GIT_SERVICE = Symbol.for("posthog.host.main.git.service");
 export const DEEP_LINK_SERVICE = Symbol.for(
   "posthog.host.main.deep-link.service",
 );

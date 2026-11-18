@@ -6,6 +6,8 @@ from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -14,6 +16,17 @@ if TYPE_CHECKING:
 from posthog.dataclasses import frozen
 
 _ConfigT_co = TypeVar("_ConfigT_co", covariant=True)
+
+
+# Both stay ExposedHogQLError, so every caller that shows the message to the user keeps working. A caller
+# that retries needs to tell a warehouse-side failure from a query that is wrong and fails the same way on
+# every attempt.
+class DirectQueryTimeoutError(ExposedHogQLError):
+    """The warehouse did not answer within the statement timeout."""
+
+
+class DirectQueryUnavailableError(ExposedHogQLError):
+    """The warehouse failed or refused the request for a reason on its side, such as an outage or a rate limit."""
 
 
 class _ParseableSource(Protocol[_ConfigT_co]):
@@ -29,7 +42,7 @@ def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], sourc
     it to a clean user-facing error instead.
     """
     try:
-        return source_impl.parse_config(source.job_inputs or {})
+        return source_impl.parse_config(SourceInputsStore.load(source))
     except (TypeError, ValueError) as error:
         raise ExposedHogQLError("This source is missing its connection configuration.") from error
 
@@ -37,6 +50,8 @@ def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], sourc
 @frozen
 class DirectQueryPrincipal:
     value: str
+    # The query runner decides once per query, so the adapter never evaluates the canary flag itself.
+    trino_canary: bool = False
 
 
 @dataclasses.dataclass(frozen=False)

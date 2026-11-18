@@ -1,25 +1,31 @@
 {
   "$defs": {
     "DuplicateIssue": {
-      "description": "A finding flagged as a duplicate, to be removed.",
+      "description": "A finding flagged as a duplicate, with what it repeats.",
       "properties": {
         "id": {
           "description": "Id of the finding to remove",
           "title": "Id",
           "type": "string"
+        },
+        "duplicate_of": {
+          "description": "Id of what already raises the same problem: the finding kept in its place, a prior finding, or a prior comment",
+          "title": "Duplicate Of",
+          "type": "string"
         }
       },
       "required": [
-        "id"
+        "id",
+        "duplicate_of"
       ],
       "title": "DuplicateIssue",
       "type": "object"
     }
   },
-  "description": "Result of deduplication analysis for findings.",
+  "description": "Result of a deduplication: every duplicate names what it repeats.",
   "properties": {
     "duplicates": {
-      "description": "Ids of the findings to remove as duplicates",
+      "description": "The findings to remove as duplicates",
       "items": {
         "$ref": "#/$defs/DuplicateIssue"
       },

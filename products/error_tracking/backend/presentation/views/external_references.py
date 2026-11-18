@@ -14,6 +14,7 @@ from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.event_usage import get_request_analytics_properties
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.api import (
@@ -58,6 +59,8 @@ class ErrorTrackingExternalReferenceResultSerializer(serializers.Serializer):
     external_url = serializers.SerializerMethodField(
         help_text="URL of the linked external issue in the provider's system."
     )
+    external_id = serializers.CharField(read_only=True, help_text="Provider-native identifier of the linked issue.")
+    title = serializers.CharField(read_only=True, help_text="Title of the linked issue.")
 
     @extend_schema_field(serializers.CharField())
     def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
@@ -86,7 +89,9 @@ class ErrorTrackingExternalReferenceSerializer(ErrorTrackingExternalReferenceRes
             "linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: "
             'github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; '
             'linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; '
-            'jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.'
+            'jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. '
+            "Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, "
+            "or a Jira account ID."
         ),
     )
     issue = serializers.UUIDField(write_only=True, help_text="ID of the error tracking issue to link the reference to.")
@@ -102,7 +107,7 @@ class ErrorTrackingExternalReferenceLinkSerializer(serializers.Serializer):
     external_context = ExternalReferenceContextField(
         write_only=True,
         help_text=(
-            "Identifier of the existing external issue to link, as returned by the search-issues endpoint. "
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. "
             "Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; "
             "linear -> {id}; jira -> {key}."
         ),
@@ -118,7 +123,7 @@ class ErrorTrackingExternalIssueSearchQuerySerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         help_text=(
-            "Text to match against existing issue titles / keys in the provider. GitHub matches it "
+            "Text to match against existing issue titles or identifiers in the provider. GitHub matches titles "
             "as an exact phrase. Leave blank for recent issues."
         ),
     )
@@ -202,6 +207,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 integration_id=serializer.validated_data["integration_id"],
                 config=serializer.validated_data["config"],
                 distinct_id=request.user.pk,
+                analytics_props=get_request_analytics_properties(request),
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to create external reference", exc_info=error)
@@ -231,6 +237,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 integration_id=serializer.validated_data["integration_id"],
                 external_context=serializer.validated_data["external_context"],
                 distinct_id=cast(int, request.user.pk),
+                analytics_props=get_request_analytics_properties(request),
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to link external reference", exc_info=error)

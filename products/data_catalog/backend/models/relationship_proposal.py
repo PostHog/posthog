@@ -16,9 +16,9 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     unique ``undirected_fingerprint``.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     source_table_name = models.CharField(max_length=400, help_text="Name of the table the join starts from.")
@@ -42,7 +42,7 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in RelationshipStatus],
-        default=RelationshipStatus.PROPOSED,
+        default=RelationshipStatus.PROPOSED.value,
         help_text="proposed, accepted (promoted to a real join), or rejected (never re-proposed).",
     )
     reviewed_by = models.ForeignKey(

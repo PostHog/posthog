@@ -28,10 +28,6 @@ export const useAuthStore = create<AuthStoreState>((set) => ({
   setAuthState: (authState) => set({ authState }),
 }));
 
-export function useAuthState(): AuthState {
-  return useAuthStore((s) => s.authState);
-}
-
 export function useAuthStateValue<T>(selector: (state: AuthState) => T): T {
   return useAuthStore((s) => selector(s.authState));
 }

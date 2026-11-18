@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+use crate::values::HogMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
@@ -214,7 +214,7 @@ pub fn value_to_json(
         HogLiteral::Null => JsonValue::Null,
         HogLiteral::Boolean(b) => json!(b),
         HogLiteral::Number(n) => JsonValue::Number(n.clone().try_into()?),
-        HogLiteral::String(s) => json!(s),
+        HogLiteral::String(s) => json!(s.as_str()),
         HogLiteral::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
@@ -233,7 +233,7 @@ pub fn value_to_json(
         }
         HogLiteral::Object(map) => {
             let mut out = serde_json::Map::with_capacity(map.len());
-            for (k, v) in map {
+            for (k, v) in map.iter() {
                 out.insert(k.clone(), value_to_json(v, heap, registry, header_len)?);
             }
             JsonValue::Object(out)
@@ -317,7 +317,7 @@ pub fn value_from_json(
         JsonValue::Null => Ok(HogLiteral::Null.into()),
         JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
         JsonValue::Number(n) => Ok(HogLiteral::Number(n.clone().into()).into()),
-        JsonValue::String(s) => Ok(HogLiteral::String(s.clone()).into()),
+        JsonValue::String(s) => Ok(HogLiteral::from(s.clone()).into()),
         JsonValue::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
@@ -336,18 +336,18 @@ fn object_from_json(
     header_len: usize,
 ) -> Result<HogValue, VmError> {
     if map.contains_key("__hogClosure__") {
-        return Ok(HogLiteral::Closure(closure_from_json(
+        return Ok(HogLiteral::Closure(Box::new(closure_from_json(
             &JsonValue::Object(map.clone()),
             cells,
             header_len,
-        )?)
+        )?))
         .into());
     }
     if map.contains_key("__hogCallable__") {
-        return Ok(HogLiteral::Callable(callable_from_json(
+        return Ok(HogLiteral::Callable(Box::new(callable_from_json(
             &JsonValue::Object(map.clone()),
             header_len,
-        )?)
+        )?))
         .into());
     }
     if map.get("__hogTuple__").and_then(|v| v.as_bool()) == Some(true) {
@@ -363,11 +363,11 @@ fn object_from_json(
     }
     // A plain object (including reference duck-types like __hogDateTime__, which Rust also models as
     // marked objects) — preserve key order.
-    let mut out = IndexMap::with_capacity(map.len());
+    let mut out = HogMap::with_capacity_and_hasher(map.len(), Default::default());
     for (k, v) in map {
         out.insert(k.clone(), value_from_json(v, heap, cells, header_len)?);
     }
-    Ok(heap.emplace(HogLiteral::Object(out))?.into())
+    Ok(heap.emplace(HogLiteral::Object(Box::new(out)))?.into())
 }
 
 pub fn closure_from_json(

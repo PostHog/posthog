@@ -3,16 +3,20 @@
 The inbound counterpart to `scratchpad.py` — the scratchpad is what the fleet
 learned (agent-authored, sandbox-write-only), a note is what the team wants the
 fleet to know (authored over the public MCP surface via `signal_scout:write`).
-A note targets one scout by `skill_name`, or the whole fleet when `skill_name`
-is blank; `list_notes` is what a run calls to pick up the notes addressed to it.
+A note targets one scout by `skill_name`, a pipeline stage by a reserved
+`pipeline:*` audience, or the whole fleet when `skill_name` is blank; `list_notes`
+is what a run calls to pick up the notes addressed to it.
 
-Most notes are left by hand through that surface. Three `origin`s are derived from
-inbox activity instead: `report_dismissal`, forwarded from the feedback someone
+Most notes are left by hand through that surface. Five `origin`s come from inbox
+activity instead: `report_dismissal`, forwarded from the feedback someone
 typed when they dismissed, snoozed, or restored an inbox report (see
 `dismissal_notes.py`); `report_discussion`, forwarded from the question someone
-asked when they opened a discussion on a report (see `discussion_notes.py`); and
+asked when they opened a discussion on a report (see `discussion_notes.py`);
 `report_feedback`, forwarded from the note someone left when rating a report useful
-or not (see `feedback_notes.py`).
+or not (see `feedback_notes.py`); `report_reviewer_correction`, forwarded when
+someone added or removed a suggested reviewer, or claimed a report (see
+`reviewer_correction_notes.py`); and `report_note`, written straight for the
+scouts from a report (see `report_scout_notes.py`).
 """
 
 from __future__ import annotations
@@ -27,8 +31,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutNote
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.skills.backend.models.skills import LLMSkill
+from products.signals.backend.scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 # Defensive caps on the list surface. The default is sized for the scout cold-start read —
 # the newest handful of steering notes — not for archival browsing; callers page for more.
@@ -38,10 +41,6 @@ MAX_NOTES_LIST_LIMIT = 500
 # `content` is read verbatim into a run's context — cap it so one note can't dominate a
 # prompt. Deliberately tighter than the scratchpad cap: notes are pointers, not documents.
 MAX_NOTE_CONTENT_LENGTH = 10_000
-
-
-class InvalidNoteError(ValueError):
-    """The caller tried to leave a note with invalid shape (empty content, bad target)."""
 
 
 @dataclass(frozen=True)
@@ -65,11 +64,13 @@ def list_notes(
     skill_name: str | None = None,
     include_general: bool = True,
     include_expired: bool = False,
+    only_without_expiry: bool = False,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: int = DEFAULT_NOTES_LIST_LIMIT,
     content_max_chars: int | None = None,
     exclude_origins: Sequence[str] = (),
+    text: str | None = None,
 ) -> list[ScoutNote]:
     """Return notes for a team, newest first.
 
@@ -80,8 +81,10 @@ def list_notes(
 
     Expired notes (`expires_at` in the past) are excluded by default so time-boxed
     steering retires itself; `include_expired=True` brings them back for humans
-    auditing the history. `date_from` / `date_to` are a half-open window on
-    `created_at` (`>= date_from`, `< date_to`) for walking past the cap.
+    auditing the history. `only_without_expiry=True` keeps only the standing notes (no
+    `expires_at`), so a run can re-read those past the newest-first cap. `date_from` /
+    `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`) for
+    walking past the cap.
 
     `content_max_chars` truncates each `content` to a preview — a wide scan's guard
     against notes stacking up to `MAX_NOTE_CONTENT_LENGTH × limit` characters of
@@ -91,12 +94,18 @@ def list_notes(
     `exclude_origins` drops whole classes of note before the cap is applied, so a caller
     who may not see one class still gets a full page of what it may see. The read surface
     uses it to withhold the report-derived origins (`report_dismissal` / `report_discussion` /
-    `report_feedback`, which quote report content) from callers without report read access.
+    `report_feedback` / `report_reviewer_correction`, which quote report content) from callers
+    without report read access.
+
+    `text` keeps only the notes whose `content` holds it, case-insensitively, before the cap.
+    It lets a run find the few notes about one entity instead of paging the newest ones.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")
     if exclude_origins:
         qs = qs.exclude(origin__in=list(exclude_origins))
+    if text:
+        qs = qs.filter(content__icontains=text)
     if skill_name is not None:
         target = Q(skill_name=skill_name)
         if include_general:
@@ -104,6 +113,8 @@ def list_notes(
         qs = qs.filter(target)
     if not include_expired:
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    if only_without_expiry:
+        qs = qs.filter(expires_at__isnull=True)
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if date_to is not None:
@@ -123,10 +134,12 @@ def leave_note(
 ) -> ScoutNote:
     """Create a note. Not an upsert — every call mints a new row; delete retires one.
 
-    `origin` is server-owned and never caller-supplied over the API: the notes endpoint always
-    writes `HUMAN`. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
-    `REPORT_DISCUSSION` to `discussion_notes.forward_discussion_note`, and `REPORT_FEEDBACK` to
-    `feedback_notes.forward_feedback_note`.
+    `origin` is server-owned and never caller-supplied over the API: the notes endpoint writes
+    `HUMAN`, or `REPORT_NOTE` through `report_scout_notes.leave_report_note` when the request names
+    a report. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
+    `REPORT_DISCUSSION` to `discussion_notes.forward_discussion_note`, `REPORT_FEEDBACK` to
+    `feedback_notes.forward_feedback_note`, and `REPORT_REVIEWER_CORRECTION` to
+    `reviewer_correction_notes.forward_reviewer_correction_note` and `forward_reviewer_claim_note`.
     """
     _validate_note(team_id=team_id, skill_name=skill_name, content=content)
     row = SignalScoutNote.objects.create(
@@ -155,20 +168,7 @@ def _validate_note(*, team_id: int, skill_name: str, content: str) -> None:
         raise InvalidNoteError("note content must be non-empty")
     if len(content) > MAX_NOTE_CONTENT_LENGTH:
         raise InvalidNoteError(f"note content length {len(content)} exceeds max {MAX_NOTE_CONTENT_LENGTH}")
-    # A typo'd target silently steers no one — the list filter is an exact match — so a targeted
-    # note must name a scout skill that actually exists on this project. Blank stays valid: it
-    # addresses the whole fleet.
-    if not skill_name:
-        return
-    if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-        raise InvalidNoteError(
-            f"skill_name must be blank (a note for every scout) or start with '{SIGNALS_SCOUT_SKILL_PREFIX}'"
-        )
-    if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False).exists():
-        raise InvalidNoteError(
-            f"no scout skill named '{skill_name}' exists on this project — check `scout-config-list` "
-            "for the roster, or author the skill first"
-        )
+    validate_note_target(team_id=team_id, skill_name=skill_name)
 
 
 def _to_note(row: SignalScoutNote, *, content_max_chars: int | None = None) -> ScoutNote:

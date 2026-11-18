@@ -41,6 +41,14 @@ function requestedWrites(
     return command.input.RequestItems?.[TABLE] ?? []
 }
 
+function hangUntilAborted(_command: unknown, { abortSignal }: { abortSignal: AbortSignal }): Promise<never> {
+    return new Promise((_resolve, reject) =>
+        abortSignal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }))
+        )
+    )
+}
+
 describe('DynamoDBCrawlHistory', () => {
     it('reads each distinct key in batches of at most 100', async () => {
         const send = jest.fn((command: BatchGetItemCommand) => {
@@ -257,6 +265,57 @@ describe('DynamoDBCrawlHistory', () => {
         await refused
         expect(sentKeys.length).toBeGreaterThan(0)
         expect(sentKeys.every((sentKey) => sentKey.startsWith(`${key}:body:`))).toBe(true)
+        jest.useRealTimers()
+    })
+
+    it.each([
+        {
+            operation: 'read',
+            run: (history: DynamoDBCrawlHistory) => history.read(['slow']),
+            retried: { Responses: { [TABLE]: [stored(urlItem('slow'))] } },
+            requestedKeys: (command: BatchGetItemCommand | BatchWriteItemCommand) =>
+                requestedReadKeys(command as BatchGetItemCommand),
+        },
+        {
+            operation: 'write',
+            run: (history: DynamoDBCrawlHistory) => history.write([urlItem('slow')]),
+            retried: {},
+            requestedKeys: (command: BatchGetItemCommand | BatchWriteItemCommand) =>
+                requestedWrites(command as BatchWriteItemCommand).map((request) => request.PutRequest?.Item?.key?.S),
+        },
+    ])('retries a $operation command that times out', async ({ run, retried, requestedKeys }) => {
+        jest.useFakeTimers()
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        const send = jest.fn().mockImplementationOnce(hangUntilAborted).mockResolvedValueOnce(retried)
+
+        const outcome = run(build(send)).then(
+            () => 'completed',
+            (error: unknown) => String(error)
+        )
+        await jest.runAllTimersAsync()
+
+        expect(await outcome).toBe('completed')
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(requestedKeys(send.mock.calls[1][0])).toEqual(['slow'])
+        jest.useRealTimers()
+    })
+
+    it.each([
+        { operation: 'read', run: (history: DynamoDBCrawlHistory) => history.read(['slow']) },
+        { operation: 'write', run: (history: DynamoDBCrawlHistory) => history.write([urlItem('slow')]) },
+    ])('fails a $operation after every attempt times out', async ({ run }) => {
+        jest.useFakeTimers()
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        const send = jest.fn(hangUntilAborted)
+
+        const outcome = run(build(send)).then(
+            () => 'completed',
+            (error: unknown) => String(error)
+        )
+        await jest.runAllTimersAsync()
+
+        expect(await outcome).toBe('Error: DynamoDB crawl-history command timed out after 1000ms')
+        expect(send).toHaveBeenCalledTimes(5)
         jest.useRealTimers()
     })
 

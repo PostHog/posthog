@@ -115,7 +115,7 @@ class Tagger(UUIDTModel):
         ]
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=False)
@@ -140,14 +140,16 @@ class Tagger(UUIDTModel):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
+    # The evaluation that replaced this tagger. Not a foreign key, so the link outlives a deleted evaluation.
+    migrated_to_evaluation_id = models.UUIDField(null=True, blank=True)
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
@@ -188,4 +190,6 @@ def tagger_saved(sender, instance, created, **kwargs):
 
     # Defer the workers notification until the surrounding transaction commits.
     # Otherwise a rolled-back create would tell workers to reload a tagger that never existed.
-    transaction.on_commit(lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]))
+    transaction.on_commit(
+        lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]), robust=True
+    )

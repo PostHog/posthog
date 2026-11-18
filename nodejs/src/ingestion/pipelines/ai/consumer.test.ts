@@ -27,6 +27,8 @@ describe('createAiConsumer', () => {
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
             INGESTION_WORKER_CONCURRENT_BATCHES: 1,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+            TEAMS_PREFETCH_ENABLED: false,
+            HOG_FUNCTIONS_PREFETCH_ENABLED: false,
             SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
             EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
@@ -53,6 +55,7 @@ describe('createAiConsumer', () => {
                 IngestionConsumerConfig,
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
+                | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
                 | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
             >),

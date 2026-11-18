@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, group_type, group_type_index, team_id FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "group_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_type_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "team_id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4122d9f532c4eb09667b5d665f947708e778b99c6ec471f72079af5149ac878f"
+}

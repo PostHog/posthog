@@ -19,6 +19,7 @@ exists elsewhere).
 
 import gzip
 import json
+import time
 import shutil
 import hashlib
 import subprocess
@@ -36,6 +37,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
@@ -46,6 +48,13 @@ from posthog.storage import object_storage
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.facade.contracts import (
+    CanvasBuildCapacityExceeded,
+    CanvasPinnedVersionDenied,
+    CanvasVersionConflict,
+)
+from products.canvas.backend.layout import PinnedComponentVersion, default_layout, pinned_component_versions
+from products.canvas.backend.logic.capability_policy import assert_may_set_capabilities
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
@@ -69,6 +78,31 @@ logger = structlog.get_logger(__name__)
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
 MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
+PUBLISH_BUILD_WAIT_SECONDS = 3.0
+_PUBLISH_BUILD_POLL_SECONDS = 0.2
+
+
+@frozen
+class SourceProjectUpload:
+    key: str
+    digest: str
+    size: int
+
+
+@frozen
+class PreparedSourceProjectPublish:
+    project: dict[str, Any]
+    source_upload: SourceProjectUpload
+    legacy_upload: SourceProjectUpload | None
+
+
+@frozen
+class SourceProjectPublishResult:
+    canvas: Canvas
+    version: CanvasSourceVersion
+    build: CanvasBuild
+    first_publish: bool
+
 
 # Rollout gate: flagged-in teams dispatch builds to Temporal instead of the shared
 # long_running Celery queue. Evaluation failure keeps the Celery path.
@@ -93,18 +127,6 @@ CANVAS_BUILD_ACTIVE = Gauge("posthog_canvas_builds_active", "Canvas builds curre
 
 
 CANVAS_BUILDER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"}
-
-
-class CanvasBuildCapacityExceeded(Exception):
-    """The team already has the maximum number of in-flight builds."""
-
-
-class CanvasVersionConflict(Exception):
-    """A guarded publish was based on a version that is no longer the head."""
-
-    def __init__(self, current_version_id: str | None) -> None:
-        super().__init__("The canvas changed since it was read.")
-        self.current_version_id = current_version_id
 
 
 def node_executable() -> str:
@@ -288,17 +310,24 @@ def artifact_object_prefix(team_id: int, canvas_id: str | UUID, build_id: str | 
     return f"canvas_artifact/team_{team_id}/{canvas_id}/{build_id}"
 
 
-def upload_source_project(team_id: int, canvas_id: str | UUID, project: dict[str, Any]) -> tuple[str, str, int]:
-    """Upload the serialized project (idempotent — the key is content-addressed).
+def upload_source_project(
+    team_id: int, canvas_id: str | UUID, project: dict[str, Any], *, upload_id: UUID | None = None
+) -> SourceProjectUpload:
+    """Upload the serialized project under its content hash and optional upload ID.
 
-    Returns (object key, source hash, canonical size). Raises
+    Independent upload IDs let draft cleanup remove one upload while another
+    publish stages identical source outside the metadata transaction.
+
+    Returns the object key, source hash, and canonical size. Raises
     ObjectStorageError when storage is unavailable — a publish cannot proceed
     without its source of record.
     """
     payload, digest, size = serialize_source_project(project)
     key = source_object_key(team_id, canvas_id, digest)
+    if upload_id is not None:
+        key = key.removesuffix(".json.gz") + f"/{upload_id}.json.gz"
     object_storage.write(key, payload, extras={"ContentType": "application/gzip"})
-    return key, digest, size
+    return SourceProjectUpload(key=key, digest=digest, size=size)
 
 
 def read_source_project(version: CanvasSourceVersion) -> dict[str, Any]:
@@ -382,9 +411,14 @@ def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
         source_version=version,
         status=CanvasBuild.STATUS_QUEUED,
     )
-    CanvasBuild.objects.for_team(version.team_id).filter(
-        canvas_id=version.canvas_id, status=CanvasBuild.STATUS_QUEUED
-    ).exclude(id=build.id).update(
+    superseded_builds = (
+        CanvasBuild.objects.for_team(version.team_id)
+        .filter(canvas_id=version.canvas_id, status=CanvasBuild.STATUS_QUEUED)
+        .exclude(id=build.id)
+    )
+    if version.draft:
+        superseded_builds = superseded_builds.exclude(source_version_id=version.canvas.current_source_version_id)
+    superseded_builds.update(
         status=CanvasBuild.STATUS_FAILED,
         diagnostics=[
             diagnostic(
@@ -441,27 +475,44 @@ def _dispatch_build_to_temporal(build: CanvasBuild) -> bool:
     return True
 
 
-def publish_source_project(
+def cleanup_unreferenced_source_uploads(team_id: int, canvas_id: UUID, object_keys: list[str]) -> None:
+    referenced = set(
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(canvas_id=canvas_id, source_object_key__in=object_keys)
+        .values_list("source_object_key", flat=True)
+    )
+    unreferenced = [key for key in object_keys if key not in referenced]
+    if unreferenced:
+        object_storage.delete_objects(unreferenced)
+
+
+def cleanup_source_uploads_or_retry(team_id: int, canvas_id: UUID, object_keys: list[str]) -> None:
+    try:
+        cleanup_unreferenced_source_uploads(team_id, canvas_id, object_keys)
+    except Exception:
+        logger.exception("canvas_source_upload_cleanup_failed", canvas_id=str(canvas_id))
+        # Queue imports stay off the Canvas service's startup path.
+        from products.canvas.backend.tasks import cleanup_canvas_source_uploads  # noqa: PLC0415
+
+        try:
+            cleanup_canvas_source_uploads.delay(team_id, str(canvas_id), object_keys)
+        except Exception:
+            logger.exception("canvas_source_upload_cleanup_enqueue_failed", canvas_id=str(canvas_id))
+
+
+def prepare_source_project_publish(
     canvas: Canvas,
     *,
     project: dict[str, Any],
-    prompt: str | None,
-    name: str | None,
     has_expected_version: bool,
     expected_version_id: str | None,
-    task_id: UUID | None,
-    created_by: User | None,
-    was_impersonated: bool = False,
-) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
-    """Publish a validated project as the canvas's new head version.
+    source_upload_id: UUID | None = None,
+) -> PreparedSourceProjectPublish:
+    """Upload a source project before the metadata transaction begins.
 
-    Upload-then-commit: the immutable source object goes up before the
-    transaction, so a conflicting publish leaves at most an unreferenced
-    upload. Writes the "published" activity-log entry here (not in the API
-    layer) so every caller is audited and the capabilities diff is computed
-    against the head this publish actually replaced. Returns (canvas,
-    version, build, first_publish). Raises CanvasVersionConflict,
-    CanvasBuildCapacityExceeded, or ObjectStorageError.
+    The commit path rechecks version and capacity constraints under locks, so
+    callers can stage storage work before entering a wider transaction without
+    weakening concurrency guarantees.
     """
     # Lock-free fail-fast: reject a doomed publish before paying for the
     # upload. Its answer can go stale before the commit transaction re-checks
@@ -475,47 +526,89 @@ def publish_source_project(
             raise CanvasVersionConflict(current_id)
         _assert_build_capacity(canvas.team_id)
 
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, project, upload_id=source_upload_id)
 
     # A migrated canvas's pre-relational source must survive its first publish:
     # it becomes a real parent version here so history (undo/revert) can reach
     # it — otherwise nulling legacy_code below would discard the only copy.
     # Same upload-then-commit posture as the main project.
-    legacy_upload: tuple[str, str, int] | None = None
+    legacy_upload: SourceProjectUpload | None = None
     if current_id is None and (canvas.legacy_code or "").strip():
-        legacy_upload = upload_source_project(canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code))
+        try:
+            legacy_upload = upload_source_project(
+                canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code), upload_id=source_upload_id
+            )
+        except Exception:
+            if source_upload_id is not None:
+                cleanup_source_uploads_or_retry(canvas.team_id, canvas.id, [source_upload.key])
+            raise
+
+    return PreparedSourceProjectPublish(
+        project=project,
+        source_upload=source_upload,
+        legacy_upload=legacy_upload,
+    )
+
+
+def _prepared_parent_version_id(canvas: Canvas, prepared: PreparedSourceProjectPublish) -> UUID | None:
+    if (
+        prepared.legacy_upload is not None
+        and canvas.current_source_version_id is None
+        and (canvas.legacy_code or "").strip()
+    ):
+        legacy_version, _created = CanvasSourceVersion.objects.for_team(canvas.team_id).get_or_create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            source_hash=prepared.legacy_upload.digest,
+            parent_version_id=None,
+            draft=False,
+            defaults={
+                "source_object_key": prepared.legacy_upload.key,
+                "source_size": prepared.legacy_upload.size,
+                "prompt": "Imported source",
+            },
+        )
+        return legacy_version.id
+    return canvas.current_source_version_id
+
+
+def commit_source_project_publish(
+    canvas: Canvas,
+    *,
+    prepared: PreparedSourceProjectPublish,
+    prompt: str | None,
+    name: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> SourceProjectPublishResult:
+    """Commit a prepared source project and advance the canvas head."""
 
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
             canvas, has_expected_version=has_expected_version, expected_version_id=expected_version_id
         )
+        assert_may_set_capabilities(
+            canvas,
+            created_by,
+            _version_capabilities(canvas.team_id, canvas.current_source_version_id),
+            prepared.project.get("capabilities") or {},
+        )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
-        if (
-            legacy_upload is not None
-            and canvas.current_source_version_id is None
-            and (canvas.legacy_code or "").strip()
-        ):
-            legacy_key, legacy_digest, legacy_size = legacy_upload
-            canvas.current_source_version = CanvasSourceVersion.objects.create(
-                team_id=canvas.team_id,
-                canvas=canvas,
-                source_hash=legacy_digest,
-                source_object_key=legacy_key,
-                source_size=legacy_size,
-                prompt="Imported source",
-            )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
-            parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            parent_version_id=_prepared_parent_version_id(canvas, prepared),
+            source_hash=prepared.source_upload.digest,
+            source_object_key=prepared.source_upload.key,
+            source_size=prepared.source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
-            capabilities=project.get("capabilities") or {},
-            component_meta=project.get("component"),
+            capabilities=prepared.project.get("capabilities") or {},
+            component_meta=prepared.project.get("component"),
         )
         build = _queue_build(version)
 
@@ -542,7 +635,103 @@ def publish_source_project(
         detail=Detail(name=canvas.name, changes=changes),
     )
 
-    return canvas, version, build, first_publish
+    return SourceProjectPublishResult(
+        canvas=canvas,
+        version=version,
+        build=build,
+        first_publish=first_publish,
+    )
+
+
+def commit_source_project_draft(
+    canvas: Canvas,
+    *,
+    prepared: PreparedSourceProjectPublish,
+    prompt: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+) -> tuple[CanvasSourceVersion, CanvasBuild]:
+    """Commit a prepared project as a reviewable draft without advancing the canvas head."""
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+        )
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            draft=True,
+            parent_version_id=_prepared_parent_version_id(canvas, prepared),
+            source_hash=prepared.source_upload.digest,
+            source_object_key=prepared.source_upload.key,
+            source_size=prepared.source_upload.size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+            capabilities=prepared.project.get("capabilities") or {},
+            component_meta=prepared.project.get("component"),
+        )
+        build = _queue_build(version)
+    return version, build
+
+
+def wait_for_build_result(build: CanvasBuild) -> CanvasBuild:
+    deadline = time.monotonic() + PUBLISH_BUILD_WAIT_SECONDS
+    while True:
+        build = CanvasBuild.objects.unscoped().get(id=build.id)
+        if build.status not in CanvasBuild.ACTIVE_STATUSES or time.monotonic() >= deadline:
+            return build
+        time.sleep(_PUBLISH_BUILD_POLL_SECONDS)
+
+
+def publish_source_project(
+    canvas: Canvas,
+    *,
+    project: dict[str, Any],
+    prompt: str | None,
+    name: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
+    """Upload and publish a validated project as the canvas's new head version."""
+    # Lock-free fail-fast so a refused widening uploads nothing. The commit
+    # re-checks against the head it claims under the lock. A stale base skips
+    # this check, so that the caller gets the 409 and reloads instead of a 403
+    # measured against a head it has not read.
+    with team_scope(canvas.team_id):
+        head_id = (
+            Canvas.objects.for_team(canvas.team_id)
+            .values_list("current_source_version_id", flat=True)
+            .get(pk=canvas.pk)
+        )
+        if not has_expected_version or str(head_id or "") == str(expected_version_id or ""):
+            assert_may_set_capabilities(
+                canvas, created_by, _version_capabilities(canvas.team_id, head_id), project.get("capabilities") or {}
+            )
+    prepared = prepare_source_project_publish(
+        canvas,
+        project=project,
+        has_expected_version=has_expected_version,
+        expected_version_id=expected_version_id,
+    )
+    result = commit_source_project_publish(
+        canvas,
+        prepared=prepared,
+        prompt=prompt,
+        name=name,
+        has_expected_version=has_expected_version,
+        expected_version_id=expected_version_id,
+        task_id=task_id,
+        created_by=created_by,
+        was_impersonated=was_impersonated,
+    )
+    return result.canvas, result.version, result.build, result.first_publish
 
 
 def publish_grid_layout(
@@ -576,7 +765,7 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
             canvas,
@@ -584,13 +773,19 @@ def publish_grid_layout(
             expected_version_id=expected_version_id,
             check_capacity=False,
         )
+        # The pins are checked only here, under the grid and component row locks, because a
+        # component's head can move at any time before the lock. The head layout is read from
+        # storage only for pins that need the component creator.
+        refused_pins = _pins_needing_component_creator(canvas.team_id, created_by, layout)
+        if refused_pins:
+            _assert_pins_already_placed(refused_pins, _grid_layout_at(canvas, canvas.current_source_version_id))
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
             parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=source_upload.digest,
+            source_object_key=source_upload.key,
+            source_size=source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
@@ -605,6 +800,76 @@ def publish_grid_layout(
         detail=Detail(name=canvas.name),
     )
     return canvas, version
+
+
+def _pins_needing_component_creator(
+    team_id: int, user: User | None, layout: dict[str, Any]
+) -> set[PinnedComponentVersion]:
+    """The layout's pins that name a version other than the component's live version, on
+    components `user` did not create.
+
+    A placement on the live version runs only what the component already runs, so anyone may
+    add it. Any other version can declare capabilities the component has since dropped, so
+    only the component's creator may pin it. A pin whose component this team does not have
+    also counts, so an unknown id never passes.
+
+    Locks the pinned components' rows, so that their heads cannot move before the caller's
+    transaction commits. Must run inside a transaction.
+    """
+    pins = pinned_component_versions(layout)
+    if not pins:
+        return set()
+    components = {
+        str(component_id): (str(head_id) if head_id else None, creator_id)
+        for component_id, head_id, creator_id in Canvas.objects.for_team(team_id)
+        .filter(id__in={pin.component_id for pin in pins})
+        .select_for_update()
+        .order_by("id")
+        .values_list("id", "current_source_version_id", "created_by_id")
+    }
+    refused = set()
+    for pin in pins:
+        head_id, creator_id = components.get(pin.component_id, (None, None))
+        is_live = head_id is not None and head_id == pin.version_id
+        is_creator = user is not None and creator_id is not None and creator_id == user.id
+        if not is_live and not is_creator:
+            refused.add(pin)
+    return refused
+
+
+def _assert_pins_already_placed(pins: set[PinnedComponentVersion], previous_layout: dict[str, Any]) -> None:
+    """Raise CanvasPinnedVersionDenied for the pins that `previous_layout` does not hold.
+
+    A pin the grid already holds was allowed when someone added it, so keeping it is allowed.
+    """
+    added = pins - pinned_component_versions(previous_layout)
+    if added:
+        raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in added}))
+
+
+def _grid_layout_at(canvas: Canvas, version_id: str | UUID | None) -> dict[str, Any]:
+    """The layout stored for one of the grid's versions, or the default empty layout when
+    there is no such version. The empty layout makes every pin count as new, and the head
+    claim then refuses a version id that is not the head. Raises ObjectStorageError when
+    storage is unavailable."""
+    version = (
+        CanvasSourceVersion.objects.for_team(canvas.team_id).filter(pk=version_id, canvas_id=canvas.id).first()
+        if version_id
+        else None
+    )
+    return read_source_project(version) if version is not None else default_layout()
+
+
+def _resolved_capabilities(version: CanvasSourceVersion) -> dict | None:
+    """The version's declared capabilities, read from its stored source when the version
+    predates the capabilities snapshot. None when that source cannot be read, which
+    assert_may_set_capabilities treats as unknown."""
+    if version.capabilities is not None:
+        return version.capabilities
+    try:
+        return read_source_project(version).get("capabilities") or {}
+    except object_storage.ObjectStorageError:
+        return None
 
 
 def publish_current_source_version(
@@ -652,13 +917,37 @@ def revert_to_version(
     promote_draft_version, which surfaces its capability widening first.
     Raises CanvasSourceVersion.DoesNotExist for a version that isn't one of this
     canvas's published versions, and CanvasBuildCapacityExceeded when the team
-    cap is reached.
+    cap is reached. Raises ObjectStorageError when a grid canvas's layouts cannot be read.
     """
-    with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
-        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+    # A published version never changes, so it and its stored source are read
+    # before the head lock.
+    with team_scope(canvas.team_id):
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=False
+        )
+        if canvas.kind == Canvas.KIND_GRID:
+            target_layout = read_source_project(version)
+            target_capabilities: dict | None = {}
+        else:
+            target_capabilities = _resolved_capabilities(version)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=True,
+            expected_version_id=expected_current_version_id,
+            check_capacity=False,
+        )
+        if canvas.kind == Canvas.KIND_GRID:
+            refused_pins = _pins_needing_component_creator(canvas.team_id, user, target_layout)
+            if refused_pins:
+                raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
+        # The capacity lock comes after the component row locks, the order a component publish
+        # takes them in, so the two cannot deadlock.
+        _lock_team_build_capacity(canvas.team_id)
+        _assert_build_capacity(canvas.team_id)
+        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+        assert_may_set_capabilities(
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities
         )
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
@@ -700,30 +989,46 @@ def create_draft_version(
     live pointer to its build. Promote it with `promote_draft_version`. No version
     guard applies: a draft conflicts with nothing because it publishes nothing.
     Returns the widening of the draft's declared capabilities over the current
-    head's, so callers can surface manifest growth before anything ships. Raises
-    CanvasBuildCapacityExceeded or ObjectStorageError.
+    head's, so callers can surface manifest growth before anything ships. Only the
+    creator may stage a draft that widens the head, because a draft preview runs the
+    draft build with the draft's own capabilities for every viewer who opens it.
+    Raises CanvasCapabilityWideningDenied, CanvasBuildCapacityExceeded or
+    ObjectStorageError.
     """
     # Lock-free fail-fast, mirroring publish: reject a doomed draft before
     # paying for the upload. The commit transaction re-checks authoritatively
     # under the locks in _claim_canvas_head.
+    capabilities = project.get("capabilities") or {}
     with team_scope(canvas.team_id):
+        head_id = (
+            Canvas.objects.for_team(canvas.team_id)
+            .values_list("current_source_version_id", flat=True)
+            .get(pk=canvas.pk)
+        )
+        assert_may_set_capabilities(canvas, created_by, _version_capabilities(canvas.team_id, head_id), capabilities)
         _assert_build_capacity(canvas.team_id)
 
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, project)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=False, expected_version_id=None)
+        assert_may_set_capabilities(
+            canvas,
+            created_by,
+            _version_capabilities(canvas.team_id, canvas.current_source_version_id),
+            capabilities,
+        )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
             draft=True,
             parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=source_upload.digest,
+            source_object_key=source_upload.key,
+            source_size=source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
-            capabilities=project.get("capabilities") or {},
+            capabilities=capabilities,
             component_meta=project.get("component"),
         )
         build = _queue_build(version)
@@ -760,6 +1065,10 @@ def promote_draft_version(
     CanvasSourceVersion.DoesNotExist for a version that isn't one of this canvas's
     drafts, CanvasVersionConflict, and CanvasBuildCapacityExceeded (rebuilds only).
     """
+    with team_scope(canvas.team_id):
+        target_capabilities = _resolved_capabilities(
+            CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id, draft=True)
+        )
     with transaction.atomic(), team_scope(canvas.team_id):
         # Same head guard as revert; capacity is only enforced on the rebuild
         # path below, so adopting a surviving build can't hit the cap.
@@ -769,6 +1078,9 @@ def promote_draft_version(
         previous_head_id = canvas.current_source_version_id
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=True
+        )
+        assert_may_set_capabilities(
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities
         )
         version.draft = False
         version.save(update_fields=["draft"])
@@ -1052,6 +1364,7 @@ def _capture_build_completed(build: CanvasBuild, *, outcome: str) -> None:
                 event="canvas build completed",
                 properties={
                     "canvas_id": str(build.canvas_id),
+                    "canvas_kind": build.canvas.kind,
                     "build_id": str(build.id),
                     "source_version_id": str(build.source_version_id),
                     "outcome": outcome,
@@ -1140,7 +1453,7 @@ def _requeue_or_fail(build: CanvasBuild, *, code: str, message: str) -> None:
     error diagnostic.
     """
     if build.attempt_count < MAX_BUILD_ATTEMPTS:
-        CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+        CanvasBuild.objects.for_team(build.team_id).filter(id=build.id, status=CanvasBuild.STATUS_BUILDING).update(
             status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
         )
         raise  # noqa: PLE0704 — re-raises the caller's in-flight ObjectStorageError

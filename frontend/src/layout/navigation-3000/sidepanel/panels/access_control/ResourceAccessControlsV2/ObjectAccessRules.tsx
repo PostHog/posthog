@@ -61,7 +61,7 @@ export function ObjectAccessRules({
             description={
                 scopeType === 'default'
                     ? 'Specific dashboards, insights, notebooks and warehouse tables everyone is given access to, or blocked from, regardless of the defaults above.'
-                    : `Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the tools above.`
+                    : `Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the products above.`
             }
         >
             <AddObjectRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />

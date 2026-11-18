@@ -1,7 +1,8 @@
 import { EventSchemaEnforcement } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { LazyLoader, LoadOptions, LoaderRetryOptions } from './lazy-loader'
+import { validTeamIds } from './team-manager'
 
 /**
  * Raw row from the database query - one row per property per event.
@@ -57,8 +58,8 @@ export class EventSchemaEnforcementManager {
     /**
      * Get enforced event schemas for multiple teams.
      */
-    public async getSchemasForTeams(teamIds: number[]): Promise<Record<string, EventSchemaMap>> {
-        const results = await this.lazyLoader.getMany(teamIds.map(String))
+    public async getSchemasForTeams(teamIds: number[], options?: LoadOptions): Promise<Record<string, EventSchemaMap>> {
+        const results = await this.lazyLoader.getMany(teamIds.map(String), options)
         const converted: Record<string, EventSchemaMap> = {}
         for (const [key, value] of Object.entries(results)) {
             converted[key] = value ?? new Map()
@@ -67,7 +68,7 @@ export class EventSchemaEnforcementManager {
     }
 
     private async fetchSchemas(teamIds: string[]): Promise<Record<string, EventSchemaMap | null>> {
-        const numericTeamIds = teamIds.map(Number).filter((id) => !isNaN(id) && id > 0)
+        const numericTeamIds = validTeamIds(teamIds)
 
         if (numericTeamIds.length === 0) {
             const result: Record<string, EventSchemaMap | null> = {}

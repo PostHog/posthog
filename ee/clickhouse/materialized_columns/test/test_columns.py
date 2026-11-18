@@ -4,8 +4,8 @@ from datetime import timedelta
 from time import sleep
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_index_from_explain
+import time_machine
+from posthog.test.base import ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event, get_index_from_explain
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -14,17 +14,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
-    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
-    _clear_materialized_columns_cache,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
@@ -83,23 +80,7 @@ class TestMaterializedColumnDetails(TestCase):
             MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
 
 
-class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    def setUp(self):
-        self.recreate_database()
-        return super().setUp()
-
-    def tearDown(self):
-        self.recreate_database()
-        super().tearDown()
-
-    def recreate_database(self):
-        # Dropping the database removes materialized columns behind the metadata cache's back.
-        for table in MATERIALIZATION_VALID_TABLES:
-            _clear_materialized_columns_cache(table)
-        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
-        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables()
-
+class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def test_unknown_table(self):
         assert {} == get_materialized_columns("some weird string")
 
@@ -111,7 +92,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_caching_and_materializing(self):
         base_time = datetime.datetime.fromisoformat("2020-01-04T13:01:01Z")
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             materialize("events", "$foo", create_minmax_index=True)
             materialize("events", "$bar", create_minmax_index=True)
             materialize("person", "$zeta", create_minmax_index=True)
@@ -146,7 +127,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ]
             ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
-        with freeze_time(base_time + timedelta(minutes=59)):
+        with time_machine.travel(base_time + timedelta(minutes=59), tick=False):
             check_cache_updated()
 
     @patch("secrets.choice", return_value="X")
@@ -219,7 +200,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert self._count_materialized_rows("mat_prop") == 0
         assert self._count_materialized_rows("mat_another") == 0
 
-        with freeze_time("2021-05-10T14:00:01Z"):
+        with time_machine.travel("2021-05-10T14:00:01Z", tick=False):
             backfill_materialized_columns(
                 "events",
                 columns,

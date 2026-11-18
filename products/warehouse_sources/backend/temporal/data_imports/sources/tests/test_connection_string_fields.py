@@ -1,10 +1,10 @@
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 # TEXT connection strings only prefill the credential fields the connection uses, so the edit form
 # hides them. PASSWORD ones are the credential itself, so the edit form keeps them editable.
 _EXPECTED_TYPE_BY_SOURCE = {
+    "AwsDocumentDB": SourceFieldInputConfigType.PASSWORD,
     "ClickHouse": SourceFieldInputConfigType.TEXT,
     "MSSQL": SourceFieldInputConfigType.TEXT,
     "MongoDB": SourceFieldInputConfigType.PASSWORD,

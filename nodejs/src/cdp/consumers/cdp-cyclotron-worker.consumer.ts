@@ -1,9 +1,14 @@
+import { Histogram } from 'prom-client'
+
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
+import { CrashGuard, CrashGuardSettings } from '../services/poison-batch/crash-guard'
+import { divertToDeadLetter } from '../services/poison-batch/divert-to-dead-letter'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -15,6 +20,19 @@ import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunct
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
+// instrumented_function_duration_seconds buckets start at 25 ms, which hides a change of a few ms.
+const cyclotronWorkerPhaseDuration = new Histogram({
+    name: 'cdp_cyclotron_worker_phase_duration_seconds',
+    help: 'Wall time of one phase of a cyclotron worker batch. invocations blocks the dequeue loop, while background overlaps the next batch.',
+    labelNames: ['queue', 'phase'],
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
+export type CdpCyclotronWorkerDeps = CdpConsumerBaseDeps & {
+    // Null when CDP_BATCH_QUARANTINE_MODE is off.
+    crashGuardSettings?: CrashGuardSettings | null
+}
+
 /**
  * CDP worker that consumes and processes hog function / hogflow jobs.
  * Receives its job queue backend via constructor injection.
@@ -25,8 +43,9 @@ export class CdpCyclotronWorker<
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: JobQueue
     protected queue: CyclotronJobQueueKind
+    protected crashGuardSettings: CrashGuardSettings | null
 
-    constructor(config: TConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
+    constructor(config: TConfig, deps: CdpCyclotronWorkerDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
         super(config, deps)
         this.queue = queue ?? config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
@@ -35,6 +54,11 @@ export class CdpCyclotronWorker<
         }
 
         this.cyclotronJobQueue = jobQueue
+        const checksOwnershipForTeam = buildIntegerMatcher(config.CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS, true)
+        this.emailService.checkJobOwnershipBeforeSend((invocation) =>
+            checksOwnershipForTeam(invocation.teamId) ? jobQueue.stillOwns(invocation) : Promise.resolve(true)
+        )
+        this.crashGuardSettings = deps.crashGuardSettings ?? null
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
@@ -198,21 +222,28 @@ export class CdpCyclotronWorker<
         // batch would otherwise blow past stallTimeoutMs and get poisoned.
         const stopHeartbeat = this.startPeriodicHeartbeat(invocations)
 
+        const endInvocations = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'invocations' })
         let invocationResults: CyclotronJobInvocationResult[]
         try {
             invocationResults = await this.processInvocations(invocations)
         } catch (e) {
             stopHeartbeat()
             throw e
+        } finally {
+            endInvocations()
         }
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(stopHeartbeat)
+        const endBackground = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'background' })
+        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(() => {
+            endBackground()
+            stopHeartbeat()
+        })
 
         return { backgroundTask, invocationResults }
     }
 
-    private startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
+    protected startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
         const intervalMs = this.config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS
         if (intervalMs <= 0) {
             return () => {}
@@ -266,7 +297,22 @@ export class CdpCyclotronWorker<
     public override async start() {
         await super.start()
         await this.cyclotronJobQueue.startAsProducer()
-        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
+        await this.cyclotronJobQueue.startAsConsumer(
+            this.queue,
+            (batch) => this.processBatch(batch),
+            this.consumerOptions()
+        )
+    }
+
+    protected consumerOptions(): ConsumerOptions {
+        const settings = this.crashGuardSettings
+        if (!settings) {
+            return {}
+        }
+        return {
+            crashGuard: ({ groupId, produce }) =>
+                new CrashGuard(settings, groupId, divertToDeadLetter(produce, groupId)),
+        }
     }
 
     public override async stop() {

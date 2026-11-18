@@ -193,6 +193,11 @@ describe("resolvePromptRecall", () => {
       content: "fix the bug\n\nAttached files: screenshot.png",
     },
     {
+      name: "PostHog app context blocks",
+      content:
+        '<posthog_trusted_context>\n- act with tools\n</posthog_trusted_context>\n<posthog_untrusted_context>\n- dashboard 1 ("AARRR")\n</posthog_untrusted_context>\n\nfix the bug',
+    },
+    {
       name: "several injected blocks at once",
       content:
         '<channel_context channel="growth">CONTEXT.md body</channel_context>\n\nfix the bug\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbe terse\n</user_custom_instructions>',

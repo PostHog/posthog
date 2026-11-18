@@ -102,11 +102,29 @@ def test_sends_newline_free_base64_under_a_dated_key(png: Path, token: None) -> 
     assert re.fullmatch(_KEY_RE + r"\.png", addition["path"])
 
 
-def test_operation_failure_is_surfaced_even_though_http_is_200(png: Path, token: None) -> None:
-    # GraphQL answers 200 with an errors array. Deciding on the status code would treat this
-    # as a success and print markdown pointing at a commit that was never created.
-    with _session(_head(), _failed(type="FORBIDDEN", message="nope")):
-        with pytest.raises(click.ClickException, match="upload failed"):
+def test_upload_uses_cli_login_instead_of_application_token(png: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "app-tok")
+    monkeypatch.setattr(github_auth.shutil, "which", lambda _: "/usr/bin/gh")
+    with (
+        patch.object(github_auth.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="user-tok\n")),
+        _session(_head(), _committed("c0ffee")) as session,
+    ):
+        urls = pr_assets.publish([png], message="add screenshot")
+
+    assert "/c0ffee/" in urls[0]
+    assert session.post.call_args.kwargs["headers"]["Authorization"] == "Bearer user-tok"
+
+
+@pytest.mark.parametrize(
+    ("error_type", "message"),
+    [("FORBIDDEN", "nope"), ("NOT_FOUND", "Branch not found"), ("INTERNAL", "Something went wrong")],
+)
+def test_operation_failure_is_surfaced_even_though_http_is_200(
+    png: Path, token: None, error_type: str, message: str
+) -> None:
+    with _session(_head(), _failed(type=error_type, message=message)):
+        with pytest.raises(click.ClickException, match=f"upload failed: {message}"):
             pr_assets.publish([png], message="add screenshot")
 
 
@@ -142,11 +160,25 @@ def test_gives_up_after_repeated_stale_heads(png: Path, token: None) -> None:
             pr_assets.publish([png], message="add screenshot")
 
 
-def test_branch_not_found_after_a_successful_head_read_reports_write_access(png: Path, token: None) -> None:
-    # GitHub returns "Branch not found" both for a missing branch and for a token that cannot
-    # write. The head read already resolved this branch, so it can only be permissions.
-    with _session(_head(), _failed(type="NOT_FOUND", message="Branch not found")):
-        with pytest.raises(click.ClickException, match="write access"):
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (401, "Bad credentials"),
+        (403, "API rate limit exceeded"),
+        (403, "Resource not accessible by personal access token"),
+        (502, "Service unavailable"),
+        (502, None),
+    ],
+)
+def test_http_failure_preserves_status_and_github_reason(
+    png: Path, token: None, status: int, message: str | None
+) -> None:
+    response = _resp({"message": message}, status)
+    if message is None:
+        response.json = Mock(side_effect=ValueError("HTML error page"))
+    expected = f"HTTP {status}: {message}" if message else f"HTTP {status}"
+    with _session(_head(), response):
+        with pytest.raises(click.ClickException, match=expected):
             pr_assets.publish([png], message="add screenshot")
 
 

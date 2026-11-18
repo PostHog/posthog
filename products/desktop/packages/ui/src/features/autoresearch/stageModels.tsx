@@ -19,7 +19,7 @@ export interface AutoresearchModelOption {
  * Shared so the composer strip and the dashboard dialog can't drift onto
  * different sentinels.
  */
-export const NO_STAGE_MODEL = "__no_stage_model__";
+const NO_STAGE_MODEL = "__no_stage_model__";
 
 /**
  * Derive stage select options from a session config option. This works for the
@@ -47,12 +47,12 @@ export function stageValueLabel(
 }
 
 /** Map a select value back to the stored stage model (null = leave alone). */
-export function stageModelFromSelectValue(value: string): string | null {
+function stageModelFromSelectValue(value: string): string | null {
   return value === NO_STAGE_MODEL ? null : value;
 }
 
 /** Map a stored stage model to a non-empty select value. */
-export function selectValueFromStageModel(model: string | null): string {
+function selectValueFromStageModel(model: string | null): string {
   return model ?? NO_STAGE_MODEL;
 }
 

@@ -1,9 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import {
-  createReconnectingWorkspaceClient,
-  type WorkspaceClient,
-  type WorkspaceConnection,
-} from "./client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createLazyWorkspaceClient, type WorkspaceConnection } from "./client";
 
 const connA: WorkspaceConnection = {
   url: "http://127.0.0.1:1111",
@@ -14,60 +10,68 @@ const connB: WorkspaceConnection = {
   secret: "secret-b",
 };
 
-function makeFakeClient(name: string): WorkspaceClient {
-  return { name } as unknown as WorkspaceClient;
-}
-
-describe("createReconnectingWorkspaceClient", () => {
-  it("builds one client per connection and reuses it across accesses", () => {
-    const buildClient = vi.fn(() => makeFakeClient("a"));
-    const client = createReconnectingWorkspaceClient(() => connA, buildClient);
-
-    expect(Reflect.get(client, "name")).toBe("a");
-    expect(Reflect.get(client, "name")).toBe("a");
-    expect(buildClient).toHaveBeenCalledTimes(1);
-    expect(buildClient).toHaveBeenCalledWith(connA);
+const trpcResponse = (data: unknown) =>
+  new Response(JSON.stringify([{ result: { data: { json: data } } }]), {
+    headers: { "content-type": "application/json" },
   });
 
-  it("rebuilds the client when the connection changes (server respawn)", () => {
+describe("createLazyWorkspaceClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("does not resolve a connection until an operation starts", () => {
+    const getConnection = vi.fn().mockResolvedValue(connA);
+    const client = createLazyWorkspaceClient(getConnection);
+
+    Reflect.get(client.fs, "readAbsoluteFile");
+
+    expect(getConnection).not.toHaveBeenCalled();
+  });
+
+  it("resolves the current connection for each query", async () => {
     let current = connA;
-    const buildClient = vi
+    const getConnection = vi.fn(async () => current);
+    const fetch = vi
       .fn()
-      .mockReturnValueOnce(makeFakeClient("a"))
-      .mockReturnValueOnce(makeFakeClient("b"));
-    const client = createReconnectingWorkspaceClient(
-      () => current,
-      buildClient,
-    );
+      .mockResolvedValueOnce(trpcResponse("first"))
+      .mockResolvedValueOnce(trpcResponse("second"));
+    vi.stubGlobal("fetch", fetch);
+    const client = createLazyWorkspaceClient(getConnection);
 
-    expect(Reflect.get(client, "name")).toBe("a");
+    await expect(
+      client.fs.readAbsoluteFile.query({ filePath: "/tmp/first" }),
+    ).resolves.toBe("first");
     current = connB;
-    expect(Reflect.get(client, "name")).toBe("b");
-    expect(buildClient).toHaveBeenCalledTimes(2);
-    expect(buildClient).toHaveBeenLastCalledWith(connB);
+    await expect(
+      client.fs.readAbsoluteFile.query({ filePath: "/tmp/second" }),
+    ).resolves.toBe("second");
+
+    expect(getConnection).toHaveBeenCalledTimes(2);
+    const firstUrl = new URL(String(fetch.mock.calls[0]?.[0]));
+    const secondUrl = new URL(String(fetch.mock.calls[1]?.[0]));
+    expect(firstUrl.origin).toBe(connA.url);
+    expect(secondUrl.origin).toBe(connB.url);
+    expect(
+      new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-workspace-secret"),
+    ).toBe(connA.secret);
+    expect(
+      new Headers(fetch.mock.calls[1]?.[1]?.headers).get("x-workspace-secret"),
+    ).toBe(connB.secret);
   });
 
-  it("keeps using the last known client while the server is down", () => {
-    let current: WorkspaceConnection | null = connA;
-    const buildClient = vi.fn(() => makeFakeClient("a"));
-    const client = createReconnectingWorkspaceClient(
-      () => current,
-      buildClient,
+  it("resolves a connection when a subscription starts", async () => {
+    const getConnection = vi.fn().mockRejectedValue(new Error("start failed"));
+    const onError = vi.fn();
+    const client = createLazyWorkspaceClient(getConnection);
+
+    const subscription = client.fileWatcher.watch.subscribe(
+      { repoPath: "/tmp/repo" },
+      { onError },
     );
 
-    expect(Reflect.get(client, "name")).toBe("a");
-    current = null;
-    expect(Reflect.get(client, "name")).toBe("a");
-    expect(buildClient).toHaveBeenCalledTimes(1);
-  });
-
-  it("throws when accessed before any connection is established", () => {
-    const buildClient = vi.fn();
-    const client = createReconnectingWorkspaceClient(() => null, buildClient);
-
-    expect(() => Reflect.get(client, "name")).toThrow(
-      "workspace-server connection is not established yet",
-    );
-    expect(buildClient).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(getConnection).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    subscription.unsubscribe();
   });
 });

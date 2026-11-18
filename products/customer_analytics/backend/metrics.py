@@ -3,6 +3,24 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
+
+def record_membership_operation(
+    operation: str, outcome: str, count: int = 1, *, rows: int = 0, lag_seconds: float | None = None
+) -> None:
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    try:
+        client.metrics.count(
+            "customer_analytics.membership.operations", count, attributes={"operation": operation, "outcome": outcome}
+        )
+        client.metrics.count("customer_analytics.membership.rows", rows)
+        if lag_seconds is not None:
+            client.metrics.histogram("customer_analytics.membership.lag", lag_seconds, unit="s")
+    except Exception:
+        pass
+
+
 _ACCOUNT_TRACK_RULE_RUNS = Counter(
     "customer_analytics_account_track_rule_runs_total",
     "Account Track Rule runs by trigger and terminal status",
@@ -138,3 +156,20 @@ def record_account_track_rule_coordinator(
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_ENABLED_TEAMS, enabled_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OVERDUE_TEAMS, overdue_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OLDEST_SUCCESS_AGE_SECONDS, oldest_success_age_seconds)
+
+
+# Cutover observability for #82564: the CDP worker's account actions move from
+# secret_api_token on the external routes to scoped JWTs on the internal routes.
+# The legacy worker path can be removed once auth_method="secret_api_token" stays at zero.
+
+
+def record_task_digest_delivery(*, outcome: str, delay_seconds: float | None) -> None:
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    try:
+        client.metrics.count("customer_analytics.task_digest.delivery", 1, attributes={"outcome": outcome})
+        if delay_seconds is not None:
+            client.metrics.histogram("customer_analytics.task_digest.send_delay", delay_seconds, unit="s")
+    except Exception:
+        pass

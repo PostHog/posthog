@@ -2,12 +2,6 @@ import type { Decorator } from '@storybook/react'
 
 import { setFeatureFlags } from '~/mocks/browser'
 
-declare module 'storybook/internal/types' {
-    interface Parameters {
-        featureFlags?: string[] | Record<string, string | boolean>
-    }
-}
-
 /** Global story decorator that allows setting feature flags.
  *
  * Boolean flags (just "on") — pass an array:

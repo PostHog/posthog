@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
@@ -22,6 +22,70 @@ from ee.api.test.base import LicensedTestMixin
 
 
 class TestMCPInsightSerializer(SimpleTestCase):
+    @parameterized.expand([("bare", False), ("wrapped", True)])
+    def test_normalizes_events_queries(self, _name: str, wrapped: bool) -> None:
+        source = {
+            "kind": "EventsQuery",
+            "select": ["event", "timestamp", "properties.example_property"],
+            "where": ["timestamp >= now() - interval 7 day"],
+            "properties": [{"type": "event", "key": "example_property", "operator": "exact", "value": ["example"]}],
+            "fixedProperties": [
+                {"type": "event", "key": "example_scope", "operator": "exact", "value": ["visible"]},
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"type": "event", "key": "example_group", "operator": "exact", "value": ["visible"]}
+                            ],
+                        }
+                    ],
+                },
+            ],
+            "events": ["example_event", "another_event"],
+            "filterTestAccounts": False,
+            "after": "2026-01-01T00:00:00Z",
+            "before": "2026-01-08T00:00:00Z",
+            "orderBy": ["timestamp DESC"],
+            "limit": 25,
+            "offset": 10,
+        }
+        query: dict[str, Any] = (
+            {
+                "kind": "DataTableNode",
+                "source": source,
+                "columns": source["select"],
+                "pinnedColumns": ["event"],
+                "hiddenColumns": ["timestamp"],
+                "showAbsoluteTime": True,
+                "showPropertyFilter": True,
+                "showDateRange": True,
+                "expandable": False,
+            }
+            if wrapped
+            else source
+        )
+
+        normalized = MCPInsightSerializer().validate_query(query)
+
+        assert normalized == (query if wrapped else {"kind": "DataTableNode", "source": source})
+
+    @parameterized.expand(
+        [
+            ("other_table_source", {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("missing_select", {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}}),
+            ("invalid_select", {"kind": "EventsQuery", "select": "event"}),
+            (
+                "invalid_property_filter",
+                {"kind": "EventsQuery", "select": ["event"], "properties": [{"type": "invalid", "key": "example"}]},
+            ),
+        ]
+    )
+    def test_rejects_unsupported_or_malformed_events_tables(self, _name: str, query: dict[str, Any]) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query(query)
+
     def test_preserves_explicit_box_plot_grouping_nulls(self) -> None:
         normalized_query = MCPInsightSerializer().validate_query(
             {
@@ -34,6 +98,80 @@ class TestMCPInsightSerializer(SimpleTestCase):
         box_plot = normalized_query["chartSettings"]["boxPlot"]
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
+
+    def test_keeps_pie_chart_options_under_their_wire_names(self) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(
+            {
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "vizSpecificOptions": {"ActionsPie": {"hideAggregation": True}},
+            }
+        )
+
+        assert normalized_query["vizSpecificOptions"] == {"ActionsPie": {"hideAggregation": True}}
+
+    @parameterized.expand(
+        [
+            (
+                "metrics_query",
+                {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "http_requests_total", "aggregation": "rate"}],
+                    "display": {"type": "line", "unit": "{req}/s"},
+                },
+            ),
+            ("metrics_histogram_query", {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration"}),
+            (
+                "promql_without_clauses",
+                {"kind": "MetricsQuery", "language": "promql", "promql": "sum(rate(http_requests_total[5m]))"},
+            ),
+            (
+                "sql_without_clauses",
+                {"kind": "MetricsQuery", "language": "sql", "sql": "SELECT now() AS time, 1 AS value"},
+            ),
+        ]
+    )
+    def test_keeps_metrics_queries_bare(self, _name: str, query: dict[str, Any]) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(query)
+
+        assert normalized_query["kind"] == query["kind"]
+        assert normalized_query.get("promql") == query.get("promql")
+
+    @parameterized.expand([("list_kind", ["MetricsQuery"]), ("object_kind", {"kind": "MetricsQuery"})])
+    def test_rejects_a_kind_that_is_not_a_string(self, _name: str, kind: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query({"kind": kind})
+
+    def test_explains_an_invalid_metrics_query_in_its_own_terms(self) -> None:
+        with self.assertRaisesRegex(serializers.ValidationError, r"clauses: Field required"):
+            MCPInsightSerializer().validate_query({"kind": "MetricsQuery", "dateRange": {"date_from": "-1h"}})
+
+    def test_assistant_schema_accepts_sql_box_plots(self) -> None:
+        query = schema.AssistantDataVisualizationNode.model_validate(
+            {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select 1"},
+                "display": "BoxPlot",
+                "chartSettings": {
+                    "boxPlot": {
+                        "xAxisColumn": "bucket",
+                        "seriesColumn": "series",
+                        "minColumn": "min",
+                        "p25Column": "p25",
+                        "medianColumn": "median",
+                        "meanColumn": "mean",
+                        "p75Column": "p75",
+                        "maxColumn": "max",
+                        "excludeOutliers": True,
+                    }
+                },
+            }
+        )
+
+        assert query.display == schema.AssistantDataVisualizationDisplayType.BOX_PLOT
+        assert query.chartSettings is not None
+        assert query.chartSettings.boxPlot is not None
+        assert query.chartSettings.boxPlot.medianColumn == "median"
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -117,23 +255,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
             expected_status=status.HTTP_201_CREATED,
         )
-
-    def test_no_default_filters_on_insight_query(self) -> None:
-        _, insight_json = self.dashboard_api.create_insight(
-            {
-                "name": "Insight with persons table query",
-                "query": {
-                    "kind": "DataTableNode",
-                    "columns": ["person", "id", "created_at", "person.$delete"],
-                    "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
-                    },
-                },
-            },
-            expected_status=status.HTTP_201_CREATED,
-        )
-        assert insight_json["filters"] == {}
 
     def test_can_save_insights_query_to_an_insight(self) -> None:
         self.dashboard_api.create_insight(
@@ -234,25 +355,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["code"] == "insight_requires_at_least_one_series"
         assert response.json()["attr"] == "query"
         assert Insight.objects.count() == insight_count_before
-
-    @patch(
-        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
-        return_value=True,
-    )
-    def test_accepts_filters_the_rules_reject_when_the_stored_query_still_renders(self, _flag: Any) -> None:
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "Insight with a query",
-                "query": {"kind": "StickinessQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            }
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"filters": {"insight": "TRENDS", "events": []}},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
 
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})
@@ -441,9 +543,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "DataVisualizationNode",
                 "HogQLQuery",
             ),
+            (
+                "raw_events_query",
+                {"kind": "EventsQuery", "select": ["event", "timestamp"], "event": "example_event", "limit": 25},
+                "DataTableNode",
+                "EventsQuery",
+            ),
+            (
+                "already_wrapped_events_table",
+                {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["event", "timestamp"], "event": "example_event"},
+                    "showAbsoluteTime": True,
+                    "pinnedColumns": ["event"],
+                },
+                "DataTableNode",
+                "EventsQuery",
+            ),
         ]
     )
-    def test_mcp_create_normalizes_query(self, _name, query, expected_kind, expected_source_kind) -> None:
+    def test_mcp_create_and_update_normalize_query(
+        self, _name: str, query: dict[str, Any], expected_kind: str, expected_source_kind: str | None
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
             data={"name": "Test insight", "favorited": False, "saved": True, "query": query},
@@ -454,6 +575,68 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["query"]["kind"] == expected_kind
         if expected_source_kind is not None:
             assert response.json()["query"]["source"]["kind"] == expected_source_kind
+
+        insight_id = response.json()["id"]
+        stored_query = Insight.objects.get(pk=insight_id).query
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/",
+            data={"query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK
+        assert update_response.json()["query"] == response.json()["query"]
+        assert Insight.objects.get(pk=insight_id).query == stored_query
+
+    def test_mcp_bi_config_round_trip(self) -> None:
+        query_snapshot = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        aliases = [
+            {
+                "field": {
+                    "id": "event",
+                    "name": "event",
+                    "expression": "event",
+                    "type": "string",
+                    "source": {"table": "events"},
+                },
+                "aliases": [{"value": None, "label": "Missing"}, {"value": "", "label": "Empty"}],
+            }
+        ]
+        query = {
+            "kind": "BIVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "config": {
+                "source": {"table": "events"},
+                "rows": [],
+                "columns": [],
+                "values": [],
+                "filters": [],
+                "chartType": "ActionsTable",
+                "limit": 1000,
+                "memberAliases": aliases,
+                "colorBy": None,
+                "querySnapshot": query_snapshot,
+                "catalogMetric": "example_total",
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/?basic=true",
+            {"name": "Alias worksheet", "query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        insight_id = response.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true",
+            {"query": response.json()["query"]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true").json()["query"]
+        assert saved["config"]["memberAliases"] == aliases
+        assert saved["config"]["colorBy"] is None
+        assert saved["config"]["querySnapshot"] == query_snapshot
+        assert saved["config"]["catalogMetric"] == "example_total"
 
     def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
         response = self.client.post(

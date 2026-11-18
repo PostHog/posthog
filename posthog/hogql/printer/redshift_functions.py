@@ -94,6 +94,7 @@ def _handle_avg(args: list[str]) -> str:
 # Functions whose inherited Postgres rendering Redshift would reject or silently reinterpret;
 # rewritten to a Redshift-native equivalent that keeps HogQL semantics.
 _REDSHIFT_ONLY_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "sha1": lambda args: f"sha1({args[0]})",
     "concat": _handle_concat,
     "position": _handle_position,
     "avg": _handle_avg,

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -22,7 +22,7 @@ class DagMismatchTest(BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with freeze_time("2025-01-01T12:00:00.000Z"):
+        with time_machine.travel("2025-01-01T12:00:00.000Z", tick=False):
             cls.dag_a = DAG.objects.create(team=cls.team, name=A_DAG_ID)
             cls.dag_b = DAG.objects.create(team=cls.team, name=B_DAG_ID)
             a1_query = DataWarehouseSavedQuery.objects.create(

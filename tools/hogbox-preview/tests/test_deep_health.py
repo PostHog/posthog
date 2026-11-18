@@ -20,7 +20,11 @@ sibling tests.
 
 from __future__ import annotations
 
+import re
+from contextlib import ExitStack
+
 import unittest
+from unittest.mock import MagicMock, call, patch
 
 try:
     from hogbox_preview.backend import ExecResult
@@ -38,6 +42,7 @@ class _RecordingBackend:
 
     def __init__(self, *, probe_result: ExecResult | None = None):
         self.web_port = 8000
+        self.web_url = "https://pen-test.boxes.example.dev"
         self.files: dict[str, str] = {}
         self.execs: list[str] = []
         self.long_runs: list[str] = []
@@ -137,7 +142,14 @@ class OverrideTemporalParityTest(unittest.TestCase):
         stack = PostHogPreviewStack(backend)
         stack.write_override()
         override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
-        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 2)
+        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 3)
+
+    def test_feature_flags_reads_the_caches_django_writes(self):
+        override = self._override()
+        flags_block = override.split("  feature-flags:", 1)[1].split("  ingestion-general:", 1)[0]
+        self.assertIn(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}", flags_block)
+        self.assertIn("OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000", flags_block)
+        self.assertEqual(override.count(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}"), 4)
 
     def test_worker_pins_the_image(self):
         # dev-full's worker carries `build: .` — an unpinned image turns
@@ -159,7 +171,7 @@ class OverrideTemporalParityTest(unittest.TestCase):
     def test_both_services_force_the_local_warehouse_path(self):
         # A preview runs DEBUG=0, so USE_LOCAL_SETUP has to be forced or every
         # warehouse path reaches for real AWS creds instead of the stack's MinIO.
-        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 2)
+        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 3)
 
     def test_temporal_server_started_with_deps_but_not_the_worker(self):
         # The server must be listening before web schedules; the worker imports
@@ -187,6 +199,17 @@ class OverrideTemporalParityTest(unittest.TestCase):
         self.assertIn("register_temporal_search_attributes", script)
         self.assertIn("WARN", script)  # non-fatal fallthrough, not a bare run
 
+    def test_migrate_applies_the_prs_cyclotron_node_migrations_tolerantly(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        stack.migrate()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        migrate_block = re.split(r"\n  \S", override.split("  cyclotron-node-migrate:", 1)[1], maxsplit=1)[0]
+        self.assertIn("./rust/cyclotron-node-migrations:/migrations/cyclotron-node-migrations:ro", migrate_block)
+        script = next(run for run in backend.long_runs if "cyclotron-node-migrate" in run)
+        self.assertIn("WARN", script)
+
     def test_reset_database_recreates_temporal(self):
         # The wiped postgres volume held temporal's DBs, and only temporal's
         # auto-setup ENTRYPOINT recreates that schema — so a reset that leaves
@@ -195,6 +218,111 @@ class OverrideTemporalParityTest(unittest.TestCase):
         PostHogPreviewStack(backend).reset_database()
         script = backend.long_runs[-1]
         self.assertIn("rm -f db clickhouse web temporal temporal-django-worker", script)
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class ImagePullTest(unittest.TestCase):
+    def test_retries_each_image_independently(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = [RuntimeError("app TLS timeout"), None, RuntimeError("CDP TLS timeout"), None]
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        stack.pull_image(attempts=3)
+
+        backend.run_long.assert_has_calls(
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+            ]
+        )
+        self.assertEqual(backend.run_long.call_count, 4)
+
+    def test_stops_before_cdp_image_when_app_image_exhausts_retries(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = RuntimeError("TLS timeout")
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        with self.assertRaisesRegex(RuntimeError, f"docker pull {image} failed after 2 attempts: TLS timeout"):
+            stack.pull_image(attempts=2)
+
+        self.assertEqual(
+            backend.run_long.call_args_list,
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+            ],
+        )
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class TemplateSyncTest(unittest.TestCase):
+    def test_no_seed_bring_up_still_syncs_templates(self):
+        backend = MagicMock()
+        backend.web_url = "https://preview.example.com"
+        preview = PostHogPreviewStack(backend, seed_demo_data=False)
+        events: list[str] = []
+        methods = (
+            "start_runtime",
+            "write_override",
+            "pull_image",
+            "up_deps",
+            "migrate",
+            "start_cdp_service",
+            "sync_hog_function_templates",
+            "sync_feature_flags",
+            "warm_flag_caches",
+            "up_web",
+            "wait_for_health",
+            "deep_health",
+        )
+
+        with ExitStack() as patches:
+            for method in methods:
+                patches.enter_context(
+                    patch.object(preview, method, side_effect=lambda name=method: events.append(name))
+                )
+            preview.bring_up()
+
+        self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
+        self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
+        self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
+        self.assertLess(events.index("sync_feature_flags"), events.index("warm_flag_caches"))
+        self.assertLess(events.index("warm_flag_caches"), events.index("up_web"))
+
+    def test_cdp_service_uses_the_published_image_configuration(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        plugins_block = override.split("  plugins:", 1)[1].split("  personhog-replica:", 1)[0]
+
+        self.assertIn(f"image: {stack.CDP_IMAGE}", plugins_block)
+        self.assertIn("volumes: !override []", plugins_block)
+        self.assertIn("CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node", plugins_block)
+        self.assertIn("CDP_REDIS_HOST=redis7", plugins_block)
+        self.assertIn("CDP_VALKEY_HOST=valkey", plugins_block)
+        self.assertIn("ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00", plugins_block)
+        self.assertIn("PERSONHOG_ADDR=personhog-router:50052", plugins_block)
+
+    def test_starts_cdp_service_and_waits_until_ready(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.start_cdp_service()
+
+        script = backend.long_runs[-1]
+        self.assertIn("up -d --no-build plugins", script)
+        self.assertIn("http://localhost:6738/_ready", script)
+
+    def test_syncs_hog_function_templates(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.sync_hog_function_templates()
+
+        self.assertIn("python manage.py sync_hog_function_templates", backend.long_runs[-1])
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
@@ -214,6 +342,7 @@ class DeepHealthTest(unittest.TestCase):
         self.assertIn("/api/login/", script)
         self.assertIn("/api/projects/@current/", script)
         self.assertIn("/api/environments/@current/query/", script)
+        self.assertIn("/api/projects/@current/hog_function_templates/template-slack/", script)
         self.assertIn("HogQLQuery", script)
         self.assertIn("test@posthog.com", script)
 

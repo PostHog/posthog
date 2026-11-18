@@ -3,12 +3,15 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 38 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const ExperimentHoldoutsListParams = /* @__PURE__ */ zod.object({
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
+export const ExperimentHoldoutsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +19,15 @@ export const ExperimentHoldoutsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentHoldoutsListQueryParams = /* @__PURE__ */ zod.object({
+export const ExperimentHoldoutsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ExperimentHoldoutsCreateParams = /* @__PURE__ */ zod.object({
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
+export const ExperimentHoldoutsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -33,7 +39,7 @@ export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
+export const ExperimentHoldoutsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -182,21 +188,21 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -256,6 +262,18 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -305,7 +323,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
-export const ExperimentHoldoutsRetrieveParams = /* @__PURE__ */ zod.object({
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
+export const ExperimentHoldoutsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
         .string()
@@ -314,7 +335,10 @@ export const ExperimentHoldoutsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentHoldoutsPartialUpdateParams = /* @__PURE__ */ zod.object({
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
+export const ExperimentHoldoutsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
         .string()
@@ -327,7 +351,7 @@ export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
+export const ExperimentHoldoutsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -477,21 +501,21 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -551,6 +575,18 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -600,7 +636,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
-export const ExperimentHoldoutsDestroyParams = /* @__PURE__ */ zod.object({
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
+export const ExperimentHoldoutsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
         .string()
@@ -609,7 +648,7 @@ export const ExperimentHoldoutsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -617,7 +656,7 @@ export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsListQueryParams = () => zod.object({
     event: zod
         .string()
         .optional()
@@ -629,7 +668,7 @@ export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object(
     search: zod.string().optional().describe('A search term.'),
 })
 
-export const ExperimentSavedMetricsCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -641,7 +680,7 @@ export const experimentSavedMetricsCreateBodyNameMax = 400
 
 export const experimentSavedMetricsCreateBodyDescriptionMax = 400
 
-export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
+export const ExperimentSavedMetricsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -655,13 +694,13 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const ExperimentSavedMetricsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod
         .string()
@@ -670,7 +709,7 @@ export const ExperimentSavedMetricsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentSavedMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod
         .string()
@@ -683,7 +722,7 @@ export const experimentSavedMetricsPartialUpdateBodyNameMax = 400
 
 export const experimentSavedMetricsPartialUpdateBodyDescriptionMax = 400
 
-export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
+export const ExperimentSavedMetricsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -699,13 +738,13 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
+export const ExperimentSavedMetricsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod
         .string()
@@ -717,7 +756,7 @@ export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * List experiments for the current project. Supports filtering by status and archival state.
  */
-export const ExperimentsListParams = /* @__PURE__ */ zod.object({
+export const ExperimentsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -725,7 +764,7 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
+export const ExperimentsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
     created_by_id: zod
         .string()
@@ -739,7 +778,17 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
         ),
+    excluded_tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
+    feature_flag_ids: zod
+        .string()
+        .optional()
+        .describe('Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod
@@ -754,19 +803,28 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.'
         ),
-    search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Free-text search applied to the experiment name and its feature flag key (case-insensitive).'),
     status: zod
         .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
         .describe(
             'Filter by experiment status. \"running\", \"paused\", and \"exposure_frozen\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated, and \"exposure_frozen\" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.'
         ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.'
+        ),
 })
 
 /**
  * Create a new experiment in draft status with optional metrics.
  */
-export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -851,6 +909,9 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -873,6 +934,9 @@ export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLower
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsCreateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsCreateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -881,6 +945,9 @@ export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOp
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -904,6 +971,9 @@ export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlin
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
+
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -919,8 +989,11 @@ export const experimentsCreateBodyConclusionCommentMax = 4000
 export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsCreateBodyTagsItemMax = 255
 
-export const ExperimentsCreateBody = /* @__PURE__ */ zod
+export const experimentsCreateBodyTagsMax = 100
+
+export const ExperimentsCreateBody = () => zod
     .object({
         name: zod.string().max(experimentsCreateBodyNameMax).describe('Name of the experiment.'),
         description: zod
@@ -1038,6 +1111,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
+            ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -1201,6 +1280,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1267,6 +1347,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1328,6 +1409,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1391,6 +1473,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1451,6 +1534,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1511,6 +1595,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1542,6 +1627,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -1578,6 +1675,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1636,6 +1734,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1696,6 +1795,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1760,6 +1860,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1820,6 +1921,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1929,6 +2031,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1989,6 +2092,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2049,6 +2153,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2109,6 +2214,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2165,6 +2271,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2225,6 +2332,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2281,6 +2389,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2341,6 +2450,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2404,6 +2514,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2473,6 +2584,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -2545,6 +2657,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2617,6 +2730,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2683,6 +2797,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2801,6 +2916,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2907,6 +3023,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2973,6 +3090,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3034,6 +3152,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3097,6 +3216,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3157,6 +3277,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3217,6 +3338,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3248,6 +3370,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -3284,6 +3418,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3342,6 +3477,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3402,6 +3538,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3466,6 +3603,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3526,6 +3664,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3635,6 +3774,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3695,6 +3835,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3755,6 +3896,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3815,6 +3957,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3871,6 +4014,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3931,6 +4075,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3987,6 +4132,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4047,6 +4193,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4110,6 +4257,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4179,6 +4327,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -4251,6 +4400,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4323,6 +4473,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4389,6 +4540,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4507,6 +4659,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4573,6 +4726,81 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -4666,6 +4894,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4719,7 +4948,15 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -4813,6 +5050,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4906,6 +5144,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -4931,7 +5175,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -5029,6 +5273,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5121,6 +5366,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsCreateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -5221,6 +5478,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -5365,6 +5623,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5414,7 +5673,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -5426,7 +5687,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -5508,6 +5773,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5557,7 +5823,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -5581,6 +5849,23 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -5588,13 +5873,88 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -5688,6 +6048,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5741,7 +6102,15 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -5835,6 +6204,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5928,6 +6298,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -5953,7 +6329,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -6051,6 +6427,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6143,6 +6520,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -6243,6 +6632,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -6387,6 +6777,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6436,7 +6827,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -6448,7 +6841,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -6530,6 +6927,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6579,7 +6977,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -6603,6 +7003,23 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -6644,8 +7061,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -6665,13 +7092,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsCreateBodyTagsItemMax))
+            .max(experimentsCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
  */
-export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -6683,7 +7115,7 @@ export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
-export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -6768,6 +7200,9 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -6790,6 +7225,9 @@ export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingO
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsPartialUpdateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsPartialUpdateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -6798,6 +7236,9 @@ export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOn
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -6821,6 +7262,9 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlier
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
+
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -6834,7 +7278,11 @@ export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const experimentsPartialUpdateBodyRepositoryMax = 255
 
-export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
+export const experimentsPartialUpdateBodyTagsItemMax = 255
+
+export const experimentsPartialUpdateBodyTagsMax = 100
+
+export const ExperimentsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(experimentsPartialUpdateBodyNameMax).optional().describe('Name of the experiment.'),
         description: zod
@@ -6955,6 +7403,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
+            ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -7115,6 +7569,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -7181,6 +7636,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7242,6 +7698,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7305,6 +7762,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7365,6 +7823,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7425,6 +7884,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7456,6 +7916,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -7492,6 +7964,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -7550,6 +8023,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7610,6 +8084,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7674,6 +8149,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7734,6 +8210,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7843,6 +8320,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7903,6 +8381,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7963,6 +8442,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8023,6 +8503,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8079,6 +8560,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8139,6 +8621,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8195,6 +8678,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8255,6 +8739,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8318,6 +8803,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8387,6 +8873,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -8459,6 +8946,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8531,6 +9019,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8597,6 +9086,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8715,6 +9205,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -8821,6 +9312,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -8887,6 +9379,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8948,6 +9441,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9011,6 +9505,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9071,6 +9566,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9131,6 +9627,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9162,6 +9659,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -9198,6 +9707,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -9256,6 +9766,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9316,6 +9827,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9380,6 +9892,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9440,6 +9953,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9549,6 +10063,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9609,6 +10124,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9669,6 +10185,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9729,6 +10246,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9785,6 +10303,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9845,6 +10364,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9901,6 +10421,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9961,6 +10482,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -10024,6 +10546,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -10093,6 +10616,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -10165,6 +10689,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10237,6 +10762,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10303,6 +10829,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10421,6 +10948,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -10487,6 +11015,81 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -10580,6 +11183,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -10633,7 +11237,15 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -10727,6 +11339,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -10820,6 +11433,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -10845,7 +11464,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -10943,6 +11562,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11035,6 +11655,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -11135,6 +11767,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -11279,6 +11912,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11328,7 +11962,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -11340,7 +11976,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -11422,6 +12062,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11471,7 +12112,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -11495,6 +12138,23 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -11502,13 +12162,88 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -11602,6 +12337,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11655,7 +12391,15 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -11749,6 +12493,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11842,6 +12587,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -11871,7 +12622,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -11969,6 +12720,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12061,6 +12813,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -12161,6 +12925,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -12305,6 +13070,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12354,7 +13120,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -12366,7 +13134,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -12448,6 +13220,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12497,7 +13270,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -12525,6 +13300,23 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -12566,8 +13358,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -12587,13 +13389,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsPartialUpdateBodyTagsItemMax))
+            .max(experimentsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
+export const ExperimentsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -12609,7 +13416,7 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
  * shared metrics, and its linked feature flag: who made each change, what changed
  * (field-level before/after values), and when. Ordered newest first.
  */
-export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsActivityRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -12622,7 +13429,7 @@ export const experimentsActivityRetrieveQueryLimitDefault = 10
 
 export const experimentsActivityRetrieveQueryPageDefault = 1
 
-export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ExperimentsActivityRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -12640,7 +13447,7 @@ export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object
  * archive it. Returns 400 if the experiment is already archived or has not
  * ended yet.
  */
-export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsArchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -12651,7 +13458,7 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
 
-export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+export const ExperimentsArchiveCreateBody = () => zod.object({
     disable_feature_flag: zod
         .boolean()
         .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
@@ -12663,7 +13470,7 @@ export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Copy an experiment into another project in the same organization as a new draft.
  */
-export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsCopyToProjectCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -12672,7 +13479,7 @@ export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+export const ExperimentsCopyToProjectCreateBody = () => zod.object({
     target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
     feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
     name: zod.string().optional().describe('Optional name for the copied experiment.'),
@@ -12685,7 +13492,7 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsDuplicateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -12763,6 +13570,9 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -12785,6 +13595,9 @@ export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlin
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -12793,6 +13606,9 @@ export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneProperties
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -12816,6 +13632,9 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutli
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
+
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -12831,8 +13650,11 @@ export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
 export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsDuplicateCreateBodyTagsItemMax = 255
 
-export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
+export const experimentsDuplicateCreateBodyTagsMax = 100
+
+export const ExperimentsDuplicateCreateBody = () => zod
     .object({
         name: zod.string().max(experimentsDuplicateCreateBodyNameMax).describe('Name of the experiment.'),
         description: zod
@@ -12846,6 +13668,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .string()
             .describe(
                 "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
+            ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -13009,6 +13837,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -13075,6 +13904,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13136,6 +13966,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13199,6 +14030,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13259,6 +14091,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13319,6 +14152,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13350,6 +14184,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -13386,6 +14232,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -13444,6 +14291,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13504,6 +14352,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13568,6 +14417,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13628,6 +14478,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13737,6 +14588,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13797,6 +14649,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13857,6 +14710,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13917,6 +14771,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13973,6 +14828,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14033,6 +14889,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14089,6 +14946,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14149,6 +15007,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14212,6 +15071,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14281,6 +15141,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -14353,6 +15214,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14425,6 +15287,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14491,6 +15354,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14609,6 +15473,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -14715,6 +15580,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -14781,6 +15647,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14842,6 +15709,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14905,6 +15773,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14965,6 +15834,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15025,6 +15895,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15056,6 +15927,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -15092,6 +15975,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -15150,6 +16034,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15210,6 +16095,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15274,6 +16160,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15334,6 +16221,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15443,6 +16331,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15503,6 +16392,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15563,6 +16453,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15623,6 +16514,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15679,6 +16571,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15739,6 +16632,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15795,6 +16689,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15855,6 +16750,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15918,6 +16814,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15987,6 +16884,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -16059,6 +16957,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16131,6 +17030,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16197,6 +17097,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16315,6 +17216,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -16381,6 +17283,81 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -16474,6 +17451,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -16527,7 +17505,15 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -16621,6 +17607,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -16714,6 +17701,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -16739,7 +17732,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -16837,6 +17830,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -16929,6 +17923,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -17029,6 +18035,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -17173,6 +18180,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17222,7 +18230,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -17234,7 +18244,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -17316,6 +18330,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17365,7 +18380,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -17389,6 +18406,23 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -17396,13 +18430,88 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -17496,6 +18605,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17549,7 +18659,15 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -17643,6 +18761,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17736,6 +18855,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
+                                ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
                                 .optional()
@@ -17765,7 +18890,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -17863,6 +18988,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17955,6 +19081,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -18055,6 +19193,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -18199,6 +19338,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18248,7 +19388,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -18260,7 +19402,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -18342,6 +19488,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18391,7 +19538,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -18419,6 +19568,23 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -18460,8 +19626,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -18481,6 +19657,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsDuplicateCreateBodyTagsItemMax))
+            .max(experimentsDuplicateCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe(
         'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
@@ -18510,7 +19691,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  *
  * Returns 400 if the experiment is not running.
  */
-export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsEndCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18524,7 +19705,7 @@ export const experimentsEndCreateBodyConclusionCommentMax = 4000
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
 export const experimentsEndCreateBodyRepositoryMax = 255
 
-export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
+export const ExperimentsEndCreateBody = () => zod.object({
     conclusion: zod
         .union([
             zod
@@ -18547,7 +19728,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -18566,7 +19747,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * returns that task's latest run status and the PR URL once one is opened. Poll
  * until is_terminal is true. Returns 404 when no cleanup task was opened.
  */
-export const ExperimentsFlagCleanupTaskRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsFlagCleanupTaskRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18588,7 +19769,7 @@ export const ExperimentsFlagCleanupTaskRetrieveParams = /* @__PURE__ */ zod.obje
  * the experiment is group-aggregated (group flags cannot be frozen with a
  * person cohort), or the exposed set is too large to snapshot synchronously.
  */
-export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsFreezeExposureCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18605,7 +19786,7 @@ export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object(
  * Returns 400 if the experiment has already been launched or if the feature flag
  * configuration is invalid (e.g. fewer than 2 variants).
  */
-export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsLaunchCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18618,12 +19799,15 @@ export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+ * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+ * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
  */
-export const ExperimentsMetricsRecalculationCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsMetricsRecalculationCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18632,7 +19816,7 @@ export const ExperimentsMetricsRecalculationCreateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+export const ExperimentsMetricsRecalculationCreateBody = () => zod
     .looseObject({})
     .describe('Request body for triggering a metrics recalculation.')
 
@@ -18647,7 +19831,7 @@ export const experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp = 
     '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 )
 
-export const ExperimentsMetricsRecalculationRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsMetricsRecalculationRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18667,7 +19851,33 @@ export const ExperimentsMetricsRecalculationRetrieveParams = /* @__PURE__ */ zod
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const ExperimentsMetricsRecalculationLatestRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. Legacy experiments no longer show results,
+ * so this is how to get results for one. The legacy experiment is left untouched,
+ * so the project ends up with two experiments. Both point at the same feature
+ * flag, so no new rollout is needed and users keep the variant they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const ExperimentsMigrateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18685,7 +19895,7 @@ export const ExperimentsMetricsRecalculationLatestRetrieveParams = /* @__PURE__ 
  * $feature_flag_called is not fired).
  * Returns 400 if the experiment is not running or is already paused.
  */
-export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsPauseCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18706,7 +19916,7 @@ export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
  *
  * Returns 400 if the experiment is already in draft state.
  */
-export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsResetCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18723,7 +19933,7 @@ export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
  * before the pause, and exposure tracking resumes.
  * Returns 400 if the experiment is not running or is not paused.
  */
-export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsResumeCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18749,7 +19959,7 @@ export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
  * is what lets a card sit on one of the experiment's own metric events, which it names, so a
  * reader is sent to the results rather than given a second answer.
  */
-export const ExperimentsSessionEventDeltasCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsSessionEventDeltasCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18780,7 +19990,7 @@ export const ExperimentsSessionEventDeltasCreateParams = /* @__PURE__ */ zod.obj
  * Returns 400 if the experiment is in draft state, the variant_key is not found
  * on the flag, or the experiment has no linked feature flag.
  */
-export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsShipVariantCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18796,7 +20006,7 @@ export const experimentsShipVariantCreateBodyRepositoryMax = 255
 
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
-export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
+export const ExperimentsShipVariantCreateBody = () => zod.object({
     conclusion: zod
         .union([
             zod
@@ -18819,7 +20029,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -18844,7 +20054,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsTimeseriesResultsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18853,11 +20063,12 @@ export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ExperimentsTimeseriesResultsRetrieveQueryParams = () => zod.object({
     fingerprint: zod
         .string()
+        .optional()
         .describe(
-            "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array."
+            "Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working."
         ),
     metric_uuid: zod
         .string()
@@ -18872,7 +20083,7 @@ export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ z
  * Restores the experiment to the default list view. Returns 400 if the
  * experiment is not currently archived.
  */
-export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsUnarchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18891,7 +20102,7 @@ export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
  *
  * Returns 400 if the experiment is not running or its exposure is not frozen.
  */
-export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsUnfreezeExposureCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18901,13 +20112,63 @@ export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const ExperimentsBulkUpdateTagsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ExperimentsBulkUpdateTagsCreateBody = () => zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(experimentsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+        ),
+    tags: zod
+        .array(zod.string().max(experimentsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(experimentsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
+})
+
+/**
  * Estimate the recommended sample size and running time for an experiment.
  *
  * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
  * minimum detectable effect, and either a baseline value or raw baseline statistics. When
  * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
  */
-export const ExperimentsCalculateRunningTimeCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsCalculateRunningTimeCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -18919,6 +20180,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -18926,7 +20188,7 @@ export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSa
 
 export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
 
-export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+export const ExperimentsCalculateRunningTimeCreateBody = () => zod
     .object({
         metric_type: zod
             .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
@@ -18943,8 +20205,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -18960,7 +20223,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -18978,7 +20241,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()
@@ -19017,7 +20282,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
  * metric per selected template, each scoped to the prompt's $ai_prompt_name.
  * Resulting experiment is in draft state.
  */
-export const ExperimentsCreateFromPromptCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsCreateFromPromptCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19030,7 +20295,9 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
-export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
+export const ExperimentsCreateFromPromptCreateBody = () => zod.object({
     prompt_name: zod
         .string()
         .describe('The name of the LLM prompt to experiment on. Must already exist for this team.'),
@@ -19060,13 +20327,17 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**
  * List the LLM metric templates that can be passed to `create_from_prompt`.
  */
-export const ExperimentsPromptTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsPromptTemplatesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19075,13 +20346,368 @@ export const ExperimentsPromptTemplatesRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const ExperimentsSetupContextCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsSetupContextCreateBodyTargetEventMax = 400
+
+export const experimentsSetupContextCreateBodyTargetUrlContainsMax = 1000
+
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyMetricEventMax = 400
+
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault = 10
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitMax = 25
+
+export const experimentsSetupContextCreateBodySharedMetricsLimitDefault = 10
+export const experimentsSetupContextCreateBodySharedMetricsLimitMax = 25
+
+export const ExperimentsSetupContextCreateBody = () => zod
+    .object({
+        target_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetEventMax)
+            .nullish()
+            .describe(
+                "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+            ),
+        target_url_contains: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetUrlContainsMax)
+            .nullish()
+            .describe(
+                "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+            ),
+        target_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyTargetPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains."
+            ),
+        metric_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyMetricEventMax)
+            .nullish()
+            .describe(
+                "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+            ),
+        metric_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyMetricPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event."
+            ),
+        previous_experiments_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodyPreviousExperimentsLimitMax)
+            .default(experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault)
+            .describe('How many experiments to return, most recently launched first, then drafts, 1 to 25.'),
+        shared_metrics_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodySharedMetricsLimitMax)
+            .default(experimentsSetupContextCreateBodySharedMetricsLimitDefault)
+            .describe('How many shared metrics to return, most reused first, 1 to 25.'),
+    })
+    .describe(
+        "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'."
+    )
+
+/**
  * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
  * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExperimentsStatsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

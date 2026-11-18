@@ -2,7 +2,6 @@ import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeDashboard'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
-import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
 import '../Nodes/NotebookNodeExperiment'
@@ -11,7 +10,6 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
-import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
 import '../Nodes/NotebookNodeLatex'
@@ -21,7 +19,6 @@ import '../Nodes/NotebookNodePerson'
 import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
-import '../Nodes/NotebookNodePython'
 import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
@@ -45,7 +42,9 @@ import {
     useEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -67,13 +66,16 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { getSerializableProps, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
+import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
@@ -165,11 +167,9 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Dashboard: NotebookNodeType.Dashboard,
     Action: NotebookNodeType.Action,
     Workflow: NotebookNodeType.Workflow,
-    Python: NotebookNodeType.Python,
     PythonV2: NotebookNodeType.PythonV2,
-    DuckSQL: NotebookNodeType.DuckSQL,
-    HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
+    Widget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -211,6 +211,12 @@ const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = 
         isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
         showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
         outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+        returnVariable: KNOWN_NODES[NotebookNodeType.Query].attributes.returnVariable,
+        dataframeSource: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeSource,
+        dataframeQuery: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeQuery,
+        runId: KNOWN_NODES[NotebookNodeType.Query].attributes.runId,
+        result: KNOWN_NODES[NotebookNodeType.Query].attributes.result,
+        runStatus: KNOWN_NODES[NotebookNodeType.Query].attributes.runStatus,
     },
     defaultView: undefined,
     views: undefined,
@@ -228,10 +234,9 @@ function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions
     return nodeType ? KNOWN_NODES[nodeType] : null
 }
 
-// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
-// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
-// result, so without this it renders as an empty box with nothing to type into.
-const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+// The notebook shell closes input panels unless the node carries `showFilters`. New programmable
+// blocks need immediate input, so opening the panel avoids an empty block with no visible next step.
+const INPUT_PANEL_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
 
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
@@ -247,34 +252,33 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Dashboard', category: 'Insight' },
     { tagName: 'Action', category: 'Data' },
     { tagName: 'Workflow', category: 'PostHog' },
-    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
-    // are always the revamped PythonV2 below, so it has no insertCommand.
-    { tagName: 'Python', category: 'Code' },
-    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
-    // getMarkdownRegistryForFeatureFlags.
     {
         tagName: 'PythonV2',
         category: 'Code',
         label: 'Python',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits next to SQL in the menu's top group, because the two cells do the same job in
+            // a notebook. A separate "Code" group sits below the fold, where a person who is not
+            // already looking for Python does not find it. Only the menu grouping moves. The
+            // definition's category still drives the node's styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'New',
             aliases: ['python', 'py'],
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
-    { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
-    { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
-    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
-    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
     {
         tagName: 'SQLV2',
         category: 'SQL',
-        // The single SQL node once the legacy SQL cells are deprecated (they render but
-        // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
@@ -286,9 +290,29 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `sql_df_${nodeId.slice(0, 8)}`,
+                }
+            },
+        },
+    },
+    {
+        tagName: 'Widget',
+        category: 'Code',
+        label: 'Widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
+        insertCommand: {
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'BETA',
+            aliases: ['visualization', 'widget', '3d'],
             defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
@@ -344,6 +368,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2', 'Insight', 'Query'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -377,38 +402,8 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
     },
 ])
 
-// Node tags that only appear in the markdown insert menu when their feature flag is on.
-// Only insertion is gated — rendering of already-inserted nodes is never gated.
-export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
-    const hiddenTags: string[] = []
-    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2', 'PythonV2')
-    }
-
-    if (hiddenTags.length === 0) {
-        return NOTEBOOK_MARKDOWN_REGISTRY
-    }
-
-    // Dropping insertCommand hides the node from the insert menu (it filters falsy
-    // insertCommand), while the ViewComponent stays so existing nodes still render.
-    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
-    for (const tagName of hiddenTags) {
-        const definition = components[tagName]
-        if (definition) {
-            components[tagName] = { ...definition, insertCommand: undefined }
-        }
-    }
-    return { components }
-}
-
-// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
-// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
-export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
-    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
-    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
-    // Offering both would put two entries labeled "SQL" in the menu.
-    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
-}
+// The built-in SQL command inserts a legacy Query cell; SQLV2 supplies the notebook's SQL command.
+export const NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS = [QUERY_SQL_INSERT_COMMAND_KEY]
 
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
@@ -441,13 +436,7 @@ export function getMarkdownNotebookNodeTitle(
             fallback
         )
     }
-    if (
-        nodeType === NotebookNodeType.Python ||
-        nodeType === NotebookNodeType.PythonV2 ||
-        nodeType === NotebookNodeType.SQLV2 ||
-        nodeType === NotebookNodeType.DuckSQL ||
-        nodeType === NotebookNodeType.HogQLSQL
-    ) {
+    if (nodeType === NotebookNodeType.PythonV2 || nodeType === NotebookNodeType.SQLV2) {
         // Never suggest the code/SQL body itself as a title — fall back to the language label
         return fallback
     }
@@ -578,7 +567,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = notebookNodeType !== NotebookNodeType.GeneratedWidget && 'id' in options.attributes
     if (!hasId && !options.views) {
         return null
     }
@@ -761,6 +750,27 @@ export function RealNotebookNodeComponent({
     )
 }
 
+const scrollContainersByNotebook = new WeakMap<Element, Element | null>()
+
+function findScrollContainer(element: Element): Element | null {
+    const notebook = element.closest('.MarkdownNotebook')
+    const cached = notebook ? scrollContainersByNotebook.get(notebook) : undefined
+    if (cached !== undefined) {
+        return cached
+    }
+    let container: Element | null = null
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (/auto|scroll|overlay/.test(getComputedStyle(parent).overflowY)) {
+            container = parent
+            break
+        }
+    }
+    if (notebook) {
+        scrollContainersByNotebook.set(notebook, container)
+    }
+    return container
+}
+
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
@@ -777,7 +787,28 @@ export function MountedRealNotebookNodeComponent({
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { preparingPrint } = useValues(notebookExportLogic({ shortId: mountedNotebookLogic.props.shortId }))
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [scrollContainer, setScrollContainer] = useState<Element | null | undefined>(undefined)
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: !options.unmountWhenOutOfView,
+        fallbackInView: true,
+        // The observer clips targets to every scrolling ancestor, so the margin only reaches beyond
+        // the visible area when the notebook's own scroll container is the root.
+        ...(options.deferUntilInView
+            ? { root: scrollContainer, rootMargin: '100% 0px', skip: scrollContainer === undefined }
+            : {}),
+    })
+    const setContentRefs = useCallback(
+        (element: HTMLDivElement | null): void => {
+            contentRef.current = element
+            inViewRef(element)
+            if (element && options.deferUntilInView) {
+                setScrollContainer(findScrollContainer(element))
+            }
+        },
+        [inViewRef, options.deferUntilInView]
+    )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
         [forceEditing, node.id, node.props, notebookNodeType, options]
@@ -846,13 +877,16 @@ export function MountedRealNotebookNodeComponent({
     const showSettings = forceEditing && Settings
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
+    const isInsightEditorView = notebookNodeType === NotebookNodeType.Query && attributes.view === 'editor'
     const isResizeable =
         isNotebookEditable &&
+        !isInsightEditorView &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
-    const contentStyle: CSSProperties | undefined =
-        isResizeable || attributes.height
-            ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
-            : undefined
+    const contentStyle: CSSProperties | undefined = isInsightEditorView
+        ? { height: 'auto' }
+        : isResizeable || attributes.height
+          ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+          : undefined
     // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
     const nodeStyle: CSSProperties | undefined =
         options.minHeight !== undefined
@@ -932,7 +966,7 @@ export function MountedRealNotebookNodeComponent({
                     ) : null}
                     {showContent ? (
                         <div
-                            ref={contentRef}
+                            ref={setContentRefs}
                             className={clsx(
                                 'MarkdownNotebook__real-node-content',
                                 isResizeable && 'MarkdownNotebook__real-node-content--resizeable'
@@ -940,7 +974,11 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {preparingPrint || !(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
+                                <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            ) : (
+                                <LemonSkeleton className="h-full w-full" />
+                            )}
                             {isResizeable ? (
                                 <div
                                     className="MarkdownNotebook__real-node-resize-handle"

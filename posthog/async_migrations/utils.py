@@ -11,7 +11,6 @@ import structlog
 import posthoganalytics
 
 from posthog.async_migrations.definition import AsyncMigrationOperation
-from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import make_ch_pool
@@ -306,6 +305,11 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             )
 
     if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"):
+        # Call-time import to break a cycle: setup imports every migration module at import, and
+        # three of them import this module. Entering here first (celery task module, API module,
+        # tests) used to work only because django.setup() had already imported setup.
+        from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION  # noqa: PLC0415
+
         next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
         if next_migration:
             from posthog.async_migrations.runner import run_next_migration

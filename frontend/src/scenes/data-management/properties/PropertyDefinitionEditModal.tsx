@@ -8,13 +8,12 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
-import type { PropertyDefinitionTypeEnumApi } from '~/generated/core/api.schemas'
-import { tagsModel } from '~/models/tagsModel'
+import type { PropertyTypeEnumApi } from '~/generated/core/api.schemas'
 import { isCoreFilter } from '~/taxonomy/helpers'
 
 import { PropertyDefinitionEditModalProps, propertyDefinitionEditModalLogic } from './propertyDefinitionEditModalLogic'
 
-const PROPERTY_TYPE_OPTIONS: { label: string; value: PropertyDefinitionTypeEnumApi }[] = [
+const PROPERTY_TYPE_OPTIONS: { label: string; value: PropertyTypeEnumApi }[] = [
     { value: 'DateTime', label: 'DateTime' },
     { value: 'String', label: 'String' },
     { value: 'Numeric', label: 'Numeric' },
@@ -25,7 +24,6 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
     const logic = propertyDefinitionEditModalLogic(props)
     const { propertyDefinitionEditFormChanged, isPropertyDefinitionEditFormSubmitting } = useValues(logic)
     const { closeModal, submitPropertyDefinitionEditForm } = useActions(logic)
-    const { tags, tagsLoading } = useValues(tagsModel)
     const allowVerification = !isCoreFilter(props.propertyDefinition.name)
 
     return (
@@ -75,10 +73,9 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
                         {({ value, onChange }) => (
                             <ObjectTags
                                 className="definition-tags"
-                                saving={isPropertyDefinitionEditFormSubmitting || tagsLoading}
+                                saving={isPropertyDefinitionEditFormSubmitting}
                                 tags={value ?? []}
                                 onChange={onChange}
-                                tagsAvailable={tags}
                             />
                         )}
                     </LemonField>
@@ -115,7 +112,7 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
                 <div className="ph-ignore-input">
                     <LemonField name="property_type" label="Property type" data-attr="property-type">
                         {({ value, onChange }) => (
-                            <LemonSelect<PropertyDefinitionTypeEnumApi>
+                            <LemonSelect<PropertyTypeEnumApi>
                                 value={value ?? undefined}
                                 onChange={onChange}
                                 options={PROPERTY_TYPE_OPTIONS}

@@ -665,6 +665,32 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
                 }
                 self.assertEqual(loaded.checkpoint, expected_checkpoint)
 
+    async def test_message_type_dropped_from_schema_is_removed_on_load(self):
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        human = HumanMessage(content="bring me all the leads")
+        answer = AssistantMessage(content="228 lead creation events")
+        retired = {"type": "ai/router", "content": "trends", "id": str(uuid4())}
+        checkpoint_id = str(uuid6(clock_seq=-2))
+        checkpoint = {
+            "v": 1,
+            "ts": "2025-02-01T20:14:19.804150+00:00",
+            "id": checkpoint_id,
+            "channel_values": {"messages": [human, retired, answer]},
+            "channel_versions": {"messages": "1"},
+            "versions_seen": {},
+            "pending_sends": [],
+        }
+        config = {"configurable": {"thread_id": str(thread.id), "checkpoint_ns": ""}}
+        await saver.aput(config, checkpoint, {"source": "input"}, {"messages": "1"})
+
+        loaded = await saver.aget_tuple(config)
+        messages = loaded.checkpoint["channel_values"]["messages"]
+        self.assertEqual(messages, [human, answer])
+        state = AssistantState.model_validate({"messages": messages})
+        self.assertEqual([message.content for message in state.messages], [human.content, answer.content])
+
     async def test_unknown_constructor_marker_returned_as_plain_dict(self):
         thread = await Conversation.objects.acreate(user=self.user, team=self.team)
         saver = DjangoCheckpointer()

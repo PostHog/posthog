@@ -1014,7 +1014,8 @@
                     "$ref": "#/definitions/MobileStyles"
                 },
                 "type": {
-                    "$ref": "#/definitions/MobileNodeType"
+                    "const": "screenshot",
+                    "type": "string"
                 },
                 "width": {
                     "anyOf": [

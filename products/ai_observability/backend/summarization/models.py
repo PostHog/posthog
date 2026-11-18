@@ -11,6 +11,10 @@ class OpenAIModel(StrEnum):
     GPT_4O_MINI = "gpt-4o-mini"
     GPT_4O = "gpt-4o"
     GPT_5_MINI = "gpt-5-mini"
+    GPT_5_NANO = "gpt-5-nano"
+    GPT_6_LUNA = "gpt-6-luna"
+    GPT_6_SOL = "gpt-6-sol"
+    GPT_6_1_SOL = "gpt-6.1-sol"
 
     @classmethod
     def parse(cls, value: str) -> "OpenAIModel":

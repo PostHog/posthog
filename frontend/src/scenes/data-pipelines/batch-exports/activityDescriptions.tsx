@@ -1,10 +1,12 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -240,14 +242,14 @@ function describeFieldChange(label: string, before: string | null, after: string
 // ---------------------------------------------------------------------------
 
 export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    const name = userNameForLogItem(logItem)
     const exportName = nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the batch export', exportName),
             description: (
                 <>
-                    <strong className="ph-no-capture">{name}</strong> created batch export {exportName}
+                    <ActivityLogUserName logItem={logItem} /> created batch export {exportName}
                 </>
             ),
         }
@@ -256,10 +258,10 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
     if (logItem.detail?.changes?.some((change) => change.field === 'deleted')) {
         const displayName = logItem.detail.name || '(unnamed export)'
         return {
+            summary: activityLogSummary(logItem, 'Deleted the batch export', displayName),
             description: (
                 <>
-                    <strong className="ph-no-capture">{name}</strong> deleted batch export{' '}
-                    <strong>{displayName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> deleted batch export <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -305,23 +307,29 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
 
         if (changes.length === 0) {
             return {
+                summary: activityLogSummary(logItem, 'Updated the batch export', exportName),
                 description: (
                     <>
-                        <strong className="ph-no-capture">{name}</strong> updated batch export {exportName}
+                        <ActivityLogUserName logItem={logItem} /> updated batch export {exportName}
                     </>
                 ),
             }
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList listParts={changes.map((change) => change.inlist)} />,
+                exportName
+            ),
             description:
                 changes.length === 1 ? (
                     <>
-                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} batch export {exportName}
+                        <ActivityLogUserName logItem={logItem} /> {changes[0].inline} batch export {exportName}
                     </>
                 ) : (
                     <div>
-                        <strong className="ph-no-capture">{name}</strong> updated batch export {exportName}
+                        <ActivityLogUserName logItem={logItem} /> updated batch export {exportName}
                         <ul className="ml-5 list-disc">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>

@@ -159,7 +159,7 @@ func DockerComposeUpWithRetry(maxAttempts int) error {
 	logger.WriteString("Starting PostHog containers...\n")
 
 	cmd, args := GetDockerComposeCommand()
-	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always")
+	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always", "--remove-orphans")
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -243,6 +243,27 @@ func CheckDockerVolumes() (bool, bool) {
 	hasClickhouse := strings.Contains(out, "clickhouse-data")
 
 	return hasPostgres, hasClickhouse
+}
+
+// Compose prefixes a volume with the project name, so the MinIO volume is
+// `<project>_objectstorage`. The SeaweedFS replacement uses `objectstorage-data`, which
+// must not match, hence the exact name and suffix test rather than a substring.
+func LegacyObjectStorageVolume() string {
+	out, err := RunCommand("docker", "volume", "ls", "-q")
+	if err != nil {
+		return ""
+	}
+	return findLegacyObjectStorageVolume(strings.Split(out, "\n"))
+}
+
+func findLegacyObjectStorageVolume(names []string) string {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "objectstorage" || strings.HasSuffix(name, "_objectstorage") {
+			return name
+		}
+	}
+	return ""
 }
 
 func AddUserToDockerGroup(user string) error {

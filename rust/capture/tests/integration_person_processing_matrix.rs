@@ -41,11 +41,12 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::OutputRegistry;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::kafka::KafkaSinkBase;
 use capture::sinks::producer::MockKafkaProducer;
-use capture::sinks::registry::OutputRegistry;
+use capture::sinks::registry::OutputTable;
 use capture::time::TimeSource;
 use capture::v1::router::{router as v1_router, RouterConfig as V1RouterConfig};
 use capture::v1::test_utils::TestStateBuilder;
@@ -139,9 +140,8 @@ impl Batch {
     }
 }
 
-/// Count limiter evaluations on the recorder the caller installed. Each
-/// evaluation increments this counter exactly once, so it measures the Redis
-/// work the skip exists to avoid.
+/// Count limiter evaluations on the recorder the caller installed. Every event
+/// that reaches the stage charges the limiter, restrictions included.
 fn consultations(snapshotter: &metrics_util::debugging::Snapshotter) -> u64 {
     snapshotter
         .snapshot()
@@ -227,7 +227,10 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputRegistry::from(&cfg.kafka));
+    let sink = KafkaSinkBase::with_producer(
+        producer.clone(),
+        OutputTable::new(&cfg.outputs, cfg.capture_mode.has_ai_overflow_lane()),
+    );
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
@@ -239,7 +242,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         },
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         Some(Arc::new(limiter)),
         quota_limiter,
@@ -254,7 +257,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,
@@ -263,10 +266,9 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         None, // ai_byte_rate_limiter
         None,
-        None,
         8,
+        true,
         None,
-        false,
         None,
     );
 
@@ -316,8 +318,8 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     }
 }
 
-/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its own router and
-/// sink, reading every record off the v1 mock producer, in request order.
+/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its router and the
+/// shared outputs, reading every record off the mock producer, in request order.
 async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
@@ -335,6 +337,8 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let router = v1_router(V1RouterConfig {
         concurrency_limit: None,
         max_compressed_body_bytes: 10 * 1024 * 1024,
+        serves_analytics: true,
+        serves_ai_events: false,
     })
     .with_state(ts.state.clone());
 
@@ -381,28 +385,24 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let body = response.text().await;
     assert_eq!(status, StatusCode::OK, "v1 rejected the batch: {body}");
 
-    ts.mock_producer.with_records(|produced| {
-        assert_eq!(
-            produced.len(),
-            distinct_ids.len(),
-            "v1 must produce every event"
-        );
-        Batch {
-            records: produced
-                .iter()
-                .map(|r| Record {
-                    lane: v1_lane(&r.topic),
-                    has_key: r.key.is_some(),
-                    // The wire header is bytes, so read it back the way a
-                    // consumer would.
-                    force_disable_person_processing: r
-                        .header("force_disable_person_processing")
-                        .map(|v| v == "true"),
-                })
-                .collect(),
-            limiter_consultations: consultations(&snapshotter),
-        }
-    })
+    let produced = ts.mock_producer.get_records();
+    assert_eq!(
+        produced.len(),
+        distinct_ids.len(),
+        "v1 must produce every event"
+    );
+
+    Batch {
+        records: produced
+            .iter()
+            .map(|r| Record {
+                lane: v1_lane(&r.topic),
+                has_key: r.key.is_some(),
+                force_disable_person_processing: r.headers.force_disable_person_processing,
+            })
+            .collect(),
+        limiter_consultations: consultations(&snapshotter),
+    }
 }
 
 // Each path names its lanes differently; the matrix compares lanes, not strings.
@@ -443,24 +443,25 @@ fn v1_lane(topic: &str) -> Lane {
     Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 // The skip-person restriction alone: person processing off and the key dropped,
-// on the main lane, and the limiter is never consulted.
+// on the main lane. The limiter is still charged, but it stamps nothing.
 #[case::skip_person(
     Inputs { skip_person_restriction: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::skip_person_personless(
     Inputs { skip_person_restriction: true, personless: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
-// The restriction shadows the limiter entirely: the key is over its window, but
-// the limiter is skipped, so nothing reroutes it.
+// The restriction shadows the limiter's stamps: the key is over its window, but
+// the restriction already took person processing away, so nothing reroutes it.
+// The charge still lands.
 #[case::skip_person_and_rate_limited(
     Inputs { skip_person_restriction: true, over_rate_limit: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::skip_person_and_rate_limited_personless(
     Inputs { skip_person_restriction: true, over_rate_limit: true, personless: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 // The overflow restriction alone moves the lane but leaves person processing on,
 // so the key survives.
@@ -485,21 +486,21 @@ fn v1_lane(topic: &str) -> Lane {
 // Both restrictions: the overflow lane from one, the dropped key from the other.
 #[case::both_restrictions(
     Inputs { skip_person_restriction: true, overflow_restriction: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::both_restrictions_personless(
     Inputs { skip_person_restriction: true, overflow_restriction: true, personless: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
-// All three: the limiter is still skipped, and the restrictions alone produce
-// the same wire outcome the limiter would have.
+// All three: the limiter stamps nothing, and the restrictions alone produce the
+// same wire outcome the limiter would have.
 #[case::everything(
     Inputs { skip_person_restriction: true, overflow_restriction: true, over_rate_limit: true, ..Inputs::default() },
-    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::everything_personless(
     Inputs { skip_person_restriction: true, overflow_restriction: true, over_rate_limit: true, personless: true, restricted_distinct_id: None },
-    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[tokio::test]
 async fn person_processing_and_routing_matrix(#[case] inputs: Inputs, #[case] expected: Observed) {
@@ -522,11 +523,14 @@ async fn person_processing_and_routing_matrix(#[case] inputs: Inputs, #[case] ex
 /// keys from the limiter.
 ///
 /// The skip is a per-event decision, so a batch mixing a restricted key with an
-/// unrestricted one has to split: the restricted events skip the limiter and
-/// keep the main lane, while the unrestricted ones are still consulted and still
-/// rerouted once they exceed the window. Hoisting the check to the batch, or
-/// keying it on the token rather than the event, would silently stop rate
-/// limiting every other key belonging to a token that has any restriction at all.
+/// unrestricted one has to split: the restricted events keep the main lane and
+/// take no stamps, while the unrestricted ones are still rerouted once they
+/// exceed the window. Hoisting the check to the batch, or keying it on the token
+/// rather than the event, would silently stop rate limiting every other key
+/// belonging to a token that has any restriction at all.
+///
+/// Every event charges the limiter, restricted or not, so the consultation count
+/// covers the whole batch.
 #[rstest]
 #[case::skip_person(false)]
 #[case::skip_person_and_force_overflow(true)]
@@ -559,10 +563,10 @@ async fn restriction_filtered_to_one_distinct_id_leaves_other_keys_rate_limited(
         ("v0", run_v0(inputs, &batch).await),
         ("v1", run_v1(inputs, &batch).await),
     ] {
-        // Only the two unrestricted events cost a limiter evaluation.
         assert_eq!(
-            observed.limiter_consultations, 2,
-            "{path}: the limiter must be consulted for the unrestricted key only"
+            observed.limiter_consultations, 4,
+            "{path}: every event charges the limiter, so a restricted key's volume \
+             stays in its own fleet count"
         );
 
         for i in 0..2 {

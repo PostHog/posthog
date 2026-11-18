@@ -13,7 +13,7 @@ const taskMetadataSchema = z.object({
   lastActivityAt: z.string().nullable(),
 });
 
-export type TaskMetadata = z.infer<typeof taskMetadataSchema>;
+type TaskMetadata = z.infer<typeof taskMetadataSchema>;
 
 const EMPTY: TaskMetadata = {
   pinnedAt: null,
@@ -57,6 +57,10 @@ export const webTaskMetadataStore = {
 
   markViewed(taskId: string): void {
     update(taskId, { lastViewedAt: new Date().toISOString() });
+  },
+
+  markUnread(taskId: string, activityAt: number): void {
+    update(taskId, { lastViewedAt: new Date(activityAt - 1).toISOString() });
   },
 
   markActivity(taskId: string): void {

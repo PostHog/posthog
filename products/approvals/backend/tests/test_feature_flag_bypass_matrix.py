@@ -9,6 +9,7 @@ policy guards it.
 
 Each closed bypass below maps to a fix on this branch:
   - direct PATCH enable/disable/update        -> the baseline control the gate exists for
+  - lifecycle enable/disable/archive actions   -> thin state endpoints routed through the same gate
   - experiment launch / pause / resume        -> flag flips routed through FeatureFlagSerializer
   - experiment ship_variant                   -> variant rollout rewrite gated by feature_flag.update
   - web-experiment variant rollout edit        -> update_experiment() variant write, gated by feature_flag.update
@@ -23,6 +24,8 @@ test_scheduled_change_gating, test_experiment_service_approvals, and the copy ga
 in products/feature_flags/.../test_organization_feature_flag.py). This file asserts the
 headline "gated field UNCHANGED + a pending ChangeRequest created + 0 applied" outcome for
 each path in one place so a future regression on any single bypass fails loudly here.
+The experiment paths are the exception: they drive the experiments service, so
+test_experiment_service_approvals in products/experiments asserts the same outcome for them.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -33,16 +36,13 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from rest_framework.test import APIRequestFactory
+from parameterized import parameterized
 
-from posthog.constants import AvailableFeature
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
-from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.actions.feature_flags import DisableFeatureFlagAction
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
-from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.api import set_flag_active
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -127,25 +127,170 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         assert flag.active is True
         self._assert_one_pending_zero_applied()
 
+    @parameterized.expand(
+        [
+            ("enable", "feature_flag.enable", False),
+            ("disable", "feature_flag.disable", True),
+            # Archiving an enabled flag disables it in the same write, so the disable policy applies.
+            ("archive", "feature_flag.disable", True),
+        ]
+    )
+    # The class-level _is_approvals_enabled patch wraps the expanded case, so its mock arrives
+    # before the parameterized arguments.
+    def test_lifecycle_action_is_gated(self, _mock_enabled, action, action_key, active):
+        _enable_policy_for(self, action_key)
+        flag = self._flag(active=active)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 409
+        assert response.json().get("code") == "approval_required"
+        flag.refresh_from_db()
+        assert flag.active is active
+        assert flag.archived is False
+        self._assert_one_pending_zero_applied()
+
+    @parameterized.expand([("disable", True), ("archive", True), ("enable", False)])
+    def test_approved_lifecycle_change_preserves_legacy_filter_keys(self, _mock_enabled, action, active):
+        # The direct path is exempt from the serializer's opportunistic legacy-key cleanup, but
+        # the exemption has to survive into the replay. It travels in the intent: inferring it
+        # at apply time would also exempt an approved ordinary update, which should still clean.
+        _enable_policy_for(self, "feature_flag.disable" if active else "feature_flag.enable")
+        legacy = {
+            "groups": [{"properties": [], "rollout_percentage": 30}],
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = FeatureFlag.objects.create(
+            team=self.team, key=f"legacy-{action}", active=active, filters=dict(legacy), created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.filters == legacy
+
+    def test_archive_change_request_shows_the_approver_both_fields(self, _mock_enabled):
+        # Only `active` is gated, so `gated_changes` carries only that. Approving applies
+        # `archived` too, so a display built from the gated subset asked for consent to a
+        # disable and then archived the flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        after = DisableFeatureFlagAction.get_display_data(cr.intent)["after"]
+        assert after == {"active": False, "archived": True}
+
+    def test_approving_an_archive_applies_both_state_fields(self, _mock_enabled):
+        # Archiving an enabled flag writes `archived` and `active` together, but only `active`
+        # is what the disable policy gates. The change request has to carry both, or approving
+        # it disables the flag and silently drops the archive the caller asked for.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.archived is True
+        assert flag.active is False
+
+    @parameterized.expand(
+        [
+            ("unarchive", "feature_flag.enable"),
+            ("unarchive", "feature_flag.disable"),
+            ("archive_disabled", "feature_flag.enable"),
+            ("archive_disabled", "feature_flag.disable"),
+        ]
+    )
+    def test_archived_only_lifecycle_write_is_not_gated(self, _mock_enabled, case, action_key):
+        # An archived-only write changes neither `active` nor `filters`, so every gated action
+        # declines it. These pass through with no change request even under an enable or disable
+        # policy, and a regression that starts gating them would not fail the cases above.
+        _enable_policy_for(self, action_key)
+        action = "unarchive" if case == "unarchive" else "archive"
+        flag = self._flag(active=False, key=f"matrix-{case}")
+        if case == "unarchive":
+            flag.archived = True
+            flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is (case != "unarchive")
+        assert flag.active is False
+        assert ChangeRequest.objects.count() == 0
+
+    def test_lifecycle_actions_gate_each_flag_separately(self, _mock_enabled):
+        # The gate keys duplicate detection on resource_id, which it derives from the request
+        # method: it returns None for POST. A lifecycle action that reported itself as POST
+        # stored NULL, so the second flag's request matched the first as a duplicate and was
+        # dropped — the caller got a 409 naming someone else's change request and nothing was
+        # queued for their flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        first = self._flag(active=True, key="matrix-flag-one")
+        second = self._flag(active=True, key="matrix-flag-two")
+
+        for flag in (first, second):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/disable/", {}, format="json"
+            )
+            assert response.status_code == 409
+            assert response.json().get("code") == "approval_required"
+
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 2
+        assert {cr.resource_id for cr in ChangeRequest.objects.all()} == {str(first.id), str(second.id)}
+
     def test_direct_patch_rollout_change_is_gated(self, _mock_enabled):
         _any_rollout_change_policy(self)
         flag = self._flag(active=True, rollout=20)
+        # The editor saves the whole flag it loaded, so the gate sees the server-owned timestamps
+        # come back too. last_called_at has to be set for the body to carry a real one.
+        last_called_at = timezone.now() - timedelta(days=3)
+        flag.last_called_at = last_called_at
+        flag.save(update_fields=["last_called_at"])
 
-        response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}})
+        body = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/").json()
+        body["filters"] = {"groups": [{"properties": [], "rollout_percentage": 90}]}
+        response = self._patch(flag, body)
 
-        assert response.status_code == 409
+        assert response.status_code == 409, response.content
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 20
+        assert flag.last_called_at == last_called_at
         self._assert_one_pending_zero_applied()
 
     def test_create_active_is_gated(self, _mock_enabled):
         _enable_policy_for(self, "feature_flag.enable")
 
+        # A client building a create from a flag it loaded sends the server-owned timestamps along.
         response = self._post(
-            {"key": "born-active", "active": True, "filters": {"groups": [{"rollout_percentage": 100}]}}
+            {
+                "key": "born-active",
+                "active": True,
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+                "created_at": (timezone.now() - timedelta(days=30)).isoformat(),
+                "last_called_at": (timezone.now() - timedelta(days=3)).isoformat(),
+            }
         )
 
-        assert response.status_code == 409
+        assert response.status_code == 409, response.content
         assert response.json().get("code") == "approval_required"
         assert not FeatureFlag.objects.filter(team=self.team, key="born-active").exists()
         self._assert_one_pending_zero_applied()
@@ -257,154 +402,6 @@ class TestScheduledChangeBypassMatrix(FeatureFlagBypassMatrixBase):
         assert 90 not in rollouts
         scheduled.change_request.refresh_from_db()
         assert scheduled.change_request.state == ChangeRequestState.EXPIRED
-
-
-@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestExperimentBypassMatrix(APIBaseTest):
-    """Experiment lifecycle transitions flip the linked flag through FeatureFlagSerializer, so each
-    must pass through the gate: launch/resume (enable), pause (disable), ship_variant + variant
-    rollout edits (update). A gated transition raises ApprovalRequired and leaves the flag untouched."""
-
-    _METRIC = {
-        "kind": "ExperimentMetric",
-        "metric_type": "mean",
-        "uuid": "m1",
-        "source": {"kind": "EventsNode", "event": "$pageview"},
-    }
-
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
-        ]
-        self.organization.save()
-
-    def _service(self) -> ExperimentService:
-        return ExperimentService(team=self.team, user=self.user)
-
-    def _request(self) -> Any:
-        request = APIRequestFactory().post("/fake")
-        request.user = self.user
-        return request
-
-    def _policy(self, action_key: str) -> ApprovalPolicy:
-        return ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key=action_key,
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-
-    def _draft(self, key: str) -> Experiment:
-        return self._service().create_experiment(
-            name="Matrix",
-            feature_flag_key=key,
-            metrics=[self._METRIC],
-            primary_metrics_ordered_uuids=["m1"],
-            allow_unknown_events=True,
-        )
-
-    def _launched(self, key: str) -> Experiment:
-        experiment = self._draft(key)
-        self._service().launch_experiment(experiment, request=self._request())
-        experiment.refresh_from_db()
-        return experiment
-
-    def _assert_pending_zero_applied(self) -> None:
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.APPLIED).count() == 0
-
-    def test_launch_is_gated(self, _mock_enabled):
-        experiment = self._draft("m-launch")
-        self._policy("feature_flag.enable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().launch_experiment(experiment, request=self._request())
-
-        experiment.refresh_from_db()
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        assert experiment.start_date is None
-        self._assert_pending_zero_applied()
-
-    def test_pause_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-pause")
-        assert experiment.feature_flag.active is True
-        self._policy("feature_flag.disable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().pause_experiment(experiment, request=self._request())
-
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is True
-        self._assert_pending_zero_applied()
-
-    def test_resume_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-resume")
-        self._service().pause_experiment(experiment, request=self._request())
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        self._policy("feature_flag.enable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().resume_experiment(experiment, request=self._request())
-
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        self._assert_pending_zero_applied()
-
-    def test_ship_variant_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-ship")
-        original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
-        self._policy("feature_flag.update")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().ship_variant(experiment, variant_key="test", request=self._request())
-
-        experiment.refresh_from_db()
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
-        assert experiment.end_date is None
-        self._assert_pending_zero_applied()
-
-    def test_web_experiment_variant_rollout_edit_is_gated(self, _mock_enabled):
-        # update_experiment() writes a variant/rollout change back through FeatureFlagSerializer.
-        # It routes through feature_flag.update, raises ApprovalRequired, and leaves the flag's
-        # variants untouched. The gated flag write runs OUTSIDE update_experiment's atomic block
-        # (like ship_variant/launch/pause/resume), so the pending ChangeRequest the gate created
-        # survives for an approver to act on.
-        experiment = self._launched("m-web")
-        original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
-        self._policy("feature_flag.update")
-
-        new_variants = [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
-
-        # Mirror the DRF serializer context the experiment viewset hands to update_experiment.
-        context = {
-            "request": self._request(),
-            "team_id": self.team.id,
-            "project_id": self.team.project_id,
-            "get_team": lambda: self.team,
-            "get_organization": lambda: self.organization,
-        }
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().update_experiment(
-                experiment,
-                {"parameters": {"feature_flag_variants": new_variants}, "update_feature_flag_params": True},
-                serializer_context=context,
-            )
-
-        # Security invariant: the gated field is unchanged and nothing was applied.
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
-        # The gated flag write runs outside the atomic block, so the pending CR survives.
-        self._assert_pending_zero_applied()
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)

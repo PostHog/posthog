@@ -2,6 +2,7 @@ import {
   BookOpenTextIcon,
   ChatsCircleIcon,
   ClockCounterClockwiseIcon,
+  GearIcon,
   type IconProps,
   ShapesIcon,
 } from "@phosphor-icons/react";
@@ -24,7 +25,8 @@ export type ChannelPageKey =
   | "context"
   | "loops"
   | "canvases"
-  | "history";
+  | "history"
+  | "settings";
 
 export const CHANNEL_PAGES: Record<
   ChannelPageKey,
@@ -35,6 +37,7 @@ export const CHANNEL_PAGES: Record<
   loops: { label: "Loops", Icon: LoopIcon },
   canvases: { label: "Canvases", Icon: ShapesIcon },
   history: { label: "Recents", Icon: ClockCounterClockwiseIcon },
+  settings: { label: "Settings", Icon: GearIcon },
 };
 
 export function channelPageLabel(key: ChannelPageKey): string {

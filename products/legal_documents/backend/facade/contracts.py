@@ -38,6 +38,7 @@ class LegalDocumentReconcileResult:
     newly_signed: int
     archives_requeued: int
     drafts_resent: int
+    envelopes_recreated: int
     errors: int
 
 
@@ -49,6 +50,30 @@ class CreateLegalDocumentInput:
     created_by_id: int
     # Distinct ID of the submitting user, used to fire the PostHog event on create.
     distinct_id: str
+    document_type: str
+    company_name: str
+    company_address: str
+    representative_email: str
+
+
+@dataclass(frozen=True)
+class StaffLegalDocument:
+    """A legal document as staff see it in PostHog Admin, with the PandaDoc state the staff operations depend on."""
+
+    id: UUID
+    document_type: str
+    status: str
+    signed_pdf_stored: bool
+    has_pandadoc_envelope: bool
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class StaffSignedDocumentUpload:
+    """A document signed outside PandaDoc, such as a counter-signed MSA, that staff upload as a PDF."""
+
+    organization_id: UUID
+    created_by_id: int
     document_type: str
     company_name: str
     company_address: str

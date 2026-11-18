@@ -16,7 +16,6 @@ import products.data_modeling.backend.models.datawarehouse_saved_query
 class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0022_github_sync_models"),
-        ("data_tools", "0001_migrate_data_tools_models"),
         ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),
         ("warehouse_sources", "0001_migrate_warehouse_sources_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

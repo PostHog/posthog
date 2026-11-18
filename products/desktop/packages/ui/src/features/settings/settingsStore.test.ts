@@ -507,34 +507,66 @@ describe("getEffectiveCustomInstructions", () => {
       label: "typed instructions when sync is off",
       sync: false,
       syncedValue: synced,
+      ste100Enabled: false,
       expected: "typed",
     },
     {
       label: "file content when sync is on and a file was found",
       sync: true,
       syncedValue: synced,
+      ste100Enabled: false,
       expected: "from file",
     },
     {
       label: "nothing when sync is on but no file was found",
       sync: true,
       syncedValue: null,
+      ste100Enabled: false,
       expected: "",
     },
     {
       label: "nothing when the synced file is whitespace",
       sync: true,
       syncedValue: { ...synced, content: " \n" },
+      ste100Enabled: false,
       expected: "",
     },
-  ])("returns $label", ({ sync, syncedValue, expected }) => {
+    {
+      label: "adds the language instruction when enabled",
+      sync: false,
+      syncedValue: null,
+      ste100Enabled: true,
+      expected:
+        "typed\n\nTalk and write only in Simplified Technical English (ASD-STE100).",
+    },
+  ])("returns $label", ({ sync, syncedValue, ste100Enabled, expected }) => {
     expect(
       getEffectiveCustomInstructions({
         customInstructions: "typed",
         syncCustomInstructionsFromFile: sync,
         syncedCustomInstructions: syncedValue,
+        ste100Enabled,
       }),
     ).toBe(expected);
+  });
+
+  it("keeps synced instructions within the session limit when enabled", () => {
+    const result = getEffectiveCustomInstructions({
+      customInstructions: "",
+      syncCustomInstructionsFromFile: true,
+      syncedCustomInstructions: {
+        ...synced,
+        content: "x".repeat(20_000),
+      },
+      ste100Enabled: true,
+    });
+
+    expect(result).toHaveLength(20_000);
+    expect(
+      result.endsWith(
+        "Talk and write only in Simplified Technical English (ASD-STE100).",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -544,6 +576,7 @@ describe("feature settingsStore custom instructions sync persistence", () => {
 
     useSettingsStore.setState({
       syncCustomInstructionsFromFile: false,
+      ste100Enabled: true,
       syncedCustomInstructions: null,
     });
   });
@@ -570,6 +603,7 @@ describe("feature settingsStore custom instructions sync persistence", () => {
     const persisted = JSON.parse(lastCall[1]);
 
     expect(persisted.state.syncCustomInstructionsFromFile).toBe(true);
+    expect(persisted.state.ste100Enabled).toBe(true);
     expect(persisted.state).not.toHaveProperty("syncedCustomInstructions");
   });
 });

@@ -1,12 +1,12 @@
 import hmac
 import json
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.test import override_settings
@@ -19,7 +19,9 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.legal_documents.backend import logic
 from products.legal_documents.backend.facade import api as legal_api
+from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 from products.legal_documents.backend.logic.pandadoc import PandaDocError
 from products.legal_documents.backend.models import LegalDocument
 
@@ -38,15 +40,10 @@ DPA_PAYLOAD = {
 }
 
 
-def _billing_with_addons(addon_types_subscribed: set[str]) -> dict[str, Any]:
+def _billing(startup_program_label: str | None = None, trial_target: str | None = None) -> dict[str, Any]:
     return {
-        "products": [
-            {
-                "type": "platform_and_support",
-                "addons": [{"type": addon_type, "subscribed": True} for addon_type in addon_types_subscribed]
-                + [{"type": "unrelated", "subscribed": False}],
-            }
-        ]
+        "startup_program_label": startup_program_label,
+        "trial": {"status": "active", "target": trial_target} if trial_target else None,
     }
 
 
@@ -58,10 +55,14 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.organization_membership.save()
         self.url = f"/api/organizations/{self.organization.id}/legal_documents/"
 
-    @parameterized.expand([("boost",), ("scale",), ("enterprise",)])
+    def _set_baa_entitlement(self, entitled: bool) -> None:
+        self.organization.available_product_features = [{"key": "hipaa_baa", "name": "HIPAA BAA"}] if entitled else []
+        self.organization.save()
+
     @patch("products.legal_documents.backend.logic.BillingManager")
-    def test_create_baa_with_qualifying_addon_succeeds(self, addon_type: str, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({addon_type})
+    def test_create_baa_with_entitlement_succeeds(self, mock_manager_cls) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing()
+        self._set_baa_entitlement(True)
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -71,15 +72,67 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(row.organization_id, self.organization.id)
         self.assertEqual(row.created_by_id, self.user.id)
 
+    @parameterized.expand(
+        [
+            ("not_entitled", False, None),
+            ("entitled_by_addon_trial", True, "boost"),
+        ]
+    )
     @patch("products.legal_documents.backend.logic.BillingManager")
-    def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(set())
+    def test_create_baa_without_paid_entitlement_is_forbidden(
+        self, _name: str, entitled: bool, trial_target: str | None, mock_manager_cls: MagicMock
+    ) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing(trial_target=trial_target)
+        self._set_baa_entitlement(entitled)
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("Boost, Scale, or Enterprise", response.json()["detail"])
         self.assertFalse(LegalDocument.objects.exists())
+
+    @parameterized.expand(
+        [
+            ("startup_entitled", "Startup", True, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            ("startup_not_entitled", "Startup", False, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
+            (
+                "startup_impersonated_not_entitled",
+                "Startup",
+                False,
+                True,
+                status.HTTP_403_FORBIDDEN,
+                "Boost, Scale, or Enterprise",
+            ),
+            ("startup_impersonated", "Startup", True, True, status.HTTP_201_CREATED, None),
+            ("yc", "YC", True, False, status.HTTP_201_CREATED, None),
+        ]
+    )
+    @patch("products.legal_documents.backend.presentation.serializers.is_impersonated")
+    @patch("products.legal_documents.backend.logic.BillingManager")
+    def test_create_baa_respects_startup_program(
+        self,
+        _name: str,
+        startup_program_label: str | None,
+        entitled: bool,
+        impersonated: bool,
+        expected_status: int,
+        expected_error: str | None,
+        mock_manager_cls: MagicMock,
+        mock_is_impersonated: MagicMock,
+    ) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing(startup_program_label)
+        mock_is_impersonated.return_value = impersonated
+        self._set_baa_entitlement(entitled)
+
+        response = self.client.post(self.url, BAA_PAYLOAD, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        created = LegalDocument.objects.filter(document_type="BAA").exists()
+        if expected_error is not None:
+            self.assertIn(expected_error, response.json()["detail"])
+            self.assertFalse(created)
+        else:
+            self.assertTrue(created)
 
     def test_create_dpa_succeeds(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
@@ -166,8 +219,8 @@ class TestLegalDocumentAPI(APIBaseTest):
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_baa_fires_submitted_event(self, mock_capture) -> None:
         with patch(
-            "products.legal_documents.backend.logic.has_qualifying_baa_addon",
-            return_value=True,
+            "products.legal_documents.backend.logic.get_baa_block_reason",
+            return_value=None,
         ):
             response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -207,7 +260,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a DPA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
 
-    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.get_baa_block_reason", return_value=None)
     def test_only_one_baa_per_organization(self, _mock_addon) -> None:
         first = self.client.post(self.url, BAA_PAYLOAD, format="json")
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
@@ -217,7 +270,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a BAA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="BAA").count(), 1)
 
-    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.get_baa_block_reason", return_value=None)
     def test_baa_and_dpa_can_coexist_in_same_organization(self, _mock_addon) -> None:
         baa_response = self.client.post(self.url, BAA_PAYLOAD, format="json")
         dpa_response = self.client.post(self.url, DPA_PAYLOAD, format="json")
@@ -573,7 +626,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
         self.assertTrue(self.document.signed_pdf_stored)
@@ -587,8 +640,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
     def test_archive_failure_leaves_row_signed_but_unarchived(self) -> None:
         # The whole point of the decoupling: a PDF download failure no longer
-        # blocks the signature. The row is signed and the webhook returns 200;
-        # only signed_pdf_stored stays False for the reconciliation sweep to fix.
+        # blocks the signature. The row is signed and the webhook still accepts the
+        # delivery; only signed_pdf_stored stays False for the reconciliation sweep to fix.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
         body = json.dumps(self._completed_payload()).encode("utf-8")
@@ -605,7 +658,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             with self.assertRaises(Retry), self.captureOnCommitCallbacks(execute=True):
                 response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_not_called()
         self.document.refresh_from_db()
@@ -617,27 +670,35 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override():
             response = self._post_raw(body, "not-the-right-signature")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.content, b"")
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
-    def test_unknown_document_id_returns_204(self) -> None:
+    def test_unknown_document_id_is_accepted(self) -> None:
         # Sibling cloud instance scenario: signature is valid but the document
         # belongs to a different instance. 2xx so PandaDoc doesn't retry.
         body = json.dumps(self._completed_payload(pandadoc_document_id="unknown")).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
-    def test_uninteresting_state_event_is_noop(self) -> None:
-        # document.sent / document.viewed / etc. — we only act on draft + completed.
+    @parameterized.expand([("document.sent",), ("document.viewed",), ("document.error",)])
+    def test_uninteresting_state_event_is_noop(self, event_status: str) -> None:
+        # Only draft and completed change state; everything else is logged and dropped.
         payload = self._completed_payload()
-        payload[0]["data"]["status"] = "document.sent"
+        payload[0]["data"]["status"] = event_status
         body = json.dumps(payload).encode("utf-8")
-        with self._override():
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.webhooks.logger") as logger_mock,
+        ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
+        logger_mock.info.assert_any_call(
+            "pandadoc_webhook_state_ignored", status=event_status, pandadoc_document_id="doc_123"
+        )
 
     def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -646,7 +707,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
 
@@ -662,8 +723,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             ),
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx — we don't want PandaDoc to retry.
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Endpoint still 2xx, because we don't want PandaDoc to retry.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -675,7 +736,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         send_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
@@ -684,7 +745,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
@@ -694,7 +755,28 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_replayed_completed_event_skips_side_effects(self) -> None:
+    @contextmanager
+    def _read_the_row_before_the_other_delivery_committed(self):
+        # Only the first read is stale, so the handler's re-read after a lost claim sees the row.
+        stale = LegalDocument.objects.get(id=self.document.id)
+        stale.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
+        original = logic.get_by_pandadoc_document_id
+        pending_reads = [stale]
+
+        def lookup(pandadoc_document_id: str) -> LegalDocument | None:
+            return pending_reads.pop(0) if pending_reads else original(pandadoc_document_id)
+
+        with patch("products.legal_documents.backend.logic.get_by_pandadoc_document_id", side_effect=lookup):
+            yield
+
+    @parameterized.expand(
+        [
+            ("a_later_replay", False),
+            # PandaDoc sends no delivery id, so nothing upstream collapses the two.
+            ("a_concurrent_delivery_that_read_the_row_as_pending", True),
+        ]
+    )
+    def test_a_second_completed_event_skips_side_effects(self, _name: str, stale_read: bool) -> None:
         @contextmanager
         def fake_stream_cm(*, document_id):  # noqa: ARG001
             yield object()
@@ -710,26 +792,29 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.object_storage.write_stream"),
         ):
             first = self._post_raw(body, self._sign(body))
-        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
-        # PandaDoc retries / cross-instance fan-out both land here.
+        # Second delivery: must not re-stream the PDF, re-upload, re-fire analytics, or re-apply
+        # the BAA side effects. PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
+            self._read_the_row_before_the_other_delivery_committed() if stale_read else nullcontext(),
             patch(
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
+            patch("products.legal_documents.backend.logic.apply_baa_signed_side_effects") as baa_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
         event_spy.assert_not_called()
+        baa_spy.assert_not_called()
 
     def _swap_to_baa_document(self) -> None:
         """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
@@ -766,7 +851,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.organization.refresh_from_db()
         self.assertFalse(getattr(self.organization, flag))
 
@@ -780,7 +865,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.organization.refresh_from_db()
         self.assertTrue(getattr(self.organization, flag))
 
@@ -800,7 +885,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         email_cls.assert_called_once()
         kwargs = email_cls.call_args.kwargs
         self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
@@ -824,7 +909,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         email_cls.assert_not_called()
         self.organization.refresh_from_db()
         # Opt-out still happens even when there are no owners to notify.
@@ -924,7 +1009,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
     def test_reconcile_resends_stale_draft_document(self, send_mock, status_mock) -> None:
         status_mock.return_value = "document.draft"
-        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(minutes=6))
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(minutes=6))
 
         result = legal_api.reconcile_pending_signatures()
 
@@ -946,6 +1031,23 @@ class TestLegalDocumentReconciliation(APIBaseTest):
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_skips_draft_document_recently_updated_despite_old_created_at(
+        self, send_mock, status_mock
+    ) -> None:
+        # A re-created envelope gets its own grace window, measured from updated_at.
+        status_mock.return_value = "document.draft"
+        LegalDocument.objects.filter(id=self.document.id).update(
+            created_at=timezone.now() - timedelta(days=1),
+            updated_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        result = legal_api.reconcile_pending_signatures()
+
+        send_mock.assert_not_called()
+        self.assertEqual(result.drafts_resent, 0)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
     def test_reconcile_counts_error_when_draft_resend_fails_and_continues(self, send_mock, status_mock) -> None:
         later_org = Organization.objects.create(name="Later Co")
         later = LegalDocument.objects.create(
@@ -958,7 +1060,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
             created_by=self.user,
         )
         now = timezone.now()
-        LegalDocument.objects.filter(id=self.document.id).update(created_at=now - timedelta(minutes=10))
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=now - timedelta(minutes=10))
         LegalDocument.objects.filter(id=later.id).update(created_at=now - timedelta(minutes=9))
 
         def status_side_effect(*, document_id):
@@ -1036,6 +1138,189 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertEqual(middle.status, "submitted_for_signature")
         self.assertEqual(last.status, "signed")
 
+    @parameterized.expand(
+        [
+            ("old_enough", timedelta(hours=2), 1),
+            ("too_recent", timedelta(minutes=10), 0),
+        ]
+    )
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.facade.api.capture_exception")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_recreates_envelope_when_pandadoc_reports_it_missing(
+        self, _name, age, expected_recreated, status_mock, create_mock, capture_mock, void_mock
+    ) -> None:
+        status_mock.return_value = None
+        void_mock.return_value = 404
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - age)
+
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.envelopes_recreated, expected_recreated)
+        self.assertEqual(create_mock.called, bool(expected_recreated))
+        self.assertEqual(capture_mock.called, bool(expected_recreated))
+        self.assertEqual(void_mock.called, bool(expected_recreated))
+        if expected_recreated:
+            create_kwargs = create_mock.call_args.kwargs
+            self.assertEqual(create_kwargs["tokens"]["Client.Company"], self.document.company_name)
+            self.assertEqual(create_kwargs["tokens"]["Client.StreetAddress"], self.document.company_address)
+            self.assertIn(
+                self.document.representative_email,
+                [recipient.email for recipient in create_kwargs["recipients"]],
+            )
+            captured_exc = capture_mock.call_args.args[0]
+            self.assertEqual(
+                str(captured_exc), "PandaDoc envelope no longer exists for a legal document still out for signature"
+            )
+            additional = capture_mock.call_args.kwargs["additional_properties"]
+            self.assertEqual(additional["legal_document_id"], str(self.document.id))
+            self.assertEqual(additional["pandadoc_document_id"], "doc_123")
+            self.document.refresh_from_db()
+            self.assertEqual(self.document.pandadoc_document_id, "doc_new")
+        else:
+            self.document.refresh_from_db()
+            self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_skips_recreate_claimed_by_another_run(self, status_mock, void_mock, create_mock) -> None:
+        # An overlapping sweep run stamps updated_at (its own successful claim,
+        # or a fresh webhook) between this run loading the row and reaching the
+        # recreate branch. This run's claim must lose the race and do nothing.
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        def status_side_effect(*, document_id):  # noqa: ARG001
+            LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now())
+            return None
+
+        status_mock.side_effect = status_side_effect
+
+        result = legal_api.reconcile_pending_signatures()
+
+        void_mock.assert_not_called()
+        create_mock.assert_not_called()
+        self.assertEqual(result.envelopes_recreated, 0)
+        self.assertEqual(result.errors, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.facade.api.capture_exception")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_keeps_envelope_when_void_says_it_still_exists(
+        self, status_mock, void_mock, create_mock, capture_mock
+    ) -> None:
+        status_mock.return_value = None
+        void_mock.side_effect = PandaDocError(
+            "PandaDoc /public/v1/documents/doc_123/status returned 409: still rendering"
+        )
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        create_mock.assert_not_called()
+        capture_mock.assert_not_called()
+        self.assertEqual(result.envelopes_recreated, 0)
+        self.assertEqual(result.errors, 1)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+        assert self.document.updated_at is not None
+        self.assertGreaterEqual(self.document.updated_at, timezone.now() - timedelta(minutes=1))
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_recreates_after_voiding_live_envelope(self, status_mock, void_mock, create_mock) -> None:
+        status_mock.return_value = None
+        void_mock.return_value = 204
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        create_mock.assert_called_once()
+        self.assertEqual(result.envelopes_recreated, 1)
+
+    @parameterized.expand(
+        [
+            ("old_enough", timedelta(hours=2), 1),
+            ("too_recent", timedelta(minutes=10), 0),
+        ]
+    )
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_creates_envelope_for_row_missing_pandadoc_id(
+        self, _name, age, expected_recreated, status_mock, create_mock
+    ) -> None:
+        status_mock.return_value = "document.sent"
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        org = self.create_organization_with_features([])
+        document = LegalDocument.objects.create(
+            organization=org,
+            document_type="DPA",
+            company_name="No Envelope Co",
+            company_address="Nowhere",
+            representative_email="noenv@other.example",
+            pandadoc_document_id="",
+            created_by=self.user,
+        )
+        LegalDocument.objects.filter(id=document.id).update(updated_at=timezone.now() - age)
+
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.envelopes_recreated, expected_recreated)
+        self.assertEqual(create_mock.called, bool(expected_recreated))
+        document.refresh_from_db()
+        self.assertEqual(document.pandadoc_document_id, "doc_new" if expected_recreated else "")
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_caps_envelope_recreates_per_run(self, status_mock, create_mock) -> None:
+        status_mock.return_value = "document.sent"
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        documents = []
+        for i, created_age in enumerate((timedelta(hours=4), timedelta(hours=3), timedelta(hours=2))):
+            org = self.create_organization_with_features([])
+            document = LegalDocument.objects.create(
+                organization=org,
+                document_type="DPA",
+                company_name=f"No Envelope Co {i}",
+                company_address="Nowhere",
+                representative_email=f"noenv{i}@other.example",
+                pandadoc_document_id="",
+                created_by=self.user,
+            )
+            LegalDocument.objects.filter(id=document.id).update(
+                updated_at=timezone.now() - timedelta(hours=2),
+                created_at=timezone.now() - created_age,
+            )
+            documents.append(document)
+
+        with patch.object(logic, "RECONCILE_MAX_RECREATES_PER_RUN", 2):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(create_mock.call_count, 2)
+        self.assertEqual(result.envelopes_recreated, 2)
+        documents[2].refresh_from_db()
+        self.assertEqual(documents[2].pandadoc_document_id, "")
+
+        create_mock.reset_mock()
+        with patch.object(logic, "RECONCILE_MAX_RECREATES_PER_RUN", 2):
+            legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(create_mock.call_count, 1)
+        documents[2].refresh_from_db()
+        self.assertEqual(documents[2].pandadoc_document_id, "doc_new")
+
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:
         status_mock.return_value = "document.completed"
@@ -1106,16 +1391,26 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertTrue(self.organization.is_ai_data_processing_approved)
 
     def test_reconcile_leaves_pending_document_alone_when_pandadoc_unreachable(self) -> None:
+        # A transient failure is not a gone envelope; re-creating would strand a live signer.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
-            side_effect=pandadoc_module.PandaDocError("network boom"),
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+                side_effect=pandadoc_module.PandaDocError("network boom"),
+            ),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template"
+            ) as create_mock,
+            patch("products.legal_documents.backend.facade.api.capture_exception") as capture_mock,
         ):
             result = legal_api.reconcile_pending_signatures()
 
         self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.envelopes_recreated, 0)
         self.assertEqual(result.errors, 0)
+        create_mock.assert_not_called()
+        capture_mock.assert_not_called()
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 

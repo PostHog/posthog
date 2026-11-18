@@ -22,9 +22,9 @@ export interface GridRect {
 }
 
 // Server-enforced height cap for a single placement.
-export const MAX_PLACEMENT_HEIGHT = 40;
+const MAX_PLACEMENT_HEIGHT = 40;
 
-export function rectsOverlap(a: GridRect, b: GridRect): boolean {
+function rectsOverlap(a: GridRect, b: GridRect): boolean {
   return (
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
   );

@@ -7,35 +7,32 @@
 #
 # Adding a line needs DevEx review (see .github/CODEOWNERS). New products should
 # not need one: `hogli product:bootstrap <name>` scaffolds a product that is
-# sealed from its first commit.
+# Isolated from its first commit.
 #
 # Getting off this list: build the facade (contracts.py + real api.py), add the
 # tach [[interfaces]] block, then wire `backend:contract-check` and narrow
 # turbo.json inputs. `hogli product:maturity <name>` names the remaining blocker
 # at every step, and /isolating-product-facade-contracts walks the migration.
 #
-# Once a product is sealed, regenerate this file and its line drops out.
+# Once a product reaches the Isolated rung, regenerate this file and its line drops out.
+# A product in SKIP_WITHHELD (hogli_commands/product/isolation.py) stays here by DevEx decision.
 
 access_control
-actions
-ai_gateway
 ai_observability
 alerts
 analytics_platform
-annotations
 apm
 approvals
+authorization
 batch_exports
 billing_alerts
 business_knowledge
-canvas
 cdp
 cohorts
 context_layer
 conversations
 dashboards
 data_catalog
-data_modeling
 data_quality
 data_tools
 data_warehouse
@@ -55,8 +52,8 @@ logs
 managed_migrations
 marketing_analytics
 mcp_analytics
+mcp_registry
 mcp_store
-messaging
 notebooks
 notifications
 platform_features
@@ -67,7 +64,7 @@ reminders
 replay
 replay_vision
 revenue_analytics
-review_hog
+security
 signals
 skills
 slack_app
@@ -77,4 +74,3 @@ tracing
 user_interviews
 warehouse_sources_queue
 web_analytics
-workflows

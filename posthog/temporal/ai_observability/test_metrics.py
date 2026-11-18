@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,18 @@ from posthog.temporal.ai_observability.metrics import (
 
 
 class TestExecutionTimeRecorder:
+    def test_generator_cleanup_does_not_log_a_terminal_result(self, caplog: pytest.LogCaptureFixture) -> None:
+        def measured_work() -> Generator[None]:
+            with ExecutionTimeRecorder("test_histogram", log=True):
+                yield
+
+        work = measured_work()
+        next(work)
+        with caplog.at_level("INFO", logger="posthog.temporal.common.metrics"):
+            work.close()
+
+        assert not caplog.records
+
     def test_records_completed_status_on_success(self):
         """Test that ExecutionTimeRecorder records completed status when no exception"""
         mock_meter = MagicMock()
@@ -119,6 +133,7 @@ class TestActivityTypes:
         """Test that EVAL_ACTIVITY_TYPES contains the expected activities"""
         expected = {
             "fetch_evaluation_activity",
+            "run_local_evaluation_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
             "execute_sentiment_eval_activity",

@@ -1,17 +1,21 @@
 import { P, match } from 'ts-pattern'
 
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
+    Trigger,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils/strings'
+import { pluralize, truncate } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -29,6 +33,10 @@ import {
 import { SurveyQuestionLabel } from './constants'
 
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
+
+// A survey can hold no questions, and the activity log records an empty list as null,
+// so one side of a questions change carries null instead of an array.
+const toQuestionList = (value: unknown): Survey['questions'] => (Array.isArray(value) ? value : [])
 
 const nameOrLinkToSurvey = (
     id: string | undefined,
@@ -58,6 +66,8 @@ const surveyActionsMapping: Record<
     },
     description: function onDescription(change) {
         return {
+            summary: summarizeDescriptionChange(change),
+            preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>
                     updated the description from {formatDescription(change?.before as string | null | undefined)} to{' '}
@@ -81,8 +91,8 @@ const surveyActionsMapping: Record<
             return null
         }
 
-        const beforeQuestions = change.before as Survey['questions']
-        const afterQuestions = change.after as Survey['questions']
+        const beforeQuestions = toQuestionList(change.before)
+        const afterQuestions = toQuestionList(change.after)
 
         if (beforeQuestions.length !== afterQuestions.length) {
             return {
@@ -177,6 +187,11 @@ const surveyActionsMapping: Record<
             borderColor: 'border color',
             placeholder: 'placeholder text',
             whiteLabel: 'white label option',
+            displayIntroScreen: 'intro screen display',
+            introScreenHeader: 'intro screen header',
+            introScreenDescription: 'intro screen description',
+            introScreenDescriptionContentType: 'intro screen content type',
+            introScreenButtonText: 'intro screen button text',
             displayThankYouMessage: 'thank you message display',
             thankYouMessageHeader: 'thank you message header',
             thankYouMessageDescription: 'thank you message description',
@@ -281,7 +296,7 @@ const surveyActionsMapping: Record<
                     added a targeting flag with key <strong>{afterFlag.key}</strong>
                 </>
             )
-            if (afterFlag.filters?.groups?.length > 0) {
+            if ((afterFlag.filters?.groups?.length ?? 0) > 0) {
                 changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {
@@ -330,17 +345,57 @@ const surveyActionsMapping: Record<
     },
 }
 
+function collectSurveyChanges(logItem: ActivityLogItem): {
+    changes: { field: string; description: Description }[]
+    summaryChanges: Description[]
+    preview?: string
+} {
+    const changes: { field: string; description: Description }[] = []
+    const summaryChanges: Description[] = []
+    let preview: string | undefined
+
+    for (const change of logItem.detail.changes || []) {
+        if (!change?.field) {
+            continue
+        }
+
+        const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
+        if (possibleLogItem?.description) {
+            summaryChanges.push(...(possibleLogItem.summary ?? possibleLogItem.description))
+            preview = possibleLogItem.preview ?? preview
+            if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
+                // This is for the conditions section, which may have multiple changes.
+                // Probably could be refactored into a separate handler like some of the other fields
+                changes.push(
+                    ...possibleLogItem.description.map((desc) => ({
+                        field: 'conditions',
+                        description: desc,
+                    }))
+                )
+            } else {
+                changes.push({
+                    field: change.field,
+                    description: possibleLogItem.description[0],
+                })
+            }
+        }
+    }
+
+    return { changes, summaryChanges, preview }
+}
+
 export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== 'Survey') {
         console.error('survey describer received a non-survey activity')
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const user = <ActivityLogUserName logItem={logItem} />
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the survey', surveyLink),
             description: (
                 <>
                     {user} created {surveyLink}
@@ -351,6 +406,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the survey', surveyLink),
             description: (
                 <>
                     {user} deleted {surveyLink}
@@ -360,45 +416,28 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
-        const changes: { field: string; description: Description }[] = []
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
-                continue
-            }
-
-            const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
-            if (possibleLogItem?.description) {
-                if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
-                    // This is for the conditions section, which may have multiple changes.
-                    // Probably could be refactored into a separate handler like some of the other fields
-                    changes.push(
-                        ...possibleLogItem.description.map((desc) => ({
-                            field: 'conditions',
-                            description: desc,
-                        }))
-                    )
-                } else {
-                    changes.push({
-                        field: change.field,
-                        description: possibleLogItem.description[0],
-                    })
-                }
-            }
-        }
+        const { changes, summaryChanges, preview } = collectSurveyChanges(logItem)
 
         if (changes.length === 1) {
             const { field, description } = changes[0]
             const preposition = field === 'conditions' ? 'for' : getPreposition(field)
+            const target = (
+                <>
+                    {surveyLink}
+                    {systemStopReason(logItem.detail.trigger)}
+                </>
+            )
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, target, preview),
                 description: (
                     <>
-                        {user} {description} {preposition} {surveyLink}
+                        {user} {description} {preposition} {target}
                     </>
                 ),
             }
         } else if (changes.length > 1) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, surveyLink, preview),
                 description: (
                     <>
                         {user} made multiple changes to {surveyLink}:
@@ -414,6 +453,17 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     return defaultDescriber(logItem, asNotification, surveyLink)
+}
+
+function systemStopReason(trigger: Trigger | null): string | null {
+    switch (trigger?.job_type) {
+        case 'survey_schedule_ended':
+            return ' after its last scheduled repeat'
+        case 'survey_responses_limit_reached':
+            return ` after reaching its limit of ${pluralize(trigger.payload.responses_limit, 'response')}`
+        default:
+            return null
+    }
 }
 
 export function getPreposition(field: string): string {

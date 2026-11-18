@@ -12,8 +12,9 @@ class IssueValidation(BaseModel):
         description=(
             "Your verification delta as labeled markdown bullets, never a restatement of the issue"
             " description (the full description always travels with your verdict, so restating it only"
-            " buries your evidence). Your bullets may be read first, right under the finding title, so"
-            " they must stand on their own as evidence for that titled claim. Bullets: '- **Checked:**'"
+            " buries your evidence). Your bullets must stand on their own as evidence for that titled"
+            " claim: a reader can expand them without the description, and later pipeline steps read"
+            " them without it. Bullets: '- **Checked:**'"
             " what you investigated (files, call sites, types, guards); '- **Found:**' the decisive"
             " evidence, with file:line anchors; '- **Impact:**' the confirmed consequence (for a"
             " dismissal, why it does not meet the bar); '- **Priority:**' only when setting"

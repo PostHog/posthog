@@ -1,16 +1,17 @@
 import { useValues } from 'kea'
 
 import * as drivingHogzillaPng from '@posthog/brand/hoggies/png/driving-hogzilla'
+import * as errorPng from '@posthog/brand/hoggies/png/error'
 import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import { LemonBanner } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { WarningHog } from 'lib/components/hedgehogs'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HelpMenu/posthogStatusLogic'
 
 const HedgehogDrivingHogzilla = pngHoggie(drivingHogzillaPng)
+const HedgehogError = pngHoggie(errorPng)
 const HedgehogHeart = pngHoggie(heartPng)
 
 const STATUS_CONFIG: Record<
@@ -21,7 +22,7 @@ const STATUS_CONFIG: Record<
     }
 > = {
     success: { bannerType: 'success', Hog: HedgehogHeart },
-    warning: { bannerType: 'warning', Hog: WarningHog },
+    warning: { bannerType: 'warning', Hog: HedgehogError },
     danger: { bannerType: 'error', Hog: HedgehogDrivingHogzilla },
 }
 

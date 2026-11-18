@@ -1,5 +1,150 @@
 # posthog-cli
 
+## 0.20.0 — 2026-11-12
+
+### Minor changes
+
+- [174526c9f05](https://github.com/PostHog/posthog/commit/174526c9f0577b193f4e1391c8ec9fa45e49db20) Add `--sdk none` to `exp schema pull --language typescript`, which generates only the event types, with no posthog-js dependency, for posthog-react-native or any other SDK. `--language` picks the language without a prompt — Thanks @kyleswank!
+
+## 0.19.4 — 2026-11-12
+
+### Patch changes
+
+- [390eab75e40](https://github.com/PostHog/posthog/commit/390eab75e40c02098a64e7df527e6cd39e08cdf7) Limit request diagnostics to metadata. Outside CI, API errors still show PostHog's error details and endpoint `--debug` still prints request and response bodies. In CI, both are hidden. — Thanks @marandaneto!
+
+## 0.19.3 — 2026-11-11
+
+### Patch changes
+
+- [83f1feb2b24](https://github.com/PostHog/posthog/commit/83f1feb2b2447410b3caed7c2c38df85f1e7e695) Keep presigned S3 credentials out of upload and download error logs — Thanks @jakesciotto!
+
+## 0.19.2 — 2026-11-10
+
+### Patch changes
+
+- [721abaaaaf9](https://github.com/PostHog/posthog/commit/721abaaaaf964528281ff5df90afd9a372d3e5b6) Update dependencies: `dirs` 7, `inquire` 0.8, `similar` 3 and `posthog-rs` 0.30 — Thanks @rnegron!
+
+## 0.19.1 — 2026-11-10
+
+### Patch changes
+
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Allow sourcemap uploads without a release when Git metadata cannot complete the release coordinates — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Remove the `--env-file` alias of `--dotenv-file`. Use `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` instead. `posthog-cli api` now starts the API tools with `node --`. — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Do not write through a symlink in the output directory of `symbol-sets extract` and `symbol-sets download` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep all files from `symbol-sets extract` and `symbol-sets download` inside the output directory — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Open only http and https server URLs with expected characters, and open them on Windows without `cmd` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop shipping an npm-shrinkwrap.json in the npm package, so installing `@posthog/cli` no longer adds its own `prettier` to the project's `node_modules` and `package-lock.json` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop reporting Next.js Turbopack server page stubs as a possible bundler misconfiguration when `sourcemap upload` skips their empty source maps — Thanks @ioannisj!
+
+## 0.19.0 — 2026-10-28
+
+### Minor changes
+
+- [e1e70f8e4f9](https://github.com/PostHog/posthog/commit/e1e70f8e4f95a6cca62e0610a2846af65251dc88) Support Flutter AOT symbols and opt-in app source context — Thanks @hpouillot!
+
+## 0.18.12 — 2026-10-21
+
+### Patch changes
+
+- [ecfc9561b36](https://github.com/PostHog/posthog/commit/ecfc9561b36d36d2db98f5ec3f85abe4c22e5980) Correlate symbol set upload batches within a CLI run — Thanks @hpouillot!
+
+## 0.18.11 — 2026-10-20
+
+### Patch changes
+
+- [3408b7cabcf](https://github.com/PostHog/posthog/commit/3408b7cabcf7b34d4941838cff08232c3e3e8359) Update posthog-symbol-data to v0.5.2 — Thanks @hpouillot!
+
+## 0.18.10 — 2026-10-07
+
+### Patch changes
+
+- [7c55058c01a](https://github.com/PostHog/posthog/commit/7c55058c01ae8b9b85f3ec47838b255cf8eba829) Upload native bundler debug IDs without rewriting source files, and skip files without uploadable IDs instead of failing CI — Thanks @hpouillot!
+
+## 0.18.9 — 2026-09-28
+
+### Patch changes
+
+- [3587ad4eb53](https://github.com/PostHog/posthog/commit/3587ad4eb53fa404a8cd00871e30a3a19b01c326) Upload symbol sets with a presigned PUT when the server offers one. Presigned POST is an AWS S3 extension, so instances whose object storage does not implement it rejected every symbol set upload with 501 NotImplemented. The multipart POST stays in place for older servers. — Thanks @hpouillot!
+
+## 0.18.8 — 2026-09-28
+
+### Patch changes
+
+- [09644fddca4](https://github.com/PostHog/posthog/commit/09644fddca4814ae7e95b67353c9c1a13f29bfbc) Read the remote URL from the `[remote "..."]` sections of the Git config only, and prefer `origin`. A repository that records another URL in its config, such as a superproject that records the URL of a submodule, no longer gets the wrong remote URL and repository name in its release metadata. — Thanks @hpouillot!
+- [69a47659037](https://github.com/PostHog/posthog/commit/69a4765903776a5e70d4633590673395b1eaec2f) In event release mode, `sourcemap upload` no longer uploads unchanged chunks again when the bundler names chunks by content, as Vite does by default. Every chunk carries the release id, so every release renamed every chunk, and the content hash covered those names: the map's `file`, the `sourceMappingURL` comment and imports of other chunks. The hash now leaves out script file paths (ending in `.js`, `.mjs` or `.cjs`). Hashes stored by earlier versions include the paths, so the first upload after updating sends each chunk once more. — Thanks @ablaszkiewicz!
+
+## 0.18.7 — 2026-09-24
+
+### Patch changes
+
+- [0298cb7450a](https://github.com/PostHog/posthog/commit/0298cb7450ac6480b26f1c170806ab048d5e0f34) Add `posthog-cli update`. It updates in place when you installed with the install script, and prints the right command when npm, Homebrew or cargo owns the binary. The old `posthog-cli-update` is no longer installed; it could not reach a release and never worked. — Thanks @hpouillot!
+
+## 0.18.6 — 2026-09-24
+
+### Patch changes
+
+- [4dedd8363d1](https://github.com/PostHog/posthog/commit/4dedd8363d1505e376bfc0269375b935f95d6e41) Publish to crates.io again, so `cargo install posthog-cli` gets the current version. The crate had been left on 0.5.11 since December. — Thanks @hpouillot!
+
+## 0.18.5 — 2026-09-23
+
+### Patch changes
+
+- [d9d6409aa72](https://github.com/PostHog/posthog/commit/d9d6409aa72c8a4ee0d446d6009d6d753efc9de1) Install with Homebrew: `brew install posthog/tap/posthog-cli`. Installers now download from releases.posthog.com, falling back to GitHub Releases. — Thanks @hpouillot!
+
+## 0.18.4 — 2026-09-23
+
+### Patch changes
+
+- [52ffa0e76a3](https://github.com/PostHog/posthog/commit/52ffa0e76a3fbfa5298bb8bcf5743f8c5f44bbcf) Publish release artifacts to releases.posthog.com alongside GitHub Releases. The install script now has a stable URL, https://releases.posthog.com/posthog-cli/install.sh, which always installs the current version. — Thanks @hpouillot!
+
+## 0.18.3 — 2026-09-16
+
+### Patch changes
+
+- [b6486bfe18a](https://github.com/PostHog/posthog/commit/b6486bfe18a1476a5959e6334c916faf79309f2e) Stop reporting expected sourcemap upload outcomes as warnings. Missing releases and skipped empty sourcemaps now use lower log levels when uploads continue. — Thanks @posthog[bot]!
+
+## 0.18.2 — 2026-09-11
+
+### Patch changes
+
+- [342f1f1c551](https://github.com/PostHog/posthog/commit/342f1f1c551caeb5883ec191fd5400240f5683e0) Ask the server which chunks it still needs before starting upload batches. A build whose chunks are mostly already uploaded now makes a few API calls instead of two per batch of 50. — Thanks @ablaszkiewicz!
+
+## 0.18.1 — 2026-09-07
+
+### Patch changes
+
+- [fcbcec2ef4d](https://github.com/PostHog/posthog/commit/fcbcec2ef4d1123d985c66dffbc45933a6742558) Remove credentials from the git remote URL stored in release metadata. Rotate any token an earlier version stored. — Thanks @ablaszkiewicz!
+
+## 0.18.0 — 2026-09-02
+
+### Minor changes
+
+- [fb9ed9d8ec1](https://github.com/PostHog/posthog/commit/fb9ed9d8ec133f3023ecef464b54458ef9ecf94c) Default `--release-mode` to `event` for `sourcemap inject`, `sourcemap process`, `sourcemap upload`, `hermes inject`, `hermes clone` and `hermes upload`. Uploaded symbol sets and source maps are now release-independent, and each exception resolves its own release: a web build reads the `_posthogReleaseId` injected into the chunk, and a Hermes build resolves it from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends. Two releases that ship the same code keep one symbol set instead of colliding on the release that uploaded it first. Pass `--release-mode symbol-set` to keep binding the release to what you upload. Before upgrading, check that the release coordinates you pass match the app's bundle identifier or applicationId, version and build number, because a mismatch leaves exceptions with no release.
+
+  `hermes upload` now resolves `--info-plist` before it checks the release coordinates. An iOS build that supplies them that way no longer gets a warning about a release the run creates correctly. — Thanks @ablaszkiewicz!
+
+## 0.17.0 — 2026-09-02
+
+### Minor changes
+
+- [8a28e07ea71](https://github.com/PostHog/posthog/commit/8a28e07ea71c516128bd88889238333950e00aef) Deprecate `--release-mode` on `proguard upload` and `--no-release-bind` on `dsym upload`. Both flags are hidden no-ops now: each command uploads its symbol sets bound to the release it creates, which is what it did before the flags existed. A supplied flag prints a deprecation warning instead of changing the upload, so a released gradle plugin or upload-symbols.sh that still passes one keeps working. `proguard upload` no longer reads `POSTHOG_RELEASE_MODE`; the variable keeps steering `sourcemap inject`, `sourcemap process`, `sourcemap upload`, `hermes inject`, `hermes clone` and `hermes upload`.
+
+  Event mode pays off when two releases ship a byte-identical artifact. A proguard map id is a hash of the mapping, and a dSYM symbol set is keyed on the Mach-O `LC_UUID`, so an ordinary release that changes code already gets its own symbol set. The dSYM path also lost release attribution for embedded targets, because one upload covers every target's dSYM but creates one release. — Thanks @ablaszkiewicz!
+
+## 0.16.2 — 2026-09-01
+
+### Patch changes
+
+- [13dc107a02b](https://github.com/PostHog/posthog/commit/13dc107a02b4e14da3fcdb521c21317c9e87266f) Fix a race in `sourcemap process`: the source pairs are now read from disk once, injected, and the same in-memory pairs are uploaded. Previously inject and upload each re-walked the directory roots, so a bundler writing into the scanned directory mid-run (e.g. Turbopack's background filesystem-cache flush on Next.js 16.3+) could hand the upload pass chunks the inject pass never stamped, aborting the whole run with "Chunk ID not found". That error now names the offending file and says how to recover. `--delete-after` cleanup no longer fails the build when a file vanished or was replaced after upload: such pairs are skipped with a warning, and a replaced file's artifacts are left untouched instead of being stripped or deleted. Overlapping selection roots now process each file once instead of stamping it repeatedly. The "injecting selection" log line is bounded instead of printing every selected path, since a large stdin-provided selection used to produce a log line big enough to kill the CLI when stderr was a non-blocking pipe (e.g. spawned from Node.js). — Thanks @cat-ph!
+
+## 0.16.1 — 2026-09-01
+
+### Patch changes
+
+- [0a93bb9d822](https://github.com/PostHog/posthog/commit/0a93bb9d822a442e4af94b2659cf07f600231861) Fix `--release-mode event` keeping a stale source map for a chunk that gains a release. The content hash ignored which snippet the chunk carried. The release snippet is longer than the chunk-id snippet, so it shifts the generated columns the uploaded map records. The two uploads therefore shared one hash, the server kept the first map, and later frames resolved to the wrong source positions. The hash now covers the snippet variant. It still ignores the release id itself, so a new release does not re-upload every chunk. — Thanks @ablaszkiewicz!
+
 ## 0.16.0 — 2026-08-26
 
 ### Minor changes

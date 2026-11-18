@@ -1,7 +1,54 @@
-import { heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { expectLogic } from 'kea-test-utils'
 
+import {
+    eventFilterParam,
+    heatmapApiPath,
+    heatmapDataLogic,
+    isWithinBounds,
+} from 'lib/components/heatmaps/heatmapDataLogic'
+import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+
+import { initKeaTests } from '~/test/init'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { AppContext } from '~/types'
+
+describe('heatmapDataLogic window resize', () => {
+    const originalInnerWidth = window.innerWidth
+
+    beforeEach(() => {
+        jest.spyOn(global, 'fetch').mockImplementation(() =>
+            Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+        )
+        initKeaTests()
+        toolbarConfigLogic
+            .build({ apiURL: 'http://localhost', accessToken: 'test-token', teamId: 2, projectId: 1 })
+            .mount()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+    })
+
+    it.each([
+        ['in-app', false],
+        ['toolbar', true],
+    ] as const)('%s context refetches on resize: %s', async (context, refetches) => {
+        const logic = heatmapDataLogic({ context })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setHref('https://example.com/pricing'))
+            .toDispatchActions(['loadHeatmapSuccess'])
+            .toFinishAllListeners()
+        const heatmapRequests = jest.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes('heatmap'))
+        expect(heatmapRequests).toHaveLength(1)
+        expect(logic.values.rawHeatmap).toEqual({ results: [] })
+
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: window.innerWidth - 200 })
+        window.dispatchEvent(new Event('resize'))
+
+        expect(logic.values.rawHeatmapLoading).toBe(refetches)
+    })
+})
 
 describe('isWithinBounds', () => {
     const staticArea: HeatmapBoundsFilter = {
@@ -43,17 +90,36 @@ describe('heatmapApiPath', () => {
         // in-app requests must pin the team the page was loaded for, not the user's global current project
         ['in-app', 42, '', '/api/projects/42/heatmaps/'],
         ['in-app', 42, 'events/', '/api/projects/42/heatmaps/events/'],
-        // the toolbar has no app context and keeps the legacy unscoped route
-        ['toolbar', 42, '', '/api/heatmap/'],
-        ['toolbar', 42, 'events/', '/api/heatmap/events/'],
+        // the toolbar pins the team its token is scoped to, which differs from its project id here
+        ['toolbar', 42, '', '/api/projects/7/heatmaps/'],
+        ['toolbar', 42, 'events/', '/api/projects/7/heatmaps/events/'],
         // without an app context team there is nothing to scope to, so fall back to the legacy route
         ['in-app', null, '', '/api/heatmap/'],
         ['in-app', null, 'events/', '/api/heatmap/events/'],
     ] as const)('context %s with team %s and endpoint %s resolves %s', (context, teamId, endpoint, expected) => {
+        initKeaTests()
+        toolbarConfigLogic.build({ accessToken: 'token', teamId: 7, projectId: 3 }).mount()
         window.POSTHOG_APP_CONTEXT = (teamId === null
             ? undefined
             : { current_team: { id: teamId } }) as unknown as AppContext
 
         expect(heatmapApiPath(context, endpoint)).toBe(expected)
+    })
+})
+
+describe('eventFilterParam', () => {
+    it.each([
+        ['no events', undefined, undefined],
+        ['an empty list', [], undefined],
+        // ActionFilter adds the row before the user picks an event, and the API rejects a null id.
+        ['only rows without a picked event', [{ id: null }, { id: null }], undefined],
+        ['a mix of picked and unpicked rows', [{ id: null }, { id: 'purchase' }], '[{"id":"purchase"}]'],
+        [
+            'the property filters a picked row carries',
+            [{ id: 'purchase', properties: [{ type: 'event', key: 'plan', value: 'pro' }] }],
+            '[{"id":"purchase","properties":[{"type":"event","key":"plan","value":"pro"}]}]',
+        ],
+    ] as const)('%s', (_name, events, expected) => {
+        expect(eventFilterParam(events as CommonFilters['events'])).toBe(expected)
     })
 })

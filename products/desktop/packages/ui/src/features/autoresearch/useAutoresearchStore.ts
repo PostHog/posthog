@@ -6,9 +6,7 @@ import type { AutoresearchRun } from "@posthog/core/autoresearch/schemas";
 import { useMemo } from "react";
 import { useStore } from "zustand";
 
-export function useAutoresearchStore<T>(
-  selector: (state: AutoresearchState) => T,
-): T {
+function useAutoresearchStore<T>(selector: (state: AutoresearchState) => T): T {
   return useStore(autoresearchStore, selector);
 }
 

@@ -276,7 +276,7 @@ Generated charts and freeform widgets should use an isolated renderer based on t
 ## Reserved tags
 
 Do not reuse the tags of the default registry (`registry.tsx`): `Query`, `Image`, `Divider`, `Embed`, `Latex`, `Python`, `DuckSQL`, `HogQLSQL`, `RecordingPlaylist`, `FeatureFlag`, `Experiment`, `Survey`, `Person`, `Group`, `Cohort`, `Map`.
-The internal AI tag `Prompt` is also reserved (registered by the notebooks scene). Its `keepQuestion` boolean prop keeps the submitted question, with the submitting user's name, directly above the generated answer.
+The internal AI tag `Prompt` is also reserved (registered by the notebooks scene). Its `keepQuestion` boolean prop defaults to `true`, keeping the submitted question, with the submitting user's name, directly above the generated answer. Turning off the bookmark toggle persists `keepQuestion={false}`.
 `Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 `Comment` is special too: its authorial-note flavor (`text` prop) serializes as a markdown `<!-- … -->` comment, while its discussion flavor (`ref` + `replies` props, a Google Docs-style thread anchored to an inline `<ref id="…">` highlight) serializes as a regular `<Comment … />` tag.
 The lowercase inline tags `<ref>` and `<mention>` are part of the inline grammar, not components — component tags must start with an uppercase letter.
@@ -293,3 +293,54 @@ Add or update tests for:
 - editing props through `updateProps`
 - slash-menu insertion when `insertCommand` is present
 - validation errors when `validateProps` rejects invalid props
+
+## Columns
+
+Use paired tags to make column membership explicit, including paragraphs, lists, and charts in the same column.
+Each boundary tag occupies its own line.
+
+```mdx
+<Columns>
+
+<Column width={2}>
+
+## Acquisition
+
+Notes for the acquisition chart.
+
+<Query query={{ kind: 'SavedInsightNode', shortId: 'example-acquisition' }} />
+
+</Column>
+
+<Column>
+
+## Activation
+
+<Query query={{ kind: 'SavedInsightNode', shortId: 'example-activation' }} />
+
+Notes for the activation chart.
+
+</Column>
+
+</Columns>
+
+This paragraph returns to full width.
+```
+
+Insert **Columns** from the notebook insert menu, then choose two, three, or four columns in the **Configure columns** popover.
+The number of `<Column>` sections defines the count; there is no separate count attribute to keep in sync.
+Adding a column creates an empty text block.
+Reducing the count moves the removed columns' content into the last remaining column, in order.
+**Remove layout** keeps all content in document order.
+
+Each `<Column width={2}>` sets its own relative weight; omitting `width` defaults to one.
+The popover provides width sliders and an **Equal widths** reset. Both the sliders and Markdown accept weights from one to twelve.
+Narrow notebook containers stack the columns without changing the saved layout.
+
+The parser represents boundaries as flat component nodes (`Columns`, `Column`, `ColumnEnd`, `ColumnsEnd`).
+Inner blocks retain their IDs and use the existing editing, execution, and collaboration paths.
+Only the renderer groups the boundaries into a grid.
+The backend scans the same boundaries so sharing filters each inner component separately.
+
+This first implementation supports one level of columns.
+Incomplete or nested layouts fall back to ordinary blocks with boundary messages, preserving their content for repair in Markdown source.

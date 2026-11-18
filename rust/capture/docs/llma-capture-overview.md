@@ -13,8 +13,7 @@ This document covers only the single-event multipart endpoint.
 
 ## Supported events
 
-The endpoint accepts exactly six event names (`ALLOWED_AI_EVENTS` in `ai_rejection.rs`):
-`$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, and `$ai_feedback`.
+The endpoint accepts any event name that starts with `$ai_` (`is_ai_event` in `v0_request.rs`).
 Every event must carry a non-empty string `$ai_model` property, a `distinct_id`, and a client-supplied `uuid`.
 
 ## Request format
@@ -34,7 +33,10 @@ Authentication is a `Bearer <token>` Authorization header, validated before any 
 ### Size limits
 
 - Event part: 32KB (`MAX_EVENT_SIZE`).
-- Event + properties combined: 960KB (`MAX_COMBINED_SIZE`, 1MB minus 64KB of headroom).
+- Event + properties combined: `AI_MAX_EVENT_BYTES` (default 8 MiB), the same per-event cap every AI path applies.
+  On capture-ai, `AI_MAX_EVENT_BYTES_OVERRIDES_CSV` raises it for listed project tokens to 24 MB or 48 MB (comma-separated `token=bytes`), never above the shared ceiling or what the Kafka producer accepts.
+  Invalid entries are logged and skipped. A raised cap is lowered to fit the producer limit, and skipped when that leaves it at or below the default, as on capture-analytics.
+  The request body limit below still keeps `/i/v0/ai` under about 27.5 MB.
 - Request body: 110% of `AI_MAX_SUM_OF_PARTS_BYTES` (default 25MB), enforced by the router's body limit and the streaming body reader.
 
 ### Compression

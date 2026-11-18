@@ -13,12 +13,14 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     BaselineOverviewApi,
+    CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
     FlakinessOverviewApi,
+    LiftOnMergeInputApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -28,18 +30,21 @@ import type {
     PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
     QuarantineInputApi,
+    QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RecomputeResultApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
     SnapshotApi,
+    TolerationPileupsApi,
     UnquarantineQueryApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
     VisualReviewReposThumbnailsRetrieveParams,
+    VisualReviewReposTolerationPileupsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -140,7 +145,7 @@ export const getVisualReviewReposBaselinesRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
+ * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 7500 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
  */
 export const visualReviewReposBaselinesRetrieve = async (
     projectId: string,
@@ -158,7 +163,7 @@ export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a recent default-branch run, those whose absorbed diff is close to the threshold, and those under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is everything else, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const visualReviewReposFlakinessRetrieve = async (
     projectId: string,
@@ -285,6 +290,41 @@ export const visualReviewReposThumbnailsRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewReposTolerationPileupsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisualReviewReposTolerationPileupsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/`
+}
+
+/**
+ * Snapshots that keep getting tolerated, counted across baselines, most manual tolerations first. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. With no parameters this is the weekly debt digest's rule (3 or more tolerations by a person or agent in 30 days), except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
+ */
+export const visualReviewReposTolerationPileupsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisualReviewReposTolerationPileupsRetrieveParams,
+    options?: RequestInit
+): Promise<TolerationPileupsApi> => {
+    return apiMutator<TolerationPileupsApi>(getVisualReviewReposTolerationPileupsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -483,8 +523,8 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
  * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
- * which gives a quarantined story a baseline entry without lifting the quarantine.
+ * snapshot too: a quarantined snapshot approved here is committed by finalize, which
+ * updates a quarantined story's baseline entry without lifting the quarantine.
  */
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
@@ -510,11 +550,14 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
+    completeRunInputApi?: CompleteRunInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(completeRunInputApi),
     })
 }
 
@@ -528,7 +571,7 @@ export const getVisualReviewRunsFinalizeCreateUrl = (projectId: string, id: stri
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
  * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * skipped, but a quarantined snapshot approved by identifier is still committed.
  * With commit_to_github=false the server returns the signed baseline YAML instead of
  * committing it.
  */
@@ -543,6 +586,64 @@ export const visualReviewRunsFinalizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(finalizeRunRequestInputApi),
+    })
+}
+
+export const getVisualReviewRunsLiftOnMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/lift_on_merge/`
+}
+
+/**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreate = async (
+    projectId: string,
+    id: string,
+    liftOnMergeInputApi: LiftOnMergeInputApi,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi> => {
+    return apiMutator<QuarantineLiftEntryApi>(getVisualReviewRunsLiftOnMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liftOnMergeInputApi),
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/`
+}
+
+/**
+ * Every request to lift a quarantine when this run's pull request merges, newest first, in any state. Empty for a run without a pull request.
+ */
+export const visualReviewRunsQuarantineLiftsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi[]> => {
+    return apiMutator<QuarantineLiftEntryApi[]>(getVisualReviewRunsQuarantineLiftsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsCancelCreateUrl = (projectId: string, id: string, requestId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/${requestId}/cancel/`
+}
+
+/**
+ * Withdraw a pending request to lift a quarantine when this run's pull request merges.
+ */
+export const visualReviewRunsQuarantineLiftsCancelCreate = async (
+    projectId: string,
+    id: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewRunsQuarantineLiftsCancelCreateUrl(projectId, id, requestId), {
+        ...options,
+        method: 'POST',
     })
 }
 

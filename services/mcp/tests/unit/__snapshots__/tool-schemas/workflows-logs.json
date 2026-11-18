@@ -34,6 +34,12 @@
             "minimum": 1,
             "type": "number"
         },
+        "offset": {
+            "default": 0,
+            "description": "Number of log entries to skip before the first returned entry (default 0).",
+            "minimum": 0,
+            "type": "number"
+        },
         "search": {
             "description": "Case-insensitive substring search across log messages.",
             "minLength": 1,

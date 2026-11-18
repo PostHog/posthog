@@ -17,6 +17,11 @@
             "pattern": "^[^/]+$",
             "type": "string"
         },
+        "resolve": {
+            "default": true,
+            "description": "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.",
+            "type": "boolean"
+        },
         "version": {
             "description": "Specific prompt version to fetch. If omitted, the latest version is returned.",
             "minimum": 1,

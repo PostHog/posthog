@@ -18,15 +18,18 @@ use tower_http::trace::TraceLayer;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
+use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
-use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
+use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
+use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -39,6 +42,10 @@ pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
 
+/// One event at the shared ceiling, plus the 10% multipart allows for framing.
+pub const AI_BODY_SIZE: usize =
+    (AI_MAX_EVENT_BYTES_CEILING + AI_MAX_EVENT_BYTES_CEILING / 10) as usize;
+
 /// A route group's wire-body ceiling, carried as a request extension.
 ///
 /// `DefaultBodyLimit` only inserts an extension that `Bytes`-style extractors
@@ -50,7 +57,7 @@ pub struct WireBodyLimit(pub usize);
 
 #[derive(Clone)]
 pub struct State {
-    pub sink: Arc<dyn sinks::Event + Send + Sync>,
+    pub outputs: Arc<OutputRegistry>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
@@ -66,9 +73,9 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
-    /// `0` disables the ceiling.
-    pub ai_max_event_bytes: u64,
+    /// Largest AI-lane event each token may send (`AI_MAX_EVENT_BYTES`, raised
+    /// per token by `AI_MAX_EVENT_BYTES_OVERRIDES_CSV`). `0` disables the ceiling.
+    pub ai_max_event_bytes: AiEventSizeCaps,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -89,12 +96,13 @@ pub struct State {
     /// a pure mechanism layer with cheap Arc-based clones.
     pub overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// Dedicated overflow limiter for the AI lane (`DataType::AiEvents` /
-    /// `Destination::AiEvents`). Same knobs as `overflow_limiter` but a
+    /// `Destination::AiMain`). Same knobs as `overflow_limiter` but a
     /// separate governor instance, so per-key budgets are isolated: analytics
     /// volume never pushes a key's AI events into AI overflow and AI volume
     /// never burns the analytics budget. Only built when both
-    /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
-    /// the AI lane subject to restriction-driven `force_overflow` only.
+    /// `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED` are set; `None` leaves
+    /// only restriction overflow, which reaches AI overflow on every deployment
+    /// with that lane (not Import).
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// AI-lane per-token byte budget; `None` when disabled. A second instance
     /// of the same global rate limiter the `token:distinct_id` field holds,
@@ -107,14 +115,8 @@ pub struct State {
     /// the kafka sink can route to the replay overflow topic. Same rationale
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    /// V1 sink router for the new capture analytics pipeline.
-    /// When present, the v1 analytics handler publishes events through this.
-    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
-    /// set). Gates overflow stamping for the AI lane in both pipelines: when
-    /// false, AI events never overflow (pre-overflow behavior).
-    pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub capture_v1_legacy_property_splice: bool,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
     /// producer behind a per-(token, type) throttle). `None` when disabled —
@@ -169,7 +171,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     timesource: TZ,
     readiness: ReadinessHandler,
     liveness: LivenessHandler,
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputRegistry>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
@@ -184,7 +186,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_max_event_bytes: u64,
+    ai_max_event_bytes: impl Into<AiEventSizeCaps>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -193,14 +195,13 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
+    capture_v1_legacy_property_splice: bool,
     ai_gateway_signing_secret: Option<String>,
-    ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
-        sink,
+        outputs,
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
@@ -215,7 +216,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_max_event_bytes,
+        ai_max_event_bytes: ai_max_event_bytes.into(),
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
@@ -224,10 +225,9 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,
-        v1_sink_router,
         capture_v1_scatter_gather_min_batch,
+        capture_v1_legacy_property_splice,
         ai_gateway_signing_secret,
-        ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,
     };
@@ -276,8 +276,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // ingress can route them to the capture-ai deployment and keep AI and
     // analytics workloads isolated. Its own router rather than a member of
     // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`
-    // so it keeps the batch body limit instead of the larger multipart one.
+    // analytics batch and event routes.
     let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
@@ -291,8 +290,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+        .layer(DefaultBodyLimit::max(AI_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(AI_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(
@@ -460,19 +459,13 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // scoped to v0/status routes; v1 ships its own policy.
     router = router.layer(cors);
 
-    // The v1 analytics endpoint is only routable when a v1 sink is
-    // configured. Without a sink the handler can't publish, so we keep
-    // the path unregistered (404) rather than advertising an endpoint
-    // that can only ever return 503. This also isolates the route to
-    // deployments that opt in via CAPTURE_V1_SINKS.
-    //
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
     //
     // Matched exhaustively, like the legacy route gating above: a new capture
-    // mode must declare whether it serves the v1 analytics endpoint instead of
-    // silently defaulting to "no v1 routes" and 404ing its traffic.
+    // mode must declare whether it serves each v1 endpoint instead of silently
+    // defaulting to "no v1 routes" and 404ing its traffic.
     let serves_v1_analytics = match capture_mode {
         CaptureMode::Events | CaptureMode::Import => true,
         // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
@@ -480,10 +473,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         // which capture-ai no longer loads.
         CaptureMode::Ai | CaptureMode::Recordings => false,
     };
-    if serves_v1_analytics && state.v1_sink_router.is_some() {
+    let serves_v1_ai_events = match capture_mode {
+        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
+        // that deployment produces straight to the AI topic and sizes its
+        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
+        // why the shared handler needs no AI-specific branch.
+        CaptureMode::Ai => true,
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
+    };
+    if serves_v1_analytics || serves_v1_ai_events {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+            serves_analytics: serves_v1_analytics,
+            serves_ai_events: serves_v1_ai_events,
         }));
     }
 

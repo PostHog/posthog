@@ -64,6 +64,7 @@ export interface issuesDataNodeLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // nodeLogic
     responseLoading: boolean // nodeLogic
     results: ErrorTrackingIssue[]
@@ -96,12 +97,18 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
-    mutationSuccess: (mutationName: string) => {
+    mutationSuccess: (
+        mutationName: string,
+        issueId?: string | undefined
+    ) => {
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     resolveIssues: (ids: string[]) => {
@@ -166,8 +173,8 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -197,8 +204,8 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // nodeLogic
     setResponse: (
         response:
@@ -256,6 +263,7 @@ export interface issuesDataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => ErrorTrackingIssue[]
     }

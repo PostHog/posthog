@@ -25,6 +25,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { humanFriendlyDiff } from 'lib/utils/durations'
 
+import type { AccountsTableCustomPropertyDefinition } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, type AnyPropertyFilter } from '~/types'
 
 import { AccountNameCell } from 'products/customer_analytics/frontend/components/Accounts/AccountNameCell'
@@ -41,7 +42,6 @@ import type {
     AccountTrackRuleGroupApi,
     AccountTrackRuleRunViewApi,
     AccountTrackRuleSampleApi,
-    CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountTrackRulesLogic, type accountTrackRulesLogicValues } from './accountTrackRulesLogic'
@@ -97,7 +97,7 @@ export function accountFiltersToRuleGroup(filters: AccountFilter[]): AccountTrac
 
 export function ruleGroupToAccountFilters(
     group: AccountTrackRuleGroupApi,
-    definitionsById: Record<string, CustomPropertyDefinitionApi>
+    definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 ): AccountFilter[] {
     return group.conditions.map((condition) => {
         const isNative = condition.field.kind === 'account_field'
@@ -138,6 +138,9 @@ export function AccountTrackRules(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const trackRulePropertyDefinitions = [...TRACK_RULE_ACCOUNT_FIELDS, ...customPropertyTaxonomicOptions].map(
+        ({ id, property_type }) => ({ id, name: id, property_type })
+    )
 
     const confirmRun = (): void => {
         if (!config?.enabled || hasUnsavedChanges || !canRun) {
@@ -222,6 +225,8 @@ export function AccountTrackRules(): JSX.Element {
                             [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
                         }}
                         operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        propertyDefinitionsOverride={trackRulePropertyDefinitions}
+                        allowRelativeDateOptions
                         staticValueOptions={accountFilterStaticValueOptions}
                         editable={!restrictionReason}
                         disabledReason={restrictionReason ?? undefined}
@@ -349,12 +354,12 @@ type PreviewSampleKind = 'included' | 'excluded'
 type PreviewRuleColumn = {
     key: string
     label: string
-    definition?: CustomPropertyDefinitionApi
+    definition?: AccountsTableCustomPropertyDefinition
 }
 
 export function getPreviewRuleColumns(
     groups: readonly AccountTrackRuleGroupApi[],
-    definitionsById: Record<string, CustomPropertyDefinitionApi>
+    definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 ): PreviewRuleColumn[] {
     const columns: PreviewRuleColumn[] = []
     const keys = new Set<string>()
@@ -392,7 +397,7 @@ function PreviewRuleValue({
     definition,
 }: {
     value: unknown
-    definition?: CustomPropertyDefinitionApi
+    definition?: AccountsTableCustomPropertyDefinition
 }): JSX.Element {
     if (value === null || value === undefined || value === '') {
         return <span className="text-muted">—</span>
@@ -432,7 +437,7 @@ function PreviewResult({
     preview: NonNullable<accountTrackRulesLogicValues['previewResponse']>
     current: boolean
     ruleGroups: readonly AccountTrackRuleGroupApi[]
-    definitionsById: Record<string, CustomPropertyDefinitionApi>
+    definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 }): JSX.Element {
     const [sampleKind, setSampleKind] = useState<PreviewSampleKind>('included')
     const samples = sampleKind === 'included' ? preview.tracked_samples : preview.ignored_samples

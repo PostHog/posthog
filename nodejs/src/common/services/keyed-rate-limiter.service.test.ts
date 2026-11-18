@@ -8,7 +8,7 @@ import { KeyedRateLimiterService } from './keyed-rate-limiter.service'
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
 describe('KeyedRateLimiterService', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let now: number
     let hub: Hub

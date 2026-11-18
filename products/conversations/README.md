@@ -27,3 +27,22 @@ python manage.py run_support_reply --team-id 1 --ticket-number 42
 # By ticket UUID
 python manage.py run_support_reply --team-id 1 --ticket-id "a1b2c3d4-..."
 ```
+
+### `run_support_reply_eval`
+
+Score the invented support-reply fixtures against the pipeline. Mocked by default (sandbox draft stubbed, no LLM). CI uses this variant.
+
+```bash
+python manage.py run_support_reply_eval
+python manage.py run_support_reply_eval --fixture how_to_sdk_install
+python manage.py run_support_reply_eval --live --keep
+```
+
+`--live` runs the real draft agent. `--keep` leaves the ephemeral eval team in the database.
+
+The same suite is also on the shared eval harness:
+
+```bash
+hogli evals eval_support_reply
+SUPPORT_REPLY_EVAL_LIVE=1 hogli evals eval_support_reply --eval how_to_sdk_install
+```

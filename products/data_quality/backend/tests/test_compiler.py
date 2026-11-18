@@ -2,15 +2,36 @@ import pytest
 
 from parameterized import parameterized
 
+from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
 from products.data_quality.backend.facade.enums import CheckType, SubjectType
 from products.data_quality.backend.logic.compiler import compile_check
 from products.data_quality.backend.logic.contracts import Evaluation, SubjectRef
 from products.data_quality.backend.logic.errors import CheckConfigError, SubjectUnresolvableError
-from products.data_quality.backend.logic.registry import UnknownCheckTypeError, all_specs, get_spec
-from products.data_quality.backend.logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
+from products.data_quality.backend.logic.posthog_tables import by_name
+from products.data_quality.backend.logic.registry import UnknownCheckTypeError, all_specs, get_spec, list_check_types
+from products.data_quality.backend.logic.serialization import (
+    canonical_config,
+    compute_fingerprint,
+    from_config_entry,
+    to_config_entry,
+)
 from products.data_quality.backend.logic.spec import CheckTypeSpec, NoConfig
+from products.data_quality.backend.logic.types.custom_sql import CustomSqlConfig, CustomSqlSpec
+
+
+def _posthog_table(name: str) -> SubjectRef:
+    entry = by_name(name)
+    assert entry is not None
+    return SubjectRef(
+        SubjectType.POSTHOG_TABLE, str(entry.id), entry.name, entry.name, exists=True, time_column=entry.time_column
+    )
+
 
 ORDERS = SubjectRef(SubjectType.VIEW, "1cd4a1ef-0000-0000-0000-000000000001", "orders", "orders", exists=True)
+EVENTS = _posthog_table("events")
+PERSONS = _posthog_table("persons")
+GROUPS = _posthog_table("groups")
+EVENTS_WITHOUT_TIME = SubjectRef(SubjectType.POSTHOG_TABLE, EVENTS.subject_uuid, "events", "events", exists=True)
 CUSTOMERS = SubjectRef(SubjectType.TABLE, "1cd4a1ef-0000-0000-0000-000000000002", "customers", "customers", True)
 
 RELATIONSHIPS_CONFIG = {
@@ -22,7 +43,7 @@ RELATIONSHIPS_CONFIG = {
 
 def _normalized(check_type, column_name, config) -> dict:
     """What the fingerprint hashes: config put through its type's model first."""
-    return get_spec(check_type).validate(config, column_name).model_dump(mode="json")
+    return canonical_config(get_spec(check_type).validate(config, column_name))
 
 
 def _fingerprint_for(config: dict) -> str:
@@ -46,6 +67,202 @@ def _compile(check_type, column_name, config, related=None):
 
 
 class TestCheckCompiler:
+    @pytest.mark.parametrize("subject_type", [SubjectType.METRIC, SubjectType.TABLE, SubjectType.VIEW])
+    @pytest.mark.parametrize(
+        ("query", "references", "has_cte"),
+        [
+            (
+                "SELECT * FROM {metric} UNION ALL "
+                "SELECT * FROM (WITH orders AS (SELECT 123 AS total) SELECT * FROM orders)",
+                ["orders"],
+                True,
+            ),
+            (
+                "WITH metric_output AS (SELECT * FROM {metric}) "
+                "SELECT * FROM metric_output UNION ALL SELECT * FROM metric_output",
+                ["orders"],
+                True,
+            ),
+            (
+                "WITH metric_output AS (SELECT * FROM {metric}), orders AS (SELECT 123 AS total) "
+                "SELECT * FROM metric_output JOIN orders ON 1 = 1",
+                ["orders"],
+                True,
+            ),
+            (
+                "WITH orders AS (SELECT * FROM {metric}) SELECT * FROM orders",
+                ["orders"],
+                True,
+            ),
+            (
+                "SELECT * FROM {metric} JOIN (SELECT 1 AS total) AS other ON total IN (SELECT total FROM customers)",
+                ["customers", "orders"],
+                False,
+            ),
+            (
+                "SELECT * FROM {metric} UNION ALL SELECT * FROM customers",
+                ["customers", "orders"],
+                False,
+            ),
+        ],
+    )
+    def test_custom_sql_references_respect_cte_scope(
+        self, subject_type: SubjectType, query: str, references: list[str], has_cte: bool
+    ) -> None:
+        subject = SubjectRef(
+            subject_type,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "orders",
+            "orders",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(query="SELECT * FROM orders", values={}),
+        )
+        config = CustomSqlConfig(
+            query=query if subject_type == SubjectType.METRIC else query.replace("{metric}", "(SELECT * FROM orders)")
+        )
+
+        if subject_type == SubjectType.METRIC and has_cte:
+            with pytest.raises(CheckConfigError, match="cannot use CTEs"):
+                CustomSqlSpec().referenced_table_names(config, subject)
+            return
+        assert sorted(CustomSqlSpec().referenced_table_names(config, subject)) == references
+
+    @parameterized.expand(
+        [
+            (
+                "hogqlx_relation",
+                SubjectType.TABLE,
+                "SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_join",
+                SubjectType.VIEW,
+                "SELECT * FROM orders JOIN <HogQLQuery query='SELECT * FROM customers' /> ON 1 = 1",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_cte",
+                SubjectType.VIEW,
+                "WITH failures AS (SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />) "
+                "SELECT * FROM failures",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_metric_definition",
+                SubjectType.METRIC,
+                "SELECT * FROM {metric}",
+                "SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />",
+            ),
+            (
+                "hogqlx_metric_check",
+                SubjectType.METRIC,
+                "SELECT * FROM {metric} JOIN <HogQLQuery query='SELECT * FROM customers' /> ON 1 = 1",
+                "SELECT * FROM orders",
+            ),
+            (
+                "table_function",
+                SubjectType.TABLE,
+                "SELECT * FROM numbers(10)",
+                "SELECT * FROM orders",
+            ),
+        ]
+    )
+    def test_custom_sql_rejects_unenumerable_table_expressions(
+        self, _name: str, subject_type: SubjectType, query: str, metric_query: str
+    ) -> None:
+        subject = SubjectRef(
+            subject_type,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "orders",
+            "orders",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(query=metric_query, values={}),
+        )
+        spec = CustomSqlSpec()
+        config = CustomSqlConfig(query=query)
+
+        with pytest.raises(CheckConfigError, match="table expression"):
+            spec.referenced_table_names(config, subject)
+        with pytest.raises(CheckConfigError, match="table expression"):
+            compile_check(check_type=CheckType.CUSTOM_SQL, subject=subject, column_name="", config={"query": query})
+
+    def test_custom_sql_is_the_only_metric_check_type(self) -> None:
+        """Catches registry filtering custom SQL out of the metric check catalog."""
+        assert {entry.check_type for entry in list_check_types("metric")} == {CheckType.CUSTOM_SQL}
+        for kind in (SubjectType.TABLE, SubjectType.VIEW):
+            assert len(list_check_types(kind)) == 7
+            assert {entry.check_type for entry in list_check_types(kind)} == set(CheckType)
+        with pytest.raises(UnknownCheckTypeError, match="metric_value"):
+            _compile("metric_value", "", {"min": 1})
+
+    def test_compiles_metric_custom_sql_through_the_row_query_path(self) -> None:
+        """Catches the compiler rejecting metrics before custom SQL can bind their definition."""
+        metric = SubjectRef(
+            SubjectType.METRIC,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "signups",
+            "",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(
+                query="SELECT count() AS signups FROM events WHERE event = {event_name}",
+                values={"event_name": "signup"},
+            ),
+        )
+
+        compiled = compile_check(
+            check_type=CheckType.CUSTOM_SQL,
+            subject=metric,
+            column_name="",
+            config={"query": "SELECT * FROM {metric} WHERE signups < 100"},
+        )
+
+        assert compiled.printed_query == (
+            "SELECT count() AS failure_count, count() AS observed_value "
+            "FROM (SELECT * FROM (SELECT count() AS signups FROM events WHERE equals(event, 'signup')) "
+            "WHERE less(signups, 100))"
+        )
+
+    def test_metric_custom_sql_hides_invalid_check_parser_details_during_compilation(self) -> None:
+        """Catches Pydantic parsing a metric check before the binder can provide its stable error."""
+        metric = SubjectRef(
+            SubjectType.METRIC,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "signups",
+            "",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(query="SELECT count() AS signups FROM events", values={}),
+        )
+
+        with pytest.raises(CheckConfigError, match="^Could not parse the metric custom_sql query\\.$"):
+            compile_check(
+                check_type=CheckType.CUSTOM_SQL,
+                subject=metric,
+                column_name="",
+                config={"query": "SELECT * FORM {metric}"},
+            )
+
+    def test_metric_custom_sql_hides_invalid_check_parser_details_during_subject_validation(self) -> None:
+        """Catches authoring validation leaking parser details before binding a metric check."""
+        metric = SubjectRef(
+            SubjectType.METRIC,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "signups",
+            "",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(query="SELECT count() AS signups FROM events", values={}),
+        )
+        spec = get_spec(CheckType.CUSTOM_SQL)
+        config = spec.validate({"query": "SELECT * FORM {metric}"}, "")
+
+        with pytest.raises(CheckConfigError, match="^Could not parse the metric custom_sql query\\.$"):
+            spec.referenced_table_names(config, metric)
+
+    def test_table_custom_sql_keeps_its_existing_invalid_query_error(self) -> None:
+        """Catches deferring metric parsing from changing table and view custom-SQL validation."""
+        with pytest.raises(CheckConfigError):
+            _compile(CheckType.CUSTOM_SQL, "", {"query": "SELECT * FORM orders"})
+
     @parameterized.expand(
         [
             (
@@ -176,6 +393,15 @@ class TestCheckCompiler:
             ("missing_column", CheckType.NOT_NULL, "", {}),
             ("row_count_without_bounds", CheckType.ROW_COUNT, "", {}),
             ("row_count_inverted_bounds", CheckType.ROW_COUNT, "", {"min": 10, "max": 1}),
+            ("row_count_negative_min", CheckType.ROW_COUNT, "", {"min": -5}),
+            ("row_count_negative_max", CheckType.ROW_COUNT, "", {"max": -1}),
+            ("row_count_fractional_bound", CheckType.ROW_COUNT, "", {"min": 1.5}),
+            (
+                "relationships_to_metric",
+                CheckType.RELATIONSHIPS,
+                "customer_id",
+                {**RELATIONSHIPS_CONFIG, "to_subject_type": "metric"},
+            ),
             ("custom_sql_not_a_select", CheckType.CUSTOM_SQL, "", {"query": "drop table orders"}),
             (
                 "custom_sql_with_placeholder",
@@ -212,6 +438,7 @@ class TestCheckCompiler:
         # is derived from the config model rather than written by hand, so it cannot drift from
         # what parse_config actually accepts.
         for spec in all_specs():
+            assert isinstance(spec, CheckTypeSpec)
             schema = spec.json_schema
             assert schema["type"] == "object"
             assert schema["additionalProperties"] is False, f"{spec.type_name} silently ignores unknown keys"
@@ -229,6 +456,26 @@ class TestCheckCompiler:
 
 
 class TestCheckSerialization:
+    @parameterized.expand(
+        [
+            ("integer", {"min": 1}, {"min": 1, "max": None}),
+            ("integral_float_min", {"min": 1.0}, {"min": 1, "max": None}),
+            ("integral_float_max", {"max": 2.0}, {"min": None, "max": 2}),
+            ("integral_float_bounds", {"min": 1.0, "max": 2.0}, {"min": 1, "max": 2}),
+        ]
+    )
+    def test_row_count_bounds_preserve_existing_fingerprint(self, _name: str, config: dict, expected: dict) -> None:
+        normalized = _normalized(CheckType.ROW_COUNT, "", config)
+        assert _fingerprint_for(normalized) == _fingerprint_for(expected)
+
+    def test_an_unset_relationship_window_preserves_an_existing_fingerprint(self) -> None:
+        # A check authored before the windows existed stored neither key. Canonicalizing an unset one
+        # as null would rehash it, so re-submitting it unchanged would duplicate it instead of upserting.
+        normalized = _normalized(CheckType.RELATIONSHIPS, "customer_id", RELATIONSHIPS_CONFIG)
+
+        assert normalized == RELATIONSHIPS_CONFIG
+        assert _fingerprint_for(normalized) == _fingerprint_for(RELATIONSHIPS_CONFIG)
+
     @parameterized.expand([(check_type,) for check_type in CheckType])
     def test_config_entry_round_trips(self, check_type) -> None:
         check = {
@@ -284,6 +531,7 @@ class TestCheckSerialization:
             ("string_column_reads_a_bool_as_text", "String", [True], ["true"]),
             ("low_cardinality_string_reads_a_number_as_text", "LowCardinality(String)", [200], ["200"]),
             ("unknown_column_type", None, ["1"], ["1"]),
+            ("values_that_coercion_makes_equal_collapse", "Int64", ["1", 1], [1.0]),
         ]
     )
     def test_accepted_values_are_read_as_the_column_reads_them(self, _name, column_type, given, expected) -> None:
@@ -295,6 +543,17 @@ class TestCheckSerialization:
         coerced = spec.coerce_to_column(parsed, column_type)
 
         assert coerced.model_dump(mode="json")["values"] == expected
+
+    def test_reading_accepted_values_as_the_column_reads_them_keeps_the_lookback_window(self) -> None:
+        # The window is only authorable on a subject that has a time column, which is exactly where
+        # an accepted-values check would otherwise lose it and read the subject's whole history.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        parsed = spec.validate({"values": ["1"], "lookback_hours": 24}, "status")
+
+        coerced = spec.coerce_to_column(parsed, "Int64")
+
+        assert coerced.lookback_hours == 24
+        assert coerced.model_dump(mode="json")["values"] == [1.0]
 
     @parameterized.expand(
         [
@@ -337,3 +596,105 @@ class TestCheckSerialization:
 
         assert as_int == as_string
         assert _fingerprint_for(as_int) == _fingerprint_for(as_string)
+
+
+class TestLookbackWindow:
+    GENERIC_TYPES = [
+        (CheckType.NOT_NULL, "distinct_id", {}),
+        (CheckType.UNIQUE, "distinct_id", {}),
+        (CheckType.ACCEPTED_VALUES, "event", {"values": ["$pageview"]}),
+        (CheckType.FRESHNESS, "timestamp", {"max_age_minutes": 60}),
+        (CheckType.ROW_COUNT, "", {"min": 1}),
+    ]
+
+    @staticmethod
+    def _window(column: str, hours: int) -> str:
+        return f"greaterOrEquals({column}, minus(now(), toIntervalHour({hours})))"
+
+    @pytest.mark.parametrize(("check_type", "column_name", "config"), GENERIC_TYPES)
+    def test_no_window_prints_what_it_printed_before_windows_existed(self, check_type, column_name, config) -> None:
+        windowed = compile_check(check_type=check_type, subject=EVENTS, column_name=column_name, config=config)
+        timeless = compile_check(
+            check_type=check_type, subject=EVENTS_WITHOUT_TIME, column_name=column_name, config=config
+        )
+
+        assert windowed.printed_query == timeless.printed_query
+        assert "toIntervalHour" not in windowed.printed_query
+
+    @pytest.mark.parametrize(("check_type", "column_name", "config"), GENERIC_TYPES)
+    def test_a_window_bounds_every_generic_type(self, check_type, column_name, config) -> None:
+        compiled = compile_check(
+            check_type=check_type, subject=EVENTS, column_name=column_name, config={**config, "lookback_hours": 24}
+        )
+
+        assert self._window("timestamp", 24) in compiled.printed_query
+        assert self._window("timestamp", 24) in compiled.printed_failing_rows_query
+
+    def test_a_window_narrows_unique_before_it_groups(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.UNIQUE, subject=EVENTS, column_name="distinct_id", config={"lookback_hours": 6}
+        )
+
+        assert compiled.printed_query.index(self._window("timestamp", 6)) < compiled.printed_query.index("GROUP BY")
+
+    @pytest.mark.parametrize("subject", [PERSONS, GROUPS])
+    def test_persons_and_groups_window_on_when_they_were_first_seen(self, subject) -> None:
+        compiled = compile_check(
+            check_type=CheckType.ROW_COUNT, subject=subject, column_name="", config={"min": 1, "lookback_hours": 12}
+        )
+
+        assert self._window("created_at", 12) in compiled.printed_query
+
+    def test_relationships_windows_each_side_on_its_own_column(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.RELATIONSHIPS,
+            subject=EVENTS,
+            column_name="distinct_id",
+            config={
+                "to_subject_type": SubjectType.POSTHOG_TABLE,
+                "to_subject_uuid": PERSONS.subject_uuid,
+                "to_column": "id",
+                "lookback_hours": 24,
+                "to_lookback_hours": 72,
+            },
+            related_subject=PERSONS,
+        )
+
+        assert self._window("timestamp", 24) in compiled.printed_query
+        assert self._window("created_at", 72) in compiled.printed_query
+
+    def test_relationships_can_bound_the_target_alone(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.RELATIONSHIPS,
+            subject=ORDERS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.POSTHOG_TABLE,
+                "to_subject_uuid": PERSONS.subject_uuid,
+                "to_column": "id",
+                "to_lookback_hours": 48,
+            },
+            related_subject=PERSONS,
+        )
+
+        assert self._window("created_at", 48) in compiled.printed_query
+        assert compiled.printed_query.count("toIntervalHour") == 1
+
+    def test_a_target_window_is_refused_when_the_target_has_no_time_column(self) -> None:
+        with pytest.raises(CheckConfigError):
+            compile_check(
+                check_type=CheckType.RELATIONSHIPS,
+                subject=EVENTS,
+                column_name="distinct_id",
+                config={**RELATIONSHIPS_CONFIG, "to_lookback_hours": 24},
+                related_subject=CUSTOMERS,
+            )
+
+    def test_custom_sql_refuses_a_window_rather_than_rewriting_the_query(self) -> None:
+        with pytest.raises(CheckConfigError):
+            compile_check(
+                check_type=CheckType.CUSTOM_SQL,
+                subject=EVENTS,
+                column_name="",
+                config={"query": "SELECT 1 FROM events", "lookback_hours": 24},
+            )

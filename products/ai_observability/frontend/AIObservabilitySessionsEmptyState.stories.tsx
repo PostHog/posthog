@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { AIObservabilitySessionsEmptyState } from './AIObservabilitySessionsEmptyState'
@@ -33,7 +31,6 @@ function checklistWith(status: InstrumentationCheckStatusEnumApi): Instrumentati
 const meta: Meta<{ status: InstrumentationCheckStatusEnumApi }> = {
     title: 'Scenes-App/AI observability/Sessions empty state',
     parameters: {
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
         testOptions: { waitForLoadersToDisappear: false },
     },
     render: ({ status }) => {

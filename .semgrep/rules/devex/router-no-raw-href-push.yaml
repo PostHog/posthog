@@ -1,0 +1,39 @@
+rules:
+    - id: router-no-raw-href-push
+      message: |
+          An href read off a data object is pushed straight into the router. `router.actions.push`
+          reaches `history.pushState`, which accepts only a same-origin path, so a value that came
+          from the API rather than from `urls.*` breaks in three ways:
+
+            • an off-origin href (`https://...`) gets rewritten into a broken in-app path, because
+              the router prefixes it with the current project
+            • a `'#'` placeholder href, which several search items carry when they have no
+              destination, navigates to a dead route
+            • a `javascript:` href reaches a navigation sink, and a rejected `pushState` throws a
+              `SecurityError` out of the click handler as an uncaught exception
+
+          Use, in order of preference:
+            • `Link` / `LinkPrimitive` (`lib/lemon-ui/Link`) when you render the target as a link -
+              it resolves the href and routes on click
+            • `navigateToHref` (`lib/utils/navigateToHref`) when you have an href but no anchor to
+              click, such as a command palette item or a keyboard selection
+            • `newInternalTab` (`lib/utils/newInternalTab`) to open the target in a new tab
+
+          Pushing a path you built yourself with `urls.*` is fine and this rule does not match it.
+          If a raw push is genuinely right here, add `// nosemgrep: router-no-raw-href-push` with a
+          short reason.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - frontend/src
+              - products
+          exclude:
+              - frontend/src/lib/utils/navigateToHref.ts
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+      pattern-either:
+          - pattern: router.actions.push($X.href, ...)
+          - pattern: router.actions.replace($X.href, ...)
+      metadata:
+          category: best-practice

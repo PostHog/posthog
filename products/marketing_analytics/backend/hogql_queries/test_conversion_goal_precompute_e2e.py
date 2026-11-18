@@ -1,12 +1,19 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1, MarketingAnalyticsDrillDownLevel
+from posthog.schema import (
+    AttributionMode,
+    BaseMathType,
+    ConversionGoalFilter1,
+    DateRange,
+    MarketingAnalyticsDrillDownLevel,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -14,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
@@ -25,8 +33,17 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self._clean_preaggregation_data()
+        # Reads are precompute-only (they never build inline), but these tests warm and read in-process
+        # with no separate warmer. Treat the in-test ensures as a producer so the precompute path
+        # materializes its windows before reading — the read shape is identical to a warm read's.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._clean_preaggregation_data()
         super().tearDown()
 
@@ -300,6 +317,43 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         mediums = {row[1] for row in rows}
         assert "display" in mediums, f"last touch carried utm_medium=display; the medium array is misaligned: {rows}"
 
+    @parameterized.expand(
+        [
+            ("ahead_of_utc", "Asia/Jerusalem", "edge_ahead", datetime(2024, 3, 4, 23, 0, tzinfo=UTC)),
+            ("behind_utc", "America/Los_Angeles", "edge_behind", datetime(2024, 3, 6, 4, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_precompute_keeps_conversions_at_the_edges_of_a_local_day(
+        self, _name: str, timezone: str, campaign: str, converted_at: datetime
+    ):
+        self.team.timezone = timezone
+        self.team.save()
+        distinct_id = f"user_{campaign}"
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=datetime(2024, 3, 2, 12, 0, tzinfo=UTC),
+            properties={"utm_campaign": campaign, "utm_source": "google", "utm_medium": "cpc"},
+        )
+        _create_event(team=self.team, event="purchase", distinct_id=distinct_id, timestamp=converted_at)
+        flush_persons_and_events()
+
+        local_day = QueryDateRange(
+            date_range=DateRange(date_from="2024-03-05", date_to="2024-03-05"),
+            team=self.team,
+            interval=None,
+            now=datetime(2024, 3, 20, tzinfo=UTC),
+        )
+        rows = self._execute(
+            self._make_processor(precompute=True).generate_cte_query(
+                additional_conditions=[], date_from=local_day.date_from(), date_to=local_day.date_to()
+            )
+        )
+
+        assert any(campaign in row for row in rows), f"conversion on the local day was dropped: {rows}"
+
     def test_reused_wide_job_excludes_out_of_range_conversions(self):
         _create_person(distinct_ids=["user_dec"], team=self.team)
         _create_event(
@@ -320,7 +374,8 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         processor = self._make_processor(precompute=True)
         # Materialize a job spanning December — a wider prior request the lazy framework reuses for the
-        # narrow one below (find_existing_jobs matches the overlapping wider job).
+        # narrow one below (find_existing_jobs matches the overlapping wider job). The class-level producer
+        # patch lets this ensure build (reads are precompute-only and never build inline).
         processor.generate_cte_query(
             additional_conditions=[],
             date_from=datetime(2024, 12, 1, tzinfo=UTC),

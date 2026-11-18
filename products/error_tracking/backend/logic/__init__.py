@@ -3,8 +3,11 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Count, Q, QuerySet
 
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -34,6 +37,7 @@ SPIKE_EVENT_ORDER_FIELDS = (
 )
 
 SETTINGS_FIELDS = (
+    "adaptive_ingestion_enabled",
     "project_rate_limit_value",
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
@@ -51,6 +55,11 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
+# The issue list carries a per-row first_seen subquery, so an unbounded read scales with the
+# team's whole issue table. Cap it, and let callers that need more page with a narrower filter.
+MAX_LISTED_ISSUES = 1000
+
+
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
 
@@ -59,14 +68,14 @@ def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .select_related("assignment")
-        .prefetch_related("external_issues__integration")
+        .prefetch_related("external_issues")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
     )
 
 
-def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return get_issue_list_queryset(team_id)
+def list_issues(team_id: int, limit: int = MAX_LISTED_ISSUES) -> list[ErrorTrackingIssue]:
+    return list(get_issue_list_queryset(team_id).order_by("-created_at")[:limit])
 
 
 def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:
@@ -90,8 +99,9 @@ def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
 
 def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
     return (
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=team_id, id=issue_id)
+        .only("id", "name", "description", "status", "severity", "created_at")
         .first()
     )
 
@@ -145,8 +155,8 @@ def build_issue_permalink_path(*, project_id: int, issue_id: UUID | str, fingerp
     plain issue URL when the issue has no fingerprints.
     """
     if fingerprint is None:
-        return f"/project/{project_id}/error_tracking/{issue_id}"
-    return f"/project/{project_id}/error_tracking/fingerprint/{quote(fingerprint, safe='')}"
+        return f"/project/{project_id}/error-tracking/{issue_id}"
+    return f"/project/{project_id}/error-tracking/fingerprint/{quote(fingerprint, safe='')}"
 
 
 def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:
@@ -197,19 +207,31 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
 
 
+def read_database() -> str:
+    """The database for expensive reads that can tolerate replica lag."""
+    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return list(
-        ErrorTrackingIssue.objects.values("team_id")
+        ErrorTrackingIssue.objects.using(read_database())
+        .values("team_id")
         .annotate(total=Count("id"))
         .order_by("team_id")
         .values_list("team_id", "total")
     )
 
 
-def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
-    queryset = ErrorTrackingSymbolSet.objects.all()
+def _symbol_set_counts_queryset(*, resolved_only: bool) -> QuerySet[ErrorTrackingSymbolSet]:
+    # These counts scan the whole table and the usage report runs them every 30 minutes, so keep them off the writer.
+    queryset = ErrorTrackingSymbolSet.objects.using(read_database()).all()
     if resolved_only:
         queryset = queryset.filter(storage_ptr__isnull=False)
+    return queryset
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
 
     return list(
         queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
@@ -221,7 +243,7 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     return settings
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
     for key, value in updates.items():
@@ -229,6 +251,24 @@ def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackin
     if updates:
         settings.save(update_fields=list(updates))
     return settings
+
+
+def is_exception_ingestion_enabled(team_id: int) -> bool:
+    drop_all_events = (
+        EventFilterPipelineOverride.objects.for_team(team_id)
+        .filter(pipeline=IngestionPipeline.ERRORTRACKING)
+        .values_list("drop_all_events", flat=True)
+        .first()
+    )
+    return not drop_all_events
+
+
+def set_exception_ingestion_enabled(team_id: int, enabled: bool) -> None:
+    EventFilterPipelineOverride.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
+        pipeline=IngestionPipeline.ERRORTRACKING,
+        defaults={"drop_all_events": not enabled},
+    )
 
 
 def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:
@@ -314,6 +354,46 @@ def release_hash_exists(team_id: int, hash_id: str) -> bool:
     return ErrorTrackingRelease.objects.filter(team_id=team_id, hash_id=hash_id).exists()
 
 
+def _sanitize_release_remote_url(remote_url: str) -> str:
+    query_start = remote_url.find("?")
+    fragment_start = remote_url.find("#")
+    sanitized_end = min(
+        (position for position in (query_start, fragment_start) if position >= 0),
+        default=len(remote_url),
+    )
+    if remote_url.startswith("//"):
+        authority_start = 2
+    else:
+        scheme_end = remote_url.find("://", 0, sanitized_end)
+        if scheme_end < 0:
+            return remote_url[:sanitized_end]
+        authority_start = scheme_end + 3
+    authority_end = remote_url.find("/", authority_start, sanitized_end)
+    if authority_end < 0:
+        authority_end = sanitized_end
+    credentials_end = remote_url.rfind("@", authority_start, authority_end)
+    if credentials_end < 0:
+        return remote_url[:sanitized_end]
+
+    return remote_url[:authority_start] + remote_url[credentials_end + 1 : sanitized_end]
+
+
+def sanitize_release_metadata(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return metadata
+    git_metadata = metadata.get("git")
+    if not isinstance(git_metadata, dict):
+        return metadata
+    remote_url = git_metadata.get("remote_url")
+    if not isinstance(remote_url, str):
+        return metadata
+
+    sanitized_remote_url = _sanitize_release_remote_url(remote_url)
+    if sanitized_remote_url == remote_url:
+        return metadata
+    return {**metadata, "git": {**git_metadata, "remote_url": sanitized_remote_url}}
+
+
 def create_release(
     team_id: int,
     *,
@@ -329,7 +409,7 @@ def create_release(
         hash_id=resolved_hash_id,
         defaults={
             "id": release_id,
-            "metadata": metadata,
+            "metadata": sanitize_release_metadata(metadata),
             "project": str(project),
             "version": str(version),
         },
@@ -352,7 +432,7 @@ def update_release(
     if release is None:
         return None
     if metadata:
-        release.metadata = metadata
+        release.metadata = sanitize_release_metadata(metadata)
     if version:
         release.version = str(version)
     if project:

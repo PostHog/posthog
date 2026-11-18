@@ -37,14 +37,18 @@ run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS en
 from __future__ import annotations
 
 import os
+import re
 import ast
 import sys
 import json
 import argparse
 import warnings
 import subprocess
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
@@ -78,22 +82,34 @@ FULL_RUN_PATTERNS = (
     # see that edge. turbo-discover.js documents this as a live invariant.
     ".test_quarantine.json",
     # CI / Docker infrastructure
-    ".github/workflows/ci-backend.yml",
+    ".depot/workflows/ci-backend.yml",
+    # A new path in the events_json list has to run on the PR that adds it.
+    ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",
     "docker-compose",
     "docker/clickhouse/",
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
+    # A data file the host guards read at runtime, so a change to it is a behavior change
+    "posthog/security/crosslang/",
+    # The AI event limits, which get_ai_event_limits reads at runtime, so a change to them is a behavior change
+    "products/ai_observability/shared/crosslang/",
+    # The flag_evaluations TTL, which sql.py reads at import time, so a change to it is a behavior change
+    "posthog/models/flag_evaluations/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
-    # C++ parser and HogQL VM: no Python import edge reaches them, but they change
-    # what every HogQL query evaluates to.
+    # Both HogQL parsers and the HogQL VM: no Python import edge reaches them, but they
+    # change what every HogQL query evaluates to.
     "common/hogql_parser/",
+    "rust/hogql/parser/",
     "common/hogvm/",
+    # The personhog gRPC stubs are an installed package, so the import graph has no edge from
+    # `personhog.*` to these files. Every personhog_client consumer depends on them.
+    "packages/personhog-proto/",
     # Generates frontend/src/products.json, which is a full-run pattern in its own right.
     "manifest.tsx",
 )
@@ -183,25 +199,43 @@ def _name_from_node(node: ast.AST) -> str:
     return ""
 
 
-def _literal_strings(tree: ast.AST) -> set[str]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _SourceFacts:
+    strings: set[str]
+    imports: set[str]
+    calls: list[ast.Call]
+
+
+def _strings_imports_and_calls(tree: ast.AST) -> _SourceFacts:
+    """ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
+    reads node._fields directly. It visits nodes in a different order than ast.walk, which
+    is safe because the caller treats the results as unordered."""
     strings: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            strings.add(node.value)
-    return strings
-
-
-def _imports(tree: ast.AST) -> set[str]:
     imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+    calls: list[ast.Call] = []
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                strings.add(node.value)
+            continue
+        if isinstance(node, ast.Call):
+            calls.append(node)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.add(node.module)
             for alias in node.names:
                 imports.add(f"{node.module}.{alias.name}")
-    return imports
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, list):
+                stack.extend(item for item in value if isinstance(item, ast.AST))
+            elif isinstance(value, ast.AST):
+                stack.append(value)
+    return _SourceFacts(strings=strings, imports=imports, calls=calls)
 
 
 def _normal_tokens(value: str) -> set[str]:
@@ -298,14 +332,11 @@ def classify_test_file(path: str) -> TestFeatures:
     if tree is None:
         return TestFeatures(path=path)
 
-    strings = _literal_strings(tree)
-    imports = _imports(tree)
+    facts = _strings_imports_and_calls(tree)
     calls_http_client = False
     uses_reverse = False
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    for node in facts.calls:
         function_name = _name_from_node(node.func)
         if function_name.endswith(".reverse") or function_name == "reverse":
             uses_reverse = True
@@ -314,12 +345,12 @@ def classify_test_file(path: str) -> TestFeatures:
             if receiver.endswith("client") or ".client" in receiver:
                 calls_http_client = True
 
-    imports_api_client = bool(imports & API_CLIENT_IMPORTS)
-    uses_api_url = any("/api/" in value or value.startswith("/api") for value in strings)
-    lower_imports = " ".join(sorted(imports)).lower()
+    imports_api_client = bool(facts.imports & API_CLIENT_IMPORTS)
+    uses_api_url = any("/api/" in value or value.startswith("/api") for value in facts.strings)
+    lower_imports = " ".join(sorted(facts.imports)).lower()
     lower_path = path.lower()
 
-    api_tokens = set(_api_tokens_from_strings(strings))
+    api_tokens = set(_api_tokens_from_strings(facts.strings))
     if path.startswith("posthog/api/test/"):
         api_tokens.update(_tokens_from_name(PurePosixPath(path).stem.removeprefix("test_")))
 
@@ -337,7 +368,11 @@ def classify_test_file(path: str) -> TestFeatures:
 
 
 def classify_tests() -> dict[str, TestFeatures]:
-    return {path: classify_test_file(path) for path in _iter_python_files() if _is_test_file(path)}
+    paths = [path for path in _iter_python_files() if _is_test_file(path)]
+    # Fork makes each worker inherit module state such as a reassigned REPO_ROOT, which
+    # spawn and forkserver would re-import from scratch.
+    with ProcessPoolExecutor(mp_context=multiprocessing.get_context("fork")) as pool:
+        return dict(zip(paths, pool.map(classify_test_file, paths, chunksize=64)))
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:
@@ -411,8 +446,18 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
-def _existing_test_files(paths: list[str] | set[str]) -> list[str]:
-    return sorted(path for path in paths if (REPO_ROOT / path).is_file())
+def _pytest_ignored_prefixes() -> tuple[str, ...]:
+    """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
+    that it gets by name, so a selected file under one of them fails collection."""
+    config = REPO_ROOT / "pytest.ini"
+    if not config.is_file():
+        return ()
+    return tuple(f"{path.rstrip('/')}/" for path in re.findall(r"--ignore[= ](\S+)", config.read_text()))
+
+
+def _runnable_test_files(paths: list[str] | set[str]) -> list[str]:
+    ignored = _pytest_ignored_prefixes()
+    return sorted(path for path in paths if (REPO_ROOT / path).is_file() and not path.startswith(ignored))
 
 
 def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[str]) -> None:
@@ -427,7 +472,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     all_test_files = set(features_by_path.keys())
 
     # ── 1. Changed test files themselves ─────────────────────────────
-    changed_tests = _existing_test_files([path for path in changed_files if _is_test_file(path)])
+    changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
@@ -566,18 +611,18 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
-def snob_select_tests(changed_files: list[str]) -> dict[str, object]:
+def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
     changed_py_files = [path for path in changed_files if path.endswith(".py")]
     if not changed_py_files:
         return {"status": "ok", "tests": [], "count": 0}
 
     try:
-        import snob_lib
+        import snob_lib  # ty: ignore[unresolved-import]
     except ImportError as exc:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        tests = _existing_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
+        tests = _runnable_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
 
@@ -607,7 +652,6 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
 _TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
-    "posthog/queries/",
     "ee/clickhouse/",
 )
 _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
@@ -677,7 +721,7 @@ def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     return total
 
 
-def build_result(base_ref: str) -> dict[str, object]:
+def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
     features_by_path = classify_tests()
@@ -685,7 +729,7 @@ def build_result(base_ref: str) -> dict[str, object]:
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]
-    combined_tests = _existing_test_files(set(snob_tests) | set(ast_selection.tests))
+    combined_tests = _runnable_test_files(set(snob_tests) | set(ast_selection.tests))
 
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
@@ -720,7 +764,7 @@ def build_result(base_ref: str) -> dict[str, object]:
     }
 
 
-def format_summary(result: dict[str, object]) -> str:
+def format_summary(result: dict[str, Any]) -> str:
     snob = result["snob"]
     ast_data = result["ast"]
     combined = result["combined"]

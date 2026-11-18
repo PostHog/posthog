@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "block_consent_modals": {
+            "description": "When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps.",
+            "type": "boolean"
+        },
+        "data_url": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "format": "uri",
+                            "maxLength": 2000,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."
+        },
+        "deleted": {
+            "description": "Set true to soft-delete the saved heatmap.",
+            "type": "boolean"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable label for the saved heatmap."
+        },
+        "short_id": {
+            "type": "string"
+        },
+        "type": {
+            "description": "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording",
+            "enum": ["screenshot", "iframe", "recording"],
+            "type": "string"
+        },
+        "url": {
+            "description": "Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.",
+            "format": "uri",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "widths": {
+            "description": "Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.",
+            "items": {
+                "maximum": 3000,
+                "minimum": 100,
+                "type": "number"
+            },
+            "maxItems": 16,
+            "type": "array"
+        }
+    },
+    "required": ["short_id"],
+    "type": "object"
+}

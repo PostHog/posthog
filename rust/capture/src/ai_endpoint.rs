@@ -7,7 +7,7 @@ use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
 use limiters::redis::QuotaResource;
-use metrics::counter;
+use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use common_ingestion_warnings::WarningRequestContext;
 
-use crate::ai_rejection::{AiFailure, AiRejection, ALLOWED_AI_EVENTS};
+use crate::ai_rejection::{AiFailure, AiRejection};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
@@ -34,7 +34,7 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{
-    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+    exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
 
@@ -306,8 +306,12 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts =
-        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
+    let parts = retrieve_multipart_parts(
+        &mut multipart,
+        event_metadata,
+        state.ai_max_event_bytes.for_token(token),
+    )
+    .await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
@@ -396,11 +400,16 @@ async fn ai_handler_inner(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
-    // Step 9: Send event to Kafka
-    state.sink.send(processed_event).await.map_err(|e| {
-        warn!("Failed to send AI event to Kafka: {:?}", e);
-        e
-    })?;
+    // Step 9: Publish the event. One event per request on this endpoint.
+    histogram!("capture_event_batch_size").record(1.0);
+    state
+        .outputs
+        .publish(vec![processed_event])
+        .await
+        .map_err(|e| {
+            warn!("Failed to send AI event to Kafka: {:?}", e);
+            e
+        })?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");
@@ -579,6 +588,7 @@ fn build_kafka_event(
         timestamp: computed_timestamp,
         is_cookieless_mode: false,
         historical_migration: false,
+        options: None,
     };
 
     // Create metadata
@@ -854,8 +864,8 @@ fn validate_event_structure(event: &Value) -> Result<(), AiRejection> {
         return Err(AiRejection::EventNameEmpty);
     }
 
-    if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(AiRejection::EventNameNotAllowed(event_name.to_string()));
+    if !is_ai_event(event_name) {
+        return Err(AiRejection::EventNameNotAiPrefixed(event_name.to_string()));
     }
 
     // Validate distinct_id

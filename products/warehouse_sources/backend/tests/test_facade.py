@@ -1,15 +1,28 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
-from posthog.models import Team
+from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
+    ExternalDataSourceSerializers,
+)
 
 
 class TestWarehouseSourcesFacade(BaseTest):
@@ -63,6 +76,74 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert self.source.id in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id not in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id in {s.id for s in api.list_sources(self.team.pk, include_deleted=True)}
+
+    def test_list_source_health_reports_the_newest_completed_run(self) -> None:
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        newest = ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Running")
+        self.schema.latest_error = "permission denied for table users"
+        self.schema.save()
+
+        results = api.list_source_health(self.team.pk)
+
+        assert [r.source_type for r in results] == ["Postgres"]
+        assert results[0].last_run_at == newest.created_at
+        assert results[0].latest_error == "permission denied for table users"
+
+    @parameterized.expand(
+        [
+            ("all_completed", [(ExternalDataSchema.Status.COMPLETED, True)], "Completed"),
+            (
+                "one_running",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.RUNNING, True)],
+                "Running",
+            ),
+            (
+                "one_failed",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, True)],
+                "Failed",
+            ),
+            (
+                "failed_but_disabled",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, False)],
+                "Completed",
+            ),
+            (
+                "billing_limit_reached",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True)],
+                "Billing limits",
+            ),
+            (
+                "one_paused",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.PAUSED, True)],
+                "Paused",
+            ),
+            ("no_schema_state", [(None, True)], "Running"),
+        ]
+    )
+    def test_list_source_health_status_matches_source_list(
+        self, _name: str, schema_states: list[tuple[str | None, bool]], expected: str
+    ) -> None:
+        self.source.status = "Running"
+        self.source.save()
+        self.schema.delete()
+        for index, (status, should_sync) in enumerate(schema_states):
+            ExternalDataSchema.objects.create(
+                team_id=self.team.pk,
+                source=self.source,
+                name=f"schema_{index}",
+                should_sync=should_sync,
+                status=status,
+                latest_error=None if should_sync else "old error",
+            )
+
+        [health] = api.list_source_health(self.team.pk)
+        serializer_status = ExternalDataSourceSerializers(context={"get_team": lambda: self.team}).get_status(
+            self.source
+        )
+
+        assert health.status == expected
+        assert serializer_status == expected
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(
@@ -171,11 +252,166 @@ class TestWarehouseSourcesFacade(BaseTest):
         results = api.list_schemas_for_source(self.source.id, self.team.pk)
         assert [r.id for r in results] == [self.schema.id]
 
+    @parameterized.expand(
+        [
+            ("a repo-qualified schema", "Acme/Widgets.issues", "", {}, {"acme/widgets"}),
+            (
+                "a bare schema on a single-repository source",
+                "issues",
+                "https://github.com/Acme/Widgets",
+                {},
+                {"acme/widgets"},
+            ),
+            ("another endpoint", "acme/widgets.pull_requests", "", {}, set()),
+            ("a schema that stopped syncing", "acme/widgets.issues", "", {"should_sync": False}, set()),
+            ("a deleted schema", "acme/widgets.issues", "", {"deleted": True}, set()),
+        ]
+    )
+    def test_github_repositories_syncing(self, _name, schema_name, repository, schema_fields, expected) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Github",
+            job_inputs={"repository": repository},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=source, name=schema_name, **{"should_sync": True, **schema_fields}
+        )
+
+        assert api.github_repositories_syncing(self.team.pk, "issues") == expected
+
+    @parameterized.expand(["active", "deleted_schema", "deleted_source", "deleted_table", "other_team", "direct"])
+    def test_list_imported_schema_snapshots_filters_unavailable_imports(self, state: str) -> None:
+        self.table.queryable_folder = "queryable_2026_01_01"
+        self.table.deleted = state == "deleted_table"
+        self.table.save()
+        self.source.deleted = state == "deleted_source"
+        if state == "direct":
+            self.source.access_method = "direct"
+        self.source.save()
+        self.schema.deleted = state == "deleted_schema"
+        self.schema.save()
+        results = api.list_imported_schema_snapshots(self.team.pk + (1 if state == "other_team" else 0))
+        assert results == (
+            [contracts.ImportedSchemaSnapshot(schema_id=self.schema.id, queryable_folder=self.table.queryable_folder)]
+            if state == "active"
+            else []
+        )
+
     def test_get_table_maps_to_contract(self) -> None:
         result = api.get_table(self.table.id, self.team.pk)
         assert isinstance(result, contracts.DataWarehouseTable)
         assert result.name == "my_table"
         assert result.external_data_source_id == self.source.id
+
+    @parameterized.expand(
+        [
+            ("legacy_viewer", False, "viewer"),
+            ("legacy_editor", False, "editor"),
+            ("most_specific_viewer", True, "viewer"),
+            ("most_specific_editor", True, "editor"),
+        ]
+    )
+    def test_allowed_table_ids_preserves_object_and_source_grants(
+        self, _name: str, most_specific: bool, required_level: AccessControlLevel
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save(update_fields=["available_product_features", "uses_most_specific_access_resolution"])
+        member = self._create_user("member@example.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            organization_member=membership,
+            access_level="viewer",
+        )
+        granted = DataWarehouseTable.objects.create(team=self.team, name="granted", format="Parquet")
+        overridden = DataWarehouseTable.objects.create(
+            team=self.team, name="overridden", format="Parquet", external_data_source=self.source
+        )
+        ungranted = DataWarehouseTable.objects.create(team=self.team, name="ungranted", format="Parquet")
+        owned = DataWarehouseTable.objects.create(team=self.team, name="owned", format="Parquet", created_by=member)
+        DataWarehouseTable.objects.create(
+            team=self.team, name="deleted", format="Parquet", created_by=member, deleted=True
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        DataWarehouseTable.objects.create(team=other_team, name="other", format="Parquet", created_by=member)
+        for table, level in [(granted, "editor"), (overridden, "none")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_table",
+                resource_id=str(table.id),
+                organization_member=membership,
+                access_level=level,
+            )
+
+        access = UserAccessControl(member, team=self.team)
+        expected = frozenset({granted.id, owned.id} | ({self.table.id} if required_level == "viewer" else set()))
+        assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
+        with self.assertNumQueries(0):
+            assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
+
+        # Without resource access every table is a candidate, soft-deleted ones included.
+        assert api.denied_table_ids(self.team.id, access) == frozenset({overridden.id, ungranted.id})
+
+        narrowed = api.allowed_table_ids(
+            self.team.id, access, required_level=required_level, ids=[granted.id, ungranted.id]
+        )
+        assert narrowed == frozenset({granted.id})
+        with self.assertNumQueries(0):
+            assert api.allowed_table_ids(self.team.id, access, required_level=required_level, ids=[]) == frozenset()
+
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save(update_fields=["level"])
+        admin = UserAccessControl(member, team=self.team)
+        assert api.allowed_table_ids(self.team.id, admin, required_level=required_level) == frozenset(
+            {self.table.id, granted.id, overridden.id, ungranted.id, owned.id}
+        )
+
+    @parameterized.expand([("legacy", False), ("most_specific", True)])
+    def test_denied_table_ids_resolves_rule_named_tables_through_their_source(
+        self, _name: str, most_specific: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save(update_fields=["available_product_features", "uses_most_specific_access_resolution"])
+        member = self._create_user("member@example.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        access = UserAccessControl(member, team=self.team)
+        assert api.denied_table_ids(self.team.id, access) == frozenset()
+
+        granted = DataWarehouseTable.objects.create(
+            team=self.team, name="granted", format="Parquet", external_data_source=self.source
+        )
+        deleted = DataWarehouseTable.objects.create(
+            team=self.team, name="deleted", format="Parquet", external_data_source=self.source, deleted=True
+        )
+        denied = DataWarehouseTable.objects.create(team=self.team, name="denied", format="Parquet")
+        DataWarehouseTable.objects.create(team=self.team, name="untouched", format="Parquet")
+        for resource, resource_id, level in [
+            ("external_data_source", self.source.id, "none"),
+            ("warehouse_table", granted.id, "viewer"),
+            ("warehouse_table", denied.id, "none"),
+        ]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(resource_id),
+                organization_member=membership,
+                access_level=level,
+            )
+
+        access = UserAccessControl(member, team=self.team)
+        assert api.denied_table_ids(self.team.id, access) == frozenset({self.table.id, deleted.id, denied.id})
 
     def test_list_jobs_for_source_carries_source_fields(self) -> None:
         job = ExternalDataJob.objects.create(
@@ -191,6 +427,37 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert results[0].rows_synced == 10
         assert results[0].source_type == "Postgres"
         assert results[0].source_prefix == "stripe_"
+
+    @parameterized.expand(
+        [
+            ("within_the_limit", 2, 2),
+            ("above_the_cap", api.MAX_JOBS_PER_SOURCE + 1, api.MAX_JOBS_PER_SOURCE),
+            ("zero", 0, 1),
+        ]
+    )
+    def test_list_jobs_for_source_returns_the_newest_within_the_limit(
+        self, _name: str, limit: int, expected_count: int
+    ) -> None:
+        total = api.MAX_JOBS_PER_SOURCE + 1
+        jobs = ExternalDataJob.objects.bulk_create(
+            ExternalDataJob(
+                team_id=self.team.pk,
+                pipeline=self.source,
+                schema=self.schema,
+                status="Completed",
+                schema_snapshot={},
+                rows_synced=n,
+            )
+            for n in range(1, total + 1)
+        )
+        base = timezone.now() - timedelta(days=1)
+        for job in jobs:
+            job.created_at = base + timedelta(seconds=job.rows_synced or 0)
+        ExternalDataJob.objects.bulk_update(jobs, ["created_at"])
+
+        results = api.list_jobs_for_source(self.source.id, self.team.pk, limit=limit)
+
+        assert [r.rows_synced for r in results] == list(range(total, total - expected_count, -1))
 
     def test_facade_enforces_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -214,3 +481,66 @@ def test_wiring_reexports_resolve() -> None:
     assert temporal.ACTIVITIES is not None and temporal.WORKFLOWS is not None
     assert isinstance(sources.CHARGE_RESOURCE_NAME, str)
     assert sources.NamingConvention is not None
+
+
+_PAT_INPUTS = {"auth_method": {"selection": "pat", "personal_access_token": "t0ken"}}
+
+
+class TestGitHubSourceCredential(BaseTest):
+    def _source(self, job_inputs: dict, **overrides) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=overrides.pop("team_id", self.team.pk),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type=overrides.pop("source_type", ExternalDataSourceType.GITHUB),
+            job_inputs=job_inputs,
+            **overrides,
+        )
+
+    @parameterized.expand(
+        [
+            ("a_personal_access_token", _PAT_INPUTS, contracts.GitHubSourceCredential(personal_access_token="t0ken")),
+            ("a_pat_selection_with_no_token", {"auth_method": {"selection": "pat"}}, None),
+            (
+                "an_oauth_integration",
+                {"auth_method": {"selection": "oauth", "github_integration_id": 7}},
+                contracts.GitHubSourceCredential(integration_id=7),
+            ),
+            ("an_oauth_selection_with_no_integration", {"auth_method": {"selection": "oauth"}}, None),
+            ("a_config_that_does_not_parse", {"auth_method": "oauth"}, None),
+        ]
+    )
+    def test_the_auth_method_decides_the_credential(
+        self, _name: str, job_inputs: dict, expected: contracts.GitHubSourceCredential | None
+    ) -> None:
+        # A half-configured source is a normal state, and the consumer falls back on no credential,
+        # so every unusable auth method has to answer None rather than raise.
+        source = self._source(job_inputs)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=str(source.id)) == expected
+
+    @parameterized.expand(
+        [
+            ("a_deleted_source", {"deleted": True}),
+            ("a_source_of_another_type", {"source_type": "Stripe"}),
+        ]
+    )
+    def test_a_source_that_syncs_no_github_repository_yields_no_credential(self, _name: str, overrides: dict) -> None:
+        source = self._source(_PAT_INPUTS, **overrides)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=str(source.id)) is None
+
+    def test_another_teams_source_yields_no_credential(self) -> None:
+        # The id travels from a resolve the caller made, so a stale or crafted value must not hand
+        # a team the credential of a source it cannot see.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        source = self._source(_PAT_INPUTS)
+
+        assert api.github_source_credential(team_id=other_team.pk, source_id=str(source.id)) is None
+
+    @parameterized.expand([("an_id_that_is_gone", str(uuid.uuid4())), ("an_id_that_is_no_uuid", "not-a-uuid")])
+    def test_an_id_that_names_no_source_yields_no_credential(self, _name: str, source_id: str) -> None:
+        self._source(_PAT_INPUTS)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=source_id) is None

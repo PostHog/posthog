@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconArchive, IconShieldPeople } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -233,4 +233,43 @@ export default meta
 
 export const Default: Story = {
     args: {},
+}
+
+export const Virtualized: Story = {
+    args: {
+        virtualized: true,
+        defaultSelectedFolderOrNodeId: undefined,
+        data: [
+            {
+                id: 'tables',
+                name: 'Tables',
+                children: Array.from({ length: 60 }, (_, index) => ({
+                    id: `table-${index}`,
+                    name: `table_${index}`,
+                    children: Array.from({ length: 60 }, (_, fieldIndex) => ({
+                        id: `join-${index}-${fieldIndex}`,
+                        name: `join_${fieldIndex}`,
+                        children: [{ id: `field-${index}-${fieldIndex}`, name: 'id' }],
+                    })),
+                })),
+            },
+        ],
+    },
+    render: function Render(args): JSX.Element {
+        const [expandedIds, setExpandedIds] = useState(['tables'])
+        return (
+            <div className="flex h-96 w-full max-w-96">
+                <LemonTree
+                    {...args}
+                    expandedItemIds={expandedIds}
+                    onSetExpandedItemIds={setExpandedIds}
+                    onFolderClick={(item, expanded) => {
+                        if (item) {
+                            setExpandedIds((ids) => (expanded ? ids.filter((id) => id !== item.id) : [...ids, item.id]))
+                        }
+                    }}
+                />
+            </div>
+        )
+    },
 }

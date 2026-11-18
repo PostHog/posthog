@@ -18,6 +18,8 @@ export interface TaskData {
   repository: TaskRepositoryInfo | null;
   isSuspended: boolean;
   folderId?: string;
+  createdById?: number;
+  taskRunId?: string;
   taskRunStatus?: TaskRunStatus;
   taskRunEnvironment?: "local" | "cloud";
   runMode?: RunMode;

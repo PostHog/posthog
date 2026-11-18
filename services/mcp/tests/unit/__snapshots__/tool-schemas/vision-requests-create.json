@@ -1,0 +1,67 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.",
+    "properties": {
+        "idempotency_key": {
+            "description": "Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "inline": {
+            "description": "A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both.",
+            "properties": {
+                "built_in": {
+                    "description": "Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.\n\n* `summarize_recording` - Summarize recording",
+                    "enum": ["summarize_recording"],
+                    "type": "string"
+                },
+                "model": {
+                    "default": "gemini-3-flash-preview",
+                    "description": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"],
+                    "type": "string"
+                },
+                "prompt": {
+                    "description": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.",
+                    "maxLength": 20000,
+                    "type": "string"
+                },
+                "scanner_config": {
+                    "description": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here."
+                },
+                "scanner_type": {
+                    "description": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "reference": {
+            "default": "",
+            "description": "Your own id for this request, such as a ticket or job id. Returned unchanged.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "A saved scanner to apply to the sessions. Pass this or `inline`, not both.",
+            "type": "string"
+        },
+        "session_ids": {
+            "description": "Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.",
+            "items": {
+                "maxLength": 128,
+                "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+        },
+        "wait_for_session_end": {
+            "default": false,
+            "description": "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are.",
+            "type": "boolean"
+        }
+    },
+    "required": ["session_ids"],
+    "type": "object"
+}

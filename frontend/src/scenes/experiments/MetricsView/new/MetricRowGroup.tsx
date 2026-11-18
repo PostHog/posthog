@@ -7,16 +7,15 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     Breakdown,
@@ -47,15 +46,18 @@ import {
     formatPValue,
     getDelta,
     getMetricSubtitleValues,
+    metricSupportsTimeseries,
     getNiceTickValues,
     isBayesianResult,
     isDeltaPositive,
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
+import { Experiment, BreakdownAttributionType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
 
 import { ChartCell } from './ChartCell'
 import {
@@ -69,10 +71,8 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface CollapsibleBreakdownSectionProps {
@@ -117,6 +117,7 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
     const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
     const nestedTableRef = useRef<HTMLTableElement>(null)
@@ -164,6 +165,7 @@ function CollapsibleBreakdownSection({
                 <LemonCollapse
                     multiple={false}
                     embedded
+                    size="small"
                     activeKey={isExpanded ? 'breakdowns' : undefined}
                     className={`breakdown-collapse breakdown-collapse--${isAlternatingRow ? 'alt-row' : 'normal-row'}`}
                     panels={[
@@ -187,9 +189,12 @@ function CollapsibleBreakdownSection({
                                     <div className="p-0 -m-4">
                                         <table ref={nestedTableRef} className="w-full">
                                             <tbody>
-                                                {breakdownResults.map((breakdownResult) => {
+                                                {breakdownResults.map((breakdownResult, breakdownIndex) => {
                                                     const baselineResult = breakdownResult.baseline
                                                     const variantResults = breakdownResult.variants || []
+                                                    // The wrapping cell already draws the bottom border, so the last group must not add its own
+                                                    const isLastBreakdown =
+                                                        breakdownIndex === breakdownResults.length - 1
 
                                                     if (variantResults.length === 0) {
                                                         return (
@@ -223,7 +228,6 @@ function CollapsibleBreakdownSection({
                                                                         <ChartEmptyState
                                                                             height={CELL_HEIGHT}
                                                                             experimentStarted={isLaunched(experiment)}
-                                                                            metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
                                                                             retryDisabledReason={
@@ -247,7 +251,7 @@ function CollapsibleBreakdownSection({
                                                                 style={FIXED_HEIGHT_STYLE}
                                                             >
                                                                 <td
-                                                                    className={`w-1/5 border-r p-3 align-top border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
+                                                                    className={`w-1/5 border-r p-3 align-top ${isLastBreakdown ? '' : 'border-b'} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
                                                                     rowSpan={totalRows}
                                                                     // eslint-disable-next-line react/forbid-dom-props
                                                                     style={totalRowsHeightStyle}
@@ -277,7 +281,11 @@ function CollapsibleBreakdownSection({
                                                                 >
                                                                     <div className="metric-cell">
                                                                         <div>
-                                                                            {formatMetricValue(baselineResult, metric)}
+                                                                            {formatMetricValue(
+                                                                                baselineResult,
+                                                                                metric,
+                                                                                baseCurrency
+                                                                            )}
                                                                         </div>
                                                                         {ratioMetricLabel(baselineResult, metric)}
                                                                     </div>
@@ -347,7 +355,8 @@ function CollapsibleBreakdownSection({
                                                             {variantResults.map(
                                                                 (variant: ExperimentVariantResult, index: number) => {
                                                                     const isLastRow =
-                                                                        index === variantResults.length - 1
+                                                                        index === variantResults.length - 1 &&
+                                                                        !isLastBreakdown
                                                                     const significant = isSignificant(variant)
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)
@@ -398,7 +407,8 @@ function CollapsibleBreakdownSection({
                                                                                     <div>
                                                                                         {formatMetricValue(
                                                                                             variant,
-                                                                                            metric
+                                                                                            metric,
+                                                                                            baseCurrency
                                                                                         )}
                                                                                     </div>
                                                                                     {ratioMetricLabel(variant, metric)}
@@ -517,8 +527,6 @@ interface MetricRowGroupProps {
     metric: ExperimentMetric
     result: NewExperimentQueryResponse | null
     experiment: Experiment
-    metricType: InsightType
-    metricIndex: number
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -538,12 +546,18 @@ interface MetricRowGroupProps {
     showDetailsModal: boolean
 }
 
+/**
+ * Tooltip state is per MetricRowGroup, and a tooltip can outlive the cursor on its
+ * close-grace timer. Without coordination, sweeping the cursor across groups shows
+ * several tooltips at once. The group that owns the open tooltip registers its close
+ * function here, and the next group to open a tooltip calls it first.
+ */
+let closeOpenTooltip: (() => void) | null = null
+
 export function MetricRowGroup({
     metric,
     result,
     experiment,
-    metricType,
-    metricIndex,
     displayOrder,
     axisRange,
     isSecondary,
@@ -583,6 +597,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const ownsOpenTooltipRef = useRef(false)
     const colors = useChartColors()
 
     const clearTooltipCloseTimer = (): void => {
@@ -593,6 +608,10 @@ export function MetricRowGroup({
     }
 
     const hideTooltipState = (): void => {
+        if (ownsOpenTooltipRef.current) {
+            ownsOpenTooltipRef.current = false
+            closeOpenTooltip = null
+        }
         setTooltipState((prev) => ({
             ...prev,
             isVisible: false,
@@ -617,33 +636,40 @@ export function MetricRowGroup({
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
+            if (ownsOpenTooltipRef.current) {
+                ownsOpenTooltipRef.current = false
+                closeOpenTooltip = null
+            }
         }
     }, [])
 
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
-        useActions(experimentLogic)
+    const { reportExperimentTimeseriesViewed, refreshExperimentResults } = useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
-    /**
-     * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
-     * exposures), same as the manual reload. The legacy flow retries the single metric in place.
-     */
     const handleRetry = (): void => {
-        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-            triggerRecalculation()
-            refreshExperimentResults(true, 'manual')
-            return
-        }
-        if (isSecondary) {
-            retrySecondaryMetric(metricIndex)
-        } else {
-            retryPrimaryMetric(metricIndex)
-        }
+        triggerRecalculation('manual_retry')
+        refreshExperimentResults(true, 'manual')
     }
 
     // Build query for debugger link
@@ -694,6 +720,11 @@ export function MetricRowGroup({
         }
 
         clearTooltipCloseTimer()
+        if (!ownsOpenTooltipRef.current) {
+            closeOpenTooltip?.()
+        }
+        closeOpenTooltip = closeTooltipNow
+        ownsOpenTooltipRef.current = true
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,
@@ -795,7 +826,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -872,7 +902,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -894,10 +923,9 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={noResultHeight}
                             experimentStarted={isLaunched(experiment)}
-                            metric={metric}
                             error={error}
                             query={debugQuery}
-                            onRetry={handleRetry}
+                            onRetry={error?.retriable === true ? handleRetry : undefined}
                             retryDisabledReason={isRecalculating ? 'Recalculation in progress' : undefined}
                         />
                     </td>
@@ -961,12 +989,12 @@ export function MetricRowGroup({
                             }
                         }}
                         onClick={
-                            tooltipState.variantResult
+                            tooltipState.variantResult && metricSupportsTimeseries(metric)
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
                                 : undefined
                         }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric, baselineResult.key)}
+                        {renderTooltipContent(tooltipState.variantResult, metric, baselineResult.key, baseCurrency)}
                     </div>,
                     document.body
                 )}
@@ -987,7 +1015,6 @@ export function MetricRowGroup({
                         dragHandle={dragHandle}
                         displayOrder={displayOrder}
                         metric={metric}
-                        metricType={metricType}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -1017,7 +1044,7 @@ export function MetricRowGroup({
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <div className="metric-cell">
-                        <div>{formatMetricValue(baselineResult, metric)}</div>
+                        <div>{formatMetricValue(baselineResult, metric, baseCurrency)}</div>
                         {ratioMetricLabel(baselineResult, metric)}
                     </div>
                 </td>
@@ -1147,7 +1174,7 @@ export function MetricRowGroup({
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="metric-cell">
-                                <div>{formatMetricValue(variant, metric)}</div>
+                                <div>{formatMetricValue(variant, metric, baseCurrency)}</div>
                                 {ratioMetricLabel(variant, metric)}
                             </div>
                         </td>
@@ -1220,7 +1247,9 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
-                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
+                            onTimeseriesClick={
+                                metricSupportsTimeseries(metric) ? () => handleTimeseriesClick(variant) : undefined
+                            }
                             highlightBackgroundColor={rowBackgroundColor}
                         />
                     </tr>

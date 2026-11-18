@@ -28,6 +28,28 @@ import digitalocean  # type: ignore
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 FALLBACK_SIZE = "g-8vcpu-32gb"
 
+# The most memory, in MiB, that the containers of a fresh Hobby install may use together once the
+# smoke test has passed. Hobby has to fit on a small host. Each Python service loads the whole app,
+# so one more process or one more import at startup costs hundreds of MiB. A change that needs more
+# memory raises this number in the same pull request and says why in its description.
+HOBBY_MEMORY_BUDGET_MIB = 9500
+# A total below this means the measurement failed, because no working install is this small.
+HOBBY_MEMORY_FLOOR_MIB = 2000
+
+DOCKER_MEMORY_UNITS_IN_MIB = {"B": 1 / 1024**2, "KiB": 1 / 1024, "MiB": 1, "GiB": 1024}
+
+
+def parse_docker_stats_memory(output: str) -> dict[str, float]:
+    """Map container name to MiB, from `docker stats` lines such as `hobby-web-1 1.8GiB / 15.6GiB`."""
+    usage: dict[str, float] = {}
+    for line in output.strip().splitlines():
+        name, used = line.split()[:2]
+        match = re.fullmatch(r"([\d.]+)(B|KiB|MiB|GiB)", used)
+        if not match:
+            raise ValueError(f"Unrecognised docker stats memory value: {line!r}")
+        usage[name] = float(match.group(1)) * DOCKER_MEMORY_UNITS_IN_MIB[match.group(2)]
+    return usage
+
 
 class HobbyTester:
     def __init__(
@@ -495,6 +517,11 @@ runcmd:
         if not output_line:
             return False, f"Could not parse API keys from output: {result['stdout'][:200]}"
         project_api_token, personal_api_key = output_line[-1].split("|||")
+        headers = {"Authorization": f"Bearer {personal_api_key}"}
+
+        flag_error = self._smoke_test_feature_flag(base_url, project_api_token, headers, timeout_seconds, poll_interval)
+        if flag_error:
+            return False, flag_error
 
         capture_id = str(uuid.uuid4())
         exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
@@ -537,7 +564,6 @@ runcmd:
                 )
 
         print(f"⏳ Polling for events (timeout {timeout_seconds}s)...", flush=True)
-        headers = {"Authorization": f"Bearer {personal_api_key}"}
         deadline = time.time() + timeout_seconds
         attempt = 0
         pending_event_names = {event["event"] for event in events}
@@ -805,7 +831,7 @@ runcmd:
                     print(f"✅ Trace found after {attempt} poll(s)", flush=True)
                     return (
                         True,
-                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                        "Preflight healthy; feature flag evaluated; events, log, exception issue, session recording, and trace ingested successfully",
                     )
                 if query_resp.status_code != 200:
                     print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
@@ -816,6 +842,89 @@ runcmd:
             time.sleep(poll_interval)
 
         return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
+
+    @staticmethod
+    def _smoke_test_feature_flag(
+        base_url: str, project_api_token: str, headers: dict[str, str], timeout_seconds: int, poll_interval: int
+    ) -> str | None:
+        flag_key = f"hobby-ci-smoke-test-{time.time_ns()}"
+        distinct_id = f"hobby-ci-flags-{uuid.uuid4()}"
+
+        print(f"🚩 Creating feature flag '{flag_key}'...", flush=True)
+        try:
+            create_resp = requests.post(
+                f"{base_url}/api/projects/@current/feature_flags/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={"key": flag_key, "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+                headers=headers,
+                timeout=30,
+            )
+            flag_id = create_resp.json()["id"] if create_resp.status_code == 201 else None
+        except Exception as e:
+            return f"Feature flag create request failed: {type(e).__name__}: {e}"
+        if flag_id is None:
+            return f"Feature flag create failed: HTTP {create_resp.status_code} - {create_resp.text[:200]}"
+
+        print(f"⏳ Polling /flags for the new flag (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        flag_enabled = False
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                flags_resp = requests.post(
+                    f"{base_url}/flags/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"v": 2},
+                    json={"token": project_api_token, "distinct_id": distinct_id},
+                    timeout=10,
+                )
+                if flags_resp.status_code == 200 and flags_resp.json().get("flags", {}).get(flag_key, {}).get(
+                    "enabled"
+                ):
+                    print(f"✅ /flags returned the flag as enabled after {attempt} poll(s)", flush=True)
+                    flag_enabled = True
+                    break
+                print(f"   Poll {attempt}: /flags HTTP {flags_resp.status_code}, flag not enabled yet", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: /flags returned {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        if not flag_enabled:
+            return f"/flags did not return the flag as enabled within {timeout_seconds}s ({attempt} polls)"
+
+        print("🚩 Running the flag's test evaluation...", flush=True)
+        try:
+            test_resp = requests.post(
+                f"{base_url}/api/projects/@current/feature_flags/{flag_id}/test_evaluation/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={"distinct_id": distinct_id},
+                headers=headers,
+                timeout=30,
+            )
+            evaluated_true = test_resp.status_code == 200 and test_resp.json().get("result") is True
+        except Exception as e:
+            return f"Feature flag test evaluation request failed: {type(e).__name__}: {e}"
+        if not evaluated_true:
+            return f"Feature flag test evaluation failed: HTTP {test_resp.status_code} - {test_resp.text[:200]}"
+        print("✅ Test evaluation returned true", flush=True)
+        return None
+
+    def check_memory_budget(self, budget_mib=HOBBY_MEMORY_BUDGET_MIB):
+        output = self.run_command_on_droplet("docker stats --no-stream --format '{{.Name}} {{.MemUsage}}'", timeout=120)
+        if not output:
+            return False, "Could not read container memory from the droplet"
+
+        usage = parse_docker_stats_memory(output)
+        for name, mib in sorted(usage.items(), key=lambda item: item[1], reverse=True):
+            print(f"  {mib:8.0f} MiB  {name}", flush=True)
+
+        total_mib = sum(usage.values())
+        if total_mib < HOBBY_MEMORY_FLOOR_MIB:
+            return False, f"Containers report {total_mib:.0f} MiB in total, which is too low to be a real reading"
+        if total_mib > budget_mib:
+            return False, (
+                f"Containers use {total_mib:.0f} MiB, over the {budget_mib} MiB budget. "
+                "The list above shows which container grew. If the change needs the memory, raise "
+                "HOBBY_MEMORY_BUDGET_MIB in bin/hobby-ci.py in the same pull request and say why."
+            )
+        return True, f"Containers use {total_mib:.0f} MiB of the {budget_mib} MiB budget"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
@@ -1921,6 +2030,15 @@ def main():
 
         ht = HobbyTester(droplet_id=droplet_id)
         success, message = ht.smoke_test_ingestion()
+        print(f"{'✅' if success else '❌'} {message}", flush=True)
+        exit(0 if success else 1)
+
+    if command == "check-memory-budget":
+        print("Checking container memory against the budget", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+
+        ht = HobbyTester(droplet_id=droplet_id)
+        success, message = ht.check_memory_budget()
         print(f"{'✅' if success else '❌'} {message}", flush=True)
         exit(0 if success else 1)
 

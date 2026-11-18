@@ -1,11 +1,9 @@
 """Slack integration: connected-workspace API calls and request-signature verification."""
 
-import hmac
 import time
-import hashlib
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.dataclasses import frozen
 
@@ -15,17 +13,35 @@ if TYPE_CHECKING:
 
 from django.http import HttpRequest
 
+import structlog
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework.request import Request
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 
 from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.client import credentials_service_enabled
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.ingress.slack.provider import build_slack_signature_scheme
+from posthog.ingress.verify.schemes import VerificationOutcome, hmac_sha256_signature
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.instance_setting import get_instance_settings
 
 from . import model
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
+
+slack_listing_truncated_counter = Counter(
+    "slack_listing_truncated",
+    "Slack listings that hit a safety cap and dropped the remainder, by listing kind",
+    labelnames=["kind"],
+)
 
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
@@ -35,30 +51,78 @@ class SlackIntegrationError(Exception):
     pass
 
 
+class SlackMembershipUnknown(SlackIntegrationError):
+    """A membership check ran out of budget or hit a rate limit before it could answer.
+
+    Distinct from "not a member": the caller must not turn this into an empty result, because a
+    channel that resolves to nothing reads to the user as "the app is not in that channel".
+    """
+
+
+def _is_rate_limited(error: SlackApiError) -> bool:
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    return bool(response.get("error") == "ratelimited")
+
+
 SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
 
-SLACK_CHANNELS_MAX_PAGES = 10
+# Slack returns fewer items than the requested limit whenever it likes, so a page count is not an
+# item count. A listing stops on whichever cap it reaches first. On short pages that is the request
+# count, well short of the item cap, and the request count stays low because the listing runs
+# inside a request a person waits on, where a few hundred sequential calls to a rate-limited Slack
+# endpoint fail on latency before they finish. _record_truncation logs the items collected and the
+# requests made, so the log says which cap stopped the listing.
+# The item cap also bounds memory: a listing holds every channel it has collected, and both
+# listings run inside one request.
+SLACK_LISTING_MAX_ITEMS = 20000
+
+SLACK_LISTING_MAX_REQUESTS = 100
+
+# conversations.members returns at most 1000 ids per call, whatever limit is asked for.
+SLACK_MEMBERS_PAGE_SIZE = 1000
+
+# A membership check runs inside a request a person is waiting on, so it gets a much tighter budget
+# than a listing. Ten calls covers every channel short of the largest Slack allows.
+SLACK_MEMBERS_MAX_REQUESTS = 10
 
 
 class SlackIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(
+        self, integration: IntegrationRecord, *, source: str = "integration", timeout_seconds: int | None = None
+    ) -> None:
         if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
+        # The egress `source` label. A flow that posts on its own names itself here, so its Slack
+        # calls and 429s can be told apart from every other caller of the same integration.
+        self.source = source
+        # For a caller that runs under its own deadline. None keeps slack_sdk's defaults.
+        self.timeout_seconds = timeout_seconds
 
     @property
     def client(self) -> WebClient:
-        return WebClient(
+        client = WebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
+            **({} if self.timeout_seconds is None else {"timeout": self.timeout_seconds}),
         )
+        if self.timeout_seconds is not None:
+            # slack_sdk resends a request after a connection error, including one that broke after
+            # Slack accepted it, which posts a message twice. A caller with a deadline decides about
+            # retries itself, so only the observability handler stays.
+            client.retry_handlers = [
+                handler for handler in client.retry_handlers if not isinstance(handler, ConnectionErrorRetryHandler)
+            ]
+        return client
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,
@@ -67,7 +131,7 @@ class SlackIntegration:
 
         return SlackAsyncWebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
             session=session,
@@ -101,19 +165,61 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
+    def _is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
+        """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
+        member past the first page needs the cursor followed rather than a bigger limit."""
+        cursor = None
+        requests = 0
+        seen = 0
+
+        while requests < SLACK_MEMBERS_MAX_REQUESTS:
+            requests += 1
+            try:
+                res = self.client.conversations_members(
+                    channel=channel_id, limit=SLACK_MEMBERS_PAGE_SIZE, cursor=cursor
+                )
+            except SlackApiError as e:
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation("channel_members_rate_limited", collected=seen, requests=requests)
+                raise SlackMembershipUnknown() from e
+            members = res["members"]
+            seen += len(members)
+            if authed_user in members:
+                return True
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                return False
+
+        self._record_truncation("channel_members", collected=seen, requests=requests)
+        raise SlackMembershipUnknown()
+
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
 
-            if not isMember:
+            membership_unknown = False
+            try:
+                is_member = self._is_channel_member(channel_id, authed_user)
+            except SlackMembershipUnknown:
+                # The scan could not finish, so membership is unproven rather than disproven. Return
+                # the channel: the picker shows it and flags that the app may not be in it, which is
+                # recoverable, while hiding it is the silent empty result this change exists to stop.
+                membership_unknown = True
+                is_member = True
+            if not is_member:
                 return None
 
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            # A private name is only shown to someone proven to be in the channel. Unproven is not
+            # proven, so an unfinished scan masks the name the way a caller without access sees it.
+            # The listing cannot surface this channel either, because it lists only the private
+            # channels the connecting user is in.
+            isPrivateWithoutAccess = channel["is_private"] and (
+                not should_include_private_channels or membership_unknown
+            )
 
             return {
                 "id": channel["id"],
@@ -128,42 +234,177 @@ class SlackIntegration:
                 return None
             raise
 
+    @staticmethod
+    def _trim_channel(channel: dict) -> dict:
+        # A Slack channel payload carries topic, purpose, shared team ids and more, about five times
+        # the size of what the callers read. A listing holds every channel at once, so keep only the
+        # fields they use.
+        #
+        # Every SHARED_CHANNEL_FLAGS entry has to survive. A dropped flag reads as absent, which
+        # reads as not shared, and posthog.slack.channels uses that to decide whether a channel matched
+        # by name may receive an internal message.
+        return {
+            "id": channel["id"],
+            "name": channel["name"],
+            "is_private": channel["is_private"],
+            "is_member": channel.get("is_member", True),
+            "is_ext_shared": channel["is_ext_shared"],
+            "is_pending_ext_shared": channel.get("is_pending_ext_shared", False),
+            "is_shared": channel.get("is_shared", False),
+            "is_private_without_access": channel.get("is_private_without_access", False),
+        }
+
+    @staticmethod
+    def _trim_user(member: dict) -> dict:
+        # Same reason as _trim_channel. Runs after the workspace and DM checks, which read fields
+        # this drops.
+        return {
+            "id": member["id"],
+            "name": member.get("name", ""),
+            "real_name": member.get("real_name"),
+            "profile": {"display_name": (member.get("profile") or {}).get("display_name")},
+        }
+
+    def list_users(self) -> list[dict]:
+        """Human workspace members the bot can DM, as raw Slack member payloads."""
+        users: list[dict] = []
+        cursor = None
+        requests = 0
+        fetched = 0
+
+        while requests < SLACK_LISTING_MAX_REQUESTS:
+            requests += 1
+            try:
+                res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            except SlackApiError as e:
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation("users_rate_limited", collected=fetched, requests=requests)
+                return users
+            fetched += len(res["members"])
+            users.extend(
+                self._trim_user(member)
+                for member in res["members"]
+                if self._belongs_to_workspace(member) and self._is_dmable_user(member)
+            )
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            # Cap on members fetched, not members kept, so a workspace full of bots and guests
+            # cannot page forever.
+            if not cursor or fetched >= SLACK_LISTING_MAX_ITEMS:
+                break
+
+        if cursor:
+            self._record_truncation("users", collected=fetched, requests=requests)
+
+        return users
+
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        try:
+            response = self.client.users_info(user=user_id)
+            member = response["user"]
+            if not self._belongs_to_workspace(member):
+                return None
+            return member if self._is_dmable_user(member) else None
+        except SlackApiError as e:
+            # user_not_visible is terminal too: the token can't see the member, so retrying the
+            # same lookup can never succeed.
+            if e.response["error"] in ("user_not_found", "user_not_visible"):
+                return None
+            raise
+
+    def _belongs_to_workspace(self, member: dict) -> bool:
+        # Slack also surfaces Connect externals the bot shares a channel with (users.info always,
+        # users.list depending on workspace shape), so reject members whose home workspace isn't
+        # this integration's: internal scout/DM output must never be routable outside the
+        # connected workspace. Enterprise Grid members may carry another primary team_id while
+        # still belonging to this workspace via enterprise_user.teams.
+        member_team_id = member.get("team_id")
+        enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
+        return not member.get("is_stranger") and (
+            member_team_id is None
+            or member_team_id == self.integration.integration_id
+            or self.integration.integration_id in enterprise_teams
+        )
+
+    @staticmethod
+    def _is_dmable_user(member: dict) -> bool:
+        # Guests (single/multi-channel, often external people) are excluded like bots: DM surfaces
+        # deliver internal content, matching the slack_app onboarding and unfurl eligibility rules.
+        return (
+            not member.get("deleted")
+            and not member.get("is_bot")
+            and not member.get("is_restricted")
+            and not member.get("is_ultra_restricted")
+            and member.get("id") != "USLACKBOT"
+        )
+
     def _list_channels_by_type(
         self,
         type: Literal["public_channel", "private_channel"],
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
     ) -> list[dict]:
-        max_page = SLACK_CHANNELS_MAX_PAGES
-        channels = []
+        channels: list[dict] = []
         cursor = None
+        requests = 0
 
-        while max_page > 0:
-            max_page -= 1
-            if type == "public_channel":
-                res = self.client.conversations_list(
-                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
-                )
-            else:
-                res = self.client.users_conversations(
-                    exclude_archived=True,
-                    types=type,
-                    limit=SLACK_CHANNELS_PAGE_SIZE,
-                    cursor=cursor,
-                    user=authed_user,
-                )
+        while requests < SLACK_LISTING_MAX_REQUESTS:
+            requests += 1
+            try:
+                if type == "public_channel":
+                    res = self.client.conversations_list(
+                        exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+                    )
+                else:
+                    res = self.client.users_conversations(
+                        exclude_archived=True,
+                        types=type,
+                        limit=SLACK_CHANNELS_PAGE_SIZE,
+                        cursor=cursor,
+                        user=authed_user,
+                    )
+            except SlackApiError as e:
+                # These endpoints are rate limited per workspace and the client does not retry, so a
+                # long walk can run into a 429 part way. Keep the pages already collected: a short
+                # list is what the caller got before this change, while raising here would replace it
+                # with no channels at all, and nothing is cached to fall back on.
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation(f"channels_{type}_rate_limited", collected=len(channels), requests=requests)
+                return channels
 
+            if type != "public_channel":
                 for channel in res["channels"]:
                     if channel["is_private"] and not should_include_private_channels:
                         channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
                         channel["is_private_without_access"] = True
 
-            channels.extend(res["channels"])
-            cursor = res["response_metadata"]["next_cursor"]
-            if not cursor:
+            channels.extend(self._trim_channel(channel) for channel in res["channels"])
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            if not cursor or len(channels) >= SLACK_LISTING_MAX_ITEMS:
                 break
 
+        if cursor:
+            self._record_truncation(f"channels_{type}", collected=len(channels), requests=requests)
+
         return channels
+
+    def _record_truncation(self, kind: str, *, collected: int, requests: int) -> None:
+        """A cap stopped a listing with more to fetch, so the caller is holding a partial list.
+
+        Nothing downstream can tell a partial list from a complete one, and a channel missing from
+        it reads to the user as "the app is not in that channel". Leave a trail so the next report
+        is answerable from our own data.
+        """
+        slack_listing_truncated_counter.labels(kind=kind).inc()
+        logger.warning(
+            "slack_listing_truncated",
+            kind=kind,
+            integration_id=self.integration.id,
+            team_id=self.integration.team_id,
+            collected=collected,
+            requests=requests,
+        )
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):
@@ -172,20 +413,53 @@ class SlackIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def slack_config(cls):
-        # Span only fires on cache miss (cache_for is process-local in-memory).
-        # If preflight.slack_config_main is fast in production traces, this span
-        # will be absent; if it appears, it tells us the DB hit was slow.
+    def slack_config(cls) -> dict[str, str]:
+        # Every Slack request to this app is verified with the signing secret, so the credentials are
+        # read here, under the cache, and not once per request. A rotation reaches each process
+        # within five minutes.
         with tracer.start_as_current_span("slack_integration.slack_config_db"):
-            config = get_instance_settings(
+            config = get_many_or_instance_settings(
                 [
                     "SLACK_APP_CLIENT_ID",
                     "SLACK_APP_CLIENT_SECRET",
                     "SLACK_APP_SIGNING_SECRET",
-                ]
+                ],
+                CredentialsCaller.INTEGRATIONS,
             )
 
         return config
+
+    @classmethod
+    @cache_for(timedelta(minutes=5))
+    def slack_client_id(cls, instance_setting: str | None = None) -> str:
+        """The app's public client id, for preflight.
+
+        Use the instance setting if the credentials service fails, so page loads still work.
+        Callers that resolve credentials in a worker can pass the instance setting read by the
+        request thread, keeping database access out of that worker.
+        """
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the credential lookup was slow.
+        with tracer.start_as_current_span("slack_integration.slack_client_id_db"):
+            if instance_setting is not None and not credentials_service_enabled():
+                return instance_setting
+
+            try:
+                if instance_setting is not None:
+                    return get_many_or_settings(
+                        ["SLACK_APP_CLIENT_ID"],
+                        CredentialsCaller.INTEGRATIONS,
+                        settings_lookup=lambda _key: instance_setting or None,
+                    )["SLACK_APP_CLIENT_ID"]
+                return get_many_or_instance_settings(["SLACK_APP_CLIENT_ID"], CredentialsCaller.INTEGRATIONS)[
+                    "SLACK_APP_CLIENT_ID"
+                ]
+            except CredentialsServiceFailure:
+                logger.warning("slack_integration.credentials_service_unavailable", key="SLACK_APP_CLIENT_ID")
+                if instance_setting is not None:
+                    return instance_setting
+                return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
 
 
 @frozen
@@ -201,38 +475,23 @@ def sign_slack_request(body: bytes, signing_secret: str) -> SlackRequestSignatur
     and tests. The matching verifier is `validate_slack_request` below.
     """
     ts = str(int(time.time()))
-    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
-    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    # Assembled as bytes, so a body that is not valid UTF-8 signs rather than raising.
+    signed = b"v0:" + ts.encode("utf-8") + b":" + body
+    signature = hmac_sha256_signature(signing_secret, signed, prefix="v0=")
     return SlackRequestSignature(signature=signature, timestamp=ts)
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """Verify a Slack-signed request through the ingress Slack signature scheme.
+
+    These endpoints keep their own views because they answer Slack or a sibling region
+    synchronously, so only the verifying is delegated. Raises `SlackIntegrationError` on
+    anything that is not a good signature inside the replay window.
     """
-    Validate a Slack request using HMAC-SHA256 signature verification.
-    Based on https://api.slack.com/authentication/verifying-requests-from-slack
-    """
-    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+    scheme = build_slack_signature_scheme(secret_getter=lambda: signing_secret)
+    verification = scheme.verify(body=request.body, headers=request.headers)
 
-    if not signing_secret or not slack_signature or not slack_time:
-        raise SlackIntegrationError("Invalid")
-
-    try:
-        if time.time() - float(slack_time) > 300:
-            raise SlackIntegrationError("Expired")
-    except ValueError:
-        raise SlackIntegrationError("Invalid")
-
-    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-    my_signature = (
-        "v0="
-        + hmac.new(
-            signing_secret.encode("utf-8"),
-            sig_basestring.encode("utf-8"),
-            digestmod=hashlib.sha256,
-        ).hexdigest()
-    )
-
-    if not hmac.compare_digest(my_signature, slack_signature):
+    if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
+        raise SlackIntegrationError("Not configured")
+    if verification.outcome is not VerificationOutcome.VERIFIED:
         raise SlackIntegrationError("Invalid")

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -6,6 +7,9 @@ import { initKeaTests } from '~/test/init'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import type { ApplyOp, SetupPlanResponse, Suggestion } from './setupPlanLogic'
 import { setupPlanLogic } from './setupPlanLogic'
+import { utmAuditLogic } from './utmAuditLogic'
+
+jest.mock('posthog-js')
 
 const suggestion = (overrides: Partial<Suggestion> = {}): Suggestion => ({
     id: 'add_source_mapping:meta_ads:fb-ads',
@@ -30,6 +34,7 @@ const suggestion = (overrides: Partial<Suggestion> = {}): Suggestion => ({
 
 const plan = (suggestions: Suggestion[]): SetupPlanResponse => ({
     suggestions,
+    source_scanned_at: new Date(Date.now()).toISOString(),
     readiness: [],
     degraded: [],
     truncated: false,
@@ -43,6 +48,7 @@ describe('setupPlanLogic', () => {
     let applyRequests: any[]
 
     beforeEach(() => {
+        jest.mocked(posthog.capture).mockClear()
         applyRequests = []
         useMocks({
             get: {
@@ -75,6 +81,29 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.applySuggestion(suggestion())).toFinishAllListeners()
 
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'setup_tab',
+            entry_point: 'direct',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: false,
+        })
+    })
+
+    it('attributes a change to the dashboard surface that opened Setup', async () => {
+        marketingAnalyticsSettingsLogic.actions.setSetupEntryPoint('dashboard_source_suggestions')
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.applySuggestion(suggestion())).toFinishAllListeners()
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'marketing analytics setup suggestion reviewed',
+            expect.objectContaining({ entry_point: 'dashboard_source_suggestions' })
+        )
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'marketing analytics setup change completed',
+            expect.objectContaining({ entry_point: 'dashboard_source_suggestions' })
+        )
     })
 
     it('collapses the row optimistically once the op succeeds', async () => {
@@ -105,6 +134,7 @@ describe('setupPlanLogic', () => {
     })
 
     it('refreshes the sibling logics that would otherwise go stale', async () => {
+        utmAuditLogic.mount()
         // apply_setup_ops writes config server-side, bypassing updateCurrentTeam. If
         // these don't fire, the manual settings sections show stale data right next to
         // the suggestion that just changed it — which reads as a bug.
@@ -112,7 +142,7 @@ describe('setupPlanLogic', () => {
             'loadSetupPlan',
             'loadCurrentTeam',
             marketingAnalyticsSettingsLogic.actionTypes.loadMarketingAnalyticsConfig,
-            'loadAuditData',
+            utmAuditLogic.actionTypes.loadAuditData,
         ])
     })
 
@@ -122,6 +152,14 @@ describe('setupPlanLogic', () => {
         ).toFinishAllListeners()
 
         expect(applyRequests[0].ops).toEqual(UNDO_OPS)
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'setup_tab',
+            entry_point: 'direct',
+            operation_types: ['remove_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: true,
+        })
     })
 
     it('batches only the safe suggestions', async () => {
@@ -135,8 +173,22 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
         expect(logic.values.safeBatch.map((s) => s.id)).toEqual([suggestion().id])
 
+        marketingAnalyticsSettingsLogic.actions.setSetupEntryPoint('dashboard_source_suggestions')
+        logic.actions.reviewSafeBatch()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup batch reviewed', {
+            count: 1,
+            entry_point: 'dashboard_source_suggestions',
+        })
         await expectLogic(logic, () => logic.actions.applyAllSafe()).toFinishAllListeners()
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
+            source: 'apply_all_safe',
+            entry_point: 'dashboard_source_suggestions',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            applied_count: 0,
+            is_undo: false,
+        })
         // `source` is recorded against the change server-side, so a one-item batch still
         // has to report where the click came from rather than being inferred from length.
         expect(applyRequests[0].source).toEqual('apply_all_safe')
@@ -217,6 +269,18 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.confirmReviewedSuggestion(suggestion())).toFinishAllListeners()
 
         expect(logic.values.reviewingSuggestion).not.toBeNull()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change failed', {
+            source: 'setup_tab',
+            entry_point: 'direct',
+            operation_types: ['add_custom_source_mapping'],
+            requested_count: 1,
+            is_undo: false,
+        })
+        expect(
+            jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(([event]) => event === 'marketing analytics setup change completed')
+        ).toHaveLength(0)
     })
 
     it('closes the review modal once the apply lands', async () => {
@@ -242,6 +306,30 @@ describe('setupPlanLogic', () => {
 
         expect(logic.values.visibleSuggestions).toHaveLength(0)
         expect(applyRequests).toHaveLength(0)
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup suggestion dismissed', {
+            kind: 'add_source_mapping',
+            entry_point: 'direct',
+        })
+    })
+
+    it('tracks reviews without event evidence and does not count closing as another review', async () => {
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(null)).toFinishAllListeners()
+        expect(
+            jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(([event]) => event === 'marketing analytics setup suggestion reviewed')
+        ).toEqual([
+            [
+                'marketing analytics setup suggestion reviewed',
+                {
+                    kind: 'add_source_mapping',
+                    source: 'deterministic',
+                    integration: 'MetaAds',
+                    entry_point: 'direct',
+                },
+            ],
+        ])
     })
 
     describe('reviewing what was dismissed', () => {
@@ -287,10 +375,7 @@ describe('setupPlanLogic', () => {
         })
     })
 
-    it('asks the server for a fresh scan only when the user asks for one', async () => {
-        // The mount-time load is happy with the server's short cache — that's what
-        // stops section navigation re-running six ClickHouse queries. An explicit
-        // Rescan has to bypass it or the button looks broken.
+    it('allows manual scans once per hour after the initial scan', async () => {
         const urls: string[] = []
         useMocks({
             get: {
@@ -302,10 +387,49 @@ describe('setupPlanLogic', () => {
         })
 
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.loadSetupPlan({ refresh: true })).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        expect(urls).toHaveLength(1)
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60 * 60 * 1000 + 1)
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        clock.mockRestore()
+        expect(urls).toHaveLength(2)
 
-        expect(urls[0]).not.toContain('refresh')
+        expect(new URL(urls[0]).searchParams.get('refresh')).toBe('false')
         expect(urls[1]).toContain('refresh=true')
+    })
+
+    it('does not restart the cooldown when the server returns an old cached scan', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/setup_plan': () => [
+                    200,
+                    { ...plan([]), source_scanned_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
+        expect(logic.values.sourceScanDisabledReason).toBeNull()
+    })
+
+    it('retries a failed initial request with a fresh scan during a persisted cooldown', async () => {
+        const urls: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/setup_plan': ({ request }) => {
+                    urls.push(request.url)
+                    return urls.length === 1 ? [503, { detail: 'unavailable' }] : [200, plan([])]
+                },
+            },
+        })
+        logic.actions.recordSourceScan(logic.values.currentTeamId!, Date.now())
+        expect(logic.values.setupPlanFailed).toBe(false)
+        await expectLogic(logic, () => logic.actions.loadSetupPlan()).toDispatchActions(['loadSetupPlanFailure'])
+        expect(logic.values.sourceScanDisabledReason).toBeNull()
+        expect(logic.values.setupPlanFailed).toBe(true)
+        await expectLogic(logic, () => logic.actions.rescanSources()).toDispatchActions(['loadSetupPlanSuccess'])
+        expect(logic.values.setupPlanFailed).toBe(false)
+        expect(new URL(urls[1]).searchParams.get('refresh')).toBe('true')
     })
 
     describe('retrying syncs', () => {

@@ -18,12 +18,14 @@ function DialogPrimitive({
     onOpenChange,
     className,
     disablePointerDismissal = false,
+    initialFocus,
 }: {
     children: React.ReactNode
     open: boolean
     onOpenChange: (open: boolean, eventDetails?: Dialog.Root.ChangeEventDetails) => void
     className?: string
     disablePointerDismissal?: boolean
+    initialFocus?: React.ComponentProps<typeof Dialog.Popup>['initialFocus']
 }): JSX.Element {
     return (
         <Dialog.Root
@@ -35,8 +37,10 @@ function DialogPrimitive({
                 <Dialog.Portal>
                     <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                     <Dialog.Popup
+                        initialFocus={initialFocus}
+                        // dvh override is support-gated so browsers without dvh keep the vh cap.
                         className={cn(
-                            '@container fixed top-4 left-1/2 w-[400px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden z-[var(--z-force-modal-above-popovers)]',
+                            '@container fixed top-4 left-1/2 w-[400px] max-w-[calc(100vw-3rem)] max-h-[60vh] supports-[max-height:1dvh]:max-h-[60dvh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden z-[var(--z-force-modal-above-popovers)]',
                             className
                         )}
                     >

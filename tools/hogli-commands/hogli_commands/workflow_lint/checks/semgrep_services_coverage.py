@@ -1,7 +1,7 @@
 """Every ``services/<name>/`` is covered by a language-specific Semgrep job.
 
 The repo-wide ``semgrep-general`` job excludes ``services/``, so a new
-service added without updating ``semgrep-python`` or ``semgrep-js`` silently
+service added without updating a language-specific scan silently
 drops out of SAST.
 
 Unlike the other checks, this one needs filesystem context (``services/``)
@@ -24,8 +24,9 @@ from hogli.manifest import REPO_ROOT
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
+from ..tracked_files import TrackedFiles
 
-COVERING_JOBS = ("semgrep-python", "semgrep-js")
+COVERING_JOBS = ("semgrep-python", "semgrep-go", "semgrep-js")
 SECURITY_WORKFLOW_NAME = "ci-security.yaml"
 
 
@@ -45,7 +46,7 @@ class SemgrepServicesCoverageCheck(WorkflowCheck):
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
         services_dir = self._repo_root / "services"
-        if not services_dir.exists():
+        if not TrackedFiles(self._repo_root).is_dir("services"):
             return result
 
         security_wf = next((wf for wf in workflows if wf.path.name == SECURITY_WORKFLOW_NAME), None)

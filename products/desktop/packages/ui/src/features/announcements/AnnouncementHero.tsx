@@ -1,30 +1,8 @@
-import {
-  type HERO_HEDGEHOGS,
-  type AnnouncementHero as HeroConfig,
-  hoggiePngUrl,
-} from "@posthog/shared/announcements";
-import {
-  builderHog,
-  explorerHog,
-  happyHog,
-  loopHog,
-} from "@posthog/ui/assets/hedgehogs";
+import type { AnnouncementHero as HeroConfig } from "@posthog/shared/announcements";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import { useState } from "react";
 
-type HedgehogName = (typeof HERO_HEDGEHOGS)[number];
-
-const HEDGEHOG_SRC: Record<HedgehogName, string> = {
-  builder: builderHog,
-  explorer: explorerHog,
-  happy: happyHog,
-  loop: loopHog,
-};
-
 const DEFAULT_COLOR = "#2f80fa";
-
-function bundledSrc(slug: string): string | undefined {
-  return (HEDGEHOG_SRC as Record<string, string | undefined>)[slug];
-}
 
 function GeometricPattern() {
   return (
@@ -103,31 +81,21 @@ function GeometricPattern() {
 }
 
 /**
- * Any hoggie by slug: bundled names render from local assets, everything else
- * streams from the pinned PostHog/brand CDN copy and falls back to the
- * kind-default hedgehog when unreachable (offline, unknown slug).
+ * Any hoggie by slug. The whole PostHog/brand set is bundled, so this never
+ * needs the network; a slug the release does not ship lands on the
+ * kind-default hoggie.
  */
-function HoggieImage({
-  slug,
-  fallback,
-}: {
-  slug: string;
-  fallback: HedgehogName;
-}) {
-  const [failed, setFailed] = useState(false);
-  const local = bundledSrc(slug);
-  const src = local ?? (failed ? HEDGEHOG_SRC[fallback] : hoggiePngUrl(slug));
+function HoggieImage({ slug, fallback }: { slug: string; fallback: string }) {
   return (
     <img
-      src={src}
+      src={hoggiePng(slug) ?? hoggiePng(fallback)}
       alt=""
       className="relative h-28 w-auto object-contain"
-      onError={() => setFailed(true)}
     />
   );
 }
 
-/** The colored band with pattern and hoggie — also the landing spot when a
+/** The colored band with pattern and hoggie, and the landing spot when a
  * remote hero image fails to load. */
 function HedgehogBand({
   hedgehog,
@@ -135,7 +103,7 @@ function HedgehogBand({
   color,
 }: {
   hedgehog: string;
-  fallbackHedgehog: HedgehogName;
+  fallbackHedgehog: string;
   color: string;
 }) {
   return (
@@ -144,7 +112,7 @@ function HedgehogBand({
       style={{ backgroundColor: color }}
     >
       <GeometricPattern />
-      <HoggieImage key={hedgehog} slug={hedgehog} fallback={fallbackHedgehog} />
+      <HoggieImage slug={hedgehog} fallback={fallbackHedgehog} />
       <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-(--background)" />
     </div>
   );
@@ -152,7 +120,7 @@ function HedgehogBand({
 
 /**
  * Remote hero image with the same graceful degradation as remote hoggies: an
- * expired URL or offline session falls back to the default hedgehog band
+ * expired URL or offline session falls back to the default hoggie band
  * instead of a broken-image glyph. Keyed on the URL by the caller so the
  * failure state resets when the payload changes.
  */
@@ -162,7 +130,7 @@ function ImageHero({
   fallbackColor,
 }: {
   url: string;
-  fallbackHedgehog: HedgehogName;
+  fallbackHedgehog: string;
   fallbackColor: string;
 }) {
   const [failed, setFailed] = useState(false);
@@ -190,7 +158,7 @@ function ImageHero({
 }
 
 /**
- * Modal hero band: a colored band with a hedgehog by default, a remote image
+ * Modal hero band: a colored band with a hoggie by default, a remote image
  * when the payload provides one, nothing when the payload opts out.
  */
 export function AnnouncementHero({
@@ -199,7 +167,7 @@ export function AnnouncementHero({
   defaultColor = DEFAULT_COLOR,
 }: {
   hero: HeroConfig | undefined;
-  defaultHedgehog: HedgehogName;
+  defaultHedgehog: string;
   defaultColor?: string;
 }) {
   if (hero && "none" in hero) return null;

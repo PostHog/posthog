@@ -1,0 +1,5 @@
+timeout -k 30 2700 sh -c 'cd '"'"'/workspace/example user'"'"'"'"'"'"'"'"'s project'"'"' && node /tmp/posthog-local-wizard/dist/bin.js audit web-analytics --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region eu --project-id 7 --base-url "$POSTHOG_API_URL"'
+
+Shell script:
+cd '/workspace/example user'"'"'s project'
+node /tmp/posthog-local-wizard/dist/bin.js audit web-analytics --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region eu --project-id 7 --base-url "$POSTHOG_API_URL"

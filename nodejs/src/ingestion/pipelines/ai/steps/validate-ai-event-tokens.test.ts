@@ -53,9 +53,17 @@ const TOKEN_PROPERTIES = [
     '$ai_cache_creation_1h_input_tokens',
 ] as const
 
-const AI_EVENT_TYPES = ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback']
+const AI_EVENT_TYPES = [
+    '$ai_generation',
+    '$ai_embedding',
+    '$ai_span',
+    '$ai_trace',
+    '$ai_metric',
+    '$ai_feedback',
+    '$ai_custom_step',
+]
 
-const NON_AI_EVENT_TYPES = ['$pageview', '$identify', 'custom_event', '$exception']
+const NON_AI_EVENT_TYPES = ['$pageview', '$identify', 'custom_event', '$exception', 'ai_generation']
 
 describe('createValidateAiEventTokensStep', () => {
     const step = createValidateAiEventTokensStep()

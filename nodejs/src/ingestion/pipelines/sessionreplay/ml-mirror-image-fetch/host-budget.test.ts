@@ -113,6 +113,7 @@ describe('HostBudget', () => {
         expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 180_999, DEADLINE_MS)).toEqual({
             granted: false,
             reason: 'backoff',
+            backoffReason: 'retry_after',
             waitMs: 1,
         })
     })
@@ -125,6 +126,7 @@ describe('HostBudget', () => {
         expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 2_000, DEADLINE_MS)).toEqual({
             granted: false,
             reason: 'backoff',
+            backoffReason: 'retry_after',
             waitMs: 179_000,
         })
     })
@@ -242,6 +244,7 @@ describe('HostBudget', () => {
             granted: false,
             reason: 'deadline',
             waitMs: 600_000,
+            waitScope: 'origin_crawl_delay',
         })
     })
 })

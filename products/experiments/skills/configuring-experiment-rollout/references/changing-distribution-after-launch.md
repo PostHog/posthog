@@ -39,8 +39,8 @@ Example: 50/50 split → 80/20 A/B split.
 
 **Analysis**: Users who experienced B and are now in A have behavior that can't be cleanly attributed to either variant — this is bias. PostHog handles this with two options:
 
-- **Exclude multivariate users** (default, recommended) — removes these users from the analysis. Cleaner data but fewer data points, meaning longer time to reach reliable results.
-- **First seen variant** — keeps all users, attributes them to their first variant. More data but noisier.
+- **Exclude from analysis** (default, recommended) — removes these users from the analysis. Cleaner data but fewer data points, meaning longer time to reach reliable results.
+- **Use first seen variant** — keeps all users, attributes them to their first variant. More data but noisier.
 
 **Warning to present**:
 

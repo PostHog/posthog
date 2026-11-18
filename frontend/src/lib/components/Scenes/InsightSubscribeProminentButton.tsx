@@ -15,9 +15,8 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightShortId } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -28,14 +27,7 @@ interface InsightSubscribeProminentButtonProps {
 }
 
 function SubscribeIcon({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
     const { subscriptions } = useValues(subscriptionsLogic({ insightShortId }))
-
-    // Mirror the side-panel SceneSubscribeButton: show the active-subscription count badge so
-    // the header button carries the same "you're already subscribed" signal.
-    if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        return <IconBell />
-    }
 
     return (
         <IconWithCount count={subscriptions?.length} showZero={false}>

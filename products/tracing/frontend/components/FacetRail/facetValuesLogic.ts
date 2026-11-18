@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -32,7 +32,7 @@ export interface facetValuesLogicValues {
     serviceNames: string[] // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     collapsed: boolean
     facetSearch: string
@@ -70,6 +70,9 @@ export interface facetValuesLogicActions {
             signature: string
         }
     }
+    retryFacetValues: () => {
+        value: true
+    }
     setFacetSearch: (search: string) => {
         search: string
     }
@@ -83,7 +86,7 @@ export interface facetValuesLogicMeta {
         scopeSignature: (
             utcDateRange: {
                 date_from: string | null | undefined
-                date_to: string | null | undefined
+                date_to: string
             },
             serviceNames: string[],
             queryFilterGroup: UniversalFiltersGroup,
@@ -135,6 +138,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
         // and the signature payload is only there for the reducer below to record.
         loadFacetValues: (signature: string) => ({ signature }),
         clearFetchedSignature: true,
+        retryFacetValues: true,
     }),
 
     reducers({
@@ -245,6 +249,10 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
             (scopeSignature: string, facetSearch: string): string => `${scopeSignature}|${facetSearch}`,
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        retryFacetValues: () => actions.loadFacetValues(values.fetchSignature),
+    })),
 
     subscriptions(({ actions, values }) => {
         // Subscriptions fire with their initial value, so this is also the mount fetch.

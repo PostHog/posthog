@@ -45,6 +45,29 @@ class NotebookCellLimitExceeded(Exception):
     """
 
 
+class NotebookContentNotConvertible(Exception):
+    """Raised when a create sends rich-text content that the markdown converter cannot read.
+
+    Lives here because it crosses the product boundary: account notebooks are created through
+    the facade, and that API has to turn this into a 400 on `content` instead of a 500.
+    """
+
+
+class NotebookMarkdownContentInvalid(Exception):
+    pass
+
+
+class NotebookContentEditNotAllowed(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class NotebookMarkdownComponent:
+    tag_name: str
+    node_id: str
+    props: dict[str, Any]
+
+
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""
@@ -109,6 +132,7 @@ class TeamAccountNote:
     account_id: UUID
     account_name: str
     created_by: NotebookUserInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -173,4 +197,5 @@ class AccountNotebook:
     created_at: datetime
     last_modified_at: datetime
     created_by: NotebookUserInfo | None = None
+    tags: list[str] = field(default_factory=list)
     last_modified_by: NotebookUserInfo | None = None

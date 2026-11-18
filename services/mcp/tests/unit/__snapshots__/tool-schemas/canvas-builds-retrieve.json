@@ -5,6 +5,10 @@
             "description": "ID of the canvas whose builds to read.",
             "type": "string"
         },
+        "scope": {
+            "description": "\"slim\" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.",
+            "type": "string"
+        },
         "version_id": {
             "description": "Include the retained ready build for this historical source version.",
             "type": "string"

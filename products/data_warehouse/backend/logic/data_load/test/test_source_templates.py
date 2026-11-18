@@ -1,5 +1,5 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, _create_person
 
 from parameterized import parameterized
@@ -110,7 +110,7 @@ class TestCustomerRevenueViewPersonsJoin(RevenueAnalyticsTestBase):
 
         database_operations(self.team.pk, self.source.prefix or "")
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     f"SELECT id, persons.properties.marker FROM {self.view_name}"

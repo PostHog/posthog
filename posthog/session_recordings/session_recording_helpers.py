@@ -1,6 +1,4 @@
-import gzip
 import json
-import base64
 from collections import defaultdict
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
@@ -290,13 +288,6 @@ def is_unprocessed_snapshot_event(event: dict) -> bool:
     except KeyError:
         capture_exception()
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')
-
-
-# this is kept around as we upgrade older recordings in long term storage on demand.
-# TODO: remove this once all recordings are upgraded
-def decompress(base64data: str) -> str:
-    compressed_bytes = base64.b64decode(base64data)
-    return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
 def is_active_event(event: SessionRecordingEventSummary) -> bool:

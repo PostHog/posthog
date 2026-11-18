@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>PostHog</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                background: #fafaf9;
+                color: #1d1f27;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                body {
+                    background: #1d1f27;
+                    color: #fff;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <p>You can close this window and go back to PostHog.</p>
+        {{ result|json_script:"sso-reauth-result" }}
+        <script nonce="{{ request.csp_nonce }}">
+            const result = JSON.parse(document.getElementById('sso-reauth-result').textContent)
+            const channel = new BroadcastChannel(result.channel)
+            const finish = () => {
+                channel.close()
+                window.close()
+            }
+            // Closing right after posting can drop the message, so wait for the opener to confirm it arrived.
+            channel.onmessage = (event) => {
+                if (event.data?.type === 'sso_reauth_received' && event.data.attempt === result.attempt) {
+                    finish()
+                }
+            }
+            channel.postMessage({ type: 'sso_reauth_complete', attempt: result.attempt, error_code: result.error_code })
+            setTimeout(finish, 2000)
+        </script>
+    </body>
+</html>

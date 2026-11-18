@@ -1,0 +1,19 @@
+{
+    "name": "SeaBIOS",
+    "version": "1.16.2",
+    "source": "https://github.com/coreboot/seabios/tree/rel-1.16.2",
+    "repository": "https://github.com/copy/v86/tree/589487c7758a2775f606ec631bd78609497f6e05/bios",
+    "build_recipe": "https://github.com/copy/v86/blob/589487c7758a2775f606ec631bd78609497f6e05/bios/fetch-and-build-seabios.sh",
+    "files": [
+        {
+            "file": "seabios.bin",
+            "size": 131072,
+            "sha256": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98"
+        },
+        {
+            "file": "vgabios.bin",
+            "size": 36352,
+            "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880"
+        }
+    ]
+}

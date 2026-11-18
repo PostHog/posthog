@@ -1,13 +1,12 @@
 ---
 name: debugging-surveys
 description: >-
-  Debug, support, and build PostHog Surveys across the backend and all five SDKs
+  Diagnose PostHog Surveys configuration and responses across all five SDKs
   (web/posthog-js, iOS, Android, Flutter, React Native). Use whenever a Surveys
   support ticket is pasted ("survey not showing", "fewer responses than expected",
   "responses disappeared", "responses are incomplete", "only the first question was
   answered", "the user says they didn't mean to submit", "survey shows on wrong platform"),
-  when diagnosing why a survey does or doesn't display, or when doing survey feature work
-  that must ship across SDKs. Covers the eligibility pipeline, how a response actually gets
+  or when diagnosing why a survey does or doesn't display. Covers the eligibility pipeline, how a response actually gets
   stored (partial responses, branching, optional questions, auto-submit), cross-SDK feature
   parity, the known-cause catalog, read-only diagnostic queries, staff access, and the
   customer-reply style guide.
@@ -21,27 +20,10 @@ PostHog UI; it must then be evaluated and rendered by whichever SDK their app ru
 SDK correctly decided the user is not eligible, and the job is to find _which_ gate
 failed and _why_.
 
-## Repos
+## Access requirements
 
-GitHub is the source of truth for where the code lives. When you need to read or change SDK
-source, resolve a local checkout via the registry described in
-[references/local-repos.md](references/local-repos.md) so a clone is found once and reused —
-don't re-clone every session. First time on a machine, run `python3 scripts/repos.py init`
-to auto-discover existing checkouts; thereafter `python3 scripts/repos.py ensure <repo>`
-prints the path (and `--clone` clones if missing).
-
-| Concern              | Repo                                                                        | Where to look                                                            |
-| -------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Product UI + backend | this monorepo (PostHog/posthog)                                             | UI: `frontend/src/scenes/surveys/`, backend: `products/surveys/backend/` |
-| Web SDK              | [PostHog/posthog-js](https://github.com/PostHog/posthog-js)                 | `packages/browser/`                                                      |
-| React Native SDK     | [PostHog/posthog-js](https://github.com/PostHog/posthog-js) (same monorepo) | `packages/react-native/`                                                 |
-| iOS SDK              | [PostHog/posthog-ios](https://github.com/PostHog/posthog-ios)               | survey rendering + eligibility                                           |
-| Android SDK          | [PostHog/posthog-android](https://github.com/PostHog/posthog-android)       | eligibility (delegate-based UI)                                          |
-| Flutter SDK          | [PostHog/posthog-flutter](https://github.com/PostHog/posthog-flutter)       | Dart rendering; native iOS/Android handles eligibility                   |
-| Public docs          | [PostHog/posthog.com](https://github.com/PostHog/posthog.com)               | `contents/docs/surveys/`                                                 |
-
-Always check the local checkout is present and on a sane branch before quoting code; line
-numbers drift, so grep for the symbol rather than trusting a remembered line number.
+Use PostHog MCP tools or the survey API to inspect survey configuration and responses.
+A checkout of the PostHog repository is not required for these diagnostic steps.
 
 ## Cross-SDK feature parity (check this FIRST)
 
@@ -50,16 +32,16 @@ Confirm the survey's `lib` / the customer's platform before anything else, then 
 this table. Verified against the SDK source — re-verify if it's been months, the gaps
 get filled over time.
 
-| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                            |
-| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------------- |
-| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)           |
-| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter       |
-| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | stored but **comparison commented out** |
-| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)              |
-| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
-| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
+| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                      |
+| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------- |
+| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)     |
+| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                               |
+| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter |
+| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                               |
+| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | yes (≥ 4.81.5)                    |
+| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)        |
+| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
+| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
 
 The last two rows are per the editor's own help text ("Doesn't work with the mobile SDKs for
 now" / "Not available for the mobile SDKs at the moment") rather than a per-SDK source audit.
@@ -71,7 +53,7 @@ Consequences worth memorizing:
 - **URL targeting is effectively web-only.** Mobile SDKs decode the field but never enforce it; React Native filters those surveys out entirely. A mobile survey with a URL condition behaves as "no URL condition" (mobile/flutter) or "never shows" (RN).
 - **Android ships no survey UI.** The app (or the Flutter plugin) must provide a `PostHogSurveysDelegate`. "Survey never renders on Android" is often a missing delegate, not a PostHog bug.
 - **Flutter is hybrid:** triggering/eligibility runs in the native iOS/Android layer; rendering is Dart (`SurveyService.showSurvey` → `showModalBottomSheet`). It does _not_ "just call native" for UI. So a Flutter rendering bug lives in Dart; a Flutter eligibility bug lives in native.
-- **React Native wait period is silently disabled** (the check is commented out). Don't blame the wait period on RN.
+- **React Native enforces the wait period from 4.81.5.** Older versions skip the check, so on those versions don't blame the wait period.
 
 For a deeper version-by-version capability audit, see the `survey-sdk-audit` skill if available.
 
@@ -94,7 +76,7 @@ Then in `getActiveMatchingSurveys`: URL/device/selector match, event/action trig
 Two non-obvious facts that drive real tickets:
 
 - **The server returns ALL non-archived surveys** (`SurveyViewSet`, `products/surveys/backend/api/survey.py`). It does **not** pre-filter by the internal targeting flag. All eligibility is client-side. So you cannot conclude "the backend excluded them" — the SDK did.
-- **The wait period has TWO independent implementations.** `canActivateRepeatedly` (true when `schedule: 'always'`) short-circuits `_internalFlagCheckSatisfied` (step 5) — so `always` bypasses the internal flag, including its `$last_seen_survey_date` rule. But `hasWaitPeriodPassed` (step 6) reads `localStorage.lastSeenSurveyDate` directly and is **NOT** bypassed by `canActivateRepeatedly`. So a `schedule: 'always'` survey with `seenSurveyWaitPeriodInDays: 30` still enforces the 30-day wait via the localStorage path. `lastSeenSurveyDate` is updated whenever _any_ survey is shown, regardless of completion. The same short-circuit also drops the internal flag's `$survey_responded/<id> is_not_set` rule, so **`schedule: 'always'` lets one person respond repeatedly** — check `uniq(distinct_id)` against `count()` on `survey sent` before reading a response count as a respondent count.
+- **The wait period has TWO independent implementations.** `canActivateRepeatedly` (true when `schedule: 'always'`) short-circuits `_internalFlagCheckSatisfied` (step 5) — so `always` bypasses the internal flag, including its `$survey_last_seen_date` rule. But `hasWaitPeriodPassed` (step 6) reads `localStorage.lastSeenSurveyDate` directly and is **NOT** bypassed by `canActivateRepeatedly`. So a `schedule: 'always'` survey with `seenSurveyWaitPeriodInDays: 30` still enforces the 30-day wait via the localStorage path. `lastSeenSurveyDate` is updated whenever _any_ survey is shown, regardless of completion. The same short-circuit also drops the internal flag's `$survey_responded/<id> is_not_set` rule, so **`schedule: 'always'` lets one person respond repeatedly** — check `uniq(distinct_id)` against `count()` on `survey sent` before reading a response count as a respondent count.
 
 ## How a response actually gets stored
 
@@ -107,13 +89,19 @@ The radio in `frontend/src/scenes/surveys/SurveyResponsesCollection.tsx`. "Any q
 least one question is answered…" is `true`; "Complete survey: the response is stored when all
 questions are answered" is `false`.
 
-- `true` → `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
+- `true` -> `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
   question answered, all sharing a `$survey_submission_id` with `$survey_completed` running
-  `false … true`. The responses table collapses them by `argMax(uuid, timestamp)` per submission id
-  (`buildPartialResponsesFilter`, `frontend/src/scenes/surveys/utils.ts`), so **raw SQL shows far
-  more rows than the UI** and the extras look like broken submissions.
-- `false` → one event, at the end of the path. The table instead filters
-  `$survey_completed != 'false'`, keeping events where the property is absent (pre-1.240.0 SDKs).
+  `false ... true`.
+- `false` -> one `survey sent` event, at the end of the path.
+
+The setting controls capture, not response visibility. The results include every `survey sent`
+and every `survey dismissed` or `survey abandoned` marked `$survey_partially_completed = true`.
+`buildMergedSubmissionsSubquery` in `frontend/src/scenes/surveys/utils.ts` merges the latest
+answer per question for each submission ID; events without an ID stay separate. **Raw event
+counts can exceed response counts.** A completed event takes precedence over earlier partial
+closures. Otherwise the outcome chip reads "Dismissed" when the latest response event is a
+dismissal, and "Abandoned" for other unfinished submissions. "Abandoned" does not prove a
+page-unload event or inactivity timeout occurred; a later completion updates the same row.
 
 **The defaults disagree by creation path:** `NEW_SURVEY` sets `true`
 (`frontend/src/scenes/surveys/constants.tsx`) but the Django model default is `False`
@@ -309,19 +297,3 @@ Hi <name>,
 
 We're always here if you need a follow-up.
 ```
-
-## Feature work — shipping across SDKs
-
-A survey capability is only "done" when it works (or is deliberately scoped out) on every
-SDK a customer might use. When building or changing survey behavior:
-
-1. Land the backend/UI change in this repo (serializer + `frontend/src/scenes/surveys/`).
-2. Decide the per-SDK story using the parity table. If a feature lands web-only (like
-   `surveyPopupDelaySeconds`), say so explicitly in the docs and the PR — silent gaps
-   become support tickets.
-3. Implement in the SDK repos (`posthog-js` covers both web and React Native), then
-   `posthog-ios`, `posthog-android`, and the Flutter Dart layer. Remember Flutter's split:
-   eligibility/trigger logic is native (iOS/Android), rendering is Dart. Use the registry
-   in [references/local-repos.md](references/local-repos.md) to find each checkout.
-4. Update the `posthog.com` docs (`contents/docs/surveys/`) and this parity table.
-5. Use the `survey-sdk-audit` skill (if available) to confirm version requirements and cross-SDK coverage.

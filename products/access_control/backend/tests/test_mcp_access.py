@@ -97,6 +97,18 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
 
         assert self._request("get").status_code == 200
 
+    def test_read_only_org_denies_access_rule_writes(self) -> None:
+        self._set_read_only(True)
+
+        denied = self.client.put(
+            f"/api/projects/{self.team.id}/access_control_default_rules",
+            {"resource": "dashboard", "access_level": "viewer"},
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+            headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+        )
+        assert denied.status_code == 403
+        assert "read-only" in denied.json()["detail"]
+
     @parameterized.expand([("flag_off", False, True), ("not_mcp_user_agent", True, False)])
     def test_writes_pass_without_flag_or_marker(self, _name: str, read_only: bool, mcp: bool) -> None:
         self._set_read_only(read_only)

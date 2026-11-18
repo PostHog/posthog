@@ -14,7 +14,7 @@ The measurements behind these rules live in the PR that introduced them, reachab
 
 [fix(dashboards): tolerate legacy keys in persisted dashboard filters](https://github.com/PostHog/posthog/pull/78235).
 
-### Problem as shipped, 82 words
+### Problem as shipped, 78 words
 
 ```markdown
 - `Dashboard.filters` persists opaquely, and readers rebuild the `extra="forbid"` `DashboardFilter` from it on every tile refresh.
@@ -23,7 +23,7 @@ The measurements behind these rules live in the PR that introduced them, reachab
 - A support ticket hit exactly this: a REST client wrote the legacy insight-format key `filter_test_accounts`, and the dashboards stayed broken until the blob is rewritten by hand.
 ```
 
-### After pass 1, 71 words
+### After pass 1, 67 words
 
 ```markdown
 - One legacy key in a dashboard's saved filters errors every tile on that dashboard.
@@ -52,7 +52,7 @@ The rejected alternative is the one line a reviewer needs to judge the design. I
 
 [fix(data-warehouse): recognize Neon's pooler rejection of libpq options](https://github.com/PostHog/posthog/pull/77899). Problem and Changes only.
 
-### As shipped, 297 words
+### As shipped, 296 words
 
 ```markdown
 ## Problem
@@ -79,62 +79,58 @@ Match on the prefix `unsupported startup parameter in options` so any setting Ne
 The stale comment on the CDC stream reader claimed CDC sources never sit behind a pooler that rejects `options`. They do. Neon's pooler serves the `pg_logical_slot_peek_binary_changes` calls the reader uses just fine, so dropping the two server-side timeouts is the difference between working change capture and none at all. Updated it to say so, and to note that the activity's start-to-close and heartbeat timeouts still bound a stalled peek once the server-side ceiling is gone.
 ```
 
-### After the remaining passes, 197 words
+### After the remaining passes, 124 words
 
 ````markdown
 ## Problem
 
-- Transaction-mode connection poolers reject the libpq `options` startup parameter.
-- `_connect_with_options_fallback` drops `options` and reconnects when it sees the exact wording those poolers use:
+- Data warehouse syncs from a Neon pooled endpoint fail on every extraction run.
+- The user is told to check a database that is reachable and healthy, because the failure classifies as a retryable `connection_failed`.
+- Transaction-mode poolers reject the libpq `options` startup parameter.
+- `_connect_with_options_fallback` reconnects without `options` when it sees this wording:
 
 ```
 FATAL:  unsupported startup parameter: options
 ```
 
-- Neon's pooled endpoint names the setting instead of the parameter:
+- Neon's pooler names the setting instead:
 
 ```
 ERROR:  unsupported startup parameter in options: statement_timeout.
 ```
 
-- That is not a substring of the match, so the fallback never fires.
-- The CDC stream reader always sends `options`, and that connect is the first thing `cdc_extract_activity` does.
-- Every extraction run against a Neon pooled endpoint therefore fails at `stream_reader.connect()`, forever.
-- It classifies as a retryable `connection_failed`, so the user is told to check a database that is reachable and healthy.
-- One source has never had a successful extraction run since the day it was created.
+- That wording misses the match, so the fallback never fires.
+- The CDC stream reader always sends `options` on its first connect.
 
 ## Changes
 
 - The match now uses the prefix `unsupported startup parameter in options`, so any setting Neon names is covered.
-- The stream reader's comment claimed CDC sources never sit behind a pooler that rejects `options`. They do, and the comment now says so.
-- Dropping the two server-side timeouts is the difference between working change capture and none.
+- The stream reader's comment claimed CDC sources never sit behind a pooler that rejects `options`. It now says they do.
 
 > [!NOTE]
-> Retry and classification behavior do not change. This makes the connection succeed where it currently cannot be opened at all.
+> Retry and classification behavior do not change.
 ````
 
 ### What the passes did
 
-Pass 3 cut 100 words:
+Pass 1 moved the effect to the top. The shipped body led with a fact about libpq and stated the effect last.
 
-| Cut                                                                                                    | Why                                                                                       |
-| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| The second line of Neon's error, and the full quoted user-facing message                               | The reader needs the phrasing that breaks the match, not the whole string                 |
-| `statement_timeout=1800000 -c idle_in_transaction_session_timeout=0`                                   | "Always sends `options`" is the fact. The values themselves change nothing for the reader |
-| "There is nothing they can do to make that message go away, because it isn't describing their problem" | Second half of a reason pair. The bullet above it already says the database is healthy    |
-| "Neon's pooler serves the `pg_logical_slot_peek_binary_changes` calls the reader uses just fine"       | Supports a claim nobody will dispute                                                      |
-| The start-to-close and heartbeat timeout note                                                          | Belongs in the code comment it describes, and is there                                    |
+Pass 3 cut 172 words:
 
-Pass 4 split the 76-word failure chain, which was the densest sentence in the description, into the five links a reviewer checks one at a time.
+| Cut                                                                                                    | Why                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The second line of Neon's error, and the full quoted user-facing message                               | The reader needs the phrasing that breaks the match, not the whole string                                                                      |
+| `statement_timeout=1800000 -c idle_in_transaction_session_timeout=0`                                   | "Always sends `options`" is the fact. The values themselves change nothing for the reader                                                      |
+| "There is nothing they can do to make that message go away, because it isn't describing their problem" | Second half of a reason pair. The bullet above it already says the database is healthy                                                         |
+| "Neon's pooler serves the `pg_logical_slot_peek_binary_changes` calls the reader uses just fine"       | Supports a claim nobody will dispute                                                                                                           |
+| The start-to-close and heartbeat timeout note                                                          | Belongs in the code comment it describes, and is there                                                                                         |
+| "One source has never had a successful extraction run since the day it was created"                    | An observation with no link to the run. "Fail on every extraction run" carries the same stakes as behavior a reader can check against the code |
+| "Dropping the two server-side timeouts is the difference between working change capture and none"      | The reason for the comment change, and the comment already says it                                                                             |
+| `cdc_extract_activity`, `stream_reader.connect()`, "forever"                                           | "On its first connect" is the fact. The names are one level below what a reviewer checks                                                       |
+
+Pass 4 split the 76-word failure chain, which was the densest sentence in the description, into the links a reviewer checks one at a time.
 
 Both fenced blocks survived untouched. Pass 4 governs prose only.
-
-Pass 1 came later than this rewrite, and the rewrite fails it. The lead is a fact about libpq, while the effect sits in bullets 6 and 8. Cutting did not fix that, and no amount of it would. Open with them instead:
-
-> - Data warehouse syncs from a Neon pooled endpoint have never worked. One source has failed every extraction run since the day it was created.
-> - The user is told to check a database that is reachable and healthy, because the failure classifies as a retryable `connection_failed`.
-
-That first bullet is also the one claim here the claim rules in pass 3 reach. "Never worked" and "every run" are things the author saw, not behavior a reader can check against the code. The bullet owes a link to the run or the error tracking issue behind it. Every other bullet in this example describes behavior and needs none.
 
 ---
 
@@ -142,7 +138,7 @@ That first bullet is also the one claim here the claim rules in pass 3 reach. "N
 
 [fix(flags): drop custom codecs from flag_evaluations columns](https://github.com/PostHog/posthog/pull/77910). Problem and Changes only.
 
-### As shipped, 190 words
+### As shipped, 191 words
 
 ```markdown
 ## Problem
@@ -156,7 +152,7 @@ Migration 0293 sets the codecs 0292 declared and then removes them with `MODIFY 
 `posthog/models/flag_evaluations/sql.py` is the shared column template other DDL reads from, so the per-column `CODEC(...)` clauses are stripped there too. The HCL golden/SQL mirrors and the `test_schema.ambr` snapshot are regenerated to match.
 ```
 
-### After the remaining passes, 111 words
+### After the remaining passes, 112 words
 
 ```markdown
 ## Problem
@@ -190,4 +186,4 @@ Nobody sees this change, which is the case pass 1 is easiest to skip on. There i
 
 > - The codecs on `flag_evaluations` take those columns out of the cluster's central compression tuning and buy nothing back.
 
-The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 297 words to 197 and 190 to 111, and the reorder in example 1 came out shorter too.
+The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 296 words to 124 and 191 to 112, and the reorder in example 1 came out shorter too.

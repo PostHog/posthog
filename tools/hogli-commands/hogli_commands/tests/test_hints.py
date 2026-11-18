@@ -52,13 +52,7 @@ class TestPickHint:
 
     def test_returns_none_when_all_recent(self):
         now = datetime.now(UTC)
-        state: hints.HintsState = {
-            "last_runs": {
-                "doctor:disk": now.isoformat(),
-                "doctor:zombies": now.isoformat(),
-                "doctor": now.isoformat(),
-            }
-        }
+        state: hints.HintsState = {"last_runs": {h.command: now.isoformat() for h in hints._HINT_DEFS}}
         assert hints._pick_hint(state, now) is None
 
     @pytest.mark.parametrize(
@@ -66,13 +60,14 @@ class TestPickHint:
         [
             ("doctor:disk", "doctor:disk"),
             ("doctor:zombies", "doctor:zombies"),
+            ("doctor:git", "doctor:git"),
             ("doctor", "hogli doctor"),
         ],
     )
     def test_returns_hint_when_stale(self, stale_command: str, expected_fragment: str):
         now = datetime.now(UTC)
         threshold = next(h.threshold_days for h in hints._HINT_DEFS if h.command == stale_command)
-        all_commands = {"doctor:disk", "doctor:zombies", "doctor"}
+        all_commands = {h.command for h in hints._HINT_DEFS}
         state: hints.HintsState = {
             "last_runs": {
                 cmd: (now - timedelta(days=threshold + 1 if cmd == stale_command else 0)).isoformat()

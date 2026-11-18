@@ -9,6 +9,9 @@ rules:
           `flag.aggregation_group_type_index`, `flag.get_payload(...)`) or a facade capability in
           `products/feature_flags/backend/facade/` instead of digging into the JSON, and write
           through the facade's gated write path instead of mutating `flag.filters` directly.
+          `flag.get_filters()` and `(flag.filters or {})` return the same raw JSON.
+          `posthog/test/repo_invariants/test_feature_flag_raw_reads.py` also covers the flag
+          product, aliases, serialized flags and ORM and SQL reads of the column.
 
           Files listed under `paths.exclude` are the pre-existing offender baseline being migrated
           behind the facade — do not add new ones. For a genuine exception, add
@@ -33,22 +36,29 @@ rules:
               - '**/migrations/**'
               # Baseline: pre-existing offenders being migrated behind the flag
               # facade. Shrink this list — never grow it.
-              - '/posthog/tasks/update_survey_adaptive_sampling.py'
-              - '/posthog/tasks/update_survey_iteration.py'
-              - '/products/early_access_features/backend/api.py'
-              - '/products/early_access_features/backend/apps.py'
-      patterns:
-          - pattern-either:
-                - pattern: $FLAG.filters[$KEY]
-                - pattern: $FLAG.filters.get(...)
-                - pattern: $FLAG.filters.setdefault(...)
-                - pattern: $FLAG.filters.pop(...)
-                - pattern: $FLAG.filters.update(...)
-                - pattern: $FLAG.filters = $V
-                - pattern: $FLAG.filters |= $V
-          - metavariable-regex:
-                metavariable: $FLAG
-                regex: (?i)^(.*flag.*|(?:.*[._])?ff(?:_.*)?)$
+              - '/ee/hogai/context/entity_search/context.py'
+              - '/posthog/management/commands/reencrypt_flag_payloads.py'
+              - '/products/experiments/backend/experiment_service.py'
+              - '/products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py'
+              - '/products/experiments/backend/replay_linkage.py'
+      pattern-either:
+          - patterns:
+                - pattern-either:
+                      - pattern: $FLAG.filters[$KEY]
+                      - pattern: $FLAG.filters.get(...)
+                      - pattern: $FLAG.filters.setdefault(...)
+                      - pattern: $FLAG.filters.pop(...)
+                      - pattern: $FLAG.filters.update(...)
+                      - pattern: $FLAG.filters = $V
+                      - pattern: $FLAG.filters |= $V
+                      - pattern: ($FLAG.filters or $DEFAULT)[$KEY]
+                      - pattern: ($FLAG.filters or $DEFAULT).get(...)
+                - metavariable-regex:
+                      metavariable: $FLAG
+                      regex: (?i)^(.*flag.*|(?:.*[._])?ff(?:_.*)?)$
+          # Only FeatureFlag defines a get_filters() that takes no arguments.
+          - pattern: $F.get_filters()[$KEY]
+          - pattern: $F.get_filters().get(...)
       metadata:
           category: best-practice
           subcategory:

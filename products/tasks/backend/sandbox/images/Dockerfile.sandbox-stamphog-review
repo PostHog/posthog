@@ -1,0 +1,15 @@
+# Local (DockerSandbox) counterpart of modal_sandbox.py's STAMPHOG_REVIEW image: the slim image
+# plus a uv cache that already holds the stamphog review engine's pinned deps.
+#
+# The deps come from the engine's own PEP 723 header, so the pins live in one place. uv only reads
+# the header here and runs nothing. A pin that changes after this image was built still installs,
+# because uv falls back to PyPI.
+
+ARG BASE_IMAGE=posthog-sandbox-slim
+FROM ${BASE_IMAGE}
+
+# Image ENV, so the warm step below and every `uv run` in the sandbox share one cache directory.
+ENV UV_CACHE_DIR=/opt/uv-cache
+
+COPY products/stamphog/packages/pr-approval-agent/review_local.py /tmp/stamphog-review-deps.py
+RUN uv sync --no-config --script /tmp/stamphog-review-deps.py && rm /tmp/stamphog-review-deps.py

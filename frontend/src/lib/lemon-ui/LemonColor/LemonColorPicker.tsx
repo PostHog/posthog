@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 import { cloneElement, useEffect, useState } from 'react'
 
-import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
-
 import { DataColorToken } from 'lib/colors'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
+import { LemonColorGlyph } from './LemonColorGlyph'
 import { LemonColorList } from './LemonColorList'
 
 type LemonColorPickerBaseProps = {
@@ -15,6 +17,7 @@ type LemonColorPickerBaseProps = {
     preventPopoverClose?: boolean
     customButton?: JSX.Element
     customColorValue?: string
+    onSelectCustomColor?: (color: string) => void
 }
 
 type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
@@ -58,17 +61,16 @@ export const LemonColorPickerOverlay = ({
     showCustomColor = false,
     preventPopoverClose = false,
     customColorValue,
+    onSelectCustomColor,
 }: LemonColorPickerOverlayProps): JSX.Element => {
     const [color, setColor] = useState<string | null>(customColorValue || selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
     const { getAvailableColorTokens } = useValues(dataThemeLogic)
 
     useEffect(() => {
-        const newColor = customColorValue || selectedColor
-        if (newColor) {
-            setColor(newColor)
-            setLastValidColor(newColor)
-        }
+        const newColor = customColorValue || selectedColor || null
+        setColor(newColor)
+        setLastValidColor(newColor)
     }, [customColorValue, selectedColor])
 
     return (
@@ -116,7 +118,7 @@ export const LemonColorPickerOverlay = ({
                                 setColor(color)
                                 if (color != null && color != selectedColor && /^#[0-9A-Fa-f]{6}$/.test(color)) {
                                     setLastValidColor(color)
-                                    onSelectColor?.(color)
+                                    ;(onSelectCustomColor ?? onSelectColor)?.(color)
                                 }
                             }}
                         />

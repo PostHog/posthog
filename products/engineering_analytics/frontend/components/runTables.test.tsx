@@ -1,6 +1,11 @@
+import { jobCacheKey } from '../lib/jobs'
 import { formatCost, runPrNumber } from './runTables'
 
 describe('runTables', () => {
+    it('separates colliding engine IDs in the expanded job cache', () => {
+        expect(jobCacheKey(42, 1, 'depot_ci')).not.toEqual(jobCacheKey(42, 1, 'github_actions'))
+        expect(jobCacheKey(42, 1)).toEqual('42:1')
+    })
     describe('formatCost', () => {
         it.each([
             [null, '—'],

@@ -1,5 +1,5 @@
 import { dimensions, mockRect } from '../testing'
-import { buildDimensions, sameDimensions, syncCanvasSize } from './canvas-size'
+import { buildDimensions, rasterScale, sameDimensions, syncCanvasSize } from './canvas-size'
 import { DEFAULT_MARGINS } from './hooks/useChartMargins'
 
 /** Records assignments to an integer canvas dimension, which jsdom would otherwise apply silently. */
@@ -41,6 +41,7 @@ describe('canvas-size', () => {
             ['the css width changes', { width: 640, height: 400 }, 1, 640, 400],
             ['the css height changes', { width: 800, height: 300 }, 1, 800, 300],
             ['only the device pixel ratio changes', { width: 800, height: 400 }, 2, 1600, 800],
+            ['a tall rect would pass the browser canvas limit', { width: 800, height: 17000 }, 2, 1542, 32767],
         ])('reallocates when %s', (_, rect, dpr, expectedWidth, expectedHeight) => {
             const canvas = document.createElement('canvas')
             syncCanvasSize(canvas, { width: 800, height: 400 }, 1)
@@ -122,8 +123,25 @@ describe('canvas-size', () => {
                 other: buildDimensions({ width: 799, height: 400 }, DEFAULT_MARGINS),
                 same: false,
             },
+            {
+                name: 'a pixel-ratio-only change',
+                other: buildDimensions(mockRect, DEFAULT_MARGINS, 3),
+                same: false,
+            },
         ])('reports $name as same=$same', ({ other, same }) => {
             expect(sameDimensions(dimensions, other)).toBe(same)
+        })
+    })
+
+    describe('rasterScale', () => {
+        // A 784×200 chart has a budget of sqrt(2,000,000 / 156,800) ≈ 3.57 backing pixels per css pixel.
+        it.each([
+            ['raises a chart in view to the zoomed page ratio', 200, 3, true, 3],
+            ['keeps a chart out of view at the device ratio while zoomed', 200, 3, false, 2],
+            ['caps a chart in view zoomed past the pixel budget', 200, 6, true, Math.sqrt(2_000_000 / 156_800)],
+            ['never drops a chart larger than the budget below the device ratio', 4000, 6, true, 2],
+        ])('%s', (_, height, pagePixelRatio, onScreen, expected) => {
+            expect(rasterScale({ width: 784, height }, 2, pagePixelRatio, onScreen)).toBeCloseTo(expected)
         })
     })
 })

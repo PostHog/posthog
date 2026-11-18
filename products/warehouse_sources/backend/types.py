@@ -3,6 +3,7 @@
 
 from products.warehouse_sources.backend.facade.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE as DIRECT_ENGINE_BY_SOURCE_TYPE,
+    CDCEngine as CDCEngine,
     DataWarehouseManagedViewSetKind as DataWarehouseManagedViewSetKind,
     DataWarehouseTableCreatedVia as DataWarehouseTableCreatedVia,
     DataWarehouseTableFormat as DataWarehouseTableFormat,
@@ -17,8 +18,13 @@ from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType as ExternalDataSourceType,
     IncrementalField as IncrementalField,
     IncrementalFieldType as IncrementalFieldType,
+    IncrementalSyncBlockedReason as IncrementalSyncBlockedReason,
     ManagedWarehouseSQLMode as ManagedWarehouseSQLMode,
     PartitionSettings as PartitionSettings,
+    SourceKey as SourceKey,
+    UploadedFileFormat as UploadedFileFormat,
     WarehouseColumnAnnotationDescriptionSource as WarehouseColumnAnnotationDescriptionSource,
+    WarehouseColumnSensitivity as WarehouseColumnSensitivity,
     external_data_source_type_choices as external_data_source_type_choices,
+    source_key as source_key,
 )

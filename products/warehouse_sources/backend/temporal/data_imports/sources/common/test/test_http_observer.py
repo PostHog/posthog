@@ -3,11 +3,9 @@ import time
 import pytest
 from unittest.mock import patch
 
-import structlog
 from requests import PreparedRequest, Response
 from structlog.testing import capture_logs
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import context as ctx_mod
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.context import scoped_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import (
     RequestRecord,
@@ -30,17 +28,6 @@ def _make_response(status_code: int = 200, body: bytes = b"", content_length: st
     if content_length is not None:
         resp.headers["Content-Length"] = content_length
     return resp
-
-
-@pytest.fixture(autouse=True)
-def _reset_contextvar():
-    token = ctx_mod._current_job_context.set(None)
-    structlog.contextvars.clear_contextvars()
-    try:
-        yield
-    finally:
-        ctx_mod._current_job_context.reset(token)
-        structlog.contextvars.clear_contextvars()
 
 
 @pytest.fixture

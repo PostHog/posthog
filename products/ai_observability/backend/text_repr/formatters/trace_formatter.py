@@ -19,11 +19,14 @@ from posthog.dataclasses import frozen
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
+    RenderBudgetExceeded,
     add_line_numbers,
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -219,12 +222,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -239,7 +242,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if props.get("$ai_is_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -255,12 +258,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -273,15 +276,24 @@ def _get_event_summary(event: dict[str, Any]) -> str:
 
         parts = []
         if runtime:
-            parts.append(runtime)
+            parts.append(str(runtime))
         if applicable is False or applicable == "false":
             parts.append("N/A")
+        elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
+            props.get("$ai_evaluation_categorical_result"), list
+        ):
+            parts.append(str(props["$ai_evaluation_categorical_result"]))
+        elif (
+            props.get("$ai_evaluation_result_type") == "numeric"
+            and props.get("$ai_evaluation_numeric_result") is not None
+        ):
+            parts.append(str(props["$ai_evaluation_numeric_result"]))
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
-        summary = eval_name
+        summary = str(eval_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -322,6 +334,8 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
         lines.append(str(state))
         return lines
+    except RenderBudgetExceeded:
+        raise
     except Exception:
         return ["", f"{label}:", "", str(state)]
 
@@ -423,20 +437,26 @@ def _render_tree(
     prefix: str = "",
     is_last: bool = True,
     depth: int = 0,
+    owners: list[str | None] | None = None,
 ) -> list[str]:
     """Render tree structure with ASCII art.
 
     Creates expandable nodes using:
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
     - Plain text [+] indicators for include_markers=False
+
+    When `owners` is given, one entry per returned line is appended to it: the id of the event whose node
+    rendered that line, or None for the max depth marker.
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
+        if owners is not None:
+            owners.append(None)
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapsed = options.get("collapsed", False)
 
@@ -454,14 +474,29 @@ def _render_tree(
             event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers
         )
         lines.extend(node_lines)
+        if owners is not None:
+            owners.extend([event.get("id")] * len(node_lines))
 
         if children:
             child_lines = _render_tree(
-                children, options=options, prefix=prefix + child_prefix, is_last=is_last_node, depth=depth + 1
+                children,
+                options=options,
+                prefix=prefix + child_prefix,
+                is_last=is_last_node,
+                depth=depth + 1,
+                owners=owners,
             )
             lines.extend(child_lines)
 
     return lines
+
+
+@frozen
+class TraceTextRepr:
+    text: str
+    was_sampled: bool
+    # `line_owners[n - 1]` is the id of the event whose node rendered line `n`, or None for a trace-level line.
+    line_owners: tuple[str | None, ...]
 
 
 def format_trace_text_repr(
@@ -487,7 +522,16 @@ def format_trace_text_repr(
     Returns:
         Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
-    lines: list[str] = []
+    rendered = format_trace_text_repr_with_line_owners(trace, hierarchy, options)
+    return rendered.text, rendered.was_sampled
+
+
+def format_trace_text_repr_with_line_owners(
+    trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None = None
+) -> TraceTextRepr:
+    """`format_trace_text_repr`, plus the event that owns each line. With `include_line_numbers`, sampling keeps
+    the original line numbers, so the owners stay valid for a sampled text."""
+    lines = FormatterLines(options)
     props = trace.get("properties", {})
 
     # Trace header - support both camelCase (API) and snake_case (properties)
@@ -508,6 +552,7 @@ def format_trace_text_repr(
         else:
             lines.append(json.dumps(error, indent=2))
 
+    tree_owners: list[str | None] = []
     # Only show trace-level input/output if there are NO events in hierarchy
     # When events exist, the hierarchy tells the full story
     if not hierarchy:
@@ -533,13 +578,20 @@ def format_trace_text_repr(
         lines.append("")
         lines.append("TRACE HIERARCHY:")
         lines.append("")
-        lines.extend(_render_tree(hierarchy, options=options))
+        lines.extend(_render_tree(hierarchy, options=options, owners=tree_owners))
 
+    # The tree renders last, so every entry before it is a trace-level line.
+    trace_level_owners: list[str | None] = [None] * (len(lines) - len(tree_owners))
+    entry_owners = trace_level_owners + tree_owners
+    # An entry can hold several lines, such as an error rendered as indented JSON.
+    line_owners = tuple(owner for entry, owner in zip(lines, entry_owners) for _ in range(entry.count("\n") + 1))
     formatted_text = "\n".join(lines)
 
     # Add line numbers if requested
     if options and options.get("include_line_numbers", False):
         formatted_text = add_line_numbers(formatted_text)
+
+    lines.check_length(len(formatted_text))
 
     # Apply max_length constraint by uniformly sampling lines if needed
     # Defaults to 2M chars to fit within LLM context windows
@@ -548,4 +600,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return TraceTextRepr(text=sanitize_surrogates(formatted_text), was_sampled=was_sampled, line_owners=line_owners)

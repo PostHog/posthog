@@ -52,7 +52,8 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
-    isAskAIDisabled,
+    btwAboutSelection,
+    askAIDisabledReason,
     startInlineCommentAtSelection,
     lockPosition,
     returnFocusToEditor,
@@ -71,7 +72,8 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
-    isAskAIDisabled?: boolean
+    btwAboutSelection?: () => void
+    askAIDisabledReason?: string
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
     /** Moves focus back into the editor (Escape while the toolbar holds focus). */
@@ -349,10 +351,22 @@ export function FormattingToolbar({
                     icon={<IconSparkles />}
                     tooltip="Ask AI"
                     aria-label="Ask AI"
-                    disabled={isAskAIDisabled}
-                    disabledReason={isAskAIDisabled ? 'Ask AI is already active' : undefined}
+                    disabledReason={askAIDisabledReason}
                     onClick={askAIAboutSelection}
                 />
+            ) : null}
+            {btwAboutSelection ? (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconSparkles />}
+                    tooltip="Ask a side question"
+                    aria-label="BTW"
+                    data-attr="notebook-btw-selection"
+                    disabledReason={askAIDisabledReason}
+                    onClick={btwAboutSelection}
+                >
+                    BTW
+                </LemonButton>
             ) : null}
             {showInlineActions && isLinkEditorOpen ? (
                 <div className="MarkdownNotebook__format-link-editor">

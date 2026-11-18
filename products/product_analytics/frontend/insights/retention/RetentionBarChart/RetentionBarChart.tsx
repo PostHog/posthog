@@ -8,16 +8,17 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
-import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
+
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { retentionGraphLogic } from '../retentionGraphLogic'
+import { retentionModalLogic } from '../retentionModalLogic'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,
@@ -26,6 +27,7 @@ import {
 } from '../shared/retentionChartTransforms'
 
 interface RetentionBarChartProps {
+    resultMenuEnabled?: boolean
     inSharedMode?: boolean
 }
 const EMPTY_GOAL_LINES: GoalLine[] = []
@@ -50,7 +52,10 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
+export function RetentionBarChart({
+    inSharedMode = false,
+    resultMenuEnabled = false,
+}: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const theme = useChartTheme()
 
@@ -60,6 +65,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         filteredTrendSeries,
         labelGroupType,
         shouldShowMeanPerBreakdown,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
@@ -151,8 +157,17 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
     const barConfig = useChartConfig(
-        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: INSIGHT_TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, series]
+        () =>
+            buildRetentionBarChartConfig({
+                isPercentage,
+                goalLines,
+                series,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
+            }),
+        [isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
@@ -171,6 +186,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
             config={barConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
+            onPointContextMenu={resultMenuEnabled && !inSharedMode && canClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

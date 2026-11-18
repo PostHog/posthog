@@ -36,7 +36,6 @@ type SourceType = SignalSourceConfig["source_type"];
 const SOURCE_TYPE_MAP: Partial<Record<SignalSourceProduct, SourceType>> = {
   conversations: "ticket",
   health_checks: "health_issue",
-  session_replay: "session_analysis_cluster",
   // AI observability signals are always emitted per evaluation report.
   llm_analytics: "evaluation_report",
   ...Object.fromEntries(
@@ -52,13 +51,17 @@ const ERROR_TRACKING_SOURCE_TYPES: SourceType[] = [
 
 const DATA_WAREHOUSE_SOURCES: Record<
   string,
-  { dwSourceType: string; requiredTable: string; recordKind: SourceType }
+  {
+    dwSourceType: string;
+    requiredTables: readonly string[];
+    recordKind: SourceType;
+  }
 > = Object.fromEntries(
   EXTERNAL_INBOX_SOURCES.map((s) => [
     s.product,
     {
       dwSourceType: s.dwSourceType,
-      requiredTable: s.requiredTables[0],
+      requiredTables: s.requiredTables,
       recordKind: s.recordKind,
     },
   ]),
@@ -68,7 +71,6 @@ const ALL_SOURCE_PRODUCTS: SignalSourceProduct[] = [
   "conversations",
   "error_tracking",
   "health_checks",
-  "session_replay",
   "llm_analytics",
   ...EXTERNAL_INBOX_SOURCES.map((s) => s.product),
 ];
@@ -175,32 +177,34 @@ export class SignalSourceService {
       return;
     }
 
-    const requiredSchema = schemas.find(
-      (s) => s.name.toLowerCase() === dwConfig.requiredTable,
-    );
-    if (!requiredSchema) {
-      return;
-    }
+    for (const table of dwConfig.requiredTables) {
+      const requiredSchema = schemas.find(
+        (s) => s.name.toLowerCase() === table.toLowerCase(),
+      );
+      if (!requiredSchema) {
+        continue;
+      }
 
-    // Issue-like records (issues, findings, feedback, reviews) mutate after creation, so
-    // they need full-refresh sync; tickets are append-only.
-    if (sourceNeedsFullRefresh(dwConfig.recordKind as SignalRecordKind)) {
-      const needsUpdate =
-        !requiredSchema.should_sync ||
-        requiredSchema.sync_type !== "full_refresh";
-      if (needsUpdate) {
+      // Issue-like records (issues, findings, feedback, reviews) mutate after creation, so
+      // they need full-refresh sync; tickets are append-only.
+      if (sourceNeedsFullRefresh(dwConfig.recordKind as SignalRecordKind)) {
+        const needsUpdate =
+          !requiredSchema.should_sync ||
+          requiredSchema.sync_type !== "full_refresh";
+        if (needsUpdate) {
+          await client.updateExternalDataSchema(projectId, requiredSchema.id, {
+            should_sync: true,
+            sync_type: "full_refresh",
+          });
+        }
+        continue;
+      }
+
+      if (!requiredSchema.should_sync) {
         await client.updateExternalDataSchema(projectId, requiredSchema.id, {
           should_sync: true,
-          sync_type: "full_refresh",
         });
       }
-      return;
-    }
-
-    if (!requiredSchema.should_sync) {
-      await client.updateExternalDataSchema(projectId, requiredSchema.id, {
-        should_sync: true,
-      });
     }
   }
 

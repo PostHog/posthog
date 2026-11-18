@@ -1,17 +1,9 @@
 import dagster
 
-from posthog.dags import backups
-
 from . import loggers, resources
 
+# Dagster Cloud loads this module as the team-logs location. Delete it only together with that location.
 defs = dagster.Definitions(
-    jobs=[
-        backups.non_sharded_backup,
-    ],
-    schedules=[
-        backups.full_logs_backup_schedule,
-        backups.incremental_logs_backup_schedule,
-    ],
     loggers=loggers,
     resources=resources,
 )

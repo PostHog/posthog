@@ -10,11 +10,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { AI_TRAINING_URL } from './aiTrainingConstants'
 import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
-function AITrainingDescription({ isHipaa, isLocked }: { isHipaa: boolean; isLocked: boolean }): JSX.Element {
-    if (isHipaa) {
+function AITrainingDescription({ hasSignedBaa, isLocked }: { hasSignedBaa: boolean; isLocked: boolean }): JSX.Element {
+    if (hasSignedBaa) {
         return (
             <p className="mb-2 text-sm text-secondary">
-                You are opted out of internal AI training because you are compliant with HIPAA.
+                You are opted out of internal AI training because you have a signed BAA with PostHog.
             </p>
         )
     }
@@ -44,22 +44,22 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
     const { updateOrganization } = useActions(organizationLogic)
 
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
-    const isHipaa = !!currentOrganization?.is_hipaa
+    const hasSignedBaa = !!currentOrganization?.has_signed_baa
     const isLocked = !!currentOrganization?.is_ai_training_locked
 
-    const disabledReason = isHipaa
-        ? 'HIPAA organizations are always opted out of AI training. Please contact us if this needs to change.'
+    const disabledReason = hasSignedBaa
+        ? 'Organizations with a signed BAA stay opted out of AI training. Contact us if this needs to change.'
         : isLocked
           ? 'Please contact us to change this setting.'
           : restrictionReason
             ? ORG_ADMIN_REQUIRED_TOOLTIP
             : undefined
 
-    const checked = !isHipaa && !!currentOrganization?.is_ai_training_opted_in
+    const checked = !hasSignedBaa && !!currentOrganization?.is_ai_training_opted_in
 
     return (
         <div className="max-w-160">
-            <AITrainingDescription isHipaa={isHipaa} isLocked={isLocked} />
+            <AITrainingDescription hasSignedBaa={hasSignedBaa} isLocked={isLocked} />
             <div className="my-4">
                 <LemonSwitch
                     label="Enable AI training on anonymized data"

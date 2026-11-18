@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 
 export interface MainFocusUrlInput {
     /** Whether the panel is running the new PostHog AI view rather than the legacy Max chat. */
@@ -31,5 +31,5 @@ export function mainFocusUrl({ isNewView, activeCreation, conversationId }: Main
         return null
     }
     // The panel keeps streaming the run it opened, while the task page otherwise defaults to the newest.
-    return combineUrl(urls.taskDetail(activeCreation.taskId), { runId: activeCreation.runId }).url
+    return combineUrl(urls.aiTask(activeCreation.taskId), { runId: activeCreation.runId }).url
 }

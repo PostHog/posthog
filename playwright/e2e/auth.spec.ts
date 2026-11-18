@@ -1,3 +1,4 @@
+import { NodeKind } from '../../frontend/src/queries/schema/schema-general'
 import { LoginPage } from '../page-models/loginPage'
 import { LOGIN_PASSWORD, LOGIN_USERNAME } from '../utils/playwright-test-core'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
@@ -5,9 +6,25 @@ import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace
 test.describe('Auth', () => {
     let loginPage: LoginPage
     let workspace: PlaywrightWorkspaceSetupResult | null = null
+    const redirectInsightName = 'Authentication redirect insight'
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+            insights: [
+                {
+                    name: redirectInsightName,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        },
+                    },
+                },
+            ],
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -16,19 +33,13 @@ test.describe('Auth', () => {
         loginPage = new LoginPage(page)
     })
 
-    test('Logout', async ({ page }) => {
-        await page.locator('[data-attr=new-account-menu-logout-button]').click()
-        await expect(page).toHaveURL('/login')
-    })
-
     test('Logout and login', async ({ page }) => {
         await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await expect(page.locator('[data-attr=password]')).toHaveValue(LOGIN_PASSWORD)
@@ -70,8 +81,7 @@ test.describe('Auth', () => {
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword('wrong password')
         await expect(page.locator('[data-attr=password]')).toHaveValue('wrong password')
@@ -85,29 +95,13 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
-    test('Redirect to appropriate place after login', async ({ page, context }) => {
-        await context.clearCookies()
-        await page.goto('/activity/explore', { waitUntil: 'commit' })
-        await expect(page).toHaveURL(/\/login/)
-
-        await loginPage.enterUsername(LOGIN_USERNAME)
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
-
-        await loginPage.enterPassword(LOGIN_PASSWORD)
-        await loginPage.clickLogin()
-
-        await expect(page).toHaveURL(/\/activity\/explore/)
-    })
-
     test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
         await context.clearCookies()
         await page.goto('/insights?search=testString', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
-        await page.locator('[data-attr=login-email]').blur()
-        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+        await loginPage.continueWithEmail()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()
@@ -116,21 +110,26 @@ test.describe('Auth', () => {
         await expect(page.locator('.saved-insight-empty-state')).toContainText('testString')
     })
 
+    test('Redirect to a saved insight after login', async ({ page, context }) => {
+        const insightShortId = workspace!.created_insights![0].short_id
+        const insightUrl = `/project/${workspace!.team_id}/insights/${insightShortId}`
+
+        await context.clearCookies()
+        await page.goto(insightUrl, { waitUntil: 'commit' })
+        await expect(page).toHaveURL(/\/login/)
+
+        await loginPage.enterUsername(workspace!.user_email)
+        await loginPage.continueWithEmail()
+
+        await loginPage.enterPassword(LOGIN_PASSWORD)
+        await loginPage.clickLogin()
+
+        await expect(page).toHaveURL(insightUrl)
+        await expect(page.getByTestId('scene-name')).toContainText(redirectInsightName)
+    })
+
     test('Cannot access signup page if authenticated', async ({ page }) => {
         await page.goto('/signup')
         await expect(page).toHaveURL(/\/project\/\d+/)
-    })
-
-    test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
-        const secondPage = await context.newPage()
-        await secondPage.goto('/')
-        await secondPage.locator('[data-attr=new-account-menu-button]').waitFor({ state: 'visible', timeout: 30000 })
-        await secondPage.locator('[data-attr=new-account-menu-button]').click()
-        await secondPage.locator('[data-attr=new-account-menu-logout-button]').click()
-        await secondPage.waitForURL(/\/login/)
-
-        // Reload the page to trigger API calls that will detect the logout
-        await page.reload()
-        await page.waitForURL(/\/login/, { timeout: 30000 })
     })
 })

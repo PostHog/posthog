@@ -19,7 +19,7 @@ interface SessionConfigActions {
 
 type SessionConfigStore = SessionConfigState & SessionConfigActions;
 
-export const useSessionConfigStore = create<SessionConfigStore>()(
+const useSessionConfigStore = create<SessionConfigStore>()(
   persist(
     (set, get) => ({
       configsByRunId: {},

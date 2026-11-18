@@ -146,6 +146,19 @@ describe("SessionService cloud subscription recovery", () => {
     vi.useRealTimers();
   });
 
+  it("keeps permanent token errors on focus and manual retry", async () => {
+    const { service, sessions, store } = createHarness();
+    Object.assign(sessions[RUN_ID], {
+      status: "error",
+      errorRetryable: false,
+      errorTitle: "Claude token unavailable",
+    });
+    service.retryUnhealthyCloudSessions();
+    await service.retryCloudTaskWatch(TASK_ID);
+    expect(store.updateSession).not.toHaveBeenCalled();
+    expect(sessions[RUN_ID].errorTitle).toBe("Claude token unavailable");
+  });
+
   it("rebuilds the subscription and re-issues watch after a subscription error", async () => {
     const { service, subscriptions, watchMutate } = createHarness();
     watchTask(service);
@@ -362,5 +375,35 @@ describe("SessionService cloud subscription recovery", () => {
 
     expect(subscriptions).toHaveLength(2);
     expect(watchMutate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SessionService moving a task's session to another run", () => {
+  it("keeps the queued messages when the task's latest run changes", () => {
+    const { service, sessions } = createHarness();
+    sessions[RUN_ID].messageQueue = [
+      { id: "queued-1", content: "next step", queuedAt: 1 },
+    ];
+    sessions[RUN_ID].editingQueuedId = "queued-1";
+
+    service.watchCloudTask(
+      TASK_ID,
+      "run-2",
+      "https://us.posthog.com",
+      2,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      undefined,
+      undefined,
+      "in_progress",
+    );
+
+    expect(sessions["run-2"].messageQueue).toEqual([
+      { id: "queued-1", content: "next step", queuedAt: 1 },
+    ]);
+    expect(sessions["run-2"].editingQueuedId).toBe("queued-1");
   });
 });

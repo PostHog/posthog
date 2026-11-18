@@ -21,14 +21,13 @@ from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from posthog.temporal.data_modeling.activities.utils import (
+from products.data_modeling.backend.logic.node_suspension import suspension_reset_at, suspension_state, unsuspend_nodes
+from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.temporal.activities.utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     count_leading_failures,
     is_externally_aborted,
 )
-
-from products.data_modeling.backend.logic.node_suspension import resume_nodes, suspension_reset_at, suspension_state
-from products.data_modeling.backend.models.node import Node
 
 RESUMED_BY = "suspension_recheck"
 
@@ -92,7 +91,7 @@ class Command(BaseCommand):
         # one call per marker, because clearing every engine of a node would free markers its other
         # engines did earn
         cleared = sum(
-            resume_nodes([marker.node], by=RESUMED_BY, engine=marker.engine, only_if=marker.still_unearned)
+            unsuspend_nodes([marker.node], by=RESUMED_BY, engine=marker.engine, only_if=marker.still_unearned)
             for marker in unearned
         )
         self.stdout.write(f"Cleared {cleared} marker(s).")

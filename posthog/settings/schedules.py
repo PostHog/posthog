@@ -4,15 +4,16 @@ from posthog.settings.utils import get_from_env
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 # Schedules to recalculate cohorts. Follows crontab syntax.
+# Skip minute zero so cohort recalculation does not join hourly batch starts.
 CALCULATE_COHORTS_DAY_SCHEDULE = get_from_env(
     "CALCULATE_COHORTS_DAY_SCHEDULE",
-    "*/2 6-17 * * *",
+    "1-59/2 6-17 * * *",
 )
 CALCULATE_X_PARALLEL_COHORTS_DURING_DAY = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_DAY", 5, type_cast=int)
 
 CALCULATE_COHORTS_NIGHT_SCHEDULE = get_from_env(
     "CALCULATE_COHORTS_NIGHT_SCHEDULE",
-    "* 0-5,18-23 * * *",
+    "1-59 0-5,18-23 * * *",
 )
 CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT", 5, type_cast=int)
 
@@ -40,6 +41,10 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
+# TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
+# retention_ttl in posthog/query_cache/cache.py decides which writes get it.
+CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)
+
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
 TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
 
@@ -54,7 +59,7 @@ CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
 # Schedule to delete redundant ClickHouse data on. Follows crontab syntax.
 # Use empty string to prevent this
 CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
-    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    "CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON",
     # Every third month 5AM UTC on 1st of the month
     "0 5 1 */3 *",
 )

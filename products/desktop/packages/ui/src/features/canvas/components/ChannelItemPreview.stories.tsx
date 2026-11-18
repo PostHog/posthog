@@ -170,3 +170,17 @@ export const Crowded: Story = {
     ),
   },
 };
+
+export const LocalAfterRestart: Story = {
+  args: {
+    item: item(
+      run({
+        environment: "local",
+        status: "queued",
+        completed_at: null,
+        state: { mode: "background" },
+      }),
+      { environment: "local" },
+    ),
+  },
+};

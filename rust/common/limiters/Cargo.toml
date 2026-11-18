@@ -15,7 +15,8 @@ metrics = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 rand = { workspace = true }
 serde_json = { workspace = true }
-strum = { version = "0.26", features = ["derive"] }
+siphasher = { workspace = true }
+strum = { version = "0.28", features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }

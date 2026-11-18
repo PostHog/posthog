@@ -29,6 +29,26 @@ describe("environmentSetup", () => {
     expect(seeded.imageName).toBe("posthog toolchain");
   });
 
+  it("seeds a preselected image as the existing base, except for an image scope", () => {
+    const seeded = emptyEnvironmentSetupPlan({ existingImageId: "image-1" });
+    expect(seeded.baseImage).toBe("existing");
+    expect(seeded.existingImageId).toBe("image-1");
+
+    const imageScoped = emptyEnvironmentSetupPlan({
+      scope: "image",
+      existingImageId: "image-1",
+    });
+    expect(imageScoped.baseImage).toBe("new");
+    expect(imageScoped.existingImageId).toBeNull();
+
+    const withoutImages = emptyEnvironmentSetupPlan({
+      customImages: false,
+      existingImageId: "image-1",
+    });
+    expect(withoutImages.baseImage).toBe("default");
+    expect(withoutImages.existingImageId).toBeNull();
+  });
+
   it("keeps a typed environment name when the repositories change", () => {
     const typed = withEnvironmentName(plan(), "Internal APIs");
     const moved = withRepositories(typed, ["posthog/hogql"]);

@@ -1,4 +1,6 @@
-import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, S3_REGION_OPTIONS, validateBucketName } from './common'
+import { S3_REGION_OPTIONS } from 'lib/integrations/s3Regions'
+
+import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, validateBucketName } from './common'
 import type { DestinationDefinition } from './types'
 
 // Catch-all for any non-AWS S3-compatible object storage. Exposes virtual-style addressing; no
@@ -27,6 +29,7 @@ export const s3CompatibleDefinition: DestinationDefinition = {
         'file_format',
         'compression',
         'max_file_size_mb',
+        'legacy_parquet_extension',
         'use_virtual_style_addressing',
     ],
     validate: (formValues) => ({
@@ -34,11 +37,12 @@ export const s3CompatibleDefinition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function S3CompatibleFields({ isNew, formValues }) {
+    Fields: function S3CompatibleFields({ isNew, formValues, savedConfig }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
+                savedConfig={savedConfig}
                 regionOptions={S3_REGION_OPTIONS}
                 allowCustomRegion
                 showEncryption={false}

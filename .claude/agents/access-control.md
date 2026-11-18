@@ -40,7 +40,7 @@ Users can gain access through:
 - `ee/models/rbac/access_control.py` - Database model
 - `ee/api/rbac/access_control.py` - API endpoints and ViewSet mixin
 - `posthog/permissions.py` - Permission classes
-- `posthog/scopes.py` - Resource type definitions
+- `posthog/scopes/catalog.py` - Resource type definitions
 
 ### Main Classes
 
@@ -54,7 +54,7 @@ Users can gain access through:
 ### 1. Add Resource to Scopes
 
 ```python
-# posthog/scopes.py
+# posthog/scopes/catalog.py
 ACCESS_CONTROL_RESOURCES = [
     "feature_flag",
     "dashboard",
@@ -374,7 +374,7 @@ RESOURCE_INHERITANCE_MAP = {
 
 ### Backend
 
-1. Add resource to `ACCESS_CONTROL_RESOURCES` in `posthog/scopes.py`
+1. Add resource to `ACCESS_CONTROL_RESOURCES` in `posthog/scopes/catalog.py`
 2. Add `AccessControlViewSetMixin` to your ViewSet
 3. Set `scope_object` attribute on ViewSet
 4. Add `AccessControlPermission` to permission classes
@@ -441,6 +441,28 @@ accessible_notebooks = user_access_control.filter_queryset_by_access_level(
     "viewer"
 )
 ```
+
+### Granting object access from product code
+
+When a product must keep a rule in step with its own state (an assignee, a share link), write the rule through the facade instead of the `AccessControl` model. Product code outside `products/access_control/` cannot import the model.
+
+```python
+from products.access_control.backend.facade import contracts
+from products.access_control.backend.facade.api import set_object_access_control
+
+set_object_access_control(
+    team_id=team.id,
+    input=contracts.SetObjectAccessControlInput(
+        resource="customer_task",
+        resource_id=str(task.id),
+        organization_member_id=assignee_membership.id,
+        access_level="editor",  # None removes the rule
+        created_by_id=actor.id,
+    ),
+)
+```
+
+The helper validates the resource, the level, and that the subject belongs to the team's organization. It does not check whether the actor may change access; the caller decides that. A `UserAccessControl` built before the call keeps its preloaded rows, so build a new one before re-checking the object in the same request.
 
 ### Performance Optimization
 

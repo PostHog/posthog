@@ -2,16 +2,25 @@ from posthog.api.routing import RouterRegistry
 
 from products.warehouse_sources.backend.presentation.views import (
     column_statistics,
+    external_data_destination,
     external_data_schema,
-    external_data_source,
+    warehouse_alert_destinations,
+    warehouse_migration,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"external_data_sources",
-        external_data_source.ExternalDataSourceViewSet,
+        ExternalDataSourceViewSet,
         "project_external_data_sources",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"external_data_destinations",
+        external_data_destination.ExternalDataDestinationViewSet,
+        "project_external_data_destinations",
         ["team_id"],
     )
     routers.projects.register(
@@ -21,8 +30,20 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"warehouse_alerts",
+        warehouse_alert_destinations.WarehouseAlertDestinationViewSet,
+        "project_warehouse_alerts",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"warehouse_column_statistics",
         column_statistics.WarehouseColumnStatisticsViewSet,
         "project_warehouse_column_statistics",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"warehouse_migrations",
+        warehouse_migration.WarehouseMigrationViewSet,
+        "project_warehouse_migrations",
         ["team_id"],
     )

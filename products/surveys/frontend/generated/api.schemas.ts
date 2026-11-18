@@ -8,14 +8,112 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `Generic (Leave feedback button)` - Leave Feedback
+ * * `Visiting PostHog web` - Posthog Web
+ */
+export type DesktopFeedbackSourceEnumApi =
+    (typeof DesktopFeedbackSourceEnumApi)[keyof typeof DesktopFeedbackSourceEnumApi]
+
+export const DesktopFeedbackSourceEnumApi = {
+    GenericLeaveFeedbackButton: 'Generic (Leave feedback button)',
+    VisitingPostHogWeb: 'Visiting PostHog web',
+} as const
+
+/**
+ * * `bug` - Bug
+ * * `feature` - Feature
+ * * `general` - General
+ */
+export type DesktopFeedbackTypeEnumApi = (typeof DesktopFeedbackTypeEnumApi)[keyof typeof DesktopFeedbackTypeEnumApi]
+
+export const DesktopFeedbackTypeEnumApi = {
+    Bug: 'bug',
+    Feature: 'feature',
+    General: 'general',
+} as const
+
+export interface DesktopFeedbackRequestApi {
+    /**
+     * Feedback text entered by the user.
+     * @maxLength 4000
+     */
+    response: string
+    /** Desktop surface that opened the feedback form.
+     *
+     * * `Generic (Leave feedback button)` - Leave Feedback
+     * * `Visiting PostHog web` - Posthog Web */
+    source: DesktopFeedbackSourceEnumApi
+    /**
+     * Desktop view that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_view: string
+    /** Feedback type selected by the user: bug, feature, or general.
+     *
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General */
+    feedback_type?: DesktopFeedbackTypeEnumApi
+    /**
+     * Task that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_task_id?: string
+    /**
+     * Folder that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_folder_id?: string
+    /**
+     * Recent Desktop logs that the user chose to include.
+     * @maxLength 20000
+     */
+    feedback_app_logs?: string
+    /**
+     * Version of PostHog Desktop that submitted the feedback.
+     * @maxLength 100
+     */
+    app_version?: string
+    /** PostHog session recording identifier for the Desktop session. */
+    session_id?: string
+    /** Screenshot that the user chose to include. */
+    screenshot?: Blob
+    /** First image that the user attached. */
+    image_1?: Blob
+    /** Second image that the user attached. */
+    image_2?: Blob
+}
+
+export interface DesktopFeedbackResponseApi {
+    /** Whether the feedback response was accepted. */
+    accepted: boolean
+    /** Identifier of the survey response event. */
+    response_id: string
+}
+
+export interface DesktopFeedbackErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error detail. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
  * * `popover` - popover
  * * `widget` - widget
  * * `external_survey` - external survey
  * * `api` - api
  */
-export type SurveyTypeApi = (typeof SurveyTypeApi)[keyof typeof SurveyTypeApi]
+export type SurveyTypeEnumApi = (typeof SurveyTypeEnumApi)[keyof typeof SurveyTypeEnumApi]
 
-export const SurveyTypeApi = {
+export const SurveyTypeEnumApi = {
     Popover: 'popover',
     Widget: 'widget',
     ExternalSurvey: 'external_survey',
@@ -141,10 +239,10 @@ export interface UserBasicApi {
  * * `week` - week
  * * `month` - month
  */
-export type ResponseSamplingIntervalTypeEnumApi =
-    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
+export type SurveySamplingIntervalTypeEnumApi =
+    (typeof SurveySamplingIntervalTypeEnumApi)[keyof typeof SurveySamplingIntervalTypeEnumApi]
 
-export const ResponseSamplingIntervalTypeEnumApi = {
+export const SurveySamplingIntervalTypeEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -172,7 +270,7 @@ export interface SurveyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -324,6 +422,11 @@ export interface SurveyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -336,7 +439,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -384,9 +487,9 @@ export interface PaginatedSurveyListApi {
  * * `recurring` - recurring
  * * `always` - always
  */
-export type ScheduleEnumApi = (typeof ScheduleEnumApi)[keyof typeof ScheduleEnumApi]
+export type SurveyScheduleEnumApi = (typeof SurveyScheduleEnumApi)[keyof typeof SurveyScheduleEnumApi]
 
-export const ScheduleEnumApi = {
+export const SurveyScheduleEnumApi = {
     Once: 'once',
     Recurring: 'recurring',
     Always: 'always',
@@ -563,26 +666,25 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 }
 
 /**
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
  * * `semver_gt` - semver_gt
  * * `semver_gte` - semver_gte
  * * `semver_lt` - semver_lt
  * * `semver_lte` - semver_lte
- * * `semver_eq` - semver_eq
- * * `semver_neq` - semver_neq
  * * `semver_tilde` - semver_tilde
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
     SemverGte: 'semver_gte',
     SemverLt: 'semver_lt',
     SemverLte: 'semver_lte',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
     SemverTilde: 'semver_tilde',
     SemverCaret: 'semver_caret',
     SemverWildcard: 'semver_wildcard',
@@ -609,16 +711,16 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
     group_type_index?: number | null
     /** Semantic version comparison operator.
      *
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }
@@ -709,6 +811,10 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
+    /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+    cohort_missing?: boolean
 }
 
 /**
@@ -844,77 +950,51 @@ export const DescriptionContentTypeEnumApi = {
     Text: 'text',
 } as const
 
-export interface SurveyOpenQuestionSchemaApi {
-    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-    id?: string
-    type: SurveyOpenQuestionSchemaTypeEnumApi
-    /** Question text shown to respondents. */
-    question: string
-    /** Optional helper text. */
+export interface SurveyQuestionTranslationSchemaApi {
+    /** Translated question text. */
+    question?: string
+    /** Translated helper text. */
     description?: string
-    /** Format for the description field.
-     *
-     * * `text` - text
-     * * `html` - html */
-    descriptionContentType?: DescriptionContentTypeEnumApi
-    /** Whether respondents may skip this question. */
-    optional?: boolean
-    /** Custom button label. */
+    /** Translated button label. */
     buttonText?: string
+    /** Translated lowest rating label. Rating questions only. */
+    lowerBoundLabel?: string
+    /** Translated highest rating label. Rating questions only. */
+    upperBoundLabel?: string
+    /** Translated choices. Must have the same length as the question choices. Choice questions only. */
+    choices?: string[]
+    /** Translated URL. Link questions only. */
+    link?: string
 }
 
 /**
- * * `link` - link
+ * * `min_length` - min_length
+ * * `max_length` - max_length
+ * * `email` - email
  */
-export type SurveyLinkQuestionSchemaTypeEnumApi =
-    (typeof SurveyLinkQuestionSchemaTypeEnumApi)[keyof typeof SurveyLinkQuestionSchemaTypeEnumApi]
+export type SurveyQuestionValidationRuleTypeEnumApi =
+    (typeof SurveyQuestionValidationRuleTypeEnumApi)[keyof typeof SurveyQuestionValidationRuleTypeEnumApi]
 
-export const SurveyLinkQuestionSchemaTypeEnumApi = {
-    Link: 'link',
+export const SurveyQuestionValidationRuleTypeEnumApi = {
+    MinLength: 'min_length',
+    MaxLength: 'max_length',
+    Email: 'email',
 } as const
 
-export interface SurveyLinkQuestionSchemaApi {
-    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-    id?: string
-    type: SurveyLinkQuestionSchemaTypeEnumApi
-    /** Question text shown to respondents. */
-    question: string
-    /** Optional helper text. */
-    description?: string
-    /** Format for the description field.
+export interface SurveyQuestionValidationRuleApi {
+    /** Validation rule type for open-text questions.
      *
-     * * `text` - text
-     * * `html` - html */
-    descriptionContentType?: DescriptionContentTypeEnumApi
-    /** Whether respondents may skip this question. */
-    optional?: boolean
-    /** Custom button label. */
-    buttonText?: string
-    /** HTTPS or mailto URL for link questions. */
-    link: string
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email */
+    type: SurveyQuestionValidationRuleTypeEnumApi
+    /**
+     * Rule value for min_length or max_length validations.
+     * @minimum 1
+     * @nullable
+     */
+    value?: number | null
 }
-
-/**
- * * `rating` - rating
- */
-export type SurveyRatingQuestionSchemaTypeEnumApi =
-    (typeof SurveyRatingQuestionSchemaTypeEnumApi)[keyof typeof SurveyRatingQuestionSchemaTypeEnumApi]
-
-export const SurveyRatingQuestionSchemaTypeEnumApi = {
-    Rating: 'rating',
-} as const
-
-/**
- * * `number` - number
- * * `emoji` - emoji
- */
-export type SurveyRatingQuestionSchemaDisplayEnumApi =
-    (typeof SurveyRatingQuestionSchemaDisplayEnumApi)[keyof typeof SurveyRatingQuestionSchemaDisplayEnumApi]
-
-export const SurveyRatingQuestionSchemaDisplayEnumApi = {
-    Number: 'number',
-    Emoji: 'emoji',
-} as const
 
 /**
  * * `next_question` - next_question
@@ -1002,6 +1082,104 @@ export type SurveyBranchingSchemaApi =
     | SurveySpecificQuestionBranchingApi
     | SurveyResponseBasedBranchingApi
 
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ */
+export type SurveyOpenQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi }
+
+export interface SurveyOpenQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
+    type: SurveyOpenQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+     *
+     * * `text` - text
+     * * `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+    translations?: SurveyOpenQuestionSchemaApiTranslations
+    /**
+     * Validation rules for the response text, for example a minimum length.
+     * @nullable
+     */
+    validation?: SurveyQuestionValidationRuleApi[] | null
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `link` - link
+ */
+export type SurveyLinkQuestionSchemaTypeEnumApi =
+    (typeof SurveyLinkQuestionSchemaTypeEnumApi)[keyof typeof SurveyLinkQuestionSchemaTypeEnumApi]
+
+export const SurveyLinkQuestionSchemaTypeEnumApi = {
+    Link: 'link',
+} as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ */
+export type SurveyLinkQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi }
+
+export interface SurveyLinkQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
+    type: SurveyLinkQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+     *
+     * * `text` - text
+     * * `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+    translations?: SurveyLinkQuestionSchemaApiTranslations
+    /** HTTPS or mailto URL for link questions. */
+    link: string
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `rating` - rating
+ */
+export type SurveyRatingQuestionSchemaTypeEnumApi =
+    (typeof SurveyRatingQuestionSchemaTypeEnumApi)[keyof typeof SurveyRatingQuestionSchemaTypeEnumApi]
+
+export const SurveyRatingQuestionSchemaTypeEnumApi = {
+    Rating: 'rating',
+} as const
+
+/**
+ * * `number` - number
+ * * `emoji` - emoji
+ */
+export type SurveyRatingQuestionSchemaDisplayEnumApi =
+    (typeof SurveyRatingQuestionSchemaDisplayEnumApi)[keyof typeof SurveyRatingQuestionSchemaDisplayEnumApi]
+
+export const SurveyRatingQuestionSchemaDisplayEnumApi = {
+    Number: 'number',
+    Emoji: 'emoji',
+} as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ */
+export type SurveyRatingQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi }
+
 export interface SurveyRatingQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
     id?: string
@@ -1019,6 +1197,8 @@ export interface SurveyRatingQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+    translations?: SurveyRatingQuestionSchemaApiTranslations
     /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
      *
      * * `number` - number
@@ -1033,6 +1213,8 @@ export interface SurveyRatingQuestionSchemaApi {
     lowerBoundLabel?: string
     /** Label for the highest rating (e.g., 'Excellent') */
     upperBoundLabel?: string
+    /** Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true. */
+    isNpsQuestion?: boolean
     branching?: SurveyBranchingSchemaApi | null
 }
 
@@ -1045,6 +1227,11 @@ export type SurveySingleChoiceQuestionSchemaTypeEnumApi =
 export const SurveySingleChoiceQuestionSchemaTypeEnumApi = {
     SingleChoice: 'single_choice',
 } as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ */
+export type SurveySingleChoiceQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi }
 
 export interface SurveySingleChoiceQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
@@ -1063,6 +1250,8 @@ export interface SurveySingleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+    translations?: SurveySingleChoiceQuestionSchemaApiTranslations
     /**
      * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
      * @minItems 2
@@ -1086,6 +1275,11 @@ export const SurveyMultipleChoiceQuestionSchemaTypeEnumApi = {
     MultipleChoice: 'multiple_choice',
 } as const
 
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ */
+export type SurveyMultipleChoiceQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi }
+
 export interface SurveyMultipleChoiceQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
     id?: string
@@ -1103,6 +1297,8 @@ export interface SurveyMultipleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost. */
+    translations?: SurveyMultipleChoiceQuestionSchemaApiTranslations
     /**
      * Array of choice options. Multiple selections allowed. No branching logic supported.
      * @minItems 2
@@ -1200,6 +1396,33 @@ export interface SurveyConditionsSchemaApi {
 }
 
 /**
+ * * `top_left` - top_left
+ * * `top_center` - top_center
+ * * `top_right` - top_right
+ * * `middle_left` - middle_left
+ * * `middle_center` - middle_center
+ * * `middle_right` - middle_right
+ * * `left` - left
+ * * `center` - center
+ * * `right` - right
+ * * `next_to_trigger` - next_to_trigger
+ */
+export type SurveyPositionEnumApi = (typeof SurveyPositionEnumApi)[keyof typeof SurveyPositionEnumApi]
+
+export const SurveyPositionEnumApi = {
+    TopLeft: 'top_left',
+    TopCenter: 'top_center',
+    TopRight: 'top_right',
+    MiddleLeft: 'middle_left',
+    MiddleCenter: 'middle_center',
+    MiddleRight: 'middle_right',
+    Left: 'left',
+    Center: 'center',
+    Right: 'right',
+    NextToTrigger: 'next_to_trigger',
+} as const
+
+/**
  * * `button` - button
  * * `tab` - tab
  * * `selector` - selector
@@ -1212,6 +1435,21 @@ export const WidgetTypeEnumApi = {
     Selector: 'selector',
 } as const
 
+/**
+ * * `top` - top
+ * * `left` - left
+ * * `right` - right
+ * * `bottom` - bottom
+ */
+export type SurveyTabPositionEnumApi = (typeof SurveyTabPositionEnumApi)[keyof typeof SurveyTabPositionEnumApi]
+
+export const SurveyTabPositionEnumApi = {
+    Top: 'top',
+    Left: 'left',
+    Right: 'right',
+    Bottom: 'bottom',
+} as const
+
 export interface SurveyAppearanceSchemaApi {
     backgroundColor?: string
     submitButtonColor?: string
@@ -1222,6 +1460,12 @@ export interface SurveyAppearanceSchemaApi {
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     ratingButtonHoverColor?: string
+    /** Color of secondary text, such as question descriptions. */
+    textSubtleColor?: string
+    /** Background color of open text inputs and rating buttons. */
+    inputBackground?: string
+    /** Text color of open text inputs and rating buttons. Calculated from inputBackground when not set. */
+    inputTextColor?: string
     whiteLabel?: boolean
     autoDisappear?: boolean
     displayThankYouMessage?: boolean
@@ -1229,10 +1473,40 @@ export interface SurveyAppearanceSchemaApi {
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
+    /** Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set. */
+    displayIntroScreen?: boolean
+    /** Heading of the intro screen. */
+    introScreenHeader?: string
+    /** Body text of the intro screen. */
+    introScreenDescription?: string
+    /** Content type of introScreenDescription.
+     *
+     * * `text` - text
+     * * `html` - html */
+    introScreenDescriptionContentType?: DescriptionContentTypeEnumApi
+    /** Label of the button that closes the intro screen and starts the survey. */
+    introScreenButtonText?: string
     borderColor?: string
     placeholder?: string
+    /** Where a popover survey appears on the page. Defaults to 'right'.
+     *
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger */
+    position?: SurveyPositionEnumApi
     shuffleQuestions?: boolean
-    surveyPopupDelaySeconds?: number
+    /**
+     * Seconds to wait before a popover survey appears. Null shows it without a delay.
+     * @nullable
+     */
+    surveyPopupDelaySeconds?: number | null
     /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
     allowGoBack?: boolean
     /** Optional override for the back button label. Defaults to 'Back'. */
@@ -1241,11 +1515,22 @@ export interface SurveyAppearanceSchemaApi {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    /** Which edge of the page holds the tab of a widget survey with widgetType 'tab'.
+     *
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom */
+    tabPosition?: SurveyTabPositionEnumApi
     fontFamily?: string
     maxWidth?: string
     zIndex?: string
     disabledButtonOpacity?: string
     boxPadding?: string
+    /** CSS box-shadow value of the survey box. */
+    boxShadow?: string
+    /** CSS border-radius value of the survey box. */
+    borderRadius?: string
 }
 
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
@@ -1264,13 +1549,13 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type: SurveyTypeApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    type: SurveyTypeEnumApi
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1430,7 +1715,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -1443,6 +1728,11 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1455,7 +1745,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1491,7 +1781,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -1645,6 +1935,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1657,7 +1952,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1701,13 +1996,13 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type?: SurveyTypeApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    type?: SurveyTypeEnumApi
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag?: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1867,7 +2162,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -1880,6 +2175,11 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1892,7 +2192,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1923,6 +2223,73 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     form_content?: unknown
 }
 
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
 /**
  * Optional translation-only draft survey payload to translate instead of the last saved survey.
  */
@@ -1948,6 +2315,14 @@ export interface GeneratedSurveyRootTranslationApi {
     thankYouMessageDescription?: string
     /** Translated thank-you close button text. */
     thankYouMessageCloseButtonText?: string
+    /** Translated intro screen header. */
+    introScreenHeader?: string
+    /** Translated intro screen description. */
+    introScreenDescription?: string
+    /** Translated intro screen button text. */
+    introScreenButtonText?: string
+    /** Translated back button text. */
+    backButtonText?: string
 }
 
 /**
@@ -2071,7 +2446,20 @@ export interface SurveyResponseRowApi {
     extra: SurveyResponseExtraApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SurveyResponsesListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Survey response rows for the requested page. */
     results: SurveyResponseRowApi[]
     /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -2080,6 +2468,67 @@ export interface SurveyResponsesListApi {
     limit: number
     /** The offset applied to this query (echoed back for pagination). */
     offset: number
+}
+
+/**
+ * * `unavailable` - unavailable
+ * * `rendering` - rendering
+ * * `ready` - ready
+ */
+export type SnapshotStatusEnumApi = (typeof SnapshotStatusEnumApi)[keyof typeof SnapshotStatusEnumApi]
+
+export const SnapshotStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Rendering: 'rendering',
+    Ready: 'ready',
+} as const
+
+export interface SiteStyleApi {
+    /** Hex color of the page surface behind its main content. */
+    background_color: string
+    /** Hex color of the page's main text. */
+    text_color: string
+    /**
+     * Hex background color of the page's most prominent button. Null when none was found.
+     * @nullable
+     */
+    button_color: string | null
+    /**
+     * Hex text color of that button. Null when no button was found.
+     * @nullable
+     */
+    button_text_color: string | null
+    /**
+     * Corner radius of that button in CSS pixels. Null when no button was found.
+     * @nullable
+     */
+    button_border_radius: number | null
+}
+
+export interface SiteSnapshotApi {
+    /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+     *
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready */
+    status: SnapshotStatusEnumApi
+    /**
+     * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+     * @nullable
+     */
+    exported_asset_id: number | null
+    /**
+     * URL of the page the snapshot shows. Null when the status is `unavailable`.
+     * @nullable
+     */
+    page_url: string | null
+    /**
+     * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+     * @nullable
+     */
+    viewport_width: number | null
+    /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+    site_style: SiteStyleApi | null
 }
 
 /**
@@ -2168,6 +2617,10 @@ export type SurveysListParams = {
      */
     limit?: number
     /**
+     * Filter surveys by the ID of the feature flag they are linked to.
+     */
+    linked_flag_id?: number
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
@@ -2209,6 +2662,19 @@ export const SurveysListType = {
     Widget: 'widget',
 } as const
 
+export type SurveysActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
 export type SurveysResponsesListParams = {
     /**
      * When true, exclude responses that have been archived via the archive_response endpoint.
@@ -2248,13 +2714,60 @@ export type SurveysResponsesListParams = {
     until?: string
 }
 
+export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType
+}
+
+export type SurveysSiteSnapshotRetrieveDevice =
+    (typeof SurveysSiteSnapshotRetrieveDevice)[keyof typeof SurveysSiteSnapshotRetrieveDevice]
+
+export const SurveysSiteSnapshotRetrieveDevice = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
+
+export type SurveysSiteSnapshotRetrieveUrlMatchType =
+    (typeof SurveysSiteSnapshotRetrieveUrlMatchType)[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType]
+
+export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+} as const
+
 export type SurveysStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
     /**
@@ -2276,11 +2789,11 @@ export type SurveysSummarizeResponsesCreateParams = {
 
 export type SurveysGlobalStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
 }

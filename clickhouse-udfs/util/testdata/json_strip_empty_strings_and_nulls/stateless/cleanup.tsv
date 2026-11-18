@@ -1,0 +1,3 @@
+{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}
+{"keep":0,"false":false,"text":" ","nested":{"drop":null,"keep":"x"},"array":[null,"",{},[],{"drop":null,"keep":1}]}
+[{"a":null},{"a":1},[],null,"",false]

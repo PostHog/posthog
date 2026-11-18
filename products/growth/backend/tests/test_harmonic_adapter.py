@@ -60,14 +60,29 @@ def test_camelcase_projection_to_the_scorer_shape():
         "funding_attribute_null_status": "EXISTS_BUT_UNDISCLOSED",
         "tags_v2": [{"display_value": "Developer Tools", "type": "MARKET"}],
         "traction_metrics": {
-            "web_traffic": {"latest_metric_value": 12_000, "90d_ago": {"percent_change": None, "change": None}},
-            "headcount": {"latest_metric_value": 42, "180d_ago": {"percent_change": None, "change": None}},
+            "web_traffic": {
+                "latest_metric_value": 12_000,
+                **{
+                    horizon: {"percent_change": None, "change": None}
+                    for horizon in ("30d_ago", "90d_ago", "180d_ago", "365d_ago")
+                },
+            },
+            "headcount": {
+                "latest_metric_value": 42,
+                **{
+                    horizon: {"percent_change": None, "change": None}
+                    for horizon in ("30d_ago", "90d_ago", "180d_ago", "365d_ago")
+                },
+            },
             "headcount_engineering": {"latest_metric_value": 7},
         },
     }
 
 
-def test_growth_derived_as_of_the_latest_observation():
+@parameterized.expand(
+    [("30d_ago", 50.0, 4_000), ("90d_ago", 50.0, 4_000), ("180d_ago", 500.0, 10_000), ("365d_ago", None, None)]
+)
+def test_growth_derived_as_of_the_latest_observation(horizon, percent_change, change):
     # Latest point 2026-06-01; the 90d-ago anchor (2026-03-03) resolves to the last
     # observation at or before it (2026-02-20, value 8000) — no interpolation, no peeking.
     company = {
@@ -83,7 +98,7 @@ def test_growth_derived_as_of_the_latest_observation():
         }
     }
     block = _normalized(company)["traction_metrics"]["web_traffic"]
-    assert block["90d_ago"] == {"percent_change": 50.0, "change": 4_000}
+    assert block[horizon] == {"percent_change": percent_change, "change": change}
 
 
 def test_headcount_growth_uses_the_180d_window_and_absolute_change():

@@ -36,6 +36,11 @@ export async function streamBodyToResponse(
     void reader.cancel().catch(() => {});
   });
   while (true) {
+    // "close" never fires again on an already-destroyed response.
+    if (res.destroyed) {
+      void reader.cancel().catch(() => {});
+      return;
+    }
     const { done, value } = await reader.read();
     if (done) {
       res.end();

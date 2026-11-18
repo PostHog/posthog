@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -7,7 +7,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
 
-class TestFormulaAST(APIBaseTest):
+class TestFormulaAST(SimpleTestCase):
     def _get_formula_ast(self) -> FormulaAST:
         formula = FormulaAST(data=[[1, 2, 3, 4], [1, 2, 3, 4]])
         return formula

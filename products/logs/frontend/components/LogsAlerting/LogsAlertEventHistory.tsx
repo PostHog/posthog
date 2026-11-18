@@ -15,7 +15,7 @@ import {
     LogsAlertConfigurationApi,
     LogsAlertEventApi,
     LogsAlertEventKindEnumApi,
-    LogsAlertThresholdOperatorEnumApi,
+    LogsAlertConfigurationThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertEventHistoryLogicProps, logsAlertEventHistoryLogic } from './logsAlertEventHistoryLogic'
@@ -32,7 +32,7 @@ export function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfig
 
 function getHistoryThresholds(alert: LogsAlertConfigurationApi): AlertEvaluationThreshold[] {
     const thresholdValue = alert.threshold_count ?? 100
-    if (alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below) {
+    if (alert.threshold_operator === LogsAlertConfigurationThresholdOperatorEnumApi.Below) {
         return [{ direction: 'lower', value: thresholdValue, label: `Below (${thresholdValue})` }]
     }
     return [{ direction: 'upper', value: thresholdValue, label: `Above (${thresholdValue})` }]
@@ -134,6 +134,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
     [LogsAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
     [LogsAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
+    [LogsAlertEventKindEnumApi.Handback]: { label: 'State restored', type: 'default' },
 }
 
 function describeEvent(event: LogsAlertEventApi): EventDescription {

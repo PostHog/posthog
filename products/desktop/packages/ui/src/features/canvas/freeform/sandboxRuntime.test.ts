@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import { describe, expect, it, vi } from "vitest";
+import builderSource from "../../../../../../../canvas/packages/canvas_builder/build.mjs?raw";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
@@ -12,6 +17,47 @@ function clickTarget(html: string, selector: string): Element {
   const element = container.querySelector(selector);
   if (!element) throw new Error(`selector ${selector} not found`);
   return element;
+}
+
+// Runs the document's import-map setup script against stub Blob/URL/document
+// globals and returns the map it installs. jsdom has no createObjectURL, and
+// asserting the map it produces beats matching the script's source text.
+function installedImportMap(html: string): Record<string, string> {
+  const setup = [
+    ...new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelectorAll("script"),
+  ].find((script) => script.textContent?.includes("canvasImportMap"));
+  if (!setup?.textContent) throw new Error("import-map setup script not found");
+
+  const blobs: string[] = [];
+  const installed: { type?: string; textContent?: string } = {};
+  const documentStub = {
+    createElement: () => installed,
+    head: { appendChild: () => undefined },
+  };
+  const urlStub = {
+    createObjectURL: (blob: { parts: string[] }) =>
+      `blob:${blobs.push(blob.parts.join("")) - 1}`,
+  };
+  class BlobStub {
+    constructor(public parts: string[]) {}
+  }
+
+  new Function("document", "URL", "Blob", setup.textContent)(
+    documentStub,
+    urlStub,
+    BlobStub,
+  );
+
+  expect(installed.type).toBe("importmap");
+  const imports = JSON.parse(installed.textContent ?? "{}").imports;
+  // Resolve blob handles back to their source so callers can assert content.
+  for (const [name, url] of Object.entries(imports)) {
+    const index = /^blob:(\d+)$/.exec(String(url))?.[1];
+    if (index) imports[name] = blobs[Number(index)];
+  }
+  return imports;
 }
 
 describe("decodeJsxUnicodeEscapes", () => {
@@ -57,13 +103,181 @@ describe("decodeJsxUnicodeEscapes", () => {
   });
 });
 
+interface PostedMessage {
+  type: string;
+  id: string;
+  method?: string;
+  [key: string]: unknown;
+}
+
+interface PublishedRuntimeApi {
+  navigate: {
+    toNewTask: (options: { prompt: string; repository: string }) => void;
+  };
+  openExternal: (url: string) => void;
+  state: { get: (key: string) => Promise<unknown> };
+}
+
+// Boots the published runtime (a string bundle) against stub globals and
+// connects a fake host port, so a test can drive `ph.*` and answer the
+// protocol messages it posts.
+function bootPublishedRuntime(): {
+  ph: PublishedRuntimeApi;
+  userActivation: { isActive: boolean };
+  posted: PostedMessage[];
+  requests: () => PostedMessage[];
+  respond: (id: string, body: Record<string, unknown>) => void;
+} {
+  const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
+  if (!source) throw new Error("Published runtime not found");
+  const listeners = new Map<string, (event: unknown) => void>();
+  const portListeners = new Map<string, (event: unknown) => void>();
+  const posted: PostedMessage[] = [];
+  const port = {
+    postMessage: (message: PostedMessage) => posted.push(message),
+    addEventListener: (name: string, listener: (event: unknown) => void) =>
+      portListeners.set(name, listener),
+    start: vi.fn(),
+  };
+  const frame = { ph: undefined as unknown as PublishedRuntimeApi };
+  const userActivation = { isActive: true };
+  const parent = {};
+  new Function(
+    "window",
+    "document",
+    "location",
+    "parent",
+    "navigator",
+    "addEventListener",
+    source,
+  )(
+    frame,
+    document,
+    { hash: "" },
+    parent,
+    { userActivation },
+    (name: string, listener: (event: unknown) => void) =>
+      listeners.set(name, listener),
+  );
+  listeners.get("message")?.({
+    source: parent,
+    data: { channel: "posthog-canvas", type: "connect" },
+    ports: [port],
+  });
+  return {
+    ph: frame.ph,
+    userActivation,
+    posted,
+    requests: () => posted.filter((message) => message.type === "data-request"),
+    respond: (id, body) =>
+      portListeners.get("message")?.({
+        data: { channel: "posthog-canvas", type: "data-response", id, ...body },
+      }),
+  };
+}
+
 describe("buildSandboxDocument", () => {
+  it("publishes navigation and the same GitHub URL restriction as the host", () => {
+    const { ph, userActivation, posted } = bootPublishedRuntime();
+
+    ph.navigate.toNewTask({
+      prompt: "Inspect this PR",
+      repository: "example/app",
+    });
+    expect(posted.at(-1)).toEqual({
+      channel: "posthog-canvas",
+      type: "navigate",
+      nav: {
+        target: "compose-task",
+        prompt: "Inspect this PR",
+        repository: "example/app",
+      },
+    });
+    ph.openExternal("https://github.com/example/app/pull/42");
+    expect(posted.at(-1)).toEqual({
+      channel: "posthog-canvas",
+      type: "open-external",
+      url: "https://github.com/example/app/pull/42",
+    });
+    expect(() => ph.openExternal("https://github.com/login")).toThrow(
+      "not allowed",
+    );
+    expect(() =>
+      ph.openExternal("https://github.com.evil.com/example/app/pull/42"),
+    ).toThrow("not allowed");
+    userActivation.isActive = false;
+    expect(() =>
+      ph.navigate.toNewTask({ prompt: "Inspect", repository: "example/app" }),
+    ).toThrow("user action");
+  });
+
+  // A canvas that fans out more requests than the host runs at once gets its
+  // extras refused once the host queue is full. Before the retry the cards
+  // stayed broken until someone refreshed the whole canvas.
+  it("sends a refused request again when the host marks it retryable", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ph, requests, respond } = bootPublishedRuntime();
+      const read = ph.state.get("board");
+
+      respond(requests()[0].id, {
+        ok: false,
+        error: "Too many canvas data requests are already waiting",
+        retryable: true,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(requests()).toHaveLength(2);
+      const retry = requests()[1];
+      expect(retry.method).toBe("stateGet");
+      respond(retry.id, { ok: true, result: { columns: 3 } });
+      await expect(read).resolves.toEqual({ columns: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on a refusal the host does not mark retryable", async () => {
+    const { ph, requests, respond } = bootPublishedRuntime();
+    const read = ph.state.get("board");
+
+    respond(requests()[0].id, {
+      ok: false,
+      error: "Canvas data request is over the 64KB payload limit",
+    });
+
+    await expect(read).rejects.toThrow("64KB payload limit");
+    expect(requests()).toHaveLength(1);
+  });
+
+  it("sends a refused request again in the authoring sandbox too", () => {
+    const html = buildSandboxDocument();
+    expect(html).toContain("d.retryable === true");
+    expect(html).toContain("call(method, payload, attempt + 1)");
+  });
+
   it("inlines the unicode-escape decoder into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
       "const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(",
     );
     expect(html).toContain("jsxUnicodeEscapesPlugin");
+  });
+
+  // The SDK has no CDN pin, so it resolves only if the document mints it as a
+  // blob module and registers it. Assembling the map at runtime also has to
+  // keep the CDN pins it replaced, because losing those breaks every canvas
+  // rather than only the ones importing the SDK.
+  it("registers the canvas SDK alongside the CDN pins in the import map", () => {
+    const imports = installedImportMap(buildSandboxDocument());
+
+    expect(imports[CANVAS_SDK_SPECIFIER]).toBe(CANVAS_SDK_MODULE_SOURCE);
+    expect(imports.react).toContain("esm.sh");
+    expect(imports["react/jsx-runtime"]).toContain("esm.sh");
+  });
+
+  it("treats null connector options as an omitted refresh value", () => {
+    expect(buildSandboxDocument()).toContain("refresh: options?.refresh");
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {

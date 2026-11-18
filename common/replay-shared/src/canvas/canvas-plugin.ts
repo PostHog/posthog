@@ -2,6 +2,7 @@ import { Replayer, canvasMutation } from 'posthog-js/rrweb'
 import { ReplayPlugin } from 'posthog-js/rrweb'
 import {
     CanvasArg,
+    CanvasContext,
     EventType,
     IncrementalSource,
     canvasMutationData,
@@ -55,9 +56,29 @@ const PRELOAD_BUFFER_SIZE = 20
 const BUFFER_TIME = 30000 // 30 seconds
 const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
-export type CanvasPluginErrorHandler = (error: unknown) => void
+export type CanvasPluginErrorContext = {
+    canvas_node_id: number
+    canvas_context: string
+}
+
+export type CanvasPluginErrorHandler = (error: unknown, context?: CanvasPluginErrorContext) => void
 
 const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
+
+export class CanvasMutationError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'CanvasMutationError'
+    }
+}
+
+// The node id stays out of the message so that error tracking groups failures by context, not by canvas.
+function toCanvasMutationError(error: unknown, context: CanvasPluginErrorContext): unknown {
+    if (error instanceof Error) {
+        return error
+    }
+    return new CanvasMutationError(`Canvas mutation failed in ${context.canvas_context} context: ${String(error)}`)
+}
 
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
@@ -227,8 +248,13 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
-            errorHandler: (error: unknown) => {
-                onError(error)
+            // rrweb types this handler as `any` and calls it with (mutation, error), so the compiler cannot catch a swapped order.
+            errorHandler: (_failedMutation: unknown, error: unknown) => {
+                const context = {
+                    canvas_node_id: data.id,
+                    canvas_context: CanvasContext[data.type] ?? String(data.type),
+                }
+                onError(toCanvasMutationError(error, context), context)
             },
         })
 
@@ -363,17 +389,22 @@ export const CanvasReplayerPlugin = (
             }
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const el = containers.get(id) || document.createElement('img')
                 const canvasElement = node as HTMLCanvasElement
+                // The <img> takes the recorded canvas's place, so it is built in that canvas's own
+                // document. A blob: URL is fetched under the Content-Security-Policy of the document
+                // that owns the element, and the element owns that policy from the moment `src` is
+                // assigned, which happens below while the <img> is still detached. Building it in the
+                // app's document therefore puts every replayed canvas frame under the app's policy.
+                const el = containers.get(id) || canvasElement.ownerDocument.createElement('img')
 
                 for (let i = 0; i < canvasElement.attributes.length; i++) {
                     const attr = canvasElement.attributes[i]
                     const name = attr.name.toLowerCase()
-                    // The reconstructed <img> lives in the top-level document, so it inherits only
-                    // presentational attributes from the recorded canvas. Skip inline event handlers
-                    // (every handler is named `on<event>`, so this covers the whole class) and the
-                    // URL-loading attributes — the plugin points `src` at the rendered canvas blob
-                    // itself, so a copied `src`/`srcset` would only fetch an attacker-controlled URL.
+                    // The reconstructed <img> inherits only presentational attributes from the
+                    // recorded canvas. Skip inline event handlers (every handler is named
+                    // `on<event>`, so this covers the whole class) and the URL-loading attributes,
+                    // because the plugin points `src` at the rendered canvas blob itself, so a
+                    // copied `src`/`srcset` would only fetch an attacker-controlled URL.
                     if (name.startsWith('on') || name === 'src' || name === 'srcset') {
                         continue
                     }

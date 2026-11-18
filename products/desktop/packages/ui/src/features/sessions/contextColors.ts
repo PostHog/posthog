@@ -1,6 +1,6 @@
 import type { ContextBreakdown } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 
-export interface CategoryStyle {
+interface CategoryStyle {
   key: keyof ContextBreakdown;
   label: string;
   color: string;

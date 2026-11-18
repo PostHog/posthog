@@ -21,17 +21,18 @@ export interface Floor {
 }
 
 /**
- * Text is the binding subject and the best measured.
+ * Text is the best measured subject.
  *
- * Detection: `tsx dev/glyph-floor.ts` sweeps rendered size against a fixed frame. DBNet starts finding
- * text at about 4.9px and has every line by 7px, at the model input.
+ * Detection: `tsx dev/glyph-floor.ts` sweeps rendered size against a fixed frame. PP-OCRv6 tiny starts
+ * finding text at about 2.9px and has every line by 4.3px, at the model input. On the labelled sets of
+ * `dev/text-det-bench.ts` it covers every word from 5 to 7px there, and those sets hold few words below 5px.
  *
  * Readability: rendered samples at a range of sizes, judged by eye. 4px is readable and 3px is not,
  * so 3px is the largest size that carries nothing, which is the conservative end of that boundary. Tesseract gives up at 8-9px and is not the bar: a person reads
  * well past where OCR does, and using OCR as the proxy hid a live leak once already.
  */
 export const TEXT_FLOOR: Floor = {
-    detectedAt: 7,
+    detectedAt: 4.3,
     readableAt: 3,
     unit: 'font-size px (ink is about 0.72x this)',
     measuredBy: 'dev/glyph-floor.ts, plus a human judgement on rendered samples',
@@ -59,18 +60,20 @@ export const FACE_FLOOR: Floor = {
 }
 
 /**
- * Codes are the loosest by a wide margin, and the only subject whose two numbers are both source px:
- * zxing runs on the frame directly, so there is no separate input scale to convert through.
+ * Codes, in multiples of a code's size in the stored image, which is the unit `dev/code-bench.ts`
+ * sweeps zxing's input in. The formats need different pixel sizes, both to be found and to be read,
+ * so no single pair of pixel sizes holds for all of them.
  *
- * Detected from 96 source px; not decodable out of the artifact until 280. Requiring detection to be
- * 96/280 as large as readability is no constraint at all, since that is below 1: a code degraded past
- * decoding carries nothing, which makes this subject self-limiting.
+ * A code counts as readable when zxing decodes it from the stored image at 1x, 2x or 3x, since an
+ * attacker can upscale. zxing finds every such code once it reads the frame at 3 times the stored
+ * scale. At 2 times it misses two, both Aztec.
  */
 export const CODE_FLOOR: Floor = {
-    detectedAt: 96,
-    readableAt: 280,
-    unit: 'code px in the SOURCE, both columns, since zxing works on the frame directly',
-    measuredBy: 'dev/floors.ts: a QR placed at 48-280px in a 1920x1080 source',
+    detectedAt: 3,
+    readableAt: 1,
+    unit: "multiples of a code's size in the stored image",
+    measuredBy:
+        'dev/code-bench.ts: six codes in five formats, six frame shapes, seven sizes, with blur, rotation and JPEG',
 }
 
 export const FLOORS = { text: TEXT_FLOOR, face: FACE_FLOOR, code: CODE_FLOOR } as const
@@ -84,7 +87,7 @@ export function requiredRatio(floor: Floor): number {
 
 /**
  * The ratio the whole pipeline has to satisfy: the tightest subject, since the guarantee is only as
- * good as the detector with the least room. Text is currently the binding one at 2.33.
+ * good as the detector with the least room.
  */
 export function bindingRatio(): number {
     return Math.max(...Object.values(FLOORS).map(requiredRatio))

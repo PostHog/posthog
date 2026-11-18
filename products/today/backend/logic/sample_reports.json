@@ -1,0 +1,272 @@
+[
+    {
+        "id": "sample-pr",
+        "summary": "Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.\n\n## Problem\n\nThe deploy moved the address form into a step that Safari unmounts before payment. The payment request then goes out without the billing address.\n\n## Impact\n\nSafari checkout completion fell by 12 points while Chrome stayed flat.\n\n## Solution\n\nKeep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.\n\n## Expected impact\n\nSafari checkout completion returns to **about 54%**, the same as Chrome.",
+        "signals": [
+            {
+                "source_product": "error_tracking",
+                "source_type": "issue",
+                "content": "1,284 events. The same TypeError started after deploy #4821.",
+                "hours_ago": 2
+            },
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "38 recordings. Safari users stop after they submit payment.",
+                "hours_ago": 3
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "−12 points. Safari completion fell while Chrome stayed flat.",
+                "hours_ago": 4
+            },
+            {
+                "source_product": "github",
+                "source_type": "issue",
+                "content": "PR #9123. The fix restores the missing billing address.",
+                "hours_ago": 5
+            }
+        ]
+    },
+    {
+        "id": "sample-exp",
+        "summary": "**One-page checkout won. It is safe to ship.**\n\nThe shorter checkout completed more often than the current flow. It did not increase refunds, support requests, or payment errors.\n\nThe result passed the team’s decision threshold. You can send the winning flow to everyone today.",
+        "signals": [
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Experiments · 95% likely. The one-page version is the likely winner.",
+                "hours_ago": 3
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "+6.4%. Checkout completion rose from 54.1% to 57.6%.",
+                "hours_ago": 4
+            },
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "Fewer exits. People no longer pause between address and payment.",
+                "hours_ago": 5
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Feature flags · Ready. The winning variant can reach everyone now.",
+                "hours_ago": 6
+            }
+        ]
+    },
+    {
+        "id": "sample-safari",
+        "summary": "**Safari users reach payment, then get stuck.**\n\nThe recordings show the same sequence. A person enters a card, submits payment, and sees no progress.\n\nThe problem affects Safari 17 after Tuesday’s deploy. Chrome sessions continue through the same step.",
+        "signals": [
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "38 sessions. Every sampled session stalls after payment.",
+                "hours_ago": 5
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "49% complete. Safari trails Chrome by 13 points.",
+                "hours_ago": 6
+            },
+            {
+                "source_product": "error_tracking",
+                "source_type": "issue",
+                "content": "address.ts:42. The billing address is empty at submission.",
+                "hours_ago": 7
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Data warehouse · Safari 17. Older Safari versions stay near their baseline.",
+                "hours_ago": 8
+            }
+        ]
+    },
+    {
+        "id": "sample-error",
+        "summary": "**One new error is blocking checkout completion.**\n\nThe error begins when checkout formats an empty billing address. It started with deploy #4821 and appears only after payment submission.\n\nFour hundred and twelve people saw it. The same error also explains the Safari conversion drop.",
+        "signals": [
+            {
+                "source_product": "error_tracking",
+                "source_type": "issue",
+                "content": "1,284 events. TypeError in formatAddress at address.ts:42.",
+                "hours_ago": 7
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "412 users. Most affected users arrived from Safari.",
+                "hours_ago": 8
+            },
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "19 sampled. The submit button stops after one click.",
+                "hours_ago": 9
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Data warehouse · Deploy #4821. The first event arrived six minutes after release.",
+                "hours_ago": 10
+            }
+        ]
+    },
+    {
+        "id": "sample-llm",
+        "summary": "**Document summaries became more expensive overnight.**\n\nThe summarize-doc workflow now spends 31% more per active user. Usage stayed flat, so higher traffic does not explain the change.\n\nMost of the increase comes from a model change and longer prompts. The quality score did not improve.",
+        "signals": [
+            {
+                "source_product": "llm_analytics",
+                "source_type": "evaluation",
+                "content": "+31% cost. Cost rose while the number of summaries stayed flat.",
+                "hours_ago": 9
+            },
+            {
+                "source_product": "llm_analytics",
+                "source_type": "evaluation",
+                "content": "Tracing · 2.4× tokens. The new prompt repeats the source document.",
+                "hours_ago": 10
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Usage flat. The same number of people used summaries.",
+                "hours_ago": 11
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Data warehouse · summarize-doc. One workflow accounts for 84% of the increase.",
+                "hours_ago": 12
+            }
+        ]
+    },
+    {
+        "id": "sample-nps",
+        "summary": "**Pricing is the main reason detractors hesitate.**\n\nTwenty-three detractors mention pricing in their survey response. Most of them visited the new pricing page before they replied.\n\nThey understand the product, but they cannot predict the bill. The confusion is strongest among small teams with growing data volume.",
+        "signals": [
+            {
+                "source_product": "conversations",
+                "source_type": "feedback",
+                "content": "Surveys · NPS 32. Twenty-three of 61 detractors mention pricing.",
+                "hours_ago": 20
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Customer analytics · Small teams. Growing teams express the most uncertainty.",
+                "hours_ago": 21
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "71% visited. Most detractors saw the new pricing page.",
+                "hours_ago": 22
+            },
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "3 comparisons. People revisit the usage table before leaving.",
+                "hours_ago": 23
+            }
+        ]
+    },
+    {
+        "id": "sample-browser",
+        "summary": "**Safari accounts for the checkout gap.**\n\nChrome and Firefox remain near their usual completion rates. Safari 17 falls sharply after payment submission.\n\nThe browser comparison isolates the problem to one checkout path. Mobile Safari shows the largest drop.",
+        "signals": [
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "−13 points. Safari trails the other browsers at checkout.",
+                "hours_ago": 26
+            },
+            {
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "content": "38 sessions. The same payment stall appears across sampled sessions.",
+                "hours_ago": 27
+            },
+            {
+                "source_product": "error_tracking",
+                "source_type": "issue",
+                "content": "1,284 events. The error appears mainly in Safari 17.",
+                "hours_ago": 28
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Data warehouse · 3 browsers. Chrome and Firefox stay near their baseline.",
+                "hours_ago": 29
+            }
+        ]
+    },
+    {
+        "id": "sample-guardrails",
+        "summary": "**The winning checkout passed every guardrail.**\n\nThe shorter checkout increased completion without increasing refunds, support requests, or payment failures.\n\nEach guardrail stayed within its agreed range. The result is ready for a full rollout.",
+        "signals": [
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Experiments · 4 passed. Every release guardrail stayed within range.",
+                "hours_ago": 30
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "+6.4%. Checkout completion improved for the winning variant.",
+                "hours_ago": 31
+            },
+            {
+                "source_product": "error_tracking",
+                "source_type": "issue",
+                "content": "No increase. Payment and checkout errors stayed flat.",
+                "hours_ago": 32
+            },
+            {
+                "source_product": "conversations",
+                "source_type": "feedback",
+                "content": "Surveys · Support flat. The new flow did not increase support requests.",
+                "hours_ago": 33
+            }
+        ]
+    },
+    {
+        "id": "sample-traces",
+        "summary": "**The new summary model repeats the source document.**\n\nRecent traces show the source text twice in the prompt. This duplication explains most of the token increase.\n\nThe model change did not improve the quality score. The previous model remains the lower-cost option.",
+        "signals": [
+            {
+                "source_product": "llm_analytics",
+                "source_type": "evaluation",
+                "content": "Tracing · 24 traces. Each sampled trace contains the source text twice.",
+                "hours_ago": 40
+            },
+            {
+                "source_product": "llm_analytics",
+                "source_type": "evaluation",
+                "content": "2.4× tokens. Input tokens rose after the model change.",
+                "hours_ago": 41
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Usage flat. Traffic did not cause the higher cost.",
+                "hours_ago": 42
+            },
+            {
+                "source_product": "analytics",
+                "source_type": "anomaly_investigation",
+                "content": "Data warehouse · Quality flat. The quality score did not improve.",
+                "hours_ago": 43
+            }
+        ]
+    }
+]

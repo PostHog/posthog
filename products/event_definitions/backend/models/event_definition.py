@@ -4,6 +4,7 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.utils import invalidate_default_event_info_cache
 
@@ -15,14 +16,17 @@ class SchemaEnforcementMode(models.TextChoices):
     REJECT = "reject", "Reject"
 
 
-class EventDefinition(UUIDTModel):
+class EventDefinition(Taggable, UUIDTModel):
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="event_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    # No automatic index: the named Meta index on `project` covers project_id.
+    project = models.ForeignKey(
+        "posthog.Project", on_delete=models.CASCADE, null=True, related_name="+", db_index=False
+    )
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
@@ -42,8 +46,12 @@ class EventDefinition(UUIDTModel):
     )
 
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
-    # Safe because the feature is flag-gated (`promoted-event-properties-edit`) and minimally used.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
+
+    # Set when the event's ingestion is stopped. A periodic task deletes the definition after this time.
+    scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
+    # When the event's ingestion was stopped. The periodic task gives up 7 days after this.
+    ingestion_stopped_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_eventdefinition"
@@ -61,6 +69,11 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            models.Index(
+                fields=["scheduled_deletion_at"],
+                name="posthog_eventdef_sched_del_idx",
+                condition=models.Q(scheduled_deletion_at__isnull=False),
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(

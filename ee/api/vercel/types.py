@@ -14,13 +14,14 @@ class VercelBaseClaims:
     type: Literal["access_token", "id_token"] | None
 
 
-@dataclass
+@dataclass(frozen=False)
 class VercelUserClaims(VercelBaseClaims):
     user_id: str
     user_role: Literal["ADMIN", "USER"]
     user_avatar_url: str | None
     user_email: str | None  # Only available if integration is opted in (Which it is in our case)
     user_name: str | None
+    user_email_verified: bool | None = None
 
 
 @dataclass

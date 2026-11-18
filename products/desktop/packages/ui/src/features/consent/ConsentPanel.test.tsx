@@ -82,7 +82,7 @@ describe("ConsentPanel", () => {
     await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
 
     await waitFor(() =>
-      expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id"),
+      expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith(),
     );
     expect(approveAiDataProcessing).not.toHaveBeenCalled();
   });
@@ -125,7 +125,7 @@ describe("ConsentPanel", () => {
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith("org-id");
-    expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id");
+    expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith();
   });
 
   it("gives members admin links and a refresh action", async () => {

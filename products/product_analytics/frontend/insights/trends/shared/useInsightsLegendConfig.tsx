@@ -6,10 +6,11 @@ import type { ChartLegendConfig } from '@posthog/quill-charts'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightLogicProps } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps
@@ -24,9 +25,8 @@ export function useInsightsLegendConfig({
     inSharedMode = false,
 }: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
-    const { indexedResults, getTrendsHidden, showLegend, legendPosition, resultCustomizationBy } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { indexedResults, getTrendsHidden, showLegend, legendPosition, resultCustomizationBy, querySource } =
+        useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, setResultsHidden } = useActions(trendsDataLogic(insightProps))
 
     const resultById = useMemo(() => {
@@ -59,7 +59,7 @@ export function useInsightsLegendConfig({
             // isolates, or the twin row it deliberately leaves visible would read as "not isolated".
             visibilityGroupKey: (key: string) => {
                 const result = resultById.get(key)
-                return result ? getTrendResultCustomizationKey(resultCustomizationBy, result) : key
+                return result ? getTrendResultCustomizationKey(resultCustomizationBy, result, querySource) : key
             },
             renderItem: legendInteractive ? renderItem : undefined,
         }
@@ -73,6 +73,7 @@ export function useInsightsLegendConfig({
         toggleResultHidden,
         setResultsHidden,
         resultCustomizationBy,
+        querySource,
         renderItem,
     ])
 }

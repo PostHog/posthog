@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "run_id": {
+            "description": "The run_id returned by wizard-install-start.",
+            "pattern": "^[0-9a-fA-F-]{36}$",
+            "type": "string"
+        }
+    },
+    "required": ["run_id"],
+    "type": "object"
+}

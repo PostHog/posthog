@@ -59,6 +59,17 @@ if (url.pathname.startsWith('/mcp')) {
 
 `RequestProperties` (the parsed headers and query params for a request) is defined in `src/lib/request-properties.ts` and shared by both runtimes.
 
+### End user IP
+
+The PostHog API sees the Hono pod as the caller, so the activity log would record that pod's address.
+The end user IP travels as a signed header on each hop (`src/lib/client-ip-signature.ts`, the same HMAC format as Django's `verify_signed_client_ip`):
+
+1. The Worker removes any client-sent IP headers, signs `CF-Connecting-IP` with the key list of the target region, and sends `X-PostHog-Edge-Client-IP*` to Hono.
+2. Hono resolves the IP once per request (`src/hono/client-ip.ts`). A valid edge signature gives the signed IP. Otherwise Hono uses the rightmost `X-Forwarded-For` entry, which Envoy writes. When that entry is a published Cloudflare address, the request is Worker traffic without a valid signature, so Hono uses no IP.
+3. `ApiClient.fetch` signs that IP with a new timestamp on every API call and sends `X-PostHog-MCP-Client-IP*`. Django verifies it and uses it for the activity log only.
+
+Each hop has its own key list, and an empty list turns that hop off. `.env.example` names the variables. The `mcp_client_ip_resolutions_total` counter shows which source Hono used.
+
 ### Per-User State
 
 The Hono runtime keeps per-user session state (active project/organization, region, distinctId) in Redis, namespaced by `userHash` — a PBKDF2 hash of the API token (see `src/lib/utils`), ensuring:
@@ -67,6 +78,14 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 - **Persistence**: Region and distinctId survive across requests
 - **Deterministic**: Same token always produces the same hash/prefix
 - **Secure**: Tokens can't be reversed from the hash
+
+Project and organization selections are scoped to the credential and transport session, or to the SDK's conversation handle for sessionless clients. Conversation and transport namespaces are separate. Echoed handles resolve before the state lookup; a newly minted handle binds state before tool execution. Both direct and exec-routed switches require the request to carry a session or conversation handle. A switch without one returns an error and the SDK's new handle for retrying. Switching does not update the shared credential selection.
+
+Each sessionless legacy batch item resolves its own request properties, state, and carried-handle guard. A wrapper-only `sessionId` cannot restore selections, so it does not suppress SDK conversation-handle minting.
+
+Credential, user, and entity lookup promises are shared within an HTTP request, keyed by credential cache scope and entity. Per-item state managers and active selections remain independent. Existing Redis TTLs control freshness; rejected promises are removed to permit retries. A newly minted conversation's state resolution uses the same request-local lookup cache.
+
+Remote flag evaluation uses this cache too, keyed by credential, distinct ID, normalized groups, and flag keys. Both flag values and payloads are shared only for matching contexts; each call applies its own overrides afterward. Failed evaluations leave the cache before the resolver returns its empty fallback.
 
 ### Wide Logging Pattern
 
@@ -90,17 +109,28 @@ There are three independent layers that emit signals about each MCP request:
 2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
 3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
 
-#### `$mcp_tool_call` event paths
+#### MCP Analytics SDK integration
 
-The canonical event is `$mcp_tool_call`.
-The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
-The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the shared wire contract.
+The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) documents the `PostHogMCP` API used by this Hono server.
 
-- **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
-- **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.
-- **`lib/posthog-mcp-analytics.ts`** — the [`@posthog/mcp-analytics`](https://github.com/PostHog/mcp-analytics) SDK. Property names are `$`-prefixed (`$mcp_session_id`, `$mcp_conversation_id`, …). This is the path most live traffic flows through today.
+The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
+The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool calls, and tool listings.
+Direct tool calls and inner exec calls use the same `trackToolCall()` path.
+The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+Tool arguments and results reach `$mcp_parameters` and `$mcp_response` only under the capture policy and secret redaction that `$ai_span` uses, so a tool excluded from spans sends neither, and `execute-sql` sends its query but not its rows.
+Calls to `execute-sql` with structured filters omit payloads, spans, and explicit exception capture because property-filter values can contain sensitive data. Outer `exec` calls containing `execute-sql` apply the same policy. Call metrics and the detailed tool response remain available.
+Backend analytics also omit structured SQL filters from query success and failure metadata. Exception capture is suppressed for filtered SQL because exception chains and stack context can contain expanded filter values. SQL query telemetry also omits error messages; error types and categories remain available. Execution and cache identity retain the filters.
+The `opt-outs-list` tool also omits arguments, results, and spans to keep recipient addresses out of telemetry.
+An exec command that resolves no inner tool sends neither, since its raw command string has no tool name to apply the policy to.
+The result is the handler's raw object, redacted by key, not the formatted text the agent reads, and failed calls send no result because their text embeds upstream error bodies.
+New `$mcp_*` events and properties belong in the SDK, not in this server.
 
-Adding a new property to events means wiring it into the `McpCatIdentityProvider` interface and the property-builder in **all three** emitters, then sourcing the value on `requestProperties` (or pulling it from another DO-level source).
+Private scout credentials derive capture suppression from their server-issued OAuth scope.
+The existing SDK `beforeSend` hook drops those events; request headers and tool arguments cannot enable this policy.
+Operator trial launch/result tools also omit analytics, including calls through `exec`.
+Private task reads are marked by the PostHog API's response header, including lists and connected-project responses.
+The MCP client applies suppression to that call only, keeping ordinary task telemetry unchanged.
 
 #### Three correlation identifiers
 

@@ -1,16 +1,23 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { type InboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { VerifyEmail } from './VerifyEmail'
-import { verifyEmailLogic } from './verifyEmailLogic'
+import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
-type VerifyEmailView = 'pending' | 'verify' | 'success' | 'invalid'
+type VerifyEmailView = 'pending' | 'success' | 'invalid'
 
 type StoryArgs = {
     view: VerifyEmailView
+    reason?: VerifyEmailReason
+    verificationEmailSent?: boolean
+    inboxProvider?: InboxProvider
 }
 
 const meta: Meta<StoryArgs> = {
@@ -24,16 +31,26 @@ const meta: Meta<StoryArgs> = {
         view: {
             control: 'select',
             name: 'View',
-            options: ['pending', 'verify', 'success', 'invalid'] satisfies VerifyEmailView[],
+            options: ['pending', 'success', 'invalid'] satisfies VerifyEmailView[],
+        },
+        reason: {
+            control: 'select',
+            name: 'Deep link reason',
+            options: [undefined, 'stripe_deep_link', 'partner_deep_link'],
+        },
+        verificationEmailSent: {
+            control: 'boolean',
+            name: 'Verification email sent',
         },
     },
     args: {
         view: 'pending',
+        verificationEmailSent: true,
     },
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ view }) => {
+const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = true, inboxProvider }) => {
     useStorybookMocks({
         get: {
             '/_preflight': { ...preflightJson },
@@ -42,9 +59,11 @@ const Template: StoryFn<StoryArgs> = ({ view }) => {
     })
 
     useEffect(() => {
+        setPendingVerificationEmail('12345678', 'test@posthog.com', inboxProvider ?? null)
         verifyEmailLogic.actions.setView(view)
         verifyEmailLogic.actions.setUuid('12345678')
-    }, [view])
+        verifyEmailLogic.actions.setDeepLinkContext(reason ?? null, verificationEmailSent)
+    }, [view, reason, verificationEmailSent, inboxProvider])
 
     return <VerifyEmail />
 }
@@ -54,12 +73,18 @@ export const Default: StoryFn<StoryArgs> = Template.bind({})
 export const Pending: StoryFn<StoryArgs> = Template.bind({})
 Pending.args = { view: 'pending' }
 
-export const Verifying: StoryFn<StoryArgs> = Template.bind({})
-Verifying.args = { view: 'verify' }
-Verifying.parameters = { testOptions: { waitForLoadersToDisappear: false } }
-
 export const Success: StoryFn<StoryArgs> = Template.bind({})
 Success.args = { view: 'success' }
 
-export const InvalidLink: StoryFn<StoryArgs> = Template.bind({})
-InvalidLink.args = { view: 'invalid' }
+export const Invalid: StoryFn<StoryArgs> = Template.bind({})
+Invalid.args = { view: 'invalid' }
+
+export const PendingFromStripeDeepLink: StoryFn<StoryArgs> = Template.bind({})
+PendingFromStripeDeepLink.args = { view: 'pending', reason: 'stripe_deep_link' }
+
+export const PendingWithFailedSend: StoryFn<StoryArgs> = Template.bind({})
+PendingWithFailedSend.args = { view: 'pending', reason: 'stripe_deep_link', verificationEmailSent: false }
+
+export const PendingWithOpenInbox: StoryFn<StoryArgs> = Template.bind({})
+PendingWithOpenInbox.args = { view: 'pending', inboxProvider: 'gmail' }
+PendingWithOpenInbox.parameters = { featureFlags: { [FEATURE_FLAGS.OPEN_INBOX_BUTTON]: 'test' } }

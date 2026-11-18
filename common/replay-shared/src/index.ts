@@ -53,8 +53,11 @@ export { CanvasReplayerPlugin } from './canvas/canvas-plugin'
 // rrweb plugins and config
 export {
     AudioMuteReplayerPlugin,
+    BLOCKED_ELEMENT_STYLE_RULE,
     CorsPlugin,
+    createCorsPlugin,
     COMMON_REPLAYER_CONFIG,
+    speedDependentStyleRules,
     HLSPlayerPlugin,
     createHLSPlayerPlugin,
     WindowTitlePlugin,

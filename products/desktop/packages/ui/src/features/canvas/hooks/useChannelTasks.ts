@@ -1,8 +1,11 @@
 import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
+import type { Task } from "@posthog/shared/domain-types";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { channelFeedQueryRoot } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
+import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
 import {
   SPACE_QUERY_GC_TIME_MS,
   SPACE_QUERY_REFETCH_INTERVAL_MS,
@@ -30,34 +33,10 @@ export function useChannelTasks(channelId: string | undefined): {
   return { tasks: data ?? [], isLoading };
 }
 
-/**
- * Warm the filed-tasks cache for a channel ahead of opening it (e.g. on hover),
- * so expanding the channel doesn't cold-fetch its tasks. Respects the same
- * staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchChannelTasks(): (channelId: string) => void {
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.channelTasks.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
-  );
-}
-
 export function useChannelTaskMutations() {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
+  const clearFiling = useFilingTasksStore((state) => state.clearFiling);
 
   /**
    * Filing moves a task, so at most two lists change: the channel it lands in
@@ -65,6 +44,7 @@ export function useChannelTaskMutations() {
    * and someone who has browsed a lot of channels holds a lot of those.
    */
   const invalidateAffected = (taskId: string, channelId?: string) => {
+    void queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
     if (channelId) {
       void queryClient.invalidateQueries(
         trpc.channelTasks.list.queryFilter({ channelId }),
@@ -85,13 +65,34 @@ export function useChannelTaskMutations() {
 
   const file = useMutation(
     trpc.channelTasks.file.mutationOptions({
-      onSuccess: (_data, variables) =>
-        invalidateAffected(variables.taskId, variables.channelId),
+      onSuccess: (_data, variables) => {
+        queryClient.setQueriesData<Task[]>(
+          { queryKey: taskKeys.lists() },
+          (tasks) =>
+            tasks?.map((task) =>
+              task.id === variables.taskId
+                ? { ...task, channel: variables.channelId }
+                : task,
+            ),
+        );
+        queryClient.setQueryData<Task | undefined>(
+          taskKeys.detail(variables.taskId),
+          (task) => (task ? { ...task, channel: variables.channelId } : task),
+        );
+        invalidateAffected(variables.taskId, variables.channelId);
+        void queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+        void queryClient.invalidateQueries({
+          queryKey: taskKeys.detail(variables.taskId),
+        });
+      },
     }),
   );
   const unfile = useMutation(
     trpc.channelTasks.unfile.mutationOptions({
-      onSuccess: (_data, variables) => invalidateAffected(variables.taskId),
+      onSuccess: (_data, variables) => {
+        clearFiling(variables.taskId);
+        invalidateAffected(variables.taskId);
+      },
     }),
   );
 

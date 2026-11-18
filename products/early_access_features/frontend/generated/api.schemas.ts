@@ -177,11 +177,10 @@ export interface EarlyAccessFeatureApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
@@ -238,11 +237,10 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Arbitrary JSON metadata associated with this feature. */
     payload?: unknown
     readonly created_at: string
@@ -253,7 +251,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * @nullable
      */
     readonly assignee: EarlyAccessFeatureSerializerCreateOnlyApiAssignee
-    /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
+    /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate. */
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
     _create_in_folder?: string
@@ -300,11 +298,10 @@ export interface PatchedEarlyAccessFeatureApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage?: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
@@ -324,6 +321,14 @@ export interface PatchedEarlyAccessFeatureApi {
 
 export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated user IDs. Only features created by one of them are listed.
+     */
+    created_by_id?: string
+    /**
+     * Comma-separated early access feature IDs, at most 200.
+     */
+    ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -331,4 +336,12 @@ export type EarlyAccessFeatureListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by creation time: -created_at (default) for newest first, created_at for oldest first.
+     */
+    order?: string
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string
 }

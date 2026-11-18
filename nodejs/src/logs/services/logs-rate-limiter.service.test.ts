@@ -8,7 +8,7 @@ import { BASE_REDIS_KEY, LogsRateLimiterService, logsMessageLagHistogram } from 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
 describe('LogsRateLimiterService', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
     const LOGS_LIMITER_BUCKET_SIZE_KB = 100
     const BUCKET_EXCEEDED_UNCOMPRESSED_BYTES = 15360
 

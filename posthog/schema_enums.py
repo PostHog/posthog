@@ -30,6 +30,12 @@ class AccessControlLevel(StrEnum):
     MANAGER = "manager"
 
 
+class AccountActivityMatrixEmptyReason(StrEnum):
+    NO_EXTERNAL_ID = "no_external_id"
+    NO_GROUP_TYPE = "no_group_type"
+    NO_METRICS = "no_metrics"
+
+
 class AccountsTableAccountField(StrEnum):
     NAME = "name"
     EXTERNAL_ID = "external_id"
@@ -64,6 +70,18 @@ class AccountsTableAggregation(StrEnum):
     MEDIAN = "median"
 
 
+class AccountsTableCustomPropertyDisplayType(StrEnum):
+    TEXT = "text"
+    LINK = "link"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    DATE = "date"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -87,6 +105,13 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
+
+
+class AccountsTableRelationshipOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
 
 
 class AccountsTableSortDirection(StrEnum):
@@ -123,7 +148,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
     CUSTOMER_ANALYTICS = "customer_analytics"
 
 
@@ -160,6 +184,30 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AmazonAdsDefaultSources(StrEnum):
+    AMAZON = "amazon"
+    AMAZON_ADS = "amazon_ads"
+
+
+class DefaultSort(StrEnum):
+    FIELD_LAST_VIEWED_AT = "-last_viewed_at"
+    FIELD_CREATED_AT = "-created_at"
+
+
+class AnnotationScope(StrEnum):
+    DASHBOARD_ITEM = "dashboard_item"
+    DASHBOARD = "dashboard"
+    PROJECT = "project"
+    ORGANIZATION = "organization"
+
+
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -188,6 +236,14 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBehavioralPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+
+
 class Operator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
@@ -198,6 +254,12 @@ class DisplayType(StrEnum):
     LINE = "line"
     BAR = "bar"
     AREA = "area"
+
+
+class ValueLabels(StrEnum):
+    AUTO = "auto"
+    SHOW = "show"
+    HIDE = "hide"
 
 
 class YAxisPosition(StrEnum):
@@ -212,16 +274,34 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
+    BOX_PLOT = "BoxPlot"
+
+
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
 
 
 class Scale(StrEnum):
@@ -251,6 +331,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     SESSION = "session"
     HOGQL = "hogql"
     COHORT = "cohort"
@@ -282,6 +363,7 @@ class FunnelAggregateByHogQL(Enum):
 
 
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -318,6 +400,11 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+
+
+class AssistantMetricsNodeKind(StrEnum):
+    METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -378,6 +465,11 @@ class Key5(StrEnum):
     SNAPSHOT_SOURCE = "snapshot_source"
 
 
+class AssistantRetentionDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -435,8 +527,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     CREATE_AI_TRACE_PARSER = "create_ai_trace_parser"
     FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -497,10 +587,11 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
-    SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
+    COMPARE_REPLAY_VISION_VARIANTS = "compare_replay_vision_variants"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
+    GET_REPLAY_VISION_SCAN_RESULTS = "get_replay_vision_scan_results"
     RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
     GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
     CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
@@ -510,36 +601,29 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
-    SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
-    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
-    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
-    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
-    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
-    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
+    GET_REPLAY_VISION_OBSERVATION_STATS = "get_replay_vision_observation_stats"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
 
 
-class Display(StrEnum):
-    AUTO = "Auto"
+class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
+    SLOPE_GRAPH = "SlopeGraph"
+    BOX_PLOT = "BoxPlot"
     METRIC = "Metric"
+    BOLD_NUMBER = "BoldNumber"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-    SLOPE_GRAPH = "SlopeGraph"
-    SCATTER_PLOT = "ScatterPlot"
 
 
 class MetricSummary(StrEnum):
@@ -592,6 +676,110 @@ class AutocompleteCompletionItemKind(StrEnum):
     SNIPPET = "Snippet"
 
 
+class BIAggregation(StrEnum):
+    COUNT = "count"
+    COUNT_DISTINCT = "count_distinct"
+    SUM = "sum"
+    AVERAGE = "average"
+    MINIMUM = "minimum"
+    MAXIMUM = "maximum"
+    CUSTOM = "custom"
+
+
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
+
+
+class Operator1(StrEnum):
+    AND_ = "AND"
+    OR_ = "OR"
+
+
+class ComparisonPeriod(Enum):
+    PREVIOUS = "previous"
+    NONE_TYPE_NONE = None
+
+
+class MissingDates(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+
+
+class BIDateBucket(StrEnum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+
+
+class DatePart(StrEnum):
+    MONTH = "month"
+    QUARTER = "quarter"
+    DAY_OF_WEEK = "day_of_week"
+
+
+class BIFilterOperator(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    CONTAINS = "contains"
+    IN_ = "in"
+    NOT_IN = "not_in"
+    BETWEEN = "between"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    LAST_7_DAYS = "last_7_days"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    CUSTOM = "custom"
+
+
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
+
+
+class BIQueryLimit(float, Enum):
+    NUMBER_100 = 100
+    NUMBER_1000 = 1000
+    NUMBER_10000 = 10000
+    NUMBER_50000 = 50000
+
+
+class Operator2(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    BETWEEN = "between"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+class BISortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class BITableCalculationType(StrEnum):
+    PERCENT_OF_TOTAL = "percent_of_total"
+    RUNNING_TOTAL = "running_total"
+    DIFFERENCE = "difference"
+    PERCENT_CHANGE = "percent_change"
+    MOVING_AVERAGE = "moving_average"
+    RANK = "rank"
+
+
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
@@ -626,6 +814,17 @@ class BingAdsDefaultSources(StrEnum):
     BING_VIDEO = "bing_video"
 
 
+class BookActivityInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class BookActivityMatrixEmptyReason(StrEnum):
+    NO_GROUP_TYPE = "no_group_type"
+    EMPTY_BOOK = "empty_book"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -638,6 +837,7 @@ class BreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -669,6 +869,7 @@ class ChartDisplayType(StrEnum):
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -679,9 +880,19 @@ class ChartDisplayType(StrEnum):
     SCATTER_PLOT = "ScatterPlot"
 
 
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
+
+
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
+
+
+class SeriesColorMode(StrEnum):
+    PALETTE = "palette"
+    OPACITY = "opacity"
 
 
 class ColorMode(StrEnum):
@@ -866,6 +1077,30 @@ class CurrencyCode(StrEnum):
     ZMW = "ZMW"
 
 
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+    FIELD_BROWSER = "$browser"
+    FIELD_OS = "$os"
+    FIELD_BROWSER_LANGUAGE = "$browser_language"
+    FIELD_SCREEN_WIDTH = "$screen_width"
+    FIELD_SCREEN_HEIGHT = "$screen_height"
+    FIELD_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+    FIELD_REFERRER = "$referrer"
+    FIELD_REFERRING_DOMAIN = "$referring_domain"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    EXACT = "exact"
+    CIDR = "cidr"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
@@ -885,6 +1120,12 @@ class CustomChannelOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class Kind(StrEnum):
+    CUSTOM_PROPERTY = "custom_property"
+    RELATIONSHIP = "relationship"
+    ACCOUNT_FIELD = "account_field"
 
 
 class DataColorToken(StrEnum):
@@ -916,24 +1157,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
-class DataWarehouseSourceCategory(StrEnum):
-    DATABASES = "Databases"
-    FILE_STORAGE = "File storage"
-    ADVERTISING = "Advertising"
-    MARKETING___EMAIL = "Marketing & email"
-    CRM = "CRM"
-    SALES = "Sales"
-    CUSTOMER_SUPPORT = "Customer support"
-    PAYMENTS___BILLING = "Payments & billing"
-    FINANCE___ACCOUNTING = "Finance & accounting"
-    ANALYTICS = "Analytics"
-    ENGINEERING___MONITORING = "Engineering & monitoring"
-    PRODUCTIVITY = "Productivity"
-    HR___RECRUITING = "HR & recruiting"
-    COMMUNICATION = "Communication"
-    E_COMMERCE = "E-commerce"
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -941,6 +1164,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
     REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
+
+
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
 
 
 class DatabaseSchemaTableCertificationStatus(StrEnum):
@@ -1028,6 +1256,8 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
+    FORECAST = "forecast"
 
 
 class DistanceFunc(StrEnum):
@@ -1157,6 +1387,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):
@@ -1175,11 +1406,6 @@ class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
     SENTIMENT = "sentiment"
-
-
-class CorrelationType(StrEnum):
-    SUCCESS = "success"
-    FAILURE = "failure"
 
 
 class HrefMatching(Enum):
@@ -1208,19 +1434,45 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
-class Kind(StrEnum):
+class ExperimentApiBreakdownAttributionType(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
+    STEP = "step"
+
+
+class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
 
 
-class Kind1(StrEnum):
+class Kind2(StrEnum):
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
+
+
+class GroupTypeIndex(float, Enum):
+    NUMBER_0 = 0
+    NUMBER_1 = 1
+    NUMBER_2 = 2
+    NUMBER_3 = 3
+    NUMBER_4 = 4
 
 
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
+
+
+class ExperimentApiPropertyBreakdownType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+
+
+class Kind3(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
 
 
 class ConversionRateInputType(StrEnum):
@@ -1232,6 +1484,64 @@ class ManualMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN_COUNT = "mean_count"
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureHealthCheckKey(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+
+
+class ExperimentExposureHealthCheckStatus(StrEnum):
+    PASSED = "passed"
+    FINDING = "finding"
+    NOT_APPLICABLE = "not_applicable"
+    NOT_CHECKED = "not_checked"
+
+
+class ExperimentExposureHealthFindingActionKind(StrEnum):
+    OPEN_FEATURE_FLAG = "open_feature_flag"
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    MOVE_START_DATE = "move_start_date"
+
+
+class ExperimentExposureHealthFindingCode(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+
+
+class ExperimentExposureHealthFindingSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class ExperimentExposureHealthRuleSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthValueKey(StrEnum):
+    EXPOSED_COUNT = "exposed_count"
+    COMPARED_COUNT = "compared_count"
+    MULTIPLE_VARIANT_COUNT = "multiple_variant_count"
+    MULTIPLE_VARIANT_PERCENTAGE = "multiple_variant_percentage"
+    MULTIPLE_VARIANT_HANDLING = "multiple_variant_handling"
+    P_VALUE = "p_value"
+    SINCE_LAUNCH_HOURS = "since_launch_hours"
+    EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = "exposed_without_test_account_filter_count"
+    KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
+    UNSERVED_EXPOSED_COUNT = "unserved_exposed_count"
+    UNSERVED_EXPOSED_PERCENTAGE = "unserved_exposed_percentage"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -1263,19 +1573,20 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    QUANTILE = "quantile"
+
+
+class ExperimentMetricValueFormatType(StrEnum):
+    CURRENCY = "currency"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
+    PERCENTAGE = "percentage"
+    PERCENTAGE_SCALED = "percentage_scaled"
 
 
 class PrecomputationMode(StrEnum):
     PRECOMPUTED = "precomputed"
     DIRECT = "direct"
-
-
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
 
 
 class ExperimentStatsMethod(StrEnum):
@@ -1289,1330 +1600,9 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
-class ExternalDataSourceType(StrEnum):
-    ASHBY = "Ashby"
-    SUPABASE = "Supabase"
-    CUSTOMER_IO = "CustomerIO"
-    GITHUB = "Github"
-    STRIPE = "Stripe"
-    HUBSPOT = "Hubspot"
-    POSTGRES = "Postgres"
-    MY_SQL = "MySQL"
-    MSSQL = "MSSQL"
-    ZENDESK = "Zendesk"
-    SNOWFLAKE = "Snowflake"
-    SALESFORCE = "Salesforce"
-    VITALLY = "Vitally"
-    BIG_QUERY = "BigQuery"
-    CHARGEBEE = "Chargebee"
-    CLERK = "Clerk"
-    REVENUE_CAT = "RevenueCat"
-    POLAR = "Polar"
-    GOOGLE_ADS = "GoogleAds"
-    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
-    META_ADS = "MetaAds"
-    KLAVIYO = "Klaviyo"
-    MAILCHIMP = "Mailchimp"
-    BRAZE = "Braze"
-    MAILJET = "Mailjet"
-    REDSHIFT = "Redshift"
-    GOOGLE_SHEETS = "GoogleSheets"
-    MONGO_DB = "MongoDB"
-    TEMPORAL_IO = "TemporalIO"
-    DO_IT = "DoIt"
-    LINKEDIN_ADS = "LinkedinAds"
-    REDDIT_ADS = "RedditAds"
-    TIK_TOK_ADS = "TikTokAds"
-    BING_ADS = "BingAds"
-    SHOPIFY = "Shopify"
-    ATTIO = "Attio"
-    SNAPCHAT_ADS = "SnapchatAds"
-    LINEAR = "Linear"
-    INTERCOM = "Intercom"
-    AMPLITUDE = "Amplitude"
-    MIXPANEL = "Mixpanel"
-    JIRA = "Jira"
-    ACTIVE_CAMPAIGN = "ActiveCampaign"
-    MARKETO = "Marketo"
-    ADJUST = "Adjust"
-    APPS_FLYER = "AppsFlyer"
-    FRESHDESK = "Freshdesk"
-    GOOGLE_ANALYTICS = "GoogleAnalytics"
-    PIPEDRIVE = "Pipedrive"
-    SEND_GRID = "SendGrid"
-    SLACK = "Slack"
-    PAGER_DUTY = "PagerDuty"
-    ASANA = "Asana"
-    NOTION = "Notion"
-    AIRTABLE = "Airtable"
-    GREENHOUSE = "Greenhouse"
-    BAMBOO_HR = "BambooHR"
-    LEVER = "Lever"
-    GIT_LAB = "GitLab"
-    DATADOG = "Datadog"
-    SENTRY = "Sentry"
-    PENDO = "Pendo"
-    FULL_STORY = "FullStory"
-    AMAZON_ADS = "AmazonAds"
-    PINTEREST_ADS = "PinterestAds"
-    APPLE_SEARCH_ADS = "AppleSearchAds"
-    QUICK_BOOKS = "QuickBooks"
-    XERO = "Xero"
-    NET_SUITE = "NetSuite"
-    WOO_COMMERCE = "WooCommerce"
-    BIG_COMMERCE = "BigCommerce"
-    PAY_PAL = "PayPal"
-    SQUARE = "Square"
-    ZOOM = "Zoom"
-    TRELLO = "Trello"
-    MONDAY = "Monday"
-    CLICK_UP = "ClickUp"
-    CONFLUENCE = "Confluence"
-    RECURLY = "Recurly"
-    SALES_LOFT = "SalesLoft"
-    OUTREACH = "Outreach"
-    GONG = "Gong"
-    CALENDLY = "Calendly"
-    TYPEFORM = "Typeform"
-    ITERABLE = "Iterable"
-    ZOHO_CRM = "ZohoCRM"
-    CLOSE = "Close"
-    ORACLE = "Oracle"
-    DYNAMO_DB = "DynamoDB"
-    ELASTICSEARCH = "Elasticsearch"
-    KAFKA = "Kafka"
-    LAUNCH_DARKLY = "LaunchDarkly"
-    BRAINTREE = "Braintree"
-    RECHARGE = "Recharge"
-    HELP_SCOUT = "HelpScout"
-    GORGIAS = "Gorgias"
-    INSTAGRAM = "Instagram"
-    YOU_TUBE_ANALYTICS = "YouTubeAnalytics"
-    FACEBOOK_PAGES = "FacebookPages"
-    TWITTER_ADS = "TwitterAds"
-    WORKDAY = "Workday"
-    SERVICE_NOW = "ServiceNow"
-    PARDOT = "Pardot"
-    COPPER = "Copper"
-    FRONT = "Front"
-    CHART_MOGUL = "ChartMogul"
-    ZUORA = "Zuora"
-    PADDLE = "Paddle"
-    CIRCLE_CI = "CircleCI"
-    COCKROACH_DB = "CockroachDB"
-    FIREBASE = "Firebase"
-    AZURE_BLOB = "AzureBlob"
-    GOOGLE_DRIVE = "GoogleDrive"
-    ONE_DRIVE = "OneDrive"
-    SHARE_POINT = "SharePoint"
-    BOX = "Box"
-    SFTP = "SFTP"
-    MICROSOFT_TEAMS = "MicrosoftTeams"
-    AIRCALL = "Aircall"
-    WEBFLOW = "Webflow"
-    OKTA = "Okta"
-    AUTH0 = "Auth0"
-    PRODUCTBOARD = "Productboard"
-    SMARTSHEET = "Smartsheet"
-    WRIKE = "Wrike"
-    PLAID = "Plaid"
-    SURVEY_MONKEY = "SurveyMonkey"
-    EVENTBRITE = "Eventbrite"
-    RING_CENTRAL = "RingCentral"
-    TWILIO = "Twilio"
-    FRESHSALES = "Freshsales"
-    SHORTCUT = "Shortcut"
-    CONVERT_KIT = "ConvertKit"
-    DRIP = "Drip"
-    CAMPAIGN_MONITOR = "CampaignMonitor"
-    MAILER_LITE = "MailerLite"
-    OMNISEND = "Omnisend"
-    BREVO = "Brevo"
-    POSTMARK = "Postmark"
-    GRANOLA = "Granola"
-    BUILD_BETTER = "BuildBetter"
-    CONVEX = "Convex"
-    CLICK_HOUSE = "ClickHouse"
-    PLAIN = "Plain"
-    RESEND = "Resend"
-    PG_ANALYZE = "PgAnalyze"
-    WORK_OS = "WorkOS"
-    AMAZON_S3 = "AmazonS3"
-    GOOGLE_CLOUD_STORAGE = "GoogleCloudStorage"
-    DATABRICKS = "Databricks"
-    DYNAMICS365 = "Dynamics365"
-    SALESFORCE_MARKETING_CLOUD = "SalesforceMarketingCloud"
-    DB2 = "Db2"
-    HEAP = "Heap"
-    ADOBE_ANALYTICS = "AdobeAnalytics"
-    MATOMO = "Matomo"
-    OPTIMIZELY = "Optimizely"
-    ADYEN = "Adyen"
-    GO_CARDLESS = "GoCardless"
-    MOLLIE = "Mollie"
-    CHECKOUT_COM = "CheckoutCom"
-    BRANCH = "Branch"
-    CRITEO = "Criteo"
-    OUTBRAIN = "Outbrain"
-    TABOOLA = "Taboola"
-    AD_ROLL = "AdRoll"
-    DISPLAY_VIDEO360 = "DisplayVideo360"
-    GOOGLE_AD_MANAGER = "GoogleAdManager"
-    CAMPAIGN_MANAGER360 = "CampaignManager360"
-    SEARCH_ADS360 = "SearchAds360"
-    ADOBE_COMMERCE = "AdobeCommerce"
-    AMAZON_SELLING_PARTNER = "AmazonSellingPartner"
-    EBAY = "Ebay"
-    COMMERCETOOLS = "Commercetools"
-    LIGHTSPEED_RETAIL = "LightspeedRetail"
-    SHIPMAIL = "Shipmail"
-    SHIP_STATION = "ShipStation"
-    CONSTANT_CONTACT = "ConstantContact"
-    MAILGUN = "Mailgun"
-    ELOQUA = "Eloqua"
-    SAILTHRU = "Sailthru"
-    ORTTO = "Ortto"
-    ATTENTIVE = "Attentive"
-    KUSTOMER = "Kustomer"
-    DIXA = "Dixa"
-    GLADLY = "Gladly"
-    QUALTRICS = "Qualtrics"
-    AZURE_DEV_OPS = "AzureDevOps"
-    ROLLBAR = "Rollbar"
-    OPSGENIE = "Opsgenie"
-    INCIDENT_IO = "IncidentIo"
-    PINGDOM = "Pingdom"
-    CLOUDFLARE = "Cloudflare"
-    COSMOS_DB = "CosmosDB"
-    PLANET_SCALE_MY_SQL = "PlanetScaleMySQL"
-    PLANET_SCALE_POSTGRES = "PlanetScalePostgres"
-    SAP_HANA = "SapHana"
-    RIPPLING = "Rippling"
-    HI_BOB = "HiBob"
-    PERSONIO = "Personio"
-    DEEL = "Deel"
-    ADP_WORKFORCE_NOW = "AdpWorkforceNow"
-    PAYLOCITY = "Paylocity"
-    GUSTO = "Gusto"
-    CULTURE_AMP = "CultureAmp"
-    LATTICE = "Lattice"
-    SAGE_INTACCT = "SageIntacct"
-    FRESH_BOOKS = "FreshBooks"
-    EXPENSIFY = "Expensify"
-    RAMP = "Ramp"
-    BREX = "Brex"
-    COUPA = "Coupa"
-    SAP_CONCUR = "SapConcur"
-    APOLLO = "Apollo"
-    CRUNCHBASE = "Crunchbase"
-    ZOOM_INFO = "ZoomInfo"
-    CLARI = "Clari"
-    CHORUS = "Chorus"
-    CODA = "Coda"
-    GURU = "Guru"
-    DROPBOX = "Dropbox"
-    DOCUSIGN = "Docusign"
-    PANDA_DOC = "PandaDoc"
-    SAP_ERP = "SapErp"
-    SAP_SUCCESS_FACTORS = "SapSuccessFactors"
-    ORACLE_EBS = "OracleEbs"
-    ORACLE_FUSION = "OracleFusion"
-    AMAZON_SNS = "AmazonSNS"
-    AMAZON_EVENT_BRIDGE = "AmazonEventBridge"
-    AMAZON_SQS = "AmazonSQS"
-    AMAZON_KINESIS = "AmazonKinesis"
-    AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
-    OPEN_AI_ADS = "OpenAIAds"
-    ONE_HUNDRED_MS = "OneHundredMs"
-    SEVEN_SHIFTS = "SevenShifts"
-    ACUITY_SCHEDULING = "AcuityScheduling"
-    AGILE_CRM = "AgileCRM"
-    AHA = "Aha"
-    AIRBYTE = "Airbyte"
-    AKENEO = "Akeneo"
-    ALGOLIA = "Algolia"
-    ALPACA_BROKER_API = "AlpacaBrokerAPI"
-    APIFY_DATASET = "ApifyDataset"
-    APPCUES = "Appcues"
-    APPFIGURES = "Appfigures"
-    APPFOLLOW = "Appfollow"
-    APPTIVO = "Apptivo"
-    ASSEMBLY_AI = "AssemblyAI"
-    AWIN = "Awin"
-    AWS_CLOUD_TRAIL = "AwsCloudTrail"
-    AZURE_TABLE_STORAGE = "AzureTableStorage"
-    BABELFORCE = "Babelforce"
-    BASECAMP = "Basecamp"
-    BEAMER = "Beamer"
-    BIG_MAILER = "BigMailer"
-    BLUETALLY = "Bluetally"
-    BOLD_SIGN = "BoldSign"
-    BREEZY_HR = "BreezyHR"
-    BUGSNAG = "Bugsnag"
-    BUILDKITE = "Buildkite"
-    BUNNY = "Bunny"
-    BUZZSPROUT = "Buzzsprout"
-    CAL_COM = "CalCom"
-    CALL_RAIL = "CallRail"
-    CAMPAYN = "Campayn"
-    CANNY = "Canny"
-    CAPSULE_CRM = "CapsuleCRM"
-    CAPTAIN_DATA = "CaptainData"
-    CART_COM = "CartCom"
-    CASTOR_EDC = "CastorEDC"
-    CHAMELEON = "Chameleon"
-    CHARGEDESK = "Chargedesk"
-    CHARGIFY = "Chargify"
-    CHIFT = "Chift"
-    CHURNKEY = "Churnkey"
-    CIN7 = "Cin7"
-    CISCO_MERAKI = "CiscoMeraki"
-    CLAZAR = "Clazar"
-    CLOCKIFY = "Clockify"
-    CLOCKODO = "Clockodo"
-    CLOUDBEDS = "Cloudbeds"
-    COASSEMBLE = "Coassemble"
-    CODEFRESH = "Codefresh"
-    CONCORD = "Concord"
-    CONFIG_CAT = "ConfigCat"
-    COUCHBASE = "Couchbase"
-    CURVE = "Curve"
-    CUSTOMERLY = "Customerly"
-    DATASCOPE = "Datascope"
-    DBT = "Dbt"
-    DEPUTY = "Deputy"
-    DEVIN_AI = "DevinAI"
-    DOCUSEAL = "Docuseal"
-    DOLIBARR = "Dolibarr"
-    DREMIO = "Dremio"
-    DROPBOX_SIGN = "DropboxSign"
-    DWOLLA = "Dwolla"
-    E_CONOMIC = "EConomic"
-    EASYPOST = "Easypost"
-    EASYPROMOS = "Easypromos"
-    ELASTICEMAIL = "Elasticemail"
-    EMAIL_OCTOPUS = "EmailOctopus"
-    EMPLOYMENT_HERO = "EmploymentHero"
-    ENCHARGE = "Encharge"
-    EVENTEE = "Eventee"
-    EVENTZILLA = "Eventzilla"
-    EVERHOUR = "Everhour"
-    EZ_OFFICE_INVENTORY = "EZOfficeInventory"
-    FACTORIAL = "Factorial"
-    FASTBILL = "Fastbill"
-    FASTLY = "Fastly"
-    FAUNA = "Fauna"
-    FEISHU = "Feishu"
-    FILLOUT = "Fillout"
-    FINAGE = "Finage"
-    FIREBOLT = "Firebolt"
-    FIRE_HYDRANT = "FireHydrant"
-    FLEETIO = "Fleetio"
-    FLEXMAIL = "Flexmail"
-    FLEXPORT = "Flexport"
-    FLOAT_APP = "FloatApp"
-    FLOWLU = "Flowlu"
-    FORMBRICKS = "Formbricks"
-    FREE_AGENT = "FreeAgent"
-    FREIGHTVIEW = "Freightview"
-    FRESHCALLER = "Freshcaller"
-    FRESHCHAT = "Freshchat"
-    FRESHSERVICE = "Freshservice"
-    FULCRUM = "Fulcrum"
-    GAINSIGHT_PX = "GainsightPx"
-    GIT_BOOK = "GitBook"
-    GLASSFROG = "Glassfrog"
-    GOLDCAST = "Goldcast"
-    GO_LOGIN = "GoLogin"
-    GRAFANA = "Grafana"
-    GREYT_HR = "GreytHr"
-    GRIDLY = "Gridly"
-    HARNESS = "Harness"
-    HEIGHT = "Height"
-    HELLOBATON = "Hellobaton"
-    HIGH_LEVEL = "HighLevel"
-    HOORAY_HR = "HoorayHR"
-    HUBPLANNER = "Hubplanner"
-    HUMANITIX = "Humanitix"
-    HUNTR = "Huntr"
-    INFLOWINVENTORY = "Inflowinventory"
-    INFOR_NEXUS = "InforNexus"
-    INSIGHTFUL = "Insightful"
-    INSIGHTLY = "Insightly"
-    INSTANTLY = "Instantly"
-    INSTATUS = "Instatus"
-    INTRUDER = "Intruder"
-    INVOICED = "Invoiced"
-    INVOICENINJA = "Invoiceninja"
-    JAMF_PRO = "JamfPro"
-    JOB_NIMBUS = "JobNimbus"
-    JOTFORM = "Jotform"
-    JUDGE_ME_REVIEWS = "JudgeMeReviews"
-    JUST_CALL = "JustCall"
-    JUST_SIFT = "JustSift"
-    K6_CLOUD = "K6Cloud"
-    KATANA = "Katana"
-    KEKA = "Keka"
-    KISI = "Kisi"
-    KISSMETRICS = "Kissmetrics"
-    KLARNA = "Klarna"
-    KLAUS = "Klaus"
-    LAGO = "Lago"
-    LEADFEEDER = "Leadfeeder"
-    LEMLIST = "Lemlist"
-    LESS_ANNOYING_CRM = "LessAnnoyingCRM"
-    LINKEDIN_PAGES = "LinkedinPages"
-    LINKRUNNER = "Linkrunner"
-    LINNWORKS = "Linnworks"
-    LOB = "Lob"
-    LOKALISE = "Lokalise"
-    LOOKER = "Looker"
-    LUMA = "Luma"
-    MAILER_SEND = "MailerSend"
-    MAILOSAUR = "Mailosaur"
-    MAILTRAP = "Mailtrap"
-    MANTLE = "Mantle"
-    MENTION = "Mention"
-    MERCADO_ADS = "MercadoAds"
-    MERGE = "Merge"
-    METABASE = "Metabase"
-    METRICOOL = "Metricool"
-    MICROSOFT_DATAVERSE = "MicrosoftDataverse"
-    MICROSOFT_ENTRA_ID = "MicrosoftEntraId"
-    MICROSOFT_LISTS = "MicrosoftLists"
-    MIRO = "Miro"
-    MISSIVE = "Missive"
-    MIX_MAX = "MixMax"
-    MODE = "Mode"
-    MUX = "Mux"
-    MY_HOURS = "MyHours"
-    N8N = "N8n"
-    NAVAN = "Navan"
-    NEBIUS_AI = "NebiusAI"
-    NEXIOPAY = "Nexiopay"
-    NINJA_ONE_RMM = "NinjaOneRMM"
-    NO_CRM = "NoCRM"
-    NORTHPASS_LMS = "NorthpassLMS"
-    NUTSHELL = "Nutshell"
-    NYLAS = "Nylas"
-    ONCEHUB = "Oncehub"
-    ONEPAGECRM = "Onepagecrm"
-    ONE_SIGNAL = "OneSignal"
-    ONFLEET = "Onfleet"
-    OPINION_STAGE = "OpinionStage"
-    OPUS_WATCH = "OPUSWatch"
-    ORB = "Orb"
-    ORBIT = "Orbit"
-    OURA = "Oura"
-    OVEIT = "Oveit"
-    PABBLY_SUBSCRIPTIONS_BILLING = "PabblySubscriptionsBilling"
-    PAPERFORM = "Paperform"
-    PAPERSIGN = "Papersign"
-    PARTNERIZE = "Partnerize"
-    PARTNER_STACK = "PartnerStack"
-    PAY_FIT = "PayFit"
-    PAYSTACK = "Paystack"
-    PENNYLANE = "Pennylane"
-    PERK = "Perk"
-    PERSIST_IQ = "PersistIq"
-    PERSONA = "Persona"
-    PHYLLO = "Phyllo"
-    PICQER = "Picqer"
-    PIPELINER = "Pipeliner"
-    PIVOTAL_TRACKER = "PivotalTracker"
-    PIWIK = "Piwik"
-    PLANHAT = "Planhat"
-    PLAUSIBLE = "Plausible"
-    POPLAR = "Poplar"
-    PRESTA_SHOP = "PrestaShop"
-    PRETIX = "Pretix"
-    PRIMETRIC = "Primetric"
-    PRINTAVO = "Printavo"
-    PRINTIFY = "Printify"
-    PRODUCTIVE = "Productive"
-    PYLON = "Pylon"
-    QONTO = "Qonto"
-    QUALAROO = "Qualaroo"
-    RAILZ = "Railz"
-    RD_STATION_MARKETING = "RDStationMarketing"
-    RECRUITEE = "Recruitee"
-    REDDIT = "Reddit"
-    REFERRAL_HERO = "ReferralHero"
-    RENT_CAST = "RentCast"
-    REPAIRSHOPR = "Repairshopr"
-    REPLY_IO = "ReplyIo"
-    RETAIL_EXPRESS = "RetailExpress"
-    RETENTLY = "Retently"
-    REVOLUT_MERCHANT = "RevolutMerchant"
-    ROCKET_CHAT = "RocketChat"
-    ROCKETLANE = "Rocketlane"
-    ROOTLY = "Rootly"
-    RUDDR = "Ruddr"
-    SAFETY_CULTURE = "SafetyCulture"
-    SAGE_HR = "SageHR"
-    SALESFLARE = "Salesflare"
-    SAP_FIELDGLASS = "SAPFieldglass"
-    SAVVY_CAL = "SavvyCal"
-    SECODA = "Secoda"
-    SEGMENT = "Segment"
-    SENDOWL = "Sendowl"
-    SEND_PULSE = "SendPulse"
-    SENSEFORCE = "Senseforce"
-    SERPSTAT = "Serpstat"
-    SHARETRIBE = "Sharetribe"
-    SHIPPO = "Shippo"
-    SHOP_WIRED = "ShopWired"
-    SHORTIO = "Shortio"
-    SHUTTERSTOCK = "Shutterstock"
-    SIGMA_COMPUTING = "SigmaComputing"
-    SIGN_NOW = "SignNow"
-    SIMPLE_CAST = "SimpleCast"
-    SIMPLESAT = "Simplesat"
-    SMAILY = "Smaily"
-    SMART_ENGAGE = "SmartEngage"
-    SMARTREACH = "Smartreach"
-    SMARTWAIVER = "Smartwaiver"
-    SOLARWINDS_SERVICE_DESK = "SolarwindsServiceDesk"
-    SONAR_CLOUD = "SonarCloud"
-    SPARK_POST = "SparkPost"
-    SPLIT_IO = "SplitIo"
-    SPOTIFY_ADS = "SpotifyAds"
-    SPOTLER_CRM = "SpotlerCRM"
-    SQUARESPACE = "Squarespace"
-    STATSIG = "Statsig"
-    STATUSPAGE = "Statuspage"
-    STIGG = "Stigg"
-    STRAVA = "Strava"
-    SURVEY_SPARROW = "SurveySparrow"
-    SURVICATE = "Survicate"
-    SVIX = "Svix"
-    SYSTEME = "Systeme"
-    TAVUS = "Tavus"
-    TEAMTAILOR = "Teamtailor"
-    TEAMWORK = "Teamwork"
-    TEMPO = "Tempo"
-    TESTRAIL = "Testrail"
-    THINKIFIC = "Thinkific"
-    THINKIFIC_COURSES = "ThinkificCourses"
-    THRIVE_LEARNING = "ThriveLearning"
-    TICKETMASTER = "Ticketmaster"
-    TICKET_TAILOR = "TicketTailor"
-    TICK_TICK = "TickTick"
-    TIMELY = "Timely"
-    TINYEMAIL = "Tinyemail"
-    TODOIST = "Todoist"
-    TOGGL = "Toggl"
-    TRACK_PMS = "TrackPMS"
-    TREMENDOUS = "Tremendous"
-    TRUST_PILOT = "TrustPilot"
-    TWITTER = "Twitter"
-    TYNTEC_SMS = "TyntecSMS"
-    UNLEASH = "Unleash"
-    UP_PROMOTE = "UpPromote"
-    UPTICK = "Uptick"
-    USERVOICE = "Uservoice"
-    VANTAGE = "Vantage"
-    VEEQO = "Veeqo"
-    VERCEL = "Vercel"
-    VISMA_ECONOMIC = "VismaEconomic"
-    VWO = "VWO"
-    WAITERAID = "Waiteraid"
-    WASABI = "Wasabi"
-    WHEN_I_WORK = "WhenIWork"
-    WORDPRESS = "Wordpress"
-    WORKABLE = "Workable"
-    WORKFLOWMAX = "Workflowmax"
-    WORKRAMP = "Workramp"
-    WUFOO = "Wufoo"
-    XSOLLA = "Xsolla"
-    YANDEX_METRICA = "YandexMetrica"
-    YOTPO = "Yotpo"
-    YNAB = "Ynab"
-    YOUNIUM = "Younium"
-    YOU_SIGN = "YouSign"
-    YOUTUBE_DATA = "YoutubeData"
-    ZAPIER_SUPPORTED_STORAGE = "ZapierSupportedStorage"
-    ZAP_SIGN = "ZapSign"
-    ZENDESK_SELL = "ZendeskSell"
-    ZENDESK_SUNSHINE = "ZendeskSunshine"
-    ZENEFITS = "Zenefits"
-    ZENLOOP = "Zenloop"
-    ZOHO_ANALYTICS = "ZohoAnalytics"
-    ZOHO_BIGIN = "ZohoBigin"
-    ZOHO_BILLING = "ZohoBilling"
-    ZOHO_BOOKS = "ZohoBooks"
-    ZOHO_CAMPAIGN = "ZohoCampaign"
-    ZOHO_DESK = "ZohoDesk"
-    ZOHO_EXPENSE = "ZohoExpense"
-    ZOHO_INVENTORY = "ZohoInventory"
-    ZOHO_INVOICE = "ZohoInvoice"
-    ZONKA_FEEDBACK = "ZonkaFeedback"
-    ALPHA_VANTAGE = "AlphaVantage"
-    AVIATIONSTACK = "Aviationstack"
-    BITLY = "Bitly"
-    BLOGGER = "Blogger"
-    BREEZOMETER = "Breezometer"
-    CARE_QUALITY_COMMISSION = "CareQualityCommission"
-    CIMIS = "Cimis"
-    COIN_API = "CoinApi"
-    COIN_GECKO = "CoinGecko"
-    COIN_MARKET_CAP = "CoinMarketCap"
-    DING_CONNECT = "DingConnect"
-    DOCKERHUB = "Dockerhub"
-    EXCHANGE_RATES_API = "ExchangeRatesApi"
-    FINANCIAL_MODELLING = "FinancialModelling"
-    FINNHUB = "Finnhub"
-    FINNWORLDS = "Finnworlds"
-    GIPHY = "Giphy"
-    GMAIL = "Gmail"
-    G_NEWS = "GNews"
-    GOOGLE_CALENDAR = "GoogleCalendar"
-    GOOGLE_CLASSROOM = "GoogleClassroom"
-    GOOGLE_DIRECTORY = "GoogleDirectory"
-    GOOGLE_FORMS = "GoogleForms"
-    GOOGLE_PAGE_SPEED_INSIGHTS = "GooglePageSpeedInsights"
-    GOOGLE_TASKS = "GoogleTasks"
-    GOOGLE_WEBFONTS = "GoogleWebfonts"
-    GOOGLE_WORKSPACE_ADMIN_REPORTS = "GoogleWorkspaceAdminReports"
-    HUGGING_FACE = "HuggingFace"
-    ILLUMINA_BASESPACE = "IlluminaBasespace"
-    IMAGGA = "Imagga"
-    INTERZOID = "Interzoid"
-    IP2_WHOIS = "IP2Whois"
-    KYVE = "KYVE"
-    MARKETSTACK = "Marketstack"
-    MENDELEY = "Mendeley"
-    NASA = "Nasa"
-    NEW_YORK_TIMES = "NewYorkTimes"
-    NEWS_API = "NewsApi"
-    NEWS_DATA = "NewsData"
-    OPEN_DATA_DC = "OpenDataDc"
-    OPEN_EXCHANGE_RATES = "OpenExchangeRates"
-    OPEN_AQ = "OpenAQ"
-    OPEN_FDA = "OpenFDA"
-    OPEN_WEATHER = "OpenWeather"
-    OUTLOOK = "Outlook"
-    PERIGON = "Perigon"
-    PEXELS = "Pexels"
-    POCKET = "Pocket"
-    POLYGON = "Polygon"
-    PY_PI = "PyPI"
-    RECREATION = "Recreation"
-    RKI_COVID = "RKICovid"
-    RSS = "Rss"
-    SIM_FIN = "SimFin"
-    STOCK_DATA = "StockData"
-    GUARDIAN = "Guardian"
-    TM_DB = "TMDb"
-    TV_MAZE = "TVMaze"
-    TWELVE_DATA = "TwelveData"
-    UBIDOTS = "Ubidots"
-    US_CENSUS = "USCensus"
-    WATCHMODE = "Watchmode"
-    WIKIPEDIA_PAGEVIEWS = "WikipediaPageviews"
-    YAHOO_FINANCE = "YahooFinance"
-    CLARIFAI = "Clarifai"
-    ADAPTY = "Adapty"
-    BRAINTRUST = "Braintrust"
-    STREAM_ELEMENTS = "StreamElements"
-    STREAMLABS = "Streamlabs"
-    DATORAMA = "Datorama"
-    AHREFS = "Ahrefs"
-    LIGHTFIELD = "Lightfield"
-    APPSTACK = "Appstack"
-    RAZORPAY = "Razorpay"
-    NEON = "Neon"
-    NEW_RELIC = "NewRelic"
-    CUSTOM = "Custom"
-    TILE38 = "Tile38"
-    CHATWOOT = "Chatwoot"
-    SANITY = "Sanity"
-    METRONOME = "Metronome"
-    JOBBER = "Jobber"
-    KNOCK = "Knock"
-    LEEXI = "Leexi"
-    RB2_B = "RB2B"
-    SUPERWALL = "Superwall"
-    LIANA = "Liana"
-    TAWK_TO = "TawkTo"
-    HIGHTOUCH = "Hightouch"
-    LEMON_SQUEEZY = "LemonSqueezy"
-    IKAS = "Ikas"
-    TALKWALKER = "Talkwalker"
-    NEXTDOOR_ADS = "NextdoorAds"
-    APP_LOVIN = "AppLovin"
-    BASEROW = "Baserow"
-    PLUNK = "Plunk"
-    DUB = "Dub"
-    AIR_OPS = "AirOps"
-    PODIUM = "Podium"
-    LOOPS = "Loops"
-    REDIS = "Redis"
-    MERCURY = "Mercury"
-    GOJIBERRY = "Gojiberry"
-    TEACHABLE = "Teachable"
-    PEEC_AI = "PeecAI"
-    HEALTHCHECKS = "Healthchecks"
-    IMPACT = "Impact"
-    IMPACT_PARTNER = "ImpactPartner"
-    AIKIDO_SECURITY = "AikidoSecurity"
-    ALGUNA = "Alguna"
-    ANTHROPIC = "Anthropic"
-    APPWRITE = "Appwrite"
-    BLAND_AI = "BlandAI"
-    BROWSE_AI = "BrowseAI"
-    BROWSER_USE = "BrowserUse"
-    CHART_HOP = "ChartHop"
-    CODY = "Cody"
-    CURSOR = "Cursor"
-    DECAGON = "Decagon"
-    DEEPGRAM = "Deepgram"
-    ELEVEN_LABS = "ElevenLabs"
-    HARVEY = "Harvey"
-    HYPERSPELL = "Hyperspell"
-    LANGFUSE = "Langfuse"
-    LINGO_DEV = "LingoDev"
-    M3TER = "M3ter"
-    MAXIO = "Maxio"
-    METORIAL = "Metorial"
-    OPEN_ROUTER = "OpenRouter"
-    TOGETHER_AI = "TogetherAI"
-    VAPI = "Vapi"
-    VESPA = "Vespa"
-    WRITESONIC = "Writesonic"
-    AIVEN = "Aiven"
-    AVIATOR = "Aviator"
-    BACKBLAZE = "Backblaze"
-    BASETEN = "Baseten"
-    BROWSERBASE = "Browserbase"
-    COHERE = "Cohere"
-    DENO_DEPLOY = "DenoDeploy"
-    DIGITAL_OCEAN = "DigitalOcean"
-    E2_B = "E2B"
-    FINTOC = "Fintoc"
-    FIRECRAWL = "Firecrawl"
-    FIREWORKS_AI = "FireworksAI"
-    FLY_IO = "FlyIo"
-    GROQ = "Groq"
-    GROWTH_BOOK = "GrowthBook"
-    GUMLOOP = "Gumloop"
-    HATCHET = "Hatchet"
-    HELICONE = "Helicone"
-    HEROKU = "Heroku"
-    HETZNER = "Hetzner"
-    HEY_GEN = "HeyGen"
-    INFISICAL = "Infisical"
-    INNGEST = "Inngest"
-    KAPA_AI = "KapaAI"
-    KERNEL = "Kernel"
-    KOYEB = "Koyeb"
-    LAMBDA_LABS = "LambdaLabs"
-    LANG_SMITH = "LangSmith"
-    LINODE = "Linode"
-    LLAMA_CLOUD = "LlamaCloud"
-    MEM0 = "Mem0"
-    METRIPORT = "Metriport"
-    MINTLIFY = "Mintlify"
-    MISTRAL_AI = "MistralAI"
-    MONO = "Mono"
-    NETLIFY = "Netlify"
-    NORTHFLANK = "Northflank"
-    OPEN_AI = "OpenAI"
-    PINECONE = "Pinecone"
-    PLATFORM_SH = "PlatformSh"
-    PROMPTING_COMPANY = "PromptingCompany"
-    PROMPT_WATCH = "PromptWatch"
-    QDRANT = "Qdrant"
-    RENDER = "Render"
-    REPLICATE = "Replicate"
-    RETELL_AI = "RetellAI"
-    ROARK = "Roark"
-    RUN_POD = "RunPod"
-    SCALE_AI = "ScaleAI"
-    SCALEWAY = "Scaleway"
-    SIG_NOZ = "SigNoz"
-    SIM = "Sim"
-    SKYVERN = "Skyvern"
-    SLASH = "Slash"
-    SYNTHESIA = "Synthesia"
-    TELLI = "Telli"
-    TERRA_API = "TerraApi"
-    TRIGGER_DEV = "TriggerDev"
-    TURSO = "Turso"
-    TWELVE_LABS = "TwelveLabs"
-    TWENTY = "Twenty"
-    UNSTRUCTURED = "Unstructured"
-    UPSTASH = "Upstash"
-    VELLUM = "Vellum"
-    VULTR = "Vultr"
-    WINDMILL = "Windmill"
-    ZEP = "Zep"
-    HEX = "Hex"
-    SINGULAR = "Singular"
-    SWONKIE = "Swonkie"
-    SUMSUB = "Sumsub"
-    GOOGLE_CHAT = "GoogleChat"
-    KICKSCALE = "Kickscale"
-    ZELLIFY = "Zellify"
-    RUDDER_STACK = "RudderStack"
-    DODO_PAYMENTS = "DodoPayments"
-    SALESTRICS = "Salestrics"
-    DOPPLER = "Doppler"
-    USERSNAP = "Usersnap"
-    ASKNICELY = "Asknicely"
-    FEATUREBASE = "Featurebase"
-    FRILL = "Frill"
-    BETTERMODE = "Bettermode"
-    DYNATRACE = "Dynatrace"
-    HONEYCOMB = "Honeycomb"
-    SUMO_LOGIC = "SumoLogic"
-    LOGZ_IO = "LogzIO"
-    CORALOGIX = "Coralogix"
-    BETTER_STACK = "BetterStack"
-    RAYGUN = "Raygun"
-    HONEYBADGER = "Honeybadger"
-    AIRBRAKE = "Airbrake"
-    APPSIGNAL = "Appsignal"
-    APPDYNAMICS = "Appdynamics"
-    INSTANA = "Instana"
-    SPLUNK_OBSERVABILITY_CLOUD = "SplunkObservabilityCloud"
-    UPTIMEROBOT = "Uptimerobot"
-    STATUSCAKE = "Statuscake"
-    TAILSCALE = "Tailscale"
-    FLAGSMITH = "Flagsmith"
-    XMATTERS = "Xmatters"
-    SQUADCAST = "Squadcast"
-    ZENDUTY = "Zenduty"
-    CRONITOR = "Cronitor"
-    JENKINS = "Jenkins"
-    BITBUCKET = "Bitbucket"
-    GITEA = "Gitea"
-    TEAMCITY = "Teamcity"
-    TRAVIS_CI = "TravisCI"
-    SEMAPHORE = "Semaphore"
-    CIRCLECI_INSIGHTS = "CircleciInsights"
-    OCTOPUS_DEPLOY = "OctopusDeploy"
-    SOURCEGRAPH = "Sourcegraph"
-    BITRISE = "Bitrise"
-    GERRIT = "Gerrit"
-    TERRAFORM_CLOUD = "TerraformCloud"
-    PULUMI_CLOUD = "PulumiCloud"
-    SPACELIFT = "Spacelift"
-    RAILWAY = "Railway"
-    ARGOCD = "Argocd"
-    PREFECT_CLOUD = "PrefectCloud"
-    DAGSTER_CLOUD = "DagsterCloud"
-    ENV0 = "Env0"
-    KUBECOST = "Kubecost"
-    SNYK = "Snyk"
-    SEMGREP = "Semgrep"
-    VERACODE = "Veracode"
-    CHECKMARX = "Checkmarx"
-    GITGUARDIAN = "Gitguardian"
-    QUALYS_VMDR = "QualysVmdr"
-    RAPID7_INSIGHTVM = "Rapid7Insightvm"
-    TENABLE_VULNERABILITY_MANAGEMENT = "TenableVulnerabilityManagement"
-    SENTINELONE = "Sentinelone"
-    LACEWORK = "Lacework"
-    ORCA_SECURITY = "OrcaSecurity"
-    DRATA = "Drata"
-    SECUREFRAME = "Secureframe"
-    CISCO_DUO = "CiscoDuo"
-    JUMPCLOUD = "Jumpcloud"
-    ONE_PASSWORD = "OnePassword"
-    STYTCH = "Stytch"
-    SONARQUBE = "Sonarqube"
-    CODECOV = "Codecov"
-    COVERALLS = "Coveralls"
-    CODACY = "Codacy"
-    DEEPSOURCE = "Deepsource"
-    LINEARB = "Linearb"
-    JELLYFISH = "Jellyfish"
-    SWARMIA = "Swarmia"
-    PACKAGIST = "Packagist"
-    NUGET = "Nuget"
-    CRATES_IO = "CratesIO"
-    SONATYPE_NEXUS = "SonatypeNexus"
-    JFROG_ARTIFACTORY = "JfrogArtifactory"
-    SNOWPLOW = "Snowplow"
-    WEIGHTS_AND_BIASES = "WeightsAndBiases"
-    MONTE_CARLO = "MonteCarlo"
-    METAPLANE = "Metaplane"
-    DATAHUB = "Datahub"
-    CLICKHOUSE_CLOUD = "ClickhouseCloud"
-    CONFLUENT_CLOUD = "ConfluentCloud"
-    KONG_KONNECT = "KongKonnect"
-    KANDJI = "Kandji"
-    AUTOMOX = "Automox"
-    AUTUMN = "Autumn"
-    GET_STREAM = "GetStream"
-    OCTOLENS = "Octolens"
-    KAJABI = "Kajabi"
-    SHOPWARE = "Shopware"
-    DUBSADO = "Dubsado"
-    CAMPFIRE = "Campfire"
-    CRISP = "Crisp"
-    KOMMO = "Kommo"
-    GOOGLE_MERCHANT_CENTER = "GoogleMerchantCenter"
-    AXIOM = "Axiom"
-    PLIVO = "Plivo"
-    DATA_FOR_SEO = "DataForSEO"
-    SLEEKPLAN = "Sleekplan"
-    AB_TASTY = "AbTasty"
-    ABLY = "Ably"
-    ABNORMAL_SECURITY = "AbnormalSecurity"
-    ACAST = "Acast"
-    ACCULYNX = "Acculynx"
-    ACTIONSTEP = "Actionstep"
-    AFTERSHIP = "Aftership"
-    AHA_IDEAS = "AhaIdeas"
-    AKAMAI_REPORTING = "AkamaiReporting"
-    ALATION = "Alation"
-    ALEGRA = "Alegra"
-    ALLEGRO = "Allegro"
-    ANODOT_COST = "AnodotCost"
-    ANOMALO = "Anomalo"
-    APALEO = "Apaleo"
-    APITALLY = "Apitally"
-    APP_STORE_CONNECT = "AppStoreConnect"
-    APPDIRECT = "Appdirect"
-    APPFOLIO = "Appfolio"
-    ARXIV = "Arxiv"
-    ASAAS = "Asaas"
-    ASTRONOMER = "Astronomer"
-    ATHENAHEALTH = "Athenahealth"
-    ATLAN = "Atlan"
-    AUTODESK_CONSTRUCTION_CLOUD = "AutodeskConstructionCloud"
-    AVALARA = "Avalara"
-    AWS_ATHENA = "AwsAthena"
-    AWS_BATCH = "AwsBatch"
-    AWS_BUDGETS = "AwsBudgets"
-    AWS_CLOUDFORMATION = "AwsCloudformation"
-    AWS_COMPUTE_OPTIMIZER = "AwsComputeOptimizer"
-    AWS_CONFIG = "AwsConfig"
-    AWS_CONNECT = "AwsConnect"
-    AWS_COST_AND_USAGE_REPORT = "AwsCostAndUsageReport"
-    AWS_COST_ANOMALY_DETECTION = "AwsCostAnomalyDetection"
-    AWS_COST_EXPLORER = "AwsCostExplorer"
-    AWS_GLUE_DATA_CATALOG = "AwsGlueDataCatalog"
-    AWS_GUARDDUTY = "AwsGuardduty"
-    AWS_HEALTH = "AwsHealth"
-    AWS_IAM_ACCESS_ANALYZER = "AwsIamAccessAnalyzer"
-    AWS_INSPECTOR = "AwsInspector"
-    AWS_MACIE = "AwsMacie"
-    AWS_ORGANIZATIONS = "AwsOrganizations"
-    AWS_RDS_PERFORMANCE_INSIGHTS = "AwsRdsPerformanceInsights"
-    AWS_SAGEMAKER = "AwsSagemaker"
-    AWS_SAVINGS_PLANS = "AwsSavingsPlans"
-    AWS_SECURITY_HUB = "AwsSecurityHub"
-    AWS_SES = "AwsSes"
-    AWS_STEP_FUNCTIONS = "AwsStepFunctions"
-    AWS_SUPPORT = "AwsSupport"
-    AWS_SYSTEMS_MANAGER = "AwsSystemsManager"
-    AWS_TRUSTED_ADVISOR = "AwsTrustedAdvisor"
-    AWS_WAF = "AwsWaf"
-    AWS_XRAY = "AwsXray"
-    AZURE_ACTIVITY_LOG = "AzureActivityLog"
-    AZURE_ADVISOR = "AzureAdvisor"
-    AZURE_API_MANAGEMENT = "AzureApiManagement"
-    AZURE_APPLICATION_INSIGHTS = "AzureApplicationInsights"
-    AZURE_COST_MANAGEMENT = "AzureCostManagement"
-    AZURE_DATA_EXPLORER = "AzureDataExplorer"
-    AZURE_DATA_FACTORY = "AzureDataFactory"
-    AZURE_LOG_ANALYTICS = "AzureLogAnalytics"
-    AZURE_MONITOR_ALERTS = "AzureMonitorAlerts"
-    AZURE_MONITOR_METRICS = "AzureMonitorMetrics"
-    AZURE_OPENAI_USAGE = "AzureOpenaiUsage"
-    AZURE_POLICY_INSIGHTS = "AzurePolicyInsights"
-    AZURE_RESERVATIONS = "AzureReservations"
-    AZURE_RESOURCE_GRAPH = "AzureResourceGraph"
-    AZURE_RESOURCE_HEALTH = "AzureResourceHealth"
-    AZURE_SERVICE_HEALTH = "AzureServiceHealth"
-    AZURE_SYNAPSE = "AzureSynapse"
-    BACK_MARKET = "BackMarket"
-    BEEHIIV = "Beehiiv"
-    BIGEYE = "Bigeye"
-    BILL_COM = "BillCom"
-    BILLOMAT = "Billomat"
-    BING_WEBMASTER_TOOLS = "BingWebmasterTools"
-    BITWARDEN = "Bitwarden"
-    BLACKBAUD_RAISERS_EDGE_NXT = "BlackbaudRaisersEdgeNxt"
-    BLACKBOARD_LEARN = "BlackboardLearn"
-    BLING = "Bling"
-    BLOOMERANG = "Bloomerang"
-    BLUESKY = "Bluesky"
-    BOL_RETAILER = "BolRetailer"
-    BOULEVARD = "Boulevard"
-    BUFFER = "Buffer"
-    BUGHERD = "Bugherd"
-    BUILDIUM = "Buildium"
-    BUTTONDOWN = "Buttondown"
-    BUY_ME_A_COFFEE = "BuyMeACoffee"
-    CALENDARIFIC = "Calendarific"
-    CALIBRE = "Calibre"
-    CANVAS_LMS = "CanvasLms"
-    CAPTIVATE = "Captivate"
-    CASHFREE = "Cashfree"
-    CAST_AI = "CastAi"
-    CATCHPOINT = "Catchpoint"
-    CDC_OPEN_DATA = "CdcOpenData"
-    CENSUS = "Census"
-    CHECKLY = "Checkly"
-    CIRCLE_SO = "CircleSo"
-    CLASSY = "Classy"
-    CLEARTAX = "Cleartax"
-    CLEVER = "Clever"
-    CLEVERTAP = "Clevertap"
-    CLINIKO = "Cliniko"
-    CLIO = "Clio"
-    CLIP = "Clip"
-    CLOUDABILITY = "Cloudability"
-    CLOUDSMITH = "Cloudsmith"
-    CLOUDZERO = "Cloudzero"
-    CLOVER = "Clover"
-    CODEMAGIC = "Codemagic"
-    CODESCENE = "Codescene"
-    COLLIBRA = "Collibra"
-    COMPANYCAM = "Companycam"
-    CONEKTA = "Conekta"
-    CONTA_AZUL = "ContaAzul"
-    CONTENTSQUARE = "Contentsquare"
-    CORTEX = "Cortex"
-    COURIER = "Courier"
-    CROSSREF = "Crossref"
-    CROWDSTRIKE_FALCON = "CrowdstrikeFalcon"
-    CUBE_CLOUD = "CubeCloud"
-    D2L_BRIGHTSPACE = "D2lBrightspace"
-    DAYFORCE = "Dayforce"
-    DEBUGBEAR = "Debugbear"
-    DESCOPE = "Descope"
-    DEVELOCITY = "Develocity"
-    DIALPAD = "Dialpad"
-    DISCORD = "Discord"
-    DISCOURSE = "Discourse"
-    DONORBOX = "Donorbox"
-    DOORLOOP = "Doorloop"
-    DOVETAIL = "Dovetail"
-    DRCHRONO = "Drchrono"
-    DYNAMICS365_BUSINESS_CENTRAL = "Dynamics365BusinessCentral"
-    ECB_DATA_PORTAL = "EcbDataPortal"
-    EMARSYS = "Emarsys"
-    EMBRACE = "Embrace"
-    ENTSOE = "Entsoe"
-    EPPO = "Eppo"
-    ETSY = "Etsy"
-    EUROSTAT = "Eurostat"
-    FAIRE = "Faire"
-    FAROS_AI = "FarosAi"
-    FIELDPULSE = "Fieldpulse"
-    FIELDWIRE = "Fieldwire"
-    FILEVINE = "Filevine"
-    FINOUT = "Finout"
-    FIVE9 = "Five9"
-    FLEXERA_CLOUD_COST = "FlexeraCloudCost"
-    FLUTTERWAVE = "Flutterwave"
-    FORTNOX = "Fortnox"
-    FOURTHWALL = "Fourthwall"
-    FRED = "Fred"
-    FRONTEGG = "Frontegg"
-    FUSION_AUTH = "FusionAuth"
-    G2 = "G2"
-    GCORE = "Gcore"
-    GCP_APIGEE = "GcpApigee"
-    GCP_ARTIFACT_REGISTRY = "GcpArtifactRegistry"
-    GCP_BIGTABLE = "GcpBigtable"
-    GCP_CHRONICLE = "GcpChronicle"
-    GCP_CLOUD_ASSET_INVENTORY = "GcpCloudAssetInventory"
-    GCP_CLOUD_BILLING = "GcpCloudBilling"
-    GCP_CLOUD_BUILD = "GcpCloudBuild"
-    GCP_CLOUD_DEPLOY = "GcpCloudDeploy"
-    GCP_CLOUD_DNS = "GcpCloudDns"
-    GCP_CLOUD_FUNCTIONS = "GcpCloudFunctions"
-    GCP_CLOUD_LOGGING = "GcpCloudLogging"
-    GCP_CLOUD_MONITORING = "GcpCloudMonitoring"
-    GCP_CLOUD_RUN = "GcpCloudRun"
-    GCP_CLOUD_SPANNER = "GcpCloudSpanner"
-    GCP_CLOUD_SQL = "GcpCloudSql"
-    GCP_CLOUD_TRACE = "GcpCloudTrace"
-    GCP_CLOUD_WORKFLOWS = "GcpCloudWorkflows"
-    GCP_COMPUTE_ENGINE = "GcpComputeEngine"
-    GCP_CONTAINER_ANALYSIS = "GcpContainerAnalysis"
-    GCP_DATAFLOW = "GcpDataflow"
-    GCP_DATAPLEX = "GcpDataplex"
-    GCP_DATAPROC = "GcpDataproc"
-    GCP_ERROR_REPORTING = "GcpErrorReporting"
-    GCP_GKE = "GcpGke"
-    GCP_PUBSUB = "GcpPubsub"
-    GCP_RECAPTCHA_ENTERPRISE = "GcpRecaptchaEnterprise"
-    GCP_RECOMMENDER = "GcpRecommender"
-    GCP_SECURITY_COMMAND_CENTER = "GcpSecurityCommandCenter"
-    GDELT = "Gdelt"
-    GENESYS_CLOUD = "GenesysCloud"
-    GETDX = "Getdx"
-    GHOST = "Ghost"
-    GIVEBUTTER = "Givebutter"
-    GLEIF = "Gleif"
-    GOOGLE_PLAY_CONSOLE = "GooglePlayConsole"
-    GUESTY = "Guesty"
-    GUMROAD = "Gumroad"
-    HARNESS_CCM = "HarnessCcm"
-    HARNESS_SEI = "HarnessSei"
-    HARVEST = "Harvest"
-    HEALTHIE = "Healthie"
-    HITPAY = "Hitpay"
-    HIVEBRITE = "Hivebrite"
-    HOLDED = "Holded"
-    HOSTAWAY = "Hostaway"
-    HOUSECALL_PRO = "HousecallPro"
-    HUMANITEC = "Humanitec"
-    IMF_DATA = "ImfData"
-    IMPERVA = "Imperva"
-    INFLUXDB_CLOUD = "InfluxdbCloud"
-    IYZICO = "Iyzico"
-    JOBTREAD = "Jobtread"
-    KAMELEOON = "Kameleoon"
-    KAUFLAND_MARKETPLACE = "KauflandMarketplace"
-    KESTRA = "Kestra"
-    KICK = "Kick"
-    KINDE = "Kinde"
-    KION = "Kion"
-    KNOWBE4 = "Knowbe4"
-    KOMODOR = "Komodor"
-    LABELBOX = "Labelbox"
-    LAWMATICS = "Lawmatics"
-    LEARNWORLDS = "Learnworlds"
-    LEXWARE_OFFICE = "LexwareOffice"
-    LIGHTDASH = "Lightdash"
-    LODGIFY = "Lodgify"
-    LOGICMONITOR = "Logicmonitor"
-    LOGROCKET = "Logrocket"
-    LOOP_RETURNS = "LoopReturns"
-    MASTODON = "Mastodon"
-    MEETUP = "Meetup"
-    MEMBERFUL = "Memberful"
-    MERCADO_PAGO = "MercadoPago"
-    METEOSTAT = "Meteostat"
-    MEWS = "Mews"
-    MEZMO = "Mezmo"
-    MICROSOFT365_USAGE_REPORTS = "Microsoft365UsageReports"
-    MICROSOFT_ADVERTISING = "MicrosoftAdvertising"
-    MICROSOFT_CLARITY = "MicrosoftClarity"
-    MICROSOFT_DEFENDER_CLOUD_APPS = "MicrosoftDefenderCloudApps"
-    MICROSOFT_DEFENDER_ENDPOINT = "MicrosoftDefenderEndpoint"
-    MICROSOFT_DEFENDER_FOR_CLOUD = "MicrosoftDefenderForCloud"
-    MICROSOFT_INTUNE = "MicrosoftIntune"
-    MICROSOFT_PURVIEW = "MicrosoftPurview"
-    MICROSOFT_PURVIEW_AUDIT = "MicrosoftPurviewAudit"
-    MICROSOFT_SENTINEL = "MicrosoftSentinel"
-    MICROSOFT_TEAMS_CALL_RECORDS = "MicrosoftTeamsCallRecords"
-    MIDTRANS = "Midtrans"
-    MIGHTY_NETWORKS = "MightyNetworks"
-    MINDBODY = "Mindbody"
-    MIRAKL = "Mirakl"
-    MOESIF = "Moesif"
-    MONEYBIRD = "Moneybird"
-    MOODLE = "Moodle"
-    MOTHERDUCK = "Motherduck"
-    MYCASE = "Mycase"
-    NAGER_DATE = "NagerDate"
-    NEON_CRM = "NeonCrm"
-    NEXHEALTH = "Nexhealth"
-    NOAA_CDO = "NoaaCdo"
-    NOBL9 = "Nobl9"
-    NOLT = "Nolt"
-    NOPS = "Nops"
-    NPM_REGISTRY = "NpmRegistry"
-    OECD = "Oecd"
-    OKENDO = "Okendo"
-    OMNI = "Omni"
-    ONELOGIN = "Onelogin"
-    OPEN_DENTAL = "OpenDental"
-    OPEN_METEO = "OpenMeteo"
-    OPENALEX = "Openalex"
-    OPENCORPORATES = "Opencorporates"
-    OPENFEC = "Openfec"
-    OPN_PAYMENTS = "OpnPayments"
-    OPSLEVEL = "Opslevel"
-    OTTO_MARKET = "OttoMarket"
-    OWNERREZ = "Ownerrez"
-    PAGBANK = "Pagbank"
-    PATREON = "Patreon"
-    PAX8 = "Pax8"
-    PAYCHEX = "Paychex"
-    PAYMOB = "Paymob"
-    PAYMONGO = "Paymongo"
-    PHONEPE = "Phonepe"
-    PIKE13 = "Pike13"
-    PINGONE = "Pingone"
-    PINTEREST_ORGANIC = "PinterestOrganic"
-    PLANNING_CENTER = "PlanningCenter"
-    PLURALSIGHT_FLOW = "PluralsightFlow"
-    PODBEAN = "Podbean"
-    POSTSCRIPT = "Postscript"
-    POWER_BI_ADMIN = "PowerBiAdmin"
-    PRACTICEPANTHER = "Practicepanther"
-    PRESET = "Preset"
-    PROCORE = "Procore"
-    PRODUCTIV = "Productiv"
-    PROOFPOINT_TAP = "ProofpointTap"
-    PROPERTYWARE = "Propertyware"
-    PUBNUB = "Pubnub"
-    QUAY = "Quay"
-    RAKEN = "Raken"
-    REDPANDA_CLOUD = "RedpandaCloud"
-    RENT_MANAGER = "RentManager"
-    REVERB = "Reverb"
-    ROCKET_MATTER = "RocketMatter"
-    RUBYGEMS = "Rubygems"
-    SCALR = "Scalr"
-    SEC_EDGAR = "SecEdgar"
-    SELECT_STAR = "SelectStar"
-    SEMANTIC_SCHOLAR = "SemanticScholar"
-    SEMRUSH = "Semrush"
-    SERVICE_FUSION = "ServiceFusion"
-    SERVICEM8 = "Servicem8"
-    SERVICETITAN = "Servicetitan"
-    SERVICETRADE = "Servicetrade"
-    SEVDESK = "Sevdesk"
-    SIMILARWEB = "Similarweb"
-    SIMPRO = "Simpro"
-    SINCH = "Sinch"
-    SINGLESTORE = "Singlestore"
-    SITE24X7 = "Site24x7"
-    SLEUTH = "Sleuth"
-    SMARTLOOK = "Smartlook"
-    SMARTRECRUITERS = "Smartrecruiters"
-    SMOKEBALL = "Smokeball"
-    SODA_CLOUD = "SodaCloud"
-    SPEEDCURVE = "Speedcurve"
-    SPOT_IO = "SpotIo"
-    SPRIG = "Sprig"
-    SPRINKLR = "Sprinklr"
-    SPROUT_SOCIAL = "SproutSocial"
-    STACK_OVERFLOW_FOR_TEAMS = "StackOverflowForTeams"
-    STOCKX = "Stockx"
-    TACKLE_IO = "TackleIo"
-    TALKDESK = "Talkdesk"
-    TEAMUP_FITNESS = "TeamupFitness"
-    TEBRA = "Tebra"
-    TELNYX = "Telnyx"
-    TERNARY = "Ternary"
-    THOUGHTSPOT = "Thoughtspot"
-    THOUSANDEYES = "Thousandeyes"
-    THREADS = "Threads"
-    TIKTOK_SHOP = "TiktokShop"
-    TINY_ERP = "TinyErp"
-    TINYBIRD = "Tinybird"
-    TIPALTI = "Tipalti"
-    TOAST = "Toast"
-    TORII = "Torii"
-    TRANSISTOR = "Transistor"
-    TRUNK_IO = "TrunkIo"
-    TRUSTRADIUS = "Trustradius"
-    TWITCH = "Twitch"
-    TWO_C2P = "TwoC2p"
-    UK_COMPANIES_HOUSE = "UkCompaniesHouse"
-    UK_ONS = "UkOns"
-    UN_COMTRADE = "UnComtrade"
-    US_BEA = "UsBea"
-    US_BLS = "UsBls"
-    US_EIA = "UsEia"
-    US_TREASURY_FISCAL_DATA = "UsTreasuryFiscalData"
-    VANTA = "Vanta"
-    VENDR = "Vendr"
-    VIRTUOUS = "Virtuous"
-    VONAGE = "Vonage"
-    WALMART_MARKETPLACE = "WalmartMarketplace"
-    WAYDEV = "Waydev"
-    WAYFAIR = "Wayfair"
-    WHATSAPP_BUSINESS_MANAGEMENT = "WhatsappBusinessManagement"
-    WHO_GHO = "WhoGho"
-    WHOP = "Whop"
-    WIZ = "Wiz"
-    WOMPI = "Wompi"
-    WORKIZ = "Workiz"
-    WORLD_BANK = "WorldBank"
-    XENDIT = "Xendit"
-    YOCO = "Yoco"
-    ZALANDO_ZDIRECT = "ZalandoZdirect"
-    ZLURI = "Zluri"
-    ZYLO = "Zylo"
-    TALLY = "Tally"
-    NUNTLY = "Nuntly"
-    VTURB = "Vturb"
-    MELTWATER = "Meltwater"
-    USER_COM = "UserCom"
-    LATITUDE = "Latitude"
-    WORKATO = "Workato"
-    SIDE_SHIFT = "SideShift"
-    DUCK_LAKE = "DuckLake"
-    STARBURST = "Starburst"
-    TRINO = "Trino"
-    EASYBILL = "Easybill"
-    BEXIO = "Bexio"
-    UMAMI = "Umami"
-    MANYCHAT = "Manychat"
-    KICKSTARTER = "Kickstarter"
-    TYPESENSE = "Typesense"
-    FIRST_PROMOTER = "FirstPromoter"
-    ZERO = "Zero"
-    INTH = "Inth"
-    BCMS = "BCMS"
-    CONVONITE = "Convonite"
-    HOOKDECK = "Hookdeck"
-    BILLIT = "Billit"
-    MOXIE = "Moxie"
-    TRIPLE_WHALE = "TripleWhale"
-    DIRECTUS = "Directus"
-    CLAY = "Clay"
-    TRADABLE_BITS = "TradableBits"
-    SWAN = "Swan"
-    HYROS = "Hyros"
-    ODOO = "Odoo"
-    AIRBRIDGE = "Airbridge"
-    SNOVIO = "Snovio"
-    RAISELY = "Raisely"
-    WINDSOR_AI = "WindsorAi"
-    WIX = "Wix"
-    SEVALLA = "Sevalla"
-    MOTION = "Motion"
-    FRAMER = "Framer"
-    CLOUDINARY = "Cloudinary"
-    UPLOADCARE = "Uploadcare"
-    WHMCS = "WHMCS"
-    MSG91 = "MSG91"
-    DEPOT = "Depot"
-    SCHEMATIC = "Schematic"
-    DOKPLOY = "Dokploy"
-    RAKUTEN_ADVERTISING = "RakutenAdvertising"
-    ZITADEL = "Zitadel"
-    DEEL_FLOWS = "DeelFlows"
-    HOOTSUITE = "Hootsuite"
-    WISPR_FLOW = "WisprFlow"
-    SAM_CART = "SamCart"
-    IRON_SOURCE_ADS = "IronSourceAds"
-    MICROSOFT_EXCEL = "MicrosoftExcel"
-    PROFOUND = "Profound"
-    AIRWALLEX = "Airwallex"
-    POLYMARKET = "Polymarket"
-    KALSHI = "Kalshi"
-    CAPTERRA = "Capterra"
-    GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
-    GROWI = "Growi"
-    CLARIFY = "Clarify"
-    DATO_CMS = "DatoCMS"
-    WPS_OFFICE = "WPSOffice"
-    TERA_BOX = "TeraBox"
-    SIMON_DATA = "SimonData"
-    COMMISSION_JUNCTION = "CommissionJunction"
-    LIVEBLOCKS = "Liveblocks"
-    NATION_BUILDER = "NationBuilder"
-    TANA = "Tana"
-    ZENCHEF = "Zenchef"
-    LOVABLE = "Lovable"
-    ANVIL = "Anvil"
-    COOLIFY = "Coolify"
-    SOCIAL_PILOT = "SocialPilot"
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2633,16 +1623,18 @@ class Tag(StrEnum):
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
+    CANVAS = "canvas"
     LLM_ANALYTICS = "llm_analytics"
-    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
     MARKETING_ANALYTICS = "marketing_analytics"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
+    BUSINESS_INTELLIGENCE = "business_intelligence"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
@@ -2651,21 +1643,22 @@ class FileSystemIconType(StrEnum):
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
-    USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
     FEATURE_FLAG_OFF = "feature_flag_off"
+    DATA_MODELING = "data_modeling"
     DATA_PIPELINE = "data_pipeline"
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
-    LINK = "link"
-    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
+    UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
+    TRANSACTIONAL = "transactional"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -2712,6 +1705,24 @@ class FileSystemIconType(StrEnum):
     LLM_CLUSTERS = "llm_clusters"
     MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
+    PULSE = "pulse"
+    SKILL = "skill"
+    WIZARD = "wizard"
+    DATA_CATALOG = "data_catalog"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
+    WAREHOUSE_PROPERTY = "warehouse_property"
+    DATA_SOURCE = "data_source"
+    DATA_DESTINATION = "data_destination"
+    DATA_TRANSFORMATION = "data_transformation"
+    EVENT_FILTER = "event_filter"
+    MANAGED_MIGRATION = "managed_migration"
+    WEB_SCRIPT = "web_script"
+    CORE_EVENT = "core_event"
+    PROPERTY_GROUP = "property_group"
+    MCP_SERVER = "mcp_server"
+    STREAMLIT_APP = "streamlit_app"
+    SQL_VARIABLE = "sql_variable"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -2731,12 +1742,6 @@ class FunnelConversionWindowTimeUnit(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
-
-
-class FunnelCorrelationResultsType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 class FunnelLayout(StrEnum):
@@ -2768,16 +1773,22 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
+class Calculation(StrEnum):
+    FIXED = "fixed"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
 
 
 class Position(StrEnum):
     START = "start"
     END = "end"
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    SERIES = "series"
 
 
 class GoogleAdsDefaultSources(StrEnum):
@@ -2847,6 +1858,7 @@ class HedgehogActorSkinOption(StrEnum):
     ROBOHOG = "robohog"
     HOGZILLA = "hogzilla"
     GHOST = "ghost"
+    PIG = "pig"
 
 
 class HogLanguage(StrEnum):
@@ -2997,10 +2009,12 @@ class IntegrationKind(StrEnum):
     STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
     GITLAB = "gitlab"
+    HELPSCOUT = "helpscout"
     META_ADS = "meta-ads"
     INSTAGRAM = "instagram"
     CLICKUP = "clickup"
@@ -3018,11 +2032,15 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     APNS = "apns"
+    APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    MOTHERDUCK = "motherduck"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):
@@ -3040,6 +2058,11 @@ class Method(StrEnum):
     LARGEST = "largest"
     MEAN = "mean"
     MEDIAN = "median"
+
+
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
 
 
 class LifecycleToggle(StrEnum):
@@ -3089,6 +2112,25 @@ class LogsSparklineRankBy(StrEnum):
     BYTES = "bytes"
 
 
+class MCPDashboardSection(StrEnum):
+    KPIS = "kpis"
+    PERIOD_TOTALS = "periodTotals"
+    TOOL_ROWS = "toolRows"
+    SESSION_ROWS = "sessionRows"
+    HARNESS_ROWS = "harnessRows"
+    MODEL_ROWS = "modelRows"
+    PROTOCOL_VERSION_ROWS = "protocolVersionRows"
+    ACTIVITY_ROWS = "activityRows"
+    TOOL_DAILY_ROWS = "toolDailyRows"
+    MODEL = "model"
+    PROTOCOL_VERSION = "protocolVersion"
+    TOOL = "tool"
+    ERROR_TYPE = "errorType"
+    LAB_USERS = "labUsers"
+    NAMED_MODEL_USERS = "namedModelUsers"
+    RELIABILITY = "reliability"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -3103,6 +2145,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):
@@ -3182,6 +2225,63 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
+    TARGET_CPA = "target_cpa"
+    CAMPAIGN = "campaign"
+    ACCOUNT = "account"
+
+
+class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
+    GOOGLE_ADS = "google_ads"
+
+
+class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
+    SAVE = "save"
+    GAIN = "gain"
+    INVEST = "invest"
+    KEEP = "keep"
+
+
+class MarketingAnalyticsRecommendationImpactType(StrEnum):
+    MEASURED = "measured"
+    ESTIMATED = "estimated"
+
+
+class MarketingAnalyticsRecommendationLevel(StrEnum):
+    ACCOUNT = "account"
+    CAMPAIGN = "campaign"
+    SEARCH_TERM = "search_term"
+
+
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
+class MarketingAnalyticsRecommendationRule(StrEnum):
+    BUDGET_CONSTRAINED = "budget_constrained"
+    BRAND_LEAK = "brand_leak"
+    SCALE_CAMPAIGN = "scale_campaign"
+    REVIEW_CAMPAIGN = "review_campaign"
+    POLICY_LIMITED = "policy_limited"
+    BRAND_OVERLAP = "brand_overlap"
+    CONTENT_GAP = "content_gap"
+    KEYWORD_GAP = "keyword_gap"
+    SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
+    STRIKING_DISTANCE = "striking_distance"
+    KEYWORD_TRACKING = "keyword_tracking"
+
+
+class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
+    CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
+    PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+
+
+class MarketingAnalyticsRecommendationsSourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
 class MarketingAnalyticsRetentionInterval(StrEnum):
     DAY = "day"
     WEEK = "week"
@@ -3196,6 +2296,24 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     DATETIME = "datetime"
     DATE = "date"
     BOOLEAN = "boolean"
+
+
+class Breakdown1(StrEnum):
+    KEYWORD = "keyword"
+    PAGE = "page"
+    SEARCH_TERM = "search_term"
+
+
+class Platform(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
+class SourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
 
 
 class MatchField(StrEnum):
@@ -3258,6 +2376,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):
@@ -3270,12 +2389,37 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
     RESOURCE = "resource"
     ATTRIBUTE = "attribute"
     AUTO = "auto"
+
+
+class MetricsAxisScale(StrEnum):
+    LINEAR = "linear"
+    LOG = "log"
+
+
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
+
+
+class MetricsDisplayType(StrEnum):
+    LINE = "line"
+    AREA = "area"
+    BAR = "bar"
+    STAT = "stat"
+    GAUGE = "gauge"
+    BARGAUGE = "bargauge"
+    TABLE = "table"
+    HEATMAP = "heatmap"
 
 
 class MetricsFilterOp(StrEnum):
@@ -3285,12 +2429,44 @@ class MetricsFilterOp(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class MetricsNullMode(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+    CONNECT = "connect"
+
+
 class MetricsOtelType(StrEnum):
     GAUGE = "gauge"
     SUM = "sum"
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
+
+
+class MetricsRangeFunction(StrEnum):
+    RATE = "rate"
+    INCREASE = "increase"
+
+
+class MetricsReducer(StrEnum):
+    LAST = "last"
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    SUM = "sum"
+    DELTA = "delta"
+
+
+class MetricsStatSummary(StrEnum):
+    LATEST = "latest"
+    AVERAGE = "average"
+    TOTAL = "total"
 
 
 class MultiQuestionFormFieldType(StrEnum):
@@ -3311,6 +2487,7 @@ class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -3329,6 +2506,11 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
+    AMAZON_ADS = "AmazonAds"
+    ROKT_ADS = "RoktAds"
+    TWITTER_ADS = "TwitterAds"
 
 
 class NodeKind(StrEnum):
@@ -3348,7 +2530,6 @@ class NodeKind(StrEnum):
     ACTORS_QUERY = "ActorsQuery"
     GROUPS_QUERY = "GroupsQuery"
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
-    FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     PATHS_V2_ACTORS_QUERY = "PathsV2ActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
@@ -3359,10 +2540,12 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    ERROR_TRACKING_ISSUE_EVENTS_QUERY = "ErrorTrackingIssueEventsQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
     METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
@@ -3371,6 +2554,7 @@ class NodeKind(StrEnum):
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
+    BI_VISUALIZATION_NODE = "BIVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
     INSIGHT_VIZ_NODE = "InsightVizNode"
     TRENDS_QUERY = "TrendsQuery"
@@ -3384,12 +2568,12 @@ class NodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
-    FUNNEL_CORRELATION_QUERY = "FunnelCorrelationQuery"
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
+    WEB_PAGE_DIRECTORY_QUERY = "WebPageDirectoryQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3401,35 +2585,46 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
-    NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
+    MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
+    MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY = "MarketingAnalyticsRecommendationsQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG = "ExperimentWarehouseNativeExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_NATIVE_NODE = "ExperimentWarehouseNativeNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
+    INBOX_USAGE_QUERY = "InboxUsageQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     SESSION_QUERY = "SessionQuery"
-    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
+    ACCOUNT_USERS_QUERY = "AccountUsersQuery"
+    ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
+    BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
+    BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
+    BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
     MCP_TOOL_CALL_BREAKDOWN_QUERY = "MCPToolCallBreakdownQuery"
     MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_MODEL_BREAKDOWN_QUERY = "MCPModelBreakdownQuery"
+    MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY = "MCPProtocolVersionBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     MCP_TOOL_FAILURE_OCCURRENCES_QUERY = "MCPToolFailureOccurrencesQuery"
@@ -3443,12 +2638,15 @@ class NodeKind(StrEnum):
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
+    MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
+    MCP_DASHBOARD_QUERY = "MCPDashboardQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
-class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
-    SOURCE = "Source"
-    CAMPAIGN = "Campaign"
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
 
 
 class PathType(StrEnum):
@@ -3492,6 +2690,12 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
+
+
 class PredicateIndexVerdict(StrEnum):
     INDEXED = "indexed"
     BLOCKED = "blocked"
@@ -3523,10 +2727,15 @@ class ProductIntentContext(StrEnum):
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = "session_replay_save_filters_as_scanner"
+    REPLAY_VISION_VIEWED = "replay_vision_viewed"
+    REPLAY_VISION_SCANNER_CREATED = "replay_vision_scanner_created"
+    REPLAY_VISION_SCAN_TRIGGERED = "replay_vision_scan_triggered"
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
     ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
+    ERROR_TRACKING_SCAN_WITH_VISION = "error_tracking_scan_with_vision"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
@@ -3542,6 +2751,7 @@ class ProductIntentContext(StrEnum):
     METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     METRICS_VIEWER_QUERY_RUN = "metrics_viewer_query_run"
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
+    METRICS_DERIVED_QUERY_RUN = "metrics_derived_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"
@@ -3610,27 +2820,29 @@ class ProductIntentContext(StrEnum):
 
 class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
+    DATA = "Data"
     AI_ENGINEERING = "AI engineering"
-    BEHAVIOR = "Behavior"
-    APP_MONITORING = "App monitoring"
-    FEATURES = "Features"
+    PRODUCT_ENGINEERING = "Product engineering"
+    MESSAGING = "Messaging"
+    MONITORING = "Monitoring"
     TOOLS = "Tools"
     SCHEMA = "Schema"
-    PIPELINE = "Pipeline"
-    METADATA = "Metadata"
+    CDP = "CDP"
     UNRELEASED = "Unreleased"
 
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
-    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    AUTORESEARCH = "autoresearch"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DASHBOARDS = "dashboards"
     DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
@@ -3645,8 +2857,6 @@ class ProductKey(StrEnum):
     HISTORY = "history"
     INGESTION_WARNINGS = "ingestion_warnings"
     INTEGRATIONS = "integrations"
-    LINKS = "links"
-    LIVE_DEBUGGER = "live_debugger"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"
@@ -3663,11 +2873,16 @@ class ProductKey(StrEnum):
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_AI_ONBOARDING = "posthog_ai_onboarding"
+    POSTHOG_DESKTOP = "posthog_desktop"
+    POSTHOG_GITHUB = "posthog_github"
+    POSTHOG_SLACK = "posthog_slack"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
+    SELF_DRIVING = "self_driving"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
@@ -3679,8 +2894,8 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    UPTIME_MONITORING = "uptime_monitoring"
     METRICS = "metrics"
-    USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -3707,6 +2922,7 @@ class PropertyFilterType(StrEnum):
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
     ACCOUNT = "account"
+    ACCOUNT_RELATIONSHIP = "account_relationship"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -3759,6 +2975,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"
@@ -3790,6 +3007,20 @@ class LimitContext(Enum):
     NONE_TYPE_NONE = None
 
 
+class QueryScanFindingKind(StrEnum):
+    NO_EVENT_FILTER = "no_event_filter"
+    NO_START_DATE = "no_start_date"
+    PERSONS_JOIN = "persons_join"
+
+
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
+
+
 class QuickFilterContext(StrEnum):
     DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
@@ -3813,12 +3044,16 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
-    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class EventMatchScope(StrEnum):
+    RECORDING = "recording"
+    SESSION = "session"
 
 
 class HideViewedRecordings(Enum):
@@ -3870,6 +3105,11 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
+class RoktAdsDefaultSources(StrEnum):
+    ROKT = "rokt"
+    ROKT_ADS = "rokt_ads"
+
+
 class XScale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -3897,16 +3137,13 @@ class Theme(StrEnum):
     SYSTEM = "system"
 
 
-class SidebarDensity(StrEnum):
-    COMFORTABLE = "comfortable"
-    COMPACT = "compact"
-
-
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_READ = "canvases:read"
     CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_JOIN = "channels:join"
     CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
@@ -3926,6 +3163,11 @@ class SlackIntegrationScope(StrEnum):
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
+
+
+# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
+class SlackIntegrationScopeInReview(StrEnum):
+    pass
 
 
 class SlashCommandName(StrEnum):
@@ -3952,27 +3194,14 @@ class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
 
 
-class ReleaseStatus(StrEnum):
-    ALPHA = "alpha"
-    BETA = "beta"
-    GA = "ga"
-
-
-class SourceFieldInputConfigType(StrEnum):
-    TEXT = "text"
-    EMAIL = "email"
-    SEARCH = "search"
-    URL = "url"
-    PASSWORD = "password"
-    TIME = "time"
-    NUMBER = "number"
-    TEXTAREA = "textarea"
-
-
-class SourceFieldSelectConfigConverter(StrEnum):
-    STR_TO_INT = "str_to_int"
-    STR_TO_BOOL = "str_to_bool"
-    STR_TO_OPTIONAL_INT = "str_to_optional_int"
+class SpanHealthStatus(StrEnum):
+    SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
+    RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"
 
 
 class SpanPropertyFilterType(StrEnum):
@@ -4037,7 +3266,7 @@ class SurveyQuestionDescriptionContentType(StrEnum):
     TEXT = "text"
 
 
-class Display1(StrEnum):
+class Display(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
 
@@ -4135,6 +3364,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     ACCOUNT_FIELDS = "account_fields"
+    ACCOUNT_RELATIONSHIPS = "account_relationships"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4181,6 +3411,13 @@ class DetailedResultsAggregationType(StrEnum):
     MEDIAN = "median"
 
 
+class TwitterAdsDefaultSources(StrEnum):
+    TWITTER = "twitter"
+    X = "x"
+    TWITTER_ADS = "twitter_ads"
+    X_ADS = "x_ads"
+
+
 class UsageMetricDisplay(StrEnum):
     NUMBER = "number"
     SPARKLINE = "sparkline"
@@ -4189,6 +3426,11 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
+
+
+class WarehouseSuggestionNoteKind(StrEnum):
+    MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):
@@ -4249,6 +3491,32 @@ class WebBotsBreakdown(StrEnum):
     PATH = "Path"
 
 
+class WebPageDirectoryMetric(StrEnum):
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
+
+
+class SortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebPageDirectorySortBy(StrEnum):
+    PAGE = "page"
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
+
+
 class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
@@ -4274,6 +3542,7 @@ class WebStatsBreakdown(StrEnum):
     FIRST_PAGEVIEW_UTM_CONTENT = "FirstPageviewUTMContent"
     FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN = "FirstPageviewUTMSourceMediumCampaign"
     BROWSER = "Browser"
+    IN_APP_BROWSER = "InAppBrowser"
     OS = "OS"
     VIEWPORT = "Viewport"
     DEVICE_TYPE = "DeviceType"

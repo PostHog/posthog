@@ -2,6 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "file_path": {
+            "description": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
             "pattern": "^.+$",
             "type": "string"
         },

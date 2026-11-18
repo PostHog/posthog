@@ -1,6 +1,7 @@
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -110,3 +111,35 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+                with self.assertNumQueries(5):
+                    cached_results = self._run_field_discovery()
+                self.assertEqual(cached_results, results)
+
+    @patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 0)
+    def test_large_org_uses_cache_without_static_filter_queries(self) -> None:
+        self._create_activity_log("Dashboard", {"name": "example"})
+
+        with self.assertNumQueries(1):
+            results = self._run_field_discovery()
+        self.assertEqual(results["detail_fields"], {})
+        self.assertTrue(all(not options for options in results["static_filters"].values()))
+
+        self.discovery.process_batch_for_large_org([{"scope": "Dashboard", "detail": {"name": "example"}}])
+        with self.assertNumQueries(1):
+            results = self._run_field_discovery()
+        self.assertIn({"value": "Dashboard"}, results["static_filters"]["scopes"])
+        self._assert_field_discovered(results, "Dashboard", "name", ["string"])
+
+    def test_cached_detail_fields_preserve_static_filter_scope(self) -> None:
+        self._create_activity_log("Dashboard", {"name": "example"})
+        self._create_activity_log("Insight", {"description": "example"})
+        queryset = ActivityLog.objects.filter(organization_id=self.organization.id)
+
+        self.discovery.get_available_filters(queryset.filter(scope="Dashboard"))
+        with self.assertNumQueries(5):
+            results = self.discovery.get_available_filters(queryset.filter(scope="Insight"))
+
+        self.assertEqual(results["static_filters"]["scopes"], [{"value": "Insight"}])
+        self._assert_field_discovered(results, "Dashboard", "name", ["string"])
+        self._assert_field_discovered(results, "Insight", "description", ["string"])

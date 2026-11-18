@@ -19,9 +19,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28',
-        testOptions: {
-            loaderTimeout: 15000,
-        },
     },
     decorators: [
         mswDecorator({
@@ -79,7 +76,7 @@ export const EventExplorerWithModal: Story = {
     },
     parameters: {
         testOptions: {
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     tags: ['test-skip'],

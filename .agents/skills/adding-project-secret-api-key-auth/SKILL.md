@@ -21,13 +21,15 @@ The machinery is shipped but nothing is wired to it yet — the first planned co
 
 ### 1. Whitelist the scope/action pair
 
-PSAK-assignable scopes are a global allowlist in `posthog/scopes.py`:
+PSAK-assignable scopes are a global allowlist in `posthog/scopes/project_secret_api_key.py`:
 
 ```python
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 ```
 
 If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first.
+
+Add the same scope to `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION` in `frontend/src/lib/scopes.tsx`. The scope picker in project settings builds its checkboxes from that list, so a backend-only change leaves users with no way to grant the scope. `posthog/test/test_scopes.py` compares the two lists.
 
 ### 2. Add the authenticator and opt in actions
 

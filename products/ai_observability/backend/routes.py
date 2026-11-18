@@ -5,7 +5,6 @@ from products.ai_observability.backend.api import (
     AIBlobViewSet,
     AIObservabilityClusteringRunViewSet,
     AIObservabilityInstrumentationChecklistViewSet,
-    AIObservabilityOfflineEvaluationsViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
     AIObservabilityTranslateViewSet,
@@ -13,6 +12,8 @@ from products.ai_observability.backend.api import (
     ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
+    EvalSuggestionViewSet,
+    EvaluationBackfillViewSet,
     EvaluationConfigViewSet,
     EvaluationDirectoryViewSet,
     EvaluationReportViewSet,
@@ -22,6 +23,8 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    OfflineExperimentViewSet,
+    OfflineScorerViewSet,
     ParserRecipeViewSet,
     PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
@@ -31,9 +34,32 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
+from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
+from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
+from products.ai_observability.backend.presentation.views.trace_feedback import TraceFeedbackViewSet
+from products.ai_observability.backend.presentation.views.trace_nodes import TraceNodeViewSet
+from products.ai_observability.backend.presentation.views.trace_pull_request import TracePullRequestViewSet
+from products.ai_observability.backend.presentation.views.trace_resource import TRACE_LOOKUP
+from products.ai_observability.backend.presentation.views.trace_review import TraceReviewStatusViewSet
+from products.ai_observability.backend.presentation.views.trace_search import TraceSearchViewSet
+from products.ai_observability.backend.presentation.views.trace_summary import TraceSummaryViewSet
+from products.ai_observability.backend.presentation.views.traces import TraceViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"ai_observability/offline_experiments",
+        OfflineExperimentViewSet,
+        "project_ai_observability_offline_experiments",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/offline_scorers",
+        OfflineScorerViewSet,
+        "project_ai_observability_offline_scorers",
+        ["team_id"],
+    )
     routers.projects.register(r"ai_blob", AIBlobViewSet, "project_ai_blob", ["project_id"])
     # `ai_observability` is the canonical name; the `llm_analytics/` prefixes below are the
     # unfinished half of a rename the frontend scene URLs already completed.
@@ -43,6 +69,24 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_ai_observability_instrumentation_checklist",
         ["team_id"],
     )
+    traces_router = routers.projects.register(
+        r"ai_observability/traces",
+        TraceViewSet,
+        "project_ai_observability_traces",
+        ["team_id"],
+    )
+    for prefix, viewset, basename in [
+        ("nodes", TraceNodeViewSet, "project_ai_observability_trace_nodes"),
+        ("evaluations", TraceEvaluationsViewSet, "project_ai_observability_trace_evaluations"),
+        ("clusters", TraceClustersViewSet, "project_ai_observability_trace_clusters"),
+        ("feedback", TraceFeedbackViewSet, "project_ai_observability_trace_feedback"),
+        ("review", TraceReviewStatusViewSet, "project_ai_observability_trace_review"),
+        ("search", TraceSearchViewSet, "project_ai_observability_trace_search"),
+        ("summary", TraceSummaryViewSet, "project_ai_observability_trace_summary"),
+        ("pull_request", TracePullRequestViewSet, "project_ai_observability_trace_pull_request"),
+        ("exports", TraceExportViewSet, "project_ai_observability_trace_exports"),
+    ]:
+        traces_router.register(prefix, viewset, basename, ["team_id", TRACE_LOOKUP])
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the
     # CLOUD/DEBUG/TEST gate the registration carried inline.
@@ -56,7 +100,18 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"datasets", DatasetViewSet, "project_datasets", ["team_id"])
     routers.projects.register(r"dataset_items", DatasetItemViewSet, "project_dataset_items", ["team_id"])
-    routers.projects.register(r"evaluations", EvaluationViewSet, "project_evaluations", ["team_id"])
+    project_evaluations_router = routers.projects.register(
+        r"evaluations", EvaluationViewSet, "project_evaluations", ["team_id"]
+    )
+    project_evaluations_router.register(
+        r"backfills",
+        EvaluationBackfillViewSet,
+        "project_evaluation_backfills",
+        ["team_id", "evaluation_id"],
+    )
+    routers.projects.register(
+        r"evaluation_suggestions", EvalSuggestionViewSet, "project_evaluation_suggestions", ["team_id"]
+    )
     routers.projects.register(
         r"evaluation_directories",
         EvaluationDirectoryViewSet,
@@ -107,12 +162,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"llm_analytics/clustering_jobs", ClusteringJobViewSet, "project_llm_analytics_clustering_jobs", ["team_id"]
-    )
-    routers.projects.register(
-        r"llm_analytics/offline_evaluations",
-        AIObservabilityOfflineEvaluationsViewSet,
-        "project_llm_analytics_offline_evaluations",
-        ["team_id"],
     )
     routers.projects.register(
         r"llm_analytics/review_queue_items",

@@ -19,11 +19,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import type { DateRange } from '~/queries/schema/schema-general'
 
 import { selectedDateRange } from 'products/logs/frontend/components/LogsViewer/LogsViewerSparkline/bucketRanges'
-import type { LogsSeriesBandBucketApi } from 'products/logs/frontend/generated/api.schemas'
+import type {
+    LogsSeriesBandBucketApi,
+    LogsSeriesBandVerdictEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 const OBSERVED_KEY = 'observed'
 
-export type OutOfBand = 'above' | 'below'
+export type OutOfBand = LogsSeriesBandVerdictEnumApi
 
 export interface BandChartData {
     labels: string[]
@@ -43,18 +46,8 @@ export function buildBandChartData(buckets: LogsSeriesBandBucketApi[]): BandChar
         observed: buckets.map((bucket) => bucket.observed),
         lower: buckets.map((bucket) => bucket.lower ?? NaN),
         upper: buckets.map((bucket) => bucket.upper ?? NaN),
-        outOfBand: buckets.map((bucket) => {
-            if (bucket.lower == null || bucket.upper == null) {
-                return null
-            }
-            if (bucket.observed > bucket.upper) {
-                return 'above'
-            }
-            if (bucket.observed < bucket.lower) {
-                return 'below'
-            }
-            return null
-        }),
+        // A response cached by an older server carries no verdict, so a missing field reads as null.
+        outOfBand: buckets.map((bucket) => bucket.verdict ?? null),
     }
 }
 

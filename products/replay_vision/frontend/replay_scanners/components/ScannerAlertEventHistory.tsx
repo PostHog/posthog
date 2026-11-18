@@ -4,6 +4,7 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } fr
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { formatLocalizedTime } from 'lib/utils/datetime'
 
 import {
     AlertEvaluationHistoryChart,
@@ -81,7 +82,9 @@ function ScannerAlertEventTimeline({ alert }: { alert: VisionAlertConfigurationA
         },
         {
             title: 'When',
-            render: (_, event) => <TZLabel time={event.created_at} formatDate="MMM D" formatTime="HH:mm:ss" />,
+            render: (_, event) => (
+                <TZLabel time={event.created_at} formatDate="MMM D" formatTime={formatLocalizedTime()} />
+            ),
         },
         {
             title: 'Detail',

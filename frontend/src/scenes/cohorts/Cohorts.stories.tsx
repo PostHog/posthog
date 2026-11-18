@@ -1,8 +1,12 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { Decorator, Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { TeamRealtimeCohortsApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { CohortType } from '~/types'
@@ -16,6 +20,17 @@ const meta: Meta = {
         mockDate: '2023-07-04',
         testOptions: { viewport: { width: 1300, height: 2000 } },
     },
+    decorators: [
+        (Story) => {
+            teamLogic.mount()
+            // A plan with no limit on realtime cohorts, so the usage line shows only in the stories about limits.
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null },
+            })
+            return <Story />
+        },
+    ],
 }
 export default meta
 
@@ -42,6 +57,62 @@ const mockCohorts: CohortType[] = [
     createCohort(3, 'Beta testers', 89, true),
 ]
 
+const withRealtime = (cohort: CohortType, realtime: CohortType['realtime']): CohortType => ({ ...cohort, realtime })
+
+const realtimeCohorts: CohortType[] = [
+    withRealtime(createCohort(4, 'Viewed pricing this week', 4321, false), {
+        state: 'ready',
+        ready_at: '2023-07-03T09:40:00Z',
+        build: null,
+        reason: null,
+        history_limit_days: null,
+    }),
+    // Just saved: the daily calculation and the realtime build run at the same time, and the page
+    // has to keep the two apart.
+    withRealtime(createCohort(5, 'Completed onboarding', 210, false, true), {
+        state: 'building',
+        ready_at: null,
+        build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+        reason: null,
+        history_limit_days: null,
+    }),
+    withRealtime(
+        { ...createCohort(6, 'Churn risk', 76, false), description: 'Logged in less than twice in the last month' },
+        {
+            state: 'needs_attention',
+            ready_at: null,
+            build: null,
+            reason: null,
+            history_limit_days: null,
+        }
+    ),
+    // Event criteria the realtime path does not support, so flags cannot target it at all. A
+    // cohort demoted past the person-count ceiling lands here too, which is the case worth seeing.
+    withRealtime(createCohort(7, 'Stopped using search', 512, false), {
+        state: 'daily',
+        ready_at: null,
+        build: null,
+        reason: null,
+        history_limit_days: null,
+    }),
+    // Person properties alone: flags read those as they evaluate, so this row carries no tag and
+    // the page still answers the question. A bare row means one thing, and this is that one thing.
+    withRealtime(createCohort(8, 'Signed up this month', 1200, false), {
+        state: 'person_properties',
+        ready_at: null,
+        build: null,
+        reason: null,
+        history_limit_days: null,
+    }),
+    withRealtime(createCohort(9, 'Read the docs twice', 87, false), {
+        state: 'off',
+        ready_at: null,
+        build: null,
+        reason: null,
+        history_limit_days: null,
+    }),
+]
+
 const cohortApiMocks = {
     '/api/projects/:team_id/actions/': toPaginatedResponse([]),
     '/api/projects/:team_id/cohorts/': toPaginatedResponse(mockCohorts),
@@ -63,6 +134,23 @@ export const CohortsEmpty: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([]) } })],
 }
 
+// The preparing cohort's tag holds a spinner for as long as its build runs, and the runner waits
+// for every loader to disappear before it snapshots. These stories name the element to wait for
+// instead. The runner freezes animations, so a spinner still snapshots deterministically.
+const progressTestOptions = {
+    waitForLoadersToDisappear: false,
+    waitForSelector: '[data-attr="cohort-realtime-tag"]',
+}
+
+export const CohortsWithRealtimeStates: Story = {
+    parameters: { pageUrl: urls.cohorts(), testOptions: progressTestOptions },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([...mockCohorts, ...realtimeCohorts]) },
+        }),
+    ],
+}
+
 export const CohortNew: Story = {
     parameters: { pageUrl: urls.cohort('new') },
     decorators: [mswDecorator({ get: cohortApiMocks })],
@@ -73,7 +161,109 @@ export const CohortEditDynamic: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/1/': mockCohorts[0], ...cohortApiMocks } })],
 }
 
+export const CohortEditRealtimeReady: Story = {
+    parameters: { pageUrl: urls.cohort(4) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimePreparing: Story = {
+    parameters: {
+        pageUrl: urls.cohort(5),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-status"]' },
+    },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/5/': realtimeCohorts[1], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeRebuilding: Story = {
+    parameters: {
+        pageUrl: urls.cohort(5),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-status"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/5/': withRealtime(
+                    { ...realtimeCohorts[1], is_calculating: false },
+                    {
+                        state: 'rebuilding',
+                        ready_at: null,
+                        build: { phase: 'checking', percent_complete: null, updated_at: '2023-07-03T23:58:00Z' },
+                        reason: null,
+                        history_limit_days: null,
+                    }
+                ),
+                ...cohortApiMocks,
+            },
+        }),
+    ],
+}
+
+export const CohortEditRealtimeNotAvailable: Story = {
+    parameters: { pageUrl: urls.cohort(6) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/6/': realtimeCohorts[2], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeDaily: Story = {
+    parameters: { pageUrl: urls.cohort(7) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/7/': realtimeCohorts[3], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeOff: Story = {
+    parameters: { pageUrl: urls.cohort(9) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/9/': realtimeCohorts[5], ...cohortApiMocks } })],
+}
+
+export const CohortEditPersonProperties: Story = {
+    parameters: { pageUrl: urls.cohort(8) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/8/': realtimeCohorts[4], ...cohortApiMocks } })],
+}
+
+const withRealtimeCohorts =
+    (field: TeamRealtimeCohortsApi): Decorator =>
+    (Story) => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, realtime_cohorts: field })
+        return <Story />
+    }
+
+export const CohortEditRealtimeOffAtPlanLimit: Story = {
+    parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 10, max_cohorts: 10 }),
+        mswDecorator({ get: { '/api/projects/:team_id/cohorts/9/': realtimeCohorts[5], ...cohortApiMocks } }),
+    ],
+}
+
+export const CohortEditRealtimeOffPastPlanHistory: Story = {
+    parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 3, max_cohorts: 10 }),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/9/': withRealtime(realtimeCohorts[5], {
+                    state: 'off',
+                    ready_at: null,
+                    build: null,
+                    reason: 'history_over_limit',
+                    history_limit_days: 30,
+                }),
+                ...cohortApiMocks,
+            },
+        }),
+    ],
+}
+
 export const CohortEditStatic: Story = {
     parameters: { pageUrl: urls.cohort(3) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/3/': mockCohorts[2], ...cohortApiMocks } })],
+}
+
+const failedStaticCohort: CohortType = {
+    ...createCohort(4, 'Beta signups snapshot', 0, true),
+    errors_calculating: 1,
+    last_error_message: 'Cohort calculation was terminated for reading too much data.',
+} as CohortType
+
+export const CohortEditStaticPopulationFailed: Story = {
+    parameters: { pageUrl: urls.cohort(4) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': failedStaticCohort, ...cohortApiMocks } })],
 }

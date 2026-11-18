@@ -1,0 +1,43 @@
+{% extends "email/base.html" %}
+{% block heading %}Your customer tasks{% endblock %}
+{% block section %}
+    <p>Tasks assigned to you in <b>{{ digest.project_name }}</b>.</p>
+    {% if digest.due_today %}
+        <h2>Due today ({{ digest.due_today|length }})</h2>
+        <ul>
+            {% for task in digest.due_today|slice:":10" %}
+                <li>
+                    <a href="{{ task.url }}">{{ task.name }}</a>
+                    {% if task.account_name %}<br />{{ task.account_name }}{% endif %}
+                    <br />
+                    {{ task.due_label }}
+                </li>
+            {% endfor %}
+        </ul>
+        {% with remaining=digest.due_today|length|add:"-10" %}
+            {% if remaining > 0 %}
+                <p>
+                    <a href="{{ digest.due_today_url }}">+{{ remaining }} more task{{ remaining|pluralize }} due today</a>
+                </p>
+            {% endif %}
+        {% endwith %}
+    {% endif %}
+    {% if digest.due_this_week %}
+        <h2>Due this week</h2>
+        <ul>
+            {% for task in digest.due_this_week %}
+                <li>
+                    <a href="{{ task.url }}">{{ task.name }}</a>
+                    {% if task.account_name %}<br />{{ task.account_name }}{% endif %}
+                    <br />
+                    {{ task.due_label }}
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    {% if digest.overdue_count %}
+        <h2>Overdue</h2>
+        <p><a href="{{ digest.overdue_url }}">{{ digest.overdue_count }} overdue task{{ digest.overdue_count|pluralize }}</a></p>
+    {% endif %}
+    <p><a href="{{ digest.settings_url }}">Notification settings</a></p>
+{% endblock %}

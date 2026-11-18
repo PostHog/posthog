@@ -28,7 +28,7 @@ export function isUploadableSkillSource(
   );
 }
 
-export function replaceSkillTags(
+function replaceSkillTags(
   prompt: string,
   replacer: (attrs: Record<string, string>) => string,
 ): string {

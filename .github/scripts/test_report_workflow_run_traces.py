@@ -13,6 +13,7 @@ import pytest
 
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 SCRIPT_PATH = Path(__file__).with_name("report_workflow_run_traces.py")
 SPEC = importlib.util.spec_from_file_location("report_workflow_run_traces", SCRIPT_PATH)
@@ -407,22 +408,103 @@ class TestScan:
         assert "event=push" in url
         assert "status=completed" in url
 
-    def test_also_scans_the_scheduled_lane_of_cron_covered_workflows(self) -> None:
-        # ci-backend.yml runs the per-commit checks on a master push and its test matrices
-        # hourly, so a push-only scan drops the heaviest CI workload in the repo.
-        workflow_file = reporter.SCHEDULED_MASTER_WORKFLOWS[0]
-        opener = _FakeOpener(
-            {
-                "/actions/runs": {"workflow_runs": [{"id": 1, "updated_at": _iso(400)}]},
-                f"/workflows/{workflow_file}/runs": {"workflow_runs": [{"id": 2, "updated_at": _iso(500)}]},
-            }
+    def test_scheduled_backend_runs_are_not_read_from_github(self) -> None:
+        opener = _FakeOpener({"/actions/runs": {"workflow_runs": []}})
+        reporter.scan_runs("PostHog/posthog", "t", RUN_START, opener=opener)
+        assert len(opener.calls) == 1
+        assert "event=push" in opener.calls[0]
+
+
+class TestDepotTraces:
+    @pytest.mark.parametrize("workflow_path", ["ci-backend.yml", ".depot/workflows/ci-backend.yml"])
+    @pytest.mark.parametrize(
+        "status,conclusion", [("finished", "success"), ("failed", "failure"), ("cancelled", "cancelled")]
+    )
+    def test_reads_the_completed_workflow_and_job_timestamps(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, conclusion: str, workflow_path: str
+    ) -> None:
+        shown = {
+            "org_id": "org",
+            "run": {"run_id": "run", "repo": "PostHog/posthog", "sha": "abc", "trigger": "schedule"},
+            "workflow": {
+                "workflow_id": "wf",
+                "workflow_path": workflow_path,
+                "status": status,
+                "created_at": _iso(0),
+                "started_at": _iso(5),
+                "finished_at": _iso(120),
+            },
+            "executions": [{"execution": 2}],
+            "jobs": [
+                {
+                    "job_id": "job",
+                    "job_key": "ci-backend.yml:django",
+                    "status": status,
+                    "started_at": _iso(10),
+                    "finished_at": _iso(60),
+                }
+            ],
+        }
+        listed_triggers: list[str] = []
+
+        def list_workflows(*args: object, **kwargs: object) -> list[dict[str, str]]:
+            listed_triggers.append(str(kwargs["trigger"]))
+            # Newest first, as the CLI lists them; the old one must end this trigger's walk only.
+            return [
+                {"workflow_id": "wf", "sha": "a" * 40, "created_at": _iso(0)},
+                {"workflow_id": "old", "sha": "a" * 40, "created_at": _iso(-100000)},
+            ]
+
+        monkeypatch.setattr(reporter.depot_backend_runs, "listed_workflows", list_workflows)
+        monkeypatch.setattr(reporter.depot_backend_runs, "commits_on_master", lambda shas, *_: frozenset(shas))
+
+        def depot_response(*args: str) -> str:
+            if args[2] == "old":
+                return json.dumps({**shown, "workflow": {**shown["workflow"], "finished_at": _iso(-1)}})
+            return json.dumps(shown)
+
+        monkeypatch.setattr(reporter.depot_backend_runs, "depot", depot_response)
+
+        collection = reporter.collect_depot_runs("PostHog/posthog", RUN_START)
+
+        assert collection.complete
+        assert sorted(listed_triggers) == ["push", "schedule"]
+        assert len(collection.runs) == 2
+        run = collection.runs[0]
+        assert (run.id, run.attempt, run.provider, run.conclusion) == ("depot:run", 2, "depot", conclusion)
+        assert run.path == ".depot/workflows/ci-backend.yml"
+        assert run.end == RUN_START + timedelta(seconds=120)
+        assert (run.jobs[0].id, run.jobs[0].duration_seconds, run.step_count) == ("job", 50, 0)
+        exporter = InMemorySpanExporter()
+        reporter.emit_trace(run, "https://example.com", "token", exporter=exporter)
+        assert len(exporter.get_finished_spans()) == 2
+        assert reporter.run_resource_attributes(run)["ci.provider"] == "depot"
+
+    def test_a_capped_listing_stays_incomplete_after_branch_runs_are_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        listing = [
+            {"workflow_id": f"wf{i}", "sha": f"{i:040x}", "created_at": _iso(-i)}
+            for i in range(reporter.depot_backend_runs.MAX_LISTED)
+        ]
+        monkeypatch.setattr(reporter.depot_backend_runs, "listed_workflows", lambda *args, **kwargs: listing)
+        monkeypatch.setattr(
+            reporter.depot_backend_runs, "commits_on_master", lambda shas, *_: frozenset(shas) - {f"{0:040x}"}
         )
-        fresh = reporter.scan_runs("PostHog/posthog", "t", RUN_START, opener=opener)
-        # Newest first across both scans, because that is the order --max-runs caps on.
-        assert [run["id"] for run in fresh] == [2, 1]
-        scheduled_url = next(url for url in opener.calls if workflow_file in url)
-        assert "branch=master" in scheduled_url
-        assert "event=schedule" in scheduled_url
+
+        kept, reached_floor = reporter._depot_workflows_since("PostHog/posthog", "push", RUN_START - timedelta(days=1))
+
+        assert len(kept) == reporter.depot_backend_runs.MAX_LISTED - 1
+        assert not reached_floor
+
+    def test_failed_depot_reads_hold_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unavailable(*args: object) -> reporter.Collection:
+            raise RuntimeError("unavailable")
+
+        monkeypatch.setattr(reporter, "scan_runs", lambda *args: [])
+        monkeypatch.setattr(reporter, "collect_depot_runs", unavailable)
+        collection = reporter.collect_runs(reporter.parse_args(["--since", _iso(0)]), "token", RUN_START)
+        assert not collection.complete
 
 
 class TestAttemptSelection:
@@ -662,11 +744,24 @@ class TestSpanTree:
         assert root.attributes["ci.workflow.conclusion"] == conclusion
 
     @pytest.mark.parametrize(
-        "conclusion,expected",
-        [("failure", "ERROR"), ("timed_out", "ERROR"), ("cancelled", "UNSET"), ("skipped", "UNSET")],
+        "conclusion,step_conclusions,expected",
+        [
+            ("failure", [], "ERROR"),
+            ("timed_out", [], "ERROR"),
+            ("cancelled", [], "UNSET"),
+            ("skipped", [], "UNSET"),
+            ("failure", ["success", "failure", "skipped"], "ERROR"),
+            # Seen when the merge queue cancels a run mid-step: the job concludes failure, no step failed.
+            ("failure", ["success", "cancelled", "skipped"], "UNSET"),
+            # A timeout cancels the running step, and is still an error.
+            ("timed_out", ["success", "cancelled"], "ERROR"),
+        ],
     )
-    def test_job_status_reflects_only_the_failure_family(self, conclusion: str, expected: str) -> None:
-        run = reporter.parse_run(_raw_run(), [_raw_job(conclusion=conclusion, steps=[])])
+    def test_job_status_reflects_only_the_failure_family(
+        self, conclusion: str, step_conclusions: list[str], expected: str
+    ) -> None:
+        steps = [_raw_step(number=i, conclusion=c, start=5 + i, end=6 + i) for i, c in enumerate(step_conclusions)]
+        run = reporter.parse_run(_raw_run(), [_raw_job(conclusion=conclusion, steps=steps)])
         assert run is not None
         job = next(span for span in self._emit(run) if span.name == "build")
         assert job.status.status_code.name == expected
@@ -681,6 +776,44 @@ class TestSpanTree:
         assert statuses["boom"] == "ERROR"
         assert statuses["build"] == "ERROR"
         assert statuses["Container Images CD"] == "ERROR"
+
+    def test_entry_jobs_leave_one_alertable_error_span_per_failed_job(self) -> None:
+        # A traces alert counts entry spans by name, and a step named like its job would count twice.
+        run = reporter.parse_run(
+            _raw_run(conclusion="cancelled"),
+            [_raw_job(name="build", conclusion="failure", steps=[_raw_step(name="build", conclusion="failure")])],
+        )
+        assert run is not None
+        exporter = InMemorySpanExporter()
+        reported = reporter.emit_trace(run, "http://unused", "token", exporter=exporter, entry_jobs=True)
+        spans = exporter.get_finished_spans()
+        assert reported == len(spans)
+        alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
+        assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == ["build"]
+
+    def test_a_failed_job_reports_one_alertable_error_span_on_its_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The run is cancelled right after, so only the job may count as an error, and an alert scoped to
+        # queue branches must match it.
+        env = {
+            "FAILED_JOB_NAME": "Backend CI on Depot / Repo checks (depot-ubuntu-24.04)",
+            "FAILED_JOB_RUN_ID": "abc123",
+            "FAILED_JOB_RUN_ATTEMPT": "1",
+            "FAILED_JOB_WORKFLOW": "Backend CI on Depot",
+            "FAILED_JOB_WORKFLOW_PATH": ".depot/workflows/ci-backend.yml",
+            "FAILED_JOB_SHA": "e1718d9c",
+            "FAILED_JOB_BRANCH": "trunk-merge/pr-1/uuid",
+            "FAILED_JOB_EVENT": "pull_request",
+        }
+        for var, value in {**env, "POSTHOG_DEVEX_PROJECT_API_TOKEN": "token"}.items():
+            monkeypatch.setenv(var, value)
+        monkeypatch.delenv("POSTHOG_CI_TRACES_EXTRA_TOKEN", raising=False)
+        exporter = InMemorySpanExporter()
+        monkeypatch.setattr(reporter, "OTLPSpanExporter", lambda **_: exporter)
+        assert reporter.main(["--failed-job"]) == reporter.EXIT_OK
+        spans = exporter.get_finished_spans()
+        alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
+        assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == [env["FAILED_JOB_NAME"]]
+        assert {s.resource.attributes["ci.branch"] for s in spans} == {env["FAILED_JOB_BRANCH"]}
 
     def test_reusable_job_records_caller_and_callee(self) -> None:
         run = reporter.parse_run(_raw_run(), [_raw_job(name="build-images / build cymbal", steps=[])])

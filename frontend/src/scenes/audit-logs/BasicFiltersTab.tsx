@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { activityClientLabel } from 'lib/components/ActivityLog/activityClientLabel'
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -11,7 +13,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { ActivityScope } from '~/types'
 
-import { advancedActivityLogsLogic, isValidIpFilterValue } from './advancedActivityLogsLogic'
+import { advancedActivityLogsLogic, isValidIpFilterValue, toFilterDates } from './advancedActivityLogsLogic'
 import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
@@ -23,8 +25,10 @@ export const BasicFiltersTab = (): JSX.Element => {
         activeAdvancedFiltersCount,
         isOrganizationView,
         teamsById,
+        timezone,
     } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
+    const [datePickerKey, setDatePickerKey] = useState(0)
     const projectOptions = Object.entries(teamsById)
         .map(([id, name]) => ({ key: id, label: name as string }))
         .sort((a, b) => a.label.localeCompare(b.label))
@@ -35,12 +39,22 @@ export const BasicFiltersTab = (): JSX.Element => {
                 <div className="flex flex-col gap-1">
                     <label className="block text-sm font-medium mb-1">Date range</label>
                     <DateFilter
+                        key={datePickerKey}
                         dateFrom={filters.start_date}
                         dateTo={filters.end_date}
-                        onChange={(start_date, end_date) => {
-                            setFilters({ start_date: start_date || undefined, end_date: end_date || undefined })
+                        onChange={(dateFrom, dateTo) => {
+                            const { hadUtcOffset, ...dates } = toFilterDates(dateFrom, dateTo, timezone)
+                            setFilters(dates)
+                            if (hadUtcOffset) {
+                                // The picker keeps the jump's UTC times until it remounts.
+                                setDatePickerKey((key) => key + 1)
+                            }
                         }}
                         placeholder="All time"
+                        allowTimePrecision
+                        showJumpToTimestamp
+                        jumpToTimestampTimezone={timezone}
+                        allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
                         data-attr="audit-logs-date-filter"
                         className="h-[24px] flex items-center"
                     />
@@ -244,7 +258,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-1 mb-1">
                                     <label className="block text-sm font-medium">Client</label>
-                                    <Tooltip title="The SDK or integration that triggered the action (e.g. MCP).">
+                                    <Tooltip title="The SDK, integration, or agent that made the change, such as MCP or a scout.">
                                         <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
                                     </Tooltip>
                                 </div>
@@ -257,7 +271,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                     options={
                                         availableFilters?.static_filters?.clients?.map((c: any) => ({
                                             key: c.value,
-                                            label: c.value,
+                                            label: activityClientLabel(c.value),
                                         })) || []
                                     }
                                     loading={availableFiltersLoading}

@@ -1,5 +1,6 @@
 import {
   ChartLineIcon,
+  ChatCircleTextIcon,
   FileTextIcon,
   FlagIcon,
   FlaskIcon,
@@ -33,6 +34,7 @@ const chipIcons = {
   experiment: FlaskIcon,
   insight: ChartLineIcon,
   feature_flag: FlagIcon,
+  comment_context: ChatCircleTextIcon,
 } as const;
 
 function StructuredChip({ chip }: { chip: MentionChip }) {
@@ -56,7 +58,11 @@ function StructuredChip({ chip }: { chip: MentionChip }) {
     >
       <Icon size={10} />
       <span className="min-w-0 truncate">
-        {chip.type === "command" ? "/" : "@"}
+        {chip.type === "command"
+          ? "/"
+          : chip.type === "comment_context"
+            ? ""
+            : "@"}
         {chip.label}
       </span>
     </Chip>

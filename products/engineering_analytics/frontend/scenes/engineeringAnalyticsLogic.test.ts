@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -25,7 +27,7 @@ import type {
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
+import { workflowRuns } from '../lib/lifecycle'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     DEFAULT_FILTERS,
@@ -39,6 +41,7 @@ import {
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -92,6 +95,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        inconclusive: 0,
         failingWorkflows: [],
         pushes: 0,
         pushHistory: [],
@@ -106,7 +110,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
     return {
         author: { handle: 'alice', display_name: 'alice', avatar_url: 'https://a/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        ci: { runs: 0, passing: 0, failing: 0, pending: 0 },
+        ci: { runs: 0, passing: 0, failing: 0, pending: 0, inconclusive: 0 },
         number: 1,
         title: 'feat: x',
         state: 'open',
@@ -126,13 +130,18 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
+    apiPr({
+        number: 101,
+        ci: { runs: 3, passing: 2, failing: 1, pending: 0, inconclusive: 0 },
+        pushes: 7,
+        rerun_cycles: 2,
+    }),
     apiPr({
         number: 102,
         title: 'fix: y',
         author: { handle: 'bob', display_name: 'bob', avatar_url: 'https://b/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
-        ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+        ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
         state: 'merged',
         created_at: '2026-05-20T00:00:00Z',
         merged_at: '2026-05-21T00:00:00Z',
@@ -172,6 +181,7 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
         latestRunConclusion: 'success',
         granularity: 'day',
         buckets: [],
+        mergeQueueRunCount: 0,
         ...overrides,
     }
 }
@@ -186,19 +196,22 @@ describe('engineeringAnalyticsLogic', () => {
     let extraUnmounts: (() => void)[] = []
 
     beforeEach(() => {
+        // The last repository used persists, so one test's pick must not steer the next test's forward.
+        localStorage.clear()
         initKeaTests()
         ApiConfig.setCurrentProjectId(1)
         jest.clearAllMocks()
-        // Happy-path defaults; individual tests override before mounting where needed.
         mockCiCards.mockResolvedValue(CARDS)
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
-        // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
+            owners_resolved: true,
             ttl_days: 15,
+            truncated: false,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: null,
             teams: [],
@@ -215,16 +228,6 @@ describe('engineeringAnalyticsLogic', () => {
         }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
-    })
-
-    it.each([
-        ['no runs', { runs: 0, failing: 0, pending: 0 }, 'none'],
-        ['a failure', { runs: 3, failing: 1, pending: 0 }, 'failing'],
-        ['failure beats pending', { runs: 5, failing: 1, pending: 2 }, 'failing'],
-        ['unsettled run', { runs: 3, failing: 0, pending: 2 }, 'running'],
-        ['all green', { runs: 3, failing: 0, pending: 0 }, 'passing'],
-    ])('ciStatusOf derives %s', (_label, rollup, expected) => {
-        expect(ciStatusOf(rollup)).toBe(expected)
     })
 
     it('filters by state, author, repo, ci status, and search', () => {
@@ -275,24 +278,21 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBe('stuck')
         expect(logic.values.stuckOnly).toBe(true)
         expect(logic.values.ciStatusFilter).toBe('all')
-        // The stuck lens is an active filter — a filtered-to-zero table must offer "Clear filters".
+        // The stuck lens is an active filter, so a filtered-to-zero table must offer "Clear filters".
         expect(logic.values.hasActiveFilters).toBe(true)
 
-        // Clicking the active card returns to the plain open view.
         logic.actions.applyCardFilter('stuck')
         expect(logic.values.activeCard).toBe('open')
         expect(logic.values.stuckOnly).toBe(false)
 
-        // Leaving the open backlog deactivates every card.
         logic.actions.applyCardFilter('failing')
         logic.actions.setStateFilter('merged')
         expect(logic.values.activeCard).toBeNull()
     })
 
     it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
-        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
-        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
-        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        // sceneLogic passes no tabId to scene logics. A tab-aware scene logic throws "must have a tabId
+        // prop" on mount, sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
         expect(() => extraUnmounts.push(engineeringAnalyticsSceneLogic().mount())).not.toThrow()
     })
 
@@ -344,50 +344,30 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters workflow health by the shared branch scope, only reloading on a real change', async () => {
-        // Branch lives in the shared filters logic (so it carries into the workflow detail page); the
-        // Workflows tab reads it and reloads workflow health when it's applied.
+    it('scopes workflow health to the shared run group', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         extraUnmounts.push(filters.mount())
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        // All runs is the default, and the backend already reports every run when the param is absent.
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
-        // Typing only stages the value — no reload until applied.
-        filters.actions.setBranchFilter('main')
-        expect(filters.values.branchInput).toBe('main')
-        expect(filters.values.appliedBranch).toBe('')
-
-        // Applying promotes it and reloads with the branch param (trimmed).
-        filters.actions.setBranchFilter('  main  ')
-        filters.actions.applyBranchFilter()
+        filters.actions.setRunScope('pull_request')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
-        mockWorkflowHealth.mockClear()
-        filters.actions.applyBranchFilter()
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
-        expect(mockWorkflowHealth).not.toHaveBeenCalled()
-
-        // The applied branch persists across a date-range reload.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
 
-        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
-        // immediately — no Enter/blur needed — and drops the filter.
-        filters.actions.setBranchFilter('')
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('')
+        filters.actions.setRunScope('all')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
-    it('lists one option per (source, repo) pair and scopes to the picked repo', async () => {
-        // The option value encodes (source, repo) so a multi-repo source's repos stay distinct;
-        // two distinct sources and one source syncing two repos produce the same option shape.
+    it('lists one option per (source, repo) pair and switches to the picked repo', async () => {
+        // The option value encodes (source, repo), so the repos of a multi-repo source stay distinct.
         mockSources.mockResolvedValue([
             { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi', synced: true },
             { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi', synced: true },
@@ -395,28 +375,65 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+        const scope = repoScopeLogic()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(true)
-        expect(logic.values.sourceOptions).toEqual([
+        expect(scope.values.hasMultipleSources).toBe(true)
+        expect(scope.values.sourceOptions).toEqual([
             { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
             { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
             { value: 'src-other::posthog/posthog.js', label: 'posthog/posthog.js' },
         ])
 
-        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        // One source syncs that repository, so the path alone names it and no `?source` rides along.
+        scope.actions.switchRepo('src-multi::posthog/posthog.com')
         await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
-        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
+        expect(routedPath()).toBe(urls.engineeringAnalytics('posthog/posthog.com'))
+        expect(router.values.searchParams).toEqual({})
+        expect(scope.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
+    })
+
+    it.each([
+        [
+            'another source of the repository on screen keeps the page and sets ?source',
+            'src-mirror::PostHog/PostHog',
+            urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42),
+            { source: 'src-mirror' },
+        ],
+        [
+            'a legacy source with no repository opens the repo-less list tab with ?source',
+            'src-legacy::',
+            urls.engineeringAnalyticsPullRequestList(),
+            { source: 'src-legacy' },
+        ],
+    ])('switching repository: %s', async (_label, pick, pathname, searchParams) => {
+        mockSources.mockResolvedValue([
+            { id: 'src-main', repo: 'posthog/posthog', prefix: 'main', synced: true },
+            { id: 'src-mirror', repo: 'PostHog/PostHog', prefix: 'mirror', synced: true },
+            { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true },
+        ])
+        router.actions.push(urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42))
+        const scope = repoScopeLogic()
+        scope.mount()
+        extraUnmounts.push(() => scope.unmount())
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        scope.actions.switchRepo(pick)
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(scope.values.selectedScope).toBe(pick)
     })
 
     it('hides the picker when the team has a single source', async () => {
         mockSources.mockResolvedValue([SOURCES[0]])
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        const scope = repoScopeLogic()
+        scope.mount()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(false)
+        expect(scope.values.hasMultipleSources).toBe(false)
     })
 
     it('defaults to no source, then scopes every endpoint to the picked one and reloads', async () => {
@@ -427,7 +444,7 @@ describe('engineeringAnalyticsLogic', () => {
             'loadPullRequestsSuccess',
             'loadWorkflowHealthSuccess',
         ])
-        // No source picked → omit source_id/repo so the backend resolves its default.
+        // With no source picked, source_id and repo are omitted so the backend resolves its default.
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: undefined })
 
         logic.actions.setSourceId('src-newer')
@@ -450,8 +467,8 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        // 'failing'/'passing' key off the latest settled run; a row with nothing completed
-        // (latestRunFailed null) must show only under 'all' — it is neither green nor red.
+        // 'failing' and 'passing' key off the latest settled run. A row with nothing completed
+        // (latestRunFailed null) is neither, so it must show only under 'all'.
         ['failing keeps only rows whose latest run failed', { status: 'failing' as const }, ['E2E']],
         ['passing keeps only settled green rows', { status: 'passing' as const }, ['CI']],
         ['unsettled rows show only under all', {}, ['CI', 'E2E', 'Nightly']],
@@ -480,16 +497,142 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['test health', () => urls.engineeringAnalyticsTestHealth()],
-    ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
+        ['workflows', () => urls.engineeringAnalyticsWorkflows('posthog/posthog.com')],
+        ['tests', () => urls.engineeringAnalyticsTests('posthog/posthog.com')],
+        ['teams', () => urls.engineeringAnalyticsTeams('posthog/posthog.com')],
+        ['authors', () => urls.engineeringAnalyticsAuthors('posthog/posthog.com')],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay', 'posthog/posthog.com')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys('posthog/posthog.com')],
+    ])('the %s route takes the repository from its path and the source from ?source', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
 
-        router.actions.push(url(), { source: 'src-newer', repo: 'posthog/posthog.com' })
+        router.actions.push(url(), { source: 'src-newer' })
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
+    })
+
+    it('requests the hub once on a scoped direct load', async () => {
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay', 'posthog/posthog.com'), {
+            source: 'src-newer',
+        })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer', repo: 'posthog/posthog.com' })
+    })
+
+    it.each([
+        ['the repository it names', { repo: 'posthog/posthog.com' }, 'posthog/posthog.com'],
+        ['the first synced repository of the source it names', { source: 'src-newer' }, 'posthog/posthog.com'],
+        ['the default repository when it names none', {}, 'posthog/posthog'],
+    ])('an old repo-less link forwards to %s, then loads once', async (_label, searchParams, repo) => {
+        mockSources.mockResolvedValue(SOURCES)
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), { ...searchParams, date_from: '-30d' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList(repo))
+        expect(router.values.searchParams).not.toHaveProperty('repo')
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ repo })
+    })
+
+    it('an old repo-less link to a legacy source stays repo-less and reads that source', async () => {
+        mockSources.mockResolvedValue([...SOURCES, { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true }])
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), { source: 'src-legacy' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['noRepoToForward', 'loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-legacy' })
+    })
+
+    const openPullRequestList = async (
+        searchParams: Record<string, string>,
+        sources: GitHubSourceApi[] = SOURCES
+    ): Promise<jest.SpyInstance> => {
+        mockSources.mockResolvedValue(sources)
+        const { repo, ...rest } = searchParams
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(repo), rest)
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(repoScopeLogic).toDispatchActions(['loadGithubSourcesSuccess'])
+        return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+    }
+    const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'pull request jump submitted')
+            .map(([, properties]) => properties)
+    const routedPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
+
+    const PICKED = { source: 'src-older', repo: 'posthog/posthog', date_from: '-30d' }
+
+    it.each<[string, Record<string, string>, string, string, Record<string, string>, string]>([
+        [
+            'a link to the repository in scope with no source when none is picked',
+            {},
+            'https://github.com/PostHog/posthog/pull/42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            {},
+            'link',
+        ],
+        [
+            'a link to another repository without the source and repo of this one',
+            PICKED,
+            'https://github.com/PostHog/posthog.com/pull/42/files',
+            urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog.com', 42),
+            { date_from: '-30d' },
+            'link',
+        ],
+        [
+            'a bare number in the picked repository',
+            PICKED,
+            '#42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            { source: 'src-older', date_from: '-30d' },
+            'number',
+        ],
+    ])('the pull request jump opens %s once', async (_label, opened, text, pathname, searchParams, inputKind) => {
+        const capture = await openPullRequestList(opened)
+
+        logic.actions.setPullRequestJumpText(text)
+        logic.actions.submitPullRequestJump()
+        logic.actions.submitPullRequestJump()
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(jumpEvents(capture)).toEqual([{ outcome: 'opened', input_kind: inputKind }])
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+    })
+
+    it('the pull request jump says why it cannot open, until the cause is fixed', async () => {
+        const capture = await openPullRequestList({}, [{ ...SOURCES[0], repo: '' }])
+
+        logic.actions.setPullRequestJumpText('not a pr')
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('invalid')
+
+        logic.actions.setPullRequestJumpText('42')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('needs_repository')
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(jumpEvents(capture)).toEqual([
+            { outcome: 'invalid', input_kind: null },
+            { outcome: 'needs_repository', input_kind: 'number' },
+        ])
+
+        logic.actions.setPullRequestJumpText('PostHog/posthog#42')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(routedPath()).toBe(urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog', 42))
     })
 
     it.each([
@@ -537,8 +680,7 @@ describe('engineeringAnalyticsLogic', () => {
     )
 
     it.each([
-        // Stacked bar: total height is completed (volume), the red portion is failures, so the red
-        // fraction reads as the rate. Skipped/cancelled/action_required are completed but not failures.
+        // Skipped, cancelled and action_required runs are completed but not failures.
         [
             'a bad day stacks failures over completed',
             { completed: 25, successes: 22, failures: 3 },
@@ -564,37 +706,6 @@ describe('engineeringAnalyticsLogic', () => {
     ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
         const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
-    })
-
-    it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'opened', at: '2026-06-01T00:00:00Z' },
-            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:02:00Z', detail: 'Frontend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:03:00Z', detail: 'E2E: smoke' },
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'Backend CI: failure' },
-            { kind: 'ci_finished', at: '2026-06-01T00:20:00Z', detail: 'Frontend CI: success' },
-            { kind: 'merged', at: '2026-06-02T00:00:00Z' },
-        ])
-        expect(summary.openedAt).toBe('2026-06-01T00:00:00Z')
-        expect(summary.firstCiStartedAt).toBe('2026-06-01T00:01:00Z')
-        expect(summary.lastCiFinishedAt).toBe('2026-06-01T00:30:00Z')
-        expect(summary.mergedAt).toBe('2026-06-02T00:00:00Z')
-        expect(summary.closedAt).toBeNull()
-        expect(summary.notPassing).toEqual([
-            { workflow: 'Backend CI', conclusion: 'failure', at: '2026-06-01T00:30:00Z' },
-        ])
-        expect(summary.passed).toBe(1)
-        expect(summary.unsettled).toBe(1)
-    })
-
-    it('summarizeLifecycle keeps workflow names that contain a colon', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'E2E: smoke: timed_out' },
-        ])
-        expect(summary.notPassing).toEqual([
-            { workflow: 'E2E: smoke', conclusion: 'timed_out', at: '2026-06-01T00:30:00Z' },
-        ])
     })
 
     it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {
@@ -647,7 +758,6 @@ describe('engineeringAnalyticsLogic', () => {
                 runAttempt: null,
             },
         ])
-        // The detail page triages: failures first, then still-running, then passes.
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
@@ -666,6 +776,7 @@ describe('engineeringAnalyticsLogic', () => {
             run_attempt: 1,
             pr_number: 10,
             commit_pr_number: null,
+            is_merge_queue: false,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -673,7 +784,6 @@ describe('engineeringAnalyticsLogic', () => {
             apiRun({ id: 2, head_sha: 'old', run_started_at: '2026-06-01T00:01:00Z' }),
             apiRun({ id: 3, head_sha: 'new', run_started_at: '2026-06-02T00:00:00Z' }),
         ])
-        // Newest push (latest start) first; runs map into WorkflowRun shape under their commit.
         expect(groups.map((g) => g.headSha)).toEqual(['new', 'old'])
         expect(groups[1].runs.map((r) => r.runId)).toEqual([1, 2])
     })
@@ -705,7 +815,10 @@ describe('engineeringAnalyticsLogic', () => {
     it('maps the trunk quarantine endpoint and filters the tests by team', async () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
+            owners_resolved: true,
             ttl_days: 15,
+            truncated: true,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
             teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
@@ -715,8 +828,7 @@ describe('engineeringAnalyticsLogic', () => {
                     nodeid: 'a.py::TestA::test_a',
                     file: 'a.py',
                     owner_team: 'team-replay',
-                    status: 'FLAKY',
-                    quarantine_setting: 'AUTO_QUARANTINE',
+                    status: 'flaky',
                     quarantined_at: '2026-05-19T08:00:00Z',
                     age_days: 44,
                     overdue: true,
@@ -727,8 +839,7 @@ describe('engineeringAnalyticsLogic', () => {
                     nodeid: 'b.test.tsx::renders',
                     file: 'b.test.tsx',
                     owner_team: 'unowned',
-                    status: 'FLAKY',
-                    quarantine_setting: 'AUTO_QUARANTINE',
+                    status: 'flaky',
                     quarantined_at: '2026-06-23T08:00:00Z',
                     age_days: 9,
                     overdue: false,
@@ -741,6 +852,8 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
 
         expect(logic.values.trunkQuarantine?.ttlDays).toBe(15)
+        expect(logic.values.trunkQuarantine?.truncated).toBe(true)
+        expect(logic.values.trunkQuarantine?.limit).toBe(5000)
         expect(logic.values.trunkQuarantine?.repository).toBe('PostHog/posthog')
         expect(logic.values.trunkQuarantine?.trunkUrl).toBe(
             'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog'
@@ -750,8 +863,7 @@ describe('engineeringAnalyticsLogic', () => {
             nodeid: 'a.py::TestA::test_a',
             file: 'a.py',
             ownerTeam: 'team-replay',
-            status: 'FLAKY',
-            quarantineSetting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantinedAt: '2026-05-19T08:00:00Z',
             ageDays: 44,
             overdue: true,
@@ -763,16 +875,17 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
-        )
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
 
-        expect(logic.values.quarantineLoadFailed).toBe(true)
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })

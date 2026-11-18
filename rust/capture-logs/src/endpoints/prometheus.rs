@@ -8,7 +8,7 @@ use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use metrics::counter;
 use prometheus_rw_proto::prometheus::v1::{
-    metric_metadata::MetricType, MetricMetadata, WriteRequest,
+    metric_metadata::MetricType, MetricMetadata, TimeSeries, WriteRequest,
 };
 use prost::Message;
 use serde::Deserialize;
@@ -17,7 +17,8 @@ use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 use crate::authorizer::Signal;
-use crate::metric_record::{compute_series_fingerprint, override_timestamp, KafkaMetricRow};
+use crate::log_record::override_timestamp;
+use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use crate::service::Service;
 
 const METRIC_NAME_LABEL: &str = "__name__";
@@ -38,16 +39,67 @@ const ROW_OVERHEAD_BYTES: u64 = 256;
 /// below this; only expansion-bomb payloads exceed it.
 const MAX_EXPANSION_FACTOR: u64 = 16;
 
-/// Decode a snappy-compressed Prometheus remote-write v1 payload, returning the
+/// `StaleNaN` in prometheus/model/value.
+pub const STALE_NAN_BITS: u64 = 0x7ff0_0000_0000_0002;
+
+/// Only the bits tell, because NaN never equals itself.
+pub fn is_stale_marker(value: f64) -> bool {
+    value.to_bits() == STALE_NAN_BITS
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RemoteWriteOptions {
+    pub keep_stale_markers: bool,
+}
+
+/// Body compression of a remote-write request. Both protocols carry the same
+/// `WriteRequest` protobuf; only the compression differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteWriteEncoding {
+    /// Prometheus remote-write v1: snappy block format.
+    Snappy,
+    /// VictoriaMetrics remote-write protocol, which vmagent tries first by
+    /// default: zstd frame, sent with `Content-Encoding: zstd` and
+    /// `X-VictoriaMetrics-Remote-Write-Version: 1`.
+    Zstd,
+}
+
+impl RemoteWriteEncoding {
+    /// `Content-Encoding: zstd` selects the VictoriaMetrics protocol. Every other
+    /// value, and a missing header, keeps the snappy default, because Prometheus
+    /// always sends snappy and some senders omit the header.
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let is_zstd = headers
+            .get("content-encoding")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("zstd"));
+        if is_zstd {
+            Self::Zstd
+        } else {
+            Self::Snappy
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Snappy => "snappy",
+            Self::Zstd => "zstd",
+        }
+    }
+}
+
+/// Decode a compressed Prometheus remote-write v1 payload, returning the
 /// request and its decompressed size in bytes.
 ///
 /// Prometheus sends `Content-Encoding: snappy` using the snappy *block* format
-/// (not the framed format), so we decode the raw body ourselves — the global
-/// `RequestDecompressionLayer` does not understand snappy.
+/// (not the framed format), and vmagent sends `Content-Encoding: zstd`. The
+/// global `RequestDecompressionLayer` understands neither, so we decode the
+/// raw body ourselves.
 ///
-/// The block format's length header is sender-controlled, so the claimed
-/// decompressed size is checked against `max_decompressed_bytes` before any
-/// allocation happens.
+/// Both formats let the sender claim the decompressed size (the snappy length
+/// header, the optional zstd frame content size), so the claim is checked
+/// against `max_decompressed_bytes` before any allocation happens. The zstd
+/// decoder is also capped while it streams, for frames without a claim.
 ///
 /// The size is returned because this route bypasses `RequestDecompressionLayer`,
 /// so the request body is still compressed when the handler sees it. The OTLP and
@@ -55,18 +107,27 @@ const MAX_EXPANSION_FACTOR: u64 = 16;
 /// the same quota and rate-limiting counters, so the measure has to match.
 pub fn decode_write_request(
     body: &[u8],
+    encoding: RemoteWriteEncoding,
     max_decompressed_bytes: usize,
 ) -> Result<(WriteRequest, u64)> {
-    let claimed =
-        snap::raw::decompress_len(body).map_err(|e| anyhow!("snappy decode failed: {e}"))?;
-    if claimed > max_decompressed_bytes {
-        return Err(anyhow!(
-            "decompressed request body exceeds limit ({claimed} > {max_decompressed_bytes} bytes)"
-        ));
-    }
-    let decompressed = snap::raw::Decoder::new()
-        .decompress_vec(body)
-        .map_err(|e| anyhow!("snappy decode failed: {e}"))?;
+    let decompressed = match encoding {
+        RemoteWriteEncoding::Snappy => {
+            let claimed = snap::raw::decompress_len(body)
+                .map_err(|e| anyhow!("snappy decode failed: {e}"))?;
+            if claimed > max_decompressed_bytes {
+                return Err(anyhow!(
+                    "decompressed request body exceeds limit ({claimed} > {max_decompressed_bytes} bytes)"
+                ));
+            }
+            snap::raw::Decoder::new()
+                .decompress_vec(body)
+                .map_err(|e| anyhow!("snappy decode failed: {e}"))?
+        }
+        RemoteWriteEncoding::Zstd => {
+            common_compression::decompress_zstd_capped(body, max_decompressed_bytes)
+                .map_err(|e| anyhow!("zstd decode failed: {e}"))?
+        }
+    };
     let uncompressed_bytes = decompressed.len() as u64;
     let request = WriteRequest::decode(decompressed.as_slice())
         .map_err(|e| anyhow!("remote-write protobuf decode failed: {e}"))?;
@@ -79,17 +140,33 @@ pub fn decode_write_request(
 /// unchanged. One row is emitted per sample. Returns the rows and the number of
 /// samples whose timestamp was clamped by `override_timestamp`.
 pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u64) {
+    write_timeseries_to_kafka_rows(req.timeseries, &req.metadata)
+}
+
+pub fn write_timeseries_to_kafka_rows(
+    timeseries: Vec<TimeSeries>,
+    metadata: &[MetricMetadata],
+) -> (Vec<KafkaMetricRow>, u64) {
+    write_timeseries_to_kafka_rows_with_options(timeseries, metadata, RemoteWriteOptions::default())
+}
+
+pub fn write_timeseries_to_kafka_rows_with_options(
+    timeseries: Vec<TimeSeries>,
+    metadata: &[MetricMetadata],
+    options: RemoteWriteOptions,
+) -> (Vec<KafkaMetricRow>, u64) {
     // Metric-family name -> declared (type, unit). Only populated when the
     // sender includes the optional metadata block (vmagent and many agents
     // omit it, so the name-suffix heuristic in `classify` is the primary path).
-    let metadata = build_metadata_map(&req.metadata);
+    let metadata = build_metadata_map(metadata);
 
     let mut rows = Vec::new();
     let mut timestamps_overridden = 0u64;
     let mut dropped_series = 0u64;
     let mut dropped_samples = 0u64;
+    let mut kept_stale_markers = 0u64;
 
-    for series in req.timeseries {
+    for series in timeseries {
         let mut metric_name = String::new();
         let mut service_name = String::new();
         let mut resource_attributes: HashMap<String, String> = HashMap::new();
@@ -107,11 +184,12 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
                     resource_attributes
                         .insert("service.name".to_string(), json!(label.value).to_string());
                 }
+                // `instance` is copied, not moved: Prometheus queries filter on
+                // `instance`, and OTel queries on `service.instance.id`.
                 INSTANCE_LABEL => {
-                    resource_attributes.insert(
-                        "service.instance.id".to_string(),
-                        json!(label.value).to_string(),
-                    );
+                    let value = json!(label.value).to_string();
+                    resource_attributes.insert("service.instance.id".to_string(), value.clone());
+                    attributes.insert(label.name, value);
                 }
                 _ => {
                     attributes.insert(label.name, json!(label.value).to_string());
@@ -149,13 +227,17 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
         for sample in series.samples {
             // Prometheus marks a series stale with a NaN payload and remote-write
             // forwards it (vmagent emits these by default on scrape failure or
-            // series churn). The metrics pipeline has no stale-marker concept, and
-            // a non-finite value survives the storage/query path uncaught —
-            // `ifNull` never fires on NaN, and it corrupts rate/aggregate results.
-            // Drop it here, as staleness-unaware receivers do.
+            // series churn). With `keep_stale_markers` the marker is stored, and
+            // the readers leave it out of every aggregate by its bits. Any other
+            // non-finite value would corrupt rate/aggregate results, because
+            // `ifNull` never fires on NaN, so it is dropped.
             if !sample.value.is_finite() {
-                dropped_samples += 1;
-                continue;
+                if options.keep_stale_markers && is_stale_marker(sample.value) {
+                    kept_stale_markers += 1;
+                } else {
+                    dropped_samples += 1;
+                    continue;
+                }
             }
 
             // Remote-write sample timestamps are milliseconds since the epoch.
@@ -168,7 +250,10 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
             let mut sample_attributes = attributes.clone();
             if let Some(original) = original_timestamp {
                 timestamps_overridden += 1;
-                sample_attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+                sample_attributes.insert(
+                    crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+                    original.to_rfc3339(),
+                );
             }
 
             rows.push(KafkaMetricRow {
@@ -192,6 +277,9 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
                 instrumentation_scope: String::new(),
                 attributes: sample_attributes,
                 series_fingerprint,
+                has_labels: true,
+                retention_days: None,
+                start_timestamp: None,
             });
         }
     }
@@ -207,6 +295,9 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
     // not warned about, unlike the dropped-series case above.
     if dropped_samples > 0 {
         counter!("capture_metrics_remote_write_dropped_samples").increment(dropped_samples);
+    }
+    if kept_stale_markers > 0 {
+        counter!("capture_metrics_remote_write_stale_markers_kept").increment(kept_stale_markers);
     }
 
     (rows, timestamps_overridden)
@@ -345,16 +436,21 @@ fn extract_token(
     query_token.filter(|t| !t.is_empty()).map(str::to_string)
 }
 
-/// Prometheus remote-write v1 ingestion endpoint.
+/// Prometheus remote-write v1 ingestion endpoint. Also accepts the
+/// VictoriaMetrics remote-write protocol (same protobuf, zstd body).
 ///
-/// Snappy-decodes the protobuf body, maps it to `KafkaMetricRow` records, and
+/// Decompresses the protobuf body, maps it to `KafkaMetricRow` records, and
 /// produces them through the shared `KafkaSink` so the rest of the pipeline is
 /// identical to OTLP ingestion. Response codes follow remote-write semantics:
-/// 204 on success, 400 on a permanent decode failure (sender drops the batch),
-/// 5xx on a transient produce failure (sender retries).
+/// 204 on success, 400 on a permanent decode failure (sender drops the batch;
+/// vmagent also falls back to snappy on 400), 5xx on a transient produce
+/// failure (sender retries).
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or(""),
     content_length = %headers.get("content-length")
@@ -389,8 +485,15 @@ pub async fn export_prometheus_remote_write_http(
 
     tracing::Span::current().record("token", &token);
 
+    let encoding = RemoteWriteEncoding::from_headers(&headers);
+    counter!(
+        "capture_metrics_remote_write_requests",
+        "encoding" => encoding.as_str()
+    )
+    .increment(1);
+
     let (write_request, uncompressed_bytes) =
-        match decode_write_request(&body, service.max_request_body_size_bytes) {
+        match decode_write_request(&body, encoding, service.max_request_body_size_bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
                 error!("Failed to decode remote-write request: {e}");
@@ -422,7 +525,13 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            None,
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");
@@ -432,6 +541,8 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
+    counter!("capture_metrics_records_produced", "source" => "remote_write")
+        .increment(row_count as u64);
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
 }

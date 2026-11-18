@@ -1,42 +1,52 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useMemo } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
-import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { SankeyChart } from '@posthog/quill-charts'
+import type { SankeyChartConfig } from '@posthog/quill-charts'
+
+import { parsePathNodeKey } from 'products/product_analytics/frontend/insights/paths/pathsChartTransforms'
 
 import { ChartHeader } from './ChartHeader'
-import type { PathsVisualizerProps } from './types'
+import { useMcpChartTheme } from './charts/theme'
+import { buildPathsView, MAX_DRAWN_STEPS } from './pathsView'
+import type { PathsResultItem, PathsVisualizerProps } from './types'
 import { formatDuration, formatNumber } from './utils'
 
 const TITLE = 'Paths'
 
-// Edges are sorted by user count and the busiest paths lead, so a truncated
-// view stays meaningful; columns are non-sortable to match.
-const MAX_ROWS = 20
-
-function formatCellValue(value: unknown): string {
-    if (value === null || value === undefined) {
-        return '-'
-    }
-    if (typeof value === 'number') {
-        return formatNumber(value)
-    }
-    return String(value)
+const CHART_CONFIG: SankeyChartConfig = {
+    linkOpacity: 0.35,
+    valueFormatter: formatNumber,
 }
 
-/** Node keys are `<stepIndex>_<value>`; split into the step number and the path/value. */
-function parseNode(key: string): { step: number; path: string } {
-    const sep = key.indexOf('_')
-    if (sep === -1) {
-        return { step: 0, path: key }
-    }
-    const step = Number.parseInt(key.slice(0, sep), 10)
-    return { step: Number.isNaN(step) ? 0 : step, path: key.slice(sep + 1) }
+/** Which steps a transition joins, so a pair of pages that repeats at two stages reads apart. */
+function stepRange(edge: PathsResultItem): string {
+    return `step ${parsePathNodeKey(edge.source).step} to ${parsePathNodeKey(edge.target).step}`
 }
 
 export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement {
-    const edges = Array.isArray(results) ? results : []
+    const theme = useMcpChartTheme()
+    const {
+        allEdges,
+        edges,
+        truncated,
+        stepsClipped,
+        graph,
+        columnLabels,
+        nodePadding,
+        stepCount,
+        pathStarts,
+        chartWidth,
+    } = useMemo(() => buildPathsView(results), [results])
+    // A node's value counts only its drawn ribbons, so a truncated view would label partial totals.
+    const config = useMemo<SankeyChartConfig>(
+        () => ({ ...CHART_CONFIG, columnLabels, nodePadding, showNodeValues: !truncated }),
+        [columnLabels, nodePadding, truncated]
+    )
+    const labelOf = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.label])), [graph.nodes])
 
-    if (edges.length === 0) {
+    if (allEdges.length === 0) {
         return (
             <div>
                 <ChartHeader title={TITLE} />
@@ -50,53 +60,54 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         )
     }
 
-    // Each row is an edge between two nodes; sort by user count so the busiest paths lead.
-    const sorted = [...edges].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-
-    const columns = ['Step', 'From', 'To', 'Users', 'Avg. time']
-    const rows: unknown[][] = sorted.map((edge) => {
-        const from = parseNode(edge.source)
-        const to = parseNode(edge.target)
-        return [
-            `${from.step} → ${to.step}`,
-            from.path,
-            to.path,
-            edge.value ?? 0,
-            edge.average_conversion_time != null ? formatDuration(edge.average_conversion_time) : '-',
-        ]
-    })
-
-    const displayRows = rows.slice(0, MAX_ROWS)
-    const hasMore = displayRows.length < rows.length
-    const tableColumns: DataTableProps<unknown[], unknown>['columns'] = columns.map((col, colIndex) => ({
-        id: String(colIndex),
-        header: col,
-        accessorFn: (row: unknown[]) => row[colIndex],
-        enableSorting: false,
-        cell: (info: { getValue: () => unknown }) => formatCellValue(info.getValue()),
-    }))
-
-    const topUsers = sorted[0]?.value ?? 0
-
     return (
-        <div>
+        <div data-attr="paths-sankey" className="w-full">
             <ChartHeader title={TITLE} />
-            <DataTable columns={tableColumns} data={displayRows} className="rounded-lg border" />
-            {hasMore && (
-                <span className="mt-2 block text-center text-xs text-muted-foreground">
-                    Showing {displayRows.length} of {rows.length} transitions
-                </span>
-            )}
-
+            <div className="h-80 w-full overflow-x-auto">
+                {/* The chart sizes to its parent, so a long path needs a wider parent to scroll. */}
+                <div className="flex flex-col h-full" style={{ width: chartWidth }}>
+                    <SankeyChart<string, PathsResultItem>
+                        nodes={graph.nodes}
+                        links={graph.links}
+                        theme={theme}
+                        config={config}
+                    />
+                </div>
+            </div>
+            {/* The canvas has no per-ribbon semantics, so screen readers get the transitions as text. */}
+            <ul className="sr-only">
+                {edges.map((edge) => (
+                    <li key={`${edge.source}→${edge.target}`}>
+                        {labelOf.get(edge.source)} to {labelOf.get(edge.target)} ({stepRange(edge)}):{' '}
+                        {formatNumber(edge.value ?? 0)} paths
+                        {edge.average_conversion_time != null
+                            ? `, ${formatDuration(edge.average_conversion_time)} on average`
+                            : ''}
+                    </li>
+                ))}
+            </ul>
             <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-                <strong className="text-foreground">{formatNumber(edges.length)}</strong> path transition
-                {edges.length === 1 ? '' : 's'}
-                {topUsers > 0 && (
+                {truncated ? (
+                    <>
+                        Showing the <strong className="text-foreground">{formatNumber(edges.length)}</strong> busiest of{' '}
+                        <strong className="text-foreground">{formatNumber(allEdges.length)}</strong> path transitions
+                    </>
+                ) : (
+                    <>
+                        <strong className="text-foreground">{formatNumber(edges.length)}</strong> path transition
+                        {edges.length === 1 ? '' : 's'}
+                    </>
+                )}{' '}
+                across <strong className="text-foreground">{formatNumber(stepCount)}</strong> step
+                {stepCount === 1 ? '' : 's'}
+                {pathStarts > 0 && (
                     <>
                         {' '}
-                        · busiest carries <strong className="text-foreground">{formatNumber(topUsers)}</strong> users
+                        · <strong className="text-foreground">{formatNumber(pathStarts)}</strong> path
+                        {pathStarts === 1 ? ' in this result begins' : 's in this result begin'} at step 1
                     </>
                 )}
+                {stepsClipped && <> · The chart shows steps 1 to {MAX_DRAWN_STEPS}</>}
             </div>
         </div>
     )

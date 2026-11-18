@@ -22,7 +22,10 @@ FRONT_CONFIG = SignalSourceTableConfig(
         json_list_fields=("tags",),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="fromUnixTimestamp(toUInt32(created_at))",
+    # Front sends fractional epoch seconds (for example 1453770984.123). toInt prints as an
+    # accurate cast, which returns NULL for a fractional value, so truncate before the cast.
+    # Without floor, every conversation resolves to NULL and drops out of the time filter.
+    partition_field="fromUnixTimestamp(toInt(floor(created_at)))",
     fields=FRONT_FIELDS,
     where_clause="status NOT IN ('archived', 'deleted')",
     max_records=200,

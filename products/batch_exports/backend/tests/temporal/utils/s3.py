@@ -18,7 +18,7 @@ import botocore.exceptions
 from pyarrow import fs
 from types_aiobotocore_s3.client import S3Client
 
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
 )
@@ -160,13 +160,23 @@ async def delete_all_from_s3(s3_client, bucket_name: str, key_prefix: str):
                 await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
+async def assert_files_in_s3(
+    s3_compatible_client,
+    bucket_name,
+    key_prefix,
+    file_format,
+    compression,
+    json_columns,
+    legacy_parquet_extension=True,
+):
     """Assert that there are files in S3 under key_prefix and return the combined contents, and the keys of files found."""
     if file_format == "Arrow":
         expected_file_extension = "arrow"
     else:
         expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
-    if compression is not None:
+
+    keeps_codec_suffix = file_format != "Parquet" or legacy_parquet_extension
+    if compression is not None and keeps_codec_suffix:
         expected_file_extension = f"{expected_file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
 
     objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
@@ -206,10 +216,24 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
     return s3_data, keys
 
 
-async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
+async def assert_file_in_s3(
+    s3_compatible_client,
+    bucket_name,
+    key_prefix,
+    file_format,
+    compression,
+    json_columns,
+    legacy_parquet_extension=True,
+):
     """Assert a file is in S3 and return its contents."""
     s3_data, keys = await assert_files_in_s3(
-        s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns
+        s3_compatible_client,
+        bucket_name,
+        key_prefix,
+        file_format,
+        compression,
+        json_columns,
+        legacy_parquet_extension=legacy_parquet_extension,
     )
     assert len(keys) == 1
     return s3_data

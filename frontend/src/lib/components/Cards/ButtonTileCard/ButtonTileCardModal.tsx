@@ -9,20 +9,23 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 export function ButtonTileCardModal({
     isOpen,
     onClose,
     dashboard,
     buttonTileId,
+    onCreateTile,
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType<QueryBasedInsightModel>
-    buttonTileId: number | 'new' | null
+    dashboard: DashboardType
+    buttonTileId: DashboardTileIdOrNew
+    onCreateTile?: (tile: NewDashboardTile) => void
 }): JSX.Element {
-    const modalLogic = buttonTileCardModalLogic({ dashboard, buttonTileId: buttonTileId ?? 'new', onClose })
+    const isNewTile = buttonTileId === null
+    const modalLogic = buttonTileCardModalLogic({ dashboard, buttonTileId, onClose, onCreateTile })
     const { buttonTile, isButtonTileSubmitting, buttonTileValidationErrors } = useValues(modalLogic)
     const { submitButtonTile, resetButtonTile } = useActions(modalLogic)
 
@@ -32,8 +35,8 @@ export function ButtonTileCardModal({
     }
 
     const firstError = buttonTileValidationErrors.url || buttonTileValidationErrors.text
-    const previewTile: DashboardTile<QueryBasedInsightModel> = {
-        id: buttonTileId === 'new' ? 0 : (buttonTileId ?? 0),
+    const previewTile: DashboardTile = {
+        id: buttonTileId ?? 0,
         color: null,
         button_tile: { ...buttonTile, text: buttonTile.text || 'Click me' },
         transparent_background: buttonTile.transparent_background,
@@ -43,7 +46,7 @@ export function ButtonTileCardModal({
         <LemonModal
             closable={true}
             isOpen={isOpen}
-            title={buttonTileId === 'new' ? 'Add link' : 'Edit link'}
+            title={isNewTile ? 'Add link' : 'Edit link'}
             onClose={handleClose}
             footer={
                 <>
@@ -61,7 +64,7 @@ export function ButtonTileCardModal({
                         htmlType="submit"
                         type="primary"
                         onClick={submitButtonTile}
-                        data-attr={buttonTileId === 'new' ? 'save-new-button-tile' : 'edit-button-tile'}
+                        data-attr={isNewTile ? 'save-new-button-tile' : 'edit-button-tile'}
                     >
                         Save
                     </LemonButton>

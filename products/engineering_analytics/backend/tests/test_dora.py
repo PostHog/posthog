@@ -3,10 +3,16 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 
+from django.http import QueryDict
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import UnknownDoraEnvironmentError
+from products.engineering_analytics.backend.logic.dora import build_dora_overview
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.dora import query_dora_overview
 from products.engineering_analytics.backend.logic.sources import GitHubTables
@@ -15,54 +21,40 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.presentation.serializers.dora import DoraEnvironmentQuerySerializer
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _deployment_row,
     _pr_row,
+    _run_row,
+    _status_row,
     connect_github_source_without_data,
     create_github_warehouse_table,
 )
 
 
-def _deployment_row(
-    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
-) -> dict:
-    return {
-        "id": deployment_id,
-        "sha": sha,
-        "ref": "master",
-        "task": "deploy",
-        "environment": environment,
-        "original_environment": environment,
-        "description": "",
-        "creator": "{}",
-        "payload": "{}",
-        "production_environment": production,
-        "transient_environment": transient,
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
+class TestDoraEnvironmentQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("", None),
+            ("environment=%20prod-us%20&environment=prod-eu", ["prod-us", "prod-eu"]),
+        ]
+    )
+    def test_valid_environment_selection(self, query: str, expected: list[str] | None) -> None:
+        serializer = DoraEnvironmentQuerySerializer(data=QueryDict(query))
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("environment") == expected
 
-
-def _status_row(status_id: int, deployment_id: int, state: str, environment: str, created_at: str) -> dict:
-    return {
-        "id": status_id,
-        "deployment_id": deployment_id,
-        "state": state,
-        "creator": "{}",
-        "description": "",
-        "environment": environment,
-        "target_url": "",
-        "log_url": "",
-        "environment_url": "",
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
+    @parameterized.expand([("environment=",), ("environment=%20",)])
+    def test_rejects_invalid_environment_selection(self, query: str) -> None:
+        serializer = DoraEnvironmentQuerySerializer(data=QueryDict(query))
+        assert not serializer.is_valid()
+        assert "environment" in serializer.errors
 
 
 class TestDoraEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_degrades_without_deploy_tables(self):
-        # The source resolves (pull_requests + workflow_runs) but has no deployments schemas:
-        # the endpoint must answer deploy_data_available=false instead of querying missing tables.
         connect_github_source_without_data(self.team, prefix="dora", repository="PostHog/posthog")
 
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/")
@@ -74,6 +66,13 @@ class TestDoraEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert payload["deployment_frequency_series"] == []
         assert payload["merge_to_deploy_series"] == []
 
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/", {"environment": " "})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/", {"environment": "prod"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "environment"
+
 
 class TestDoraQuery(ClickhouseTestMixin, BaseTest):
     def _curated(
@@ -83,15 +82,23 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         deployment_rows: list[dict[str, Any]],
         status_rows: list[dict[str, Any]],
         pr_rows: list[dict[str, Any]],
+        run_rows: list[dict[str, Any]] | None = None,
         member_rows: list[dict[str, Any]] | None = None,
+        nullable_status_timestamps: bool = True,
     ) -> CuratedGitHubSource:
         deployments_table = create_github_warehouse_table(
             self, "github_deployments", DEPLOYMENTS_COLUMNS, deployment_rows
         )
-        statuses_table = create_github_warehouse_table(
-            self, "github_deployment_statuses", DEPLOYMENT_STATUSES_COLUMNS, status_rows
-        )
+        status_columns = {
+            **DEPLOYMENT_STATUSES_COLUMNS,
+            "created_at": {
+                **DEPLOYMENT_STATUSES_COLUMNS["created_at"],
+                "clickhouse": "Nullable(String)" if nullable_status_timestamps else "String",
+            },
+        }
+        statuses_table = create_github_warehouse_table(self, "github_deployment_statuses", status_columns, status_rows)
         pr_table = create_github_warehouse_table(self, "github_pull_requests", PULL_REQUESTS_COLUMNS, pr_rows)
+        runs_table = create_github_warehouse_table(self, "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, run_rows or [])
         members_table = (
             create_github_warehouse_table(self, "github_team_members", TEAM_MEMBERS_COLUMNS, member_rows)
             if member_rows is not None
@@ -101,23 +108,22 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             team=team,
             tables=GitHubTables(
                 pull_requests=pr_table,
-                workflow_runs="unused",
+                workflow_runs=runs_table,
                 team_members=members_table,
                 deployments=deployments_table,
                 deployment_statuses=statuses_table,
             ),
         )
 
-    def _seeded_curated(self, member_rows: list[dict[str, Any]] | None) -> CuratedGitHubSource:
-        # Window 2026-01-10 → 2026-01-20; previous window 2025-12-31 → 2026-01-10.
-        # prod: d1 succeeds Jan 12, d2 fails Jan 13, d3 succeeds Jan 13 (d2's recovery, 2h later),
-        # d5 succeeded in the previous window, d6 never reached an outcome (no status rows).
-        # Each successful deploy's sha is a merged PR's merge_commit_sha (its head): PR 1 heads
-        # d1, PR 2 heads d3, PR 5 heads d5. Attribution follows head merge order, not success
-        # time: PR 6 (carol) merges Jan 12 09:00, AFTER d1's head merge (08:00), so d1 — despite
-        # succeeding later that day — does not contain it and it waits for d3.
-        # staging: d4 succeeds Jan 12 09:00 — before d1 — so a production-scope leak would
-        # change PR 1's lead time from 2h to 1h.
+    def _seeded_curated(
+        self, member_rows: list[dict[str, Any]] | None, *, merge_shas_available: bool = True
+    ) -> CuratedGitHubSource:
+        # The tests read the window 2026-01-10 to 2026-01-20, so the previous window starts 2025-12-31.
+        # prod: d1 succeeds Jan 12, d2 fails Jan 13, d3 succeeds 2h after d2 fails, d5 succeeds in the
+        # previous window, d6 has no status rows, and d7 succeeds after the window.
+        # PR 6 merges after d1's head commit merged, so d1 does not contain it and it waits for d3.
+        # staging: d4 succeeds before d1, so a production-scope leak would change PR 1's lead time
+        # from 2h to 1h.
         return self._curated(
             self.team,
             deployment_rows=[
@@ -127,6 +133,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _deployment_row(4, "sha-d", "staging", "2026-01-12 08:30:00", production=False),
                 _deployment_row(5, "sha-e", "prod", "2026-01-05 09:30:00", production=True),
                 _deployment_row(6, "sha-f", "prod", "2026-01-14 09:30:00", production=True),
+                _deployment_row(7, "sha-g", "prod", "2026-01-21 09:30:00", production=True),
             ],
             status_rows=[
                 _status_row(11, 1, "in_progress", "prod", "2026-01-12 09:31:00"),
@@ -135,9 +142,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _status_row(31, 3, "success", "prod", "2026-01-13 12:00:00"),
                 _status_row(41, 4, "success", "staging", "2026-01-12 09:00:00"),
                 _status_row(51, 5, "success", "prod", "2026-01-05 10:00:00"),
+                _status_row(71, 7, "success", "prod", "2026-01-21 10:00:00"),
             ],
             pr_rows=[
-                # alice heads d1 and merges 2h before its success; bob heads d3, 2.5h before its.
                 _pr_row(
                     1,
                     "alice",
@@ -145,7 +152,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-11 08:00:00",
                     merged_at="2026-01-12 08:00:00",
-                    merge_commit_sha="sha-a",
+                    merge_commit_sha="sha-a" if merge_shas_available else None,
+                    base_ref="main",
+                    default_branch="main",
                 ),
                 _pr_row(
                     2,
@@ -154,13 +163,24 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-12 08:00:00",
                     merged_at="2026-01-13 09:30:00",
-                    merge_commit_sha="sha-c",
+                    merge_commit_sha="sha-c" if merge_shas_available else None,
+                    base_ref="main",
+                    default_branch="main",
                 ),
-                # Bot merge in the same slot as PR 1: must not move the lead-time figures.
+                # This bot merge must not change the lead-time figures.
                 _pr_row(3, "dependabot[bot]", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
-                # Merged but never deployed in the window: not part of the deployed population.
-                _pr_row(4, "alice", "closed", 0, "2026-01-19 08:00:00", merged_at="2026-01-19 23:00:00"),
-                # Previous window: deployed by d5 (which it heads), backing the _prev twins.
+                # Merged in the window but deployed after it.
+                _pr_row(
+                    4,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-19 08:00:00",
+                    merged_at="2026-01-19 23:00:00",
+                    merge_commit_sha="sha-g" if merge_shas_available else None,
+                    base_ref="main",
+                    default_branch="main",
+                ),
                 _pr_row(
                     5,
                     "alice",
@@ -168,20 +188,38 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-05 06:00:00",
                     merged_at="2026-01-05 08:00:00",
-                    merge_commit_sha="sha-e",
+                    merge_commit_sha="sha-e" if merge_shas_available else None,
+                    base_ref="main",
+                    default_branch="main",
                 ),
-                # Merged after d1's head merge but before d1's success: the success-time rule would
-                # wrongly hand it d1 (1h lead); containment makes it wait for d3 (27h lead).
                 _pr_row(6, "carol", "closed", 0, "2026-01-11 09:00:00", merged_at="2026-01-12 09:00:00"),
+            ],
+            run_rows=[
+                _run_row(
+                    run_id,
+                    "build",
+                    sha,
+                    "completed",
+                    "success",
+                    started_at,
+                    started_at,
+                    commit_message=f"Update component (#{number})",
+                    pr_number=4,
+                )
+                for run_id, sha, number, started_at in [
+                    (101, "sha-a", 2 if merge_shas_available else 1, "2026-01-12 08:01:00"),
+                    (102, "sha-a", 2 if merge_shas_available else 1, "2026-01-12 08:02:00"),
+                    (103, "sha-c", 2, "2026-01-13 09:31:00"),
+                    (104, "sha-e", 5, "2026-01-05 08:01:00"),
+                    (105, "sha-g", 4, "2026-01-21 08:01:00"),
+                ]
             ],
             member_rows=member_rows,
         )
 
-    def test_dora_over_seeded_deploys(self):
-        # Guards the freshly written HogQL end to end over the real nullable string schema:
-        # production scoping, success/failure keying, the recovery self-join, the merged-PR
-        # deploy attribution (bots excluded), and both zero-filled series.
-        curated = self._seeded_curated(member_rows=None)
+    @parameterized.expand([(True,), (False,)])
+    def test_dora_over_seeded_deploys(self, merge_shas_available: bool) -> None:
+        curated = self._seeded_curated(member_rows=None, merge_shas_available=merge_shas_available)
         result = query_dora_overview(
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
@@ -189,31 +227,33 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deploy_data_available is True
-        assert result.environment_scope == "production"
+        assert result.environment_scope == "prod"
         assert result.environments == ["prod", "staging"]
         assert result.has_membership_data is False
         assert result.github_teams == []
 
         assert result.deployment_count == 2  # d1 + d3; d2 never succeeded, d4 is staging
-        assert result.deployment_count_prev == 1  # d5
+        assert result.deployment_count_prev == 1
         assert result.deployments_per_day == 0.2
-        assert result.failed_deployment_count == 1  # d2
+        assert result.failed_deployment_count == 1
         assert result.failed_deployment_share == 1 / 3  # outcomes in window: d1, d2, d3
-        assert result.median_failed_deploy_to_next_success_seconds == 7200.0  # d2 10:00 → d3 12:00
+        assert result.median_failed_deploy_to_next_success_seconds == 7200.0
 
         assert result.deployed_pr_count == 3  # PRs 1, 2, 6; bot and undeployed merges excluded
-        assert result.deployed_pr_count_prev == 1  # PR 5 via d5
-        # PR 1: 7200 via d1. PR 2: 9000 via d3. PR 6: 97200 via d3 — the containment rule at
-        # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
+        assert result.deployed_pr_count_prev == 1
+        # PR 1 takes 7200s through d1. PRs 2 and 6 take 9000s and 97200s through d3.
         assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
+        # Open to deploy: PR 1 26h, PR 2 28h, PR 6 51h. In the previous window PR 5 takes 4h.
+        assert result.median_open_to_deploy_seconds == 100800.0
+        assert result.median_open_to_deploy_seconds_prev == 14400.0
         assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
-        assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
-        assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)
+        assert result.unattributed_merged_pr_share == 0.25  # PR 4 deploys after the report horizon
+        assert result.latest_deploy_status_at == datetime(2026, 1, 21, 10, 0, tzinfo=UTC)
 
         assert result.series_granularity == "day"
         frequency = {bucket.bucket_start: bucket.deployment_count for bucket in result.deployment_frequency_series}
-        assert len(result.deployment_frequency_series) == 11  # zero-filled Jan 10 → Jan 20
+        assert len(result.deployment_frequency_series) == 11
         assert frequency[datetime(2026, 1, 12)] == 1
         assert frequency[datetime(2026, 1, 13)] == 1
         assert frequency[datetime(2026, 1, 15)] == 0
@@ -224,17 +264,138 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert jan_12.deployed_pr_count == 1
         assert jan_12.min_seconds == jan_12.max_seconds == jan_12.p50_seconds == jan_12.mean_seconds == 7200.0
         jan_13 = lead[datetime(2026, 1, 13)]
-        assert jan_13.deployed_pr_count == 2  # PRs 2 and 6, both deployed by d3
+        assert jan_13.deployed_pr_count == 2
         assert jan_13.min_seconds == 9000.0
         assert jan_13.max_seconds == 97200.0
+        # ClickHouse quantile interpolates linearly between the two samples.
+        assert jan_13.p05_seconds == 13410.0
+        assert jan_13.p95_seconds == 92790.0
         empty = lead[datetime(2026, 1, 15)]
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
 
+        otm = {bucket.bucket_start: bucket for bucket in result.open_to_merge_series}
+        otd = {bucket.bucket_start: bucket for bucket in result.open_to_deploy_series}
+        assert len(result.open_to_merge_series) == len(result.open_to_deploy_series) == 11
+        # PR 1: created Jan 11 08:00, merged Jan 12 08:00, deployed Jan 12 10:00.
+        assert otm[datetime(2026, 1, 12)].deployed_pr_count == 1
+        assert otm[datetime(2026, 1, 12)].p50_seconds == 86400.0
+        assert otd[datetime(2026, 1, 12)].p50_seconds == 93600.0
+        # PR 2: 25.5h open to merge, 28h open to deploy. PR 6: 24h open to merge, 51h open to deploy.
+        assert otm[datetime(2026, 1, 13)].min_seconds == 86400.0
+        assert otm[datetime(2026, 1, 13)].max_seconds == 91800.0
+        assert otd[datetime(2026, 1, 13)].min_seconds == 100800.0
+        assert otd[datetime(2026, 1, 13)].max_seconds == 183600.0
+        assert otm[datetime(2026, 1, 15)].deployed_pr_count == 0
+        assert otd[datetime(2026, 1, 15)].p50_seconds is None
+
+    def test_workflow_fallback_rejects_unrelated_or_ambiguous_commit_evidence(self) -> None:
+        shas = [
+            "feature-sha",
+            "foreign-sha",
+            "conflict-sha",
+            "open-sha",
+            "future-sha",
+            "backport-sha",
+            "inflight-sha",
+            "reland-sha",
+            "workflow-before-merge-sha",
+            "missing-sha",
+        ]
+        started_at = "2026-01-12 08:01:00"
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(index, sha, "prod", "2026-01-12 09:00:00", production=True)
+                for index, sha in enumerate(shas, start=1)
+            ],
+            status_rows=[
+                _status_row(index + 10, index, "success", "prod", "2026-01-12 10:00:00")
+                for index in range(1, len(shas) + 1)
+            ],
+            pr_rows=[
+                _pr_row(
+                    number,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at=merged_at,
+                    merge_commit_sha=merge_commit_sha,
+                    base_ref=base_ref,
+                    default_branch="main",
+                )
+                for number, merged_at, base_ref, merge_commit_sha in [
+                    (1, "2026-01-12 08:00:00", "main", None),
+                    (2, "2026-01-12 08:00:00", "main", None),
+                    (3, None, "main", None),
+                    (4, "2026-01-19 08:00:00", "main", None),
+                    # Merged into a release branch and cherry-picked onto main, so the commit on main
+                    # keeps the (#5) subject.
+                    (5, "2026-01-12 08:00:00", "release-1.2", None),
+                    # Merged at 09:30, after every deployment here was created at 09:00.
+                    (6, "2026-01-12 09:30:00", "main", None),
+                    # Has its own merge commit, so the (#7) subject on another commit is not its merge.
+                    (7, "2026-01-12 08:00:00", "main", "pr-7-merge-sha"),
+                    (8, "2026-01-12 08:30:00", "main", None),
+                ]
+            ],
+            run_rows=[
+                _run_row(
+                    index,
+                    "build",
+                    sha,
+                    "completed",
+                    "success",
+                    started_at,
+                    started_at,
+                    commit_message=f"Update component (#{number})",
+                    head_branch=branch,
+                    full_name=repo,
+                )
+                for index, (sha, number, branch, repo) in enumerate(
+                    [
+                        ("feature-sha", 1, "feature", "PostHog/posthog"),
+                        ("foreign-sha", 1, "main", "example/other"),
+                        ("conflict-sha", 1, "main", "PostHog/posthog"),
+                        ("conflict-sha", 2, "main", "PostHog/posthog"),
+                        ("open-sha", 3, "main", "PostHog/posthog"),
+                        ("future-sha", 4, "main", "PostHog/posthog"),
+                        ("backport-sha", 5, "main", "PostHog/posthog"),
+                        ("inflight-sha", 6, "main", "PostHog/posthog"),
+                        ("reland-sha", 7, "main", "PostHog/posthog"),
+                    ],
+                    start=1,
+                )
+            ]
+            + [
+                _run_row(
+                    10,
+                    "build",
+                    "workflow-before-merge-sha",
+                    "completed",
+                    "success",
+                    "2026-01-12 09:45:00",
+                    "2026-01-12 09:45:00",
+                    commit_message="Update component (#8)",
+                )
+                | {"created_at": "2026-01-12 08:01:00"}
+            ],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.deployment_count == len(shas)
+        assert result.deployed_pr_count == 0
+        assert result.median_open_to_deploy_seconds is None
+        for series in [result.open_to_deploy_series, result.open_to_merge_series, result.merge_to_deploy_series]:
+            assert all(bucket.deployed_pr_count == 0 for bucket in series)
+
     def test_restore_recovery_excluded_when_it_lands_after_date_to(self):
-        # d2 fails Jan 13 10:00, recovers via d3's success at Jan 13 12:00 (see _seeded_curated).
-        # A historical report ending before that recovery must not count it: "no recovery in the
-        # window" should stay null instead of reaching past date_to for the next success.
         curated = self._seeded_curated(member_rows=None)
         result = query_dora_overview(
             curated=curated,
@@ -242,7 +403,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             date_to=datetime(2026, 1, 13, 11, 0, 0, tzinfo=UTC),
         )
 
-        assert result.failed_deployment_count == 1  # d2 still counts as a failure in this window
+        assert result.failed_deployment_count == 1
         assert result.median_failed_deploy_to_next_success_seconds is None
 
     def test_github_team_filter_narrows_lead_time_only(self):
@@ -261,7 +422,6 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
 
         assert result.has_membership_data is True
         assert result.github_teams == ["team-ingestion", "team-replay"]
-        # Only alice's merges count toward lead time and coverage; deploy counts stay repo-wide.
         assert result.deployed_pr_count == 1
         assert result.median_merge_to_deploy_seconds == 7200.0
         assert result.merged_pr_count == 2  # alice's PRs 1 and 4
@@ -277,19 +437,13 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             github_team="team-replay",
         )
 
-        # The filter can't be honored, so the lead-time figures go empty, never silently unfiltered.
         assert result.has_membership_data is False
         assert result.deployed_pr_count == 0
         assert result.median_merge_to_deploy_seconds is None
         assert result.merge_to_deploy_series == []
-        # Deploy-scoped figures are unaffected.
         assert result.deployment_count == 2
 
-    def test_busiest_environment_fallback_excludes_transient_and_sibling_environments(self):
-        # Nothing is production-marked (this repo's real shape), so the default scope falls back
-        # to the single busiest persistent environment: the ephemeral per-PR preview deploys and
-        # the quieter sibling environment (a second region, dev, a package registry) must stay
-        # out of the counts — every-persistent counted them all and multiplied every metric.
+    def test_production_named_environment_beats_busier_dev_environment(self):
         curated = self._curated(
             self.team,
             deployment_rows=[
@@ -297,14 +451,18 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _deployment_row(2, "sha-b", "preview-pr-123", "2026-01-12 09:30:00", production=False, transient=True),
                 _deployment_row(3, "sha-c", "prod-us", "2026-01-13 09:30:00", production=False),
                 _deployment_row(4, "sha-d", "dev", "2026-01-12 09:30:00", production=False),
+                _deployment_row(5, "sha-e", "dev", "2026-01-13 09:30:00", production=False),
+                _deployment_row(6, "sha-f", "dev", "2026-01-14 09:30:00", production=False),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "preview-pr-123", "2026-01-12 10:00:00"),
                 _status_row(31, 3, "success", "prod-us", "2026-01-13 10:00:00"),
                 _status_row(41, 4, "success", "dev", "2026-01-12 10:00:00"),
+                _status_row(51, 5, "success", "dev", "2026-01-13 10:00:00"),
+                _status_row(61, 6, "success", "dev", "2026-01-14 10:00:00"),
             ],
-            # One never-merged PR keeps the seeded CSV non-empty without joining any deploy.
+            # One PR that never merged keeps the seeded CSV non-empty without joining any deploy.
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
         )
         result = query_dora_overview(
@@ -314,18 +472,40 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.environment_scope == "prod-us"
-        assert result.environments == ["prod-us", "dev"]
+        assert result.environments == ["dev", "prod-us"]
         assert result.deployment_count == 2
 
-    def test_deploy_scan_slack_bounds_prewindow_deployments(self):
-        # A deployment created before the scan window still counts when its success lands inside
-        # it, up to the 7-day slack; beyond the slack it is excluded even with an in-window success.
+    def test_busiest_environment_fallback_without_production_named_environment(self):
         curated = self._curated(
             self.team,
             deployment_rows=[
-                # Created 3 days before prev_from (2025-12-31): inside the slack.
+                _deployment_row(1, "sha-a", "staging", "2026-01-12 09:30:00", production=False),
+                _deployment_row(2, "sha-b", "staging", "2026-01-13 09:30:00", production=False),
+                _deployment_row(3, "sha-c", "dev", "2026-01-12 09:30:00", production=False),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "staging", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "staging", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "dev", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "staging"
+        assert result.deployment_count == 2
+
+    def test_deploy_scan_slack_bounds_prewindow_deployments(self):
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                # Created 3 days before the previous window starts (2025-12-31), inside _DEPLOY_SCAN_SLACK.
                 _deployment_row(1, "sha-a", "prod", "2025-12-28 09:00:00", production=True),
-                # Created 9 days before prev_from: outside the slack, excluded from every read.
+                # Created 9 days before it, outside the slack.
                 _deployment_row(2, "sha-b", "prod", "2025-12-22 09:00:00", production=True),
             ],
             status_rows=[
@@ -341,11 +521,36 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deployment_count == 1
+        assert result.environments == ["prod"]
+        assert result.selected_environments == ["prod"]
+
+    def test_environment_discovery_covers_the_deployment_scan_slack(self):
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-eu", "prod-eu", "2025-12-29 09:00:00", production=True),
+                _deployment_row(2, "sha-us", "prod-us", "2026-01-20 09:00:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-eu", "2026-01-02 10:00:00"),
+                _status_row(21, 2, "success", "prod-us", "2026-01-20 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-01 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 16, tzinfo=UTC),
+            date_to=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+
+        assert result.environments == ["prod-eu", "prod-us"]
+        assert result.selected_environments == ["prod-eu", "prod-us"]
+        assert result.deployment_count == 1
+        assert result.deployment_count_prev == 1
 
     def test_exact_environment_scope(self):
-        # A dedicated fixture, not _seeded_curated: that shared fixture's PR 5 (merged Jan 5) has
-        # no earlier production match once scoped to staging-only, so it would fall through and
-        # pair with staging's one deployment too, contaminating the median this test isolates.
+        # _seeded_curated is not used here because its PR 5 would also pair with the staging
+        # deployment once the scope is staging only, which would change the median.
         curated = self._curated(
             self.team,
             deployment_rows=[
@@ -368,15 +573,223 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 ),
             ],
         )
+        result = build_dora_overview(
+            curated=curated, date_from="2026-01-10", date_to="2026-01-20", environments=["staging"]
+        )
+
+        assert result.environment_scope == "staging"
+        assert result.deployment_count == 1
+        assert result.failed_deployment_count == 0
+        assert result.median_merge_to_deploy_seconds == 3600.0
+
+        both = build_dora_overview(
+            curated=curated,
+            date_from="2026-01-10",
+            date_to="2026-01-20",
+            environments=[" staging ", "prod", "staging"],
+            granularity="week",
+        )
+
+        assert both.environment_scope == "staging, prod"
+        assert both.selected_environments == ["staging", "prod"]
+        assert both.deployment_count == 2
+        assert both.series_granularity == "week"
+
+        with self.assertRaises(UnknownDoraEnvironmentError) as raised:
+            build_dora_overview(
+                curated=curated,
+                date_from="2026-01-10",
+                date_to="2026-01-20",
+                environments=["missing", "staging", "gone"],
+            )
+        assert raised.exception.environments == ["missing", "gone"]
+
+    def test_exact_environment_scope_can_select_a_transient_environment(self) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod", "2026-01-12 09:30:00", production=True),
+                _deployment_row(
+                    2,
+                    "sha-b",
+                    "preview-pr-2",
+                    "2026-01-13 09:30:00",
+                    production=False,
+                    transient=True,
+                ),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "preview-pr-2", "2026-01-13 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = build_dora_overview(
+            curated=curated, date_from="2026-01-10", date_to="2026-01-20", environments=["preview-pr-2"]
+        )
+
+        assert result.environments == ["prod"]
+        assert result.selected_environments == ["preview-pr-2"]
+        assert result.deployment_count == 1
+
+    def test_environment_discovery_keeps_a_quiet_persistent_option(self) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[_deployment_row(1, "sha-a", "staging", "2026-01-05 09:30:00", production=False)],
+            status_rows=[_status_row(11, 1, "success", "staging", "2026-01-05 10:00:00")],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-01 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 20, tzinfo=UTC),
+            date_to=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+
+        assert result.environments == ["staging"]
+        assert result.selected_environments == ["staging"]
+        assert result.deployment_count == 0
+        assert result.deployment_count_prev == 0
+
+    @parameterized.expand([(False, False), (True, False)])
+    def test_default_scope_includes_production_regions(self, us_production: bool, eu_production: bool) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=us_production),
+                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=us_production),
+                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=eu_production),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod-us", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "prod-eu", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
         result = query_dora_overview(
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            environment="staging",
         )
 
-        assert result.environment_scope == "staging"
-        assert result.deployment_count == 1  # d4 only; d1 (prod) excluded by the exact scope
-        assert result.failed_deployment_count == 0
-        # PR 1 (merged Jan 12 08:00) reaches staging's 09:00 success: a 1h lead time.
-        assert result.median_merge_to_deploy_seconds == 3600.0
+        assert result.environment_scope == "prod-eu, prod-us"
+        assert result.environments == ["prod-us", "prod-eu"]
+        assert result.selected_environments == ["prod-eu", "prod-us"]
+        assert result.deployment_count == 3
+
+    def test_default_scope_includes_flagged_names_and_excludes_transient_production_names(self) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "custom-sha", "release", "2026-01-12 09:00:00", production=True),
+                _deployment_row(
+                    2,
+                    "preview-sha",
+                    "prod-preview",
+                    "2026-01-12 09:00:00",
+                    production=True,
+                    transient=True,
+                ),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "release", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod-preview", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.selected_environments == ["release"]
+        assert result.deployment_count == 1
+
+    def test_default_scope_includes_more_than_one_hundred_production_environments(self) -> None:
+        deployment_rows = [
+            _deployment_row(
+                index,
+                f"sha-{index}",
+                f"prod-{index:03}",
+                "2026-01-12 09:00:00",
+                production=False,
+            )
+            for index in range(1, 102)
+        ]
+        status_rows = [
+            _status_row(index + 1000, index, "success", f"prod-{index:03}", "2026-01-12 10:00:00")
+            for index in range(1, 102)
+        ]
+        curated = self._curated(
+            self.team,
+            deployment_rows=deployment_rows,
+            status_rows=status_rows,
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert len(result.environments) == 100
+        assert "prod-101" not in result.environments
+        assert len(result.selected_environments) == 101
+        assert result.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
+        assert result.deployment_count == 101
+
+        explicitly_selected = build_dora_overview(
+            curated=curated,
+            date_from="2026-01-10",
+            date_to="2026-01-20",
+            environments=[f"prod-{index:03}" for index in range(1, 102)],
+        )
+        assert explicitly_selected.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
+        assert explicitly_selected.deployment_count == 101
+
+    @parameterized.expand([(True,), (False,)])
+    def test_unsuccessful_deploy_cannot_hide_a_later_success(self, nullable_status_timestamps: bool) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "merge-a", "prod", "2026-01-12 09:00:00", production=True),
+                _deployment_row(2, "merge-a", "prod", "2026-01-12 11:00:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "failure", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod", "2026-01-12 12:00:00"),
+            ],
+            nullable_status_timestamps=nullable_status_timestamps,
+            pr_rows=[
+                _pr_row(
+                    1,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at="2026-01-12 08:00:00",
+                    merge_commit_sha="merge-a",
+                ),
+            ],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.deployed_pr_count == 1
+        assert result.median_open_to_deploy_seconds == 28 * 3600
+        assert result.median_merge_to_deploy_seconds == 4 * 3600
+        assert result.median_failed_deploy_to_next_success_seconds == 2 * 3600
+        for series, median in [
+            (result.open_to_deploy_series, 28 * 3600),
+            (result.open_to_merge_series, 24 * 3600),
+            (result.merge_to_deploy_series, 4 * 3600),
+        ]:
+            populated = [bucket for bucket in series if bucket.deployed_pr_count]
+            assert len(populated) == 1
+            assert populated[0].p50_seconds == median

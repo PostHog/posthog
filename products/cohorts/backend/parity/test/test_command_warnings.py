@@ -143,6 +143,7 @@ def _ctx(**overrides: Any) -> RunContext:
         "confirmed_days": frozenset(),
         "non_confirmed_chunks": 0,
         "shape_hash_drift": False,
+        "trailing_day_planned": False,
     }
     defaults.update(overrides)
     return RunContext(**defaults)

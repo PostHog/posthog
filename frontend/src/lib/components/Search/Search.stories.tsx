@@ -151,6 +151,18 @@ const MOCK_SEARCH_RESULTS = {
             extra_fields: { name: 'User Overview Dashboard' },
         },
         {
+            result_id: '202',
+            type: 'data_warehouse_view',
+            rank: 1,
+            extra_fields: { name: 'User activity model', node_id: 'node-202' },
+        },
+        {
+            result_id: '203',
+            type: 'endpoint',
+            rank: 1,
+            extra_fields: { name: 'user_activity' },
+        },
+        {
             result_id: '301',
             type: 'feature_flag',
             rank: 1,
@@ -160,6 +172,8 @@ const MOCK_SEARCH_RESULTS = {
     counts: {
         insight: 2,
         dashboard: 1,
+        data_warehouse_view: 1,
+        endpoint: 1,
         feature_flag: 1,
     },
 }
@@ -210,7 +224,34 @@ export const Default: Story = {
         )
     },
     parameters: {
-        docs: { description: { story: 'Shows 5 recent items and tools when no search query is entered.' } },
+        docs: { description: { story: 'Shows 5 recent items and products when no search query is entered.' } },
+    },
+}
+
+export const NoRecents: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': () => [200, EMPTY_PAGINATED_RESPONSE],
+                '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
+                ...SHARED_MOCKS,
+            },
+        })
+
+        return (
+            <SearchContainer>
+                <Search.Root logicKey="storybook-no-recents" isActive showAskAiLink={false}>
+                    <Search.Input autoFocus />
+                    <Search.Status />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
+    },
+    parameters: {
+        docs: { description: { story: 'A user with no recent items sees products without an empty Recents group.' } },
     },
 }
 
@@ -281,7 +322,7 @@ export const Searching: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Searching for "user": recents and tools are filtered client-side instantly, server results appear below without shifting existing items.',
+                story: 'Searching for "user": recents and products are filtered client-side instantly, server results appear below without shifting existing items.',
             },
         },
     },

@@ -3,19 +3,25 @@ import { PropsWithChildren, useMemo } from 'react'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { cn } from 'lib/utils/css-classes'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
-export function Integration({ kind, children }: PropsWithChildren<{ kind: IntegrationKind }>): JSX.Element {
+export function Integration({
+    kind,
+    centered,
+    children,
+    integrationSuffix,
+}: PropsWithChildren<{ kind: IntegrationKind; centered?: boolean; integrationSuffix?: JSX.Element }>): JSX.Element {
     const integrations = useIntegrations(kind)
 
     return (
         <div className="flex flex-col">
             <div className="flex flex-col gap-y-2">
                 {integrations.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
+                    <IntegrationView key={integration.id} integration={integration} suffix={integrationSuffix} />
                 ))}
-                <div className="flex">{children}</div>
+                <div className={cn('flex', centered && 'justify-center')}>{children}</div>
             </div>
         </div>
     )

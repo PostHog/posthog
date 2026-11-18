@@ -1,0 +1,10 @@
+version: 1
+owners:
+    - team-context-and-mcp
+rules:
+    - match:
+          - '/schema/generated-tool-definitions.json'
+          - '/schema/tool-inputs.json'
+          - '/schema/exec-command-reference.md'
+          - '/worker-configuration.d.ts'
+      status: generated

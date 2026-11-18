@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { metricCount, metricHistogram } from 'lib/operationalMetrics'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
@@ -48,8 +48,18 @@ export interface sessionRecordingEventUsageLogicActions {
     reportNextRecordingTriggered: (automatic: boolean) => {
         automatic: boolean
     }
-    reportRecordingExportedToFile: () => {
+    reportRecordingDebugChatReopened: () => {
         value: true
+    }
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
+        playerTimeSeconds: number
+        promptEdited: boolean
+    }
+    reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
+        format: 'json' | 'mp4'
     }
     reportRecordingInspectorItemExpanded: (
         tab: InspectorListItemType,
@@ -80,13 +90,6 @@ export interface sessionRecordingEventUsageLogicActions {
         enabled: boolean
         minifilterKey: string
     }
-    reportRecordingListVisibilityToggled: (
-        type: string,
-        visible: boolean
-    ) => {
-        type: string
-        visible: boolean
-    }
     reportRecordingLoaded: (
         playerData: SessionPlayerData,
         metadata: SessionRecordingType | null
@@ -104,21 +107,25 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
     }
-    reportRecordingPlayerSeekbarEventHovered: () => {
-        value: true
-    }
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
-    }
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -148,17 +155,19 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             loadTime: number,
             filters: RecordingUniversalFilters,
             defaultDurationFilter: RecordingDurationFilter,
+            /** What the response held, so an empty list can be told from a full page of results. */
+            page: { resultCount: number; hasNext: boolean; isFirstPage: boolean },
             /** Which surface embeds the playlist, so a list load can be read per host page. */
             source?: string
         ) => ({
             loadTime,
             filters,
             defaultDurationFilter,
+            page,
             source,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
-        reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
@@ -167,11 +176,14 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
-        reportRecordingExportedToFile: true,
+        reportRecordingExportedToFile: (format: 'json' | 'mp4') => ({ format }),
+        reportRecordingDebuggedWithAI: (playerTimeSeconds: number, promptEdited: boolean) => ({
+            playerTimeSeconds,
+            promptEdited,
+        }),
+        reportRecordingDebugChatReopened: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
-        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
-        reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
     listeners(() => ({
@@ -194,7 +206,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, source }) => {
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, page, source }) => {
             metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
@@ -223,6 +235,11 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                     listing_version: '3',
                     filters,
                     source,
+                    result_count: page.resultCount,
+                    has_next: page.hasNext,
+                    // False for the pages scrolling adds, which say nothing about what the list
+                    // first showed.
+                    is_first_page: page.isFirstPage,
                     ...filterBreakdown,
                 })
             } catch (e) {
@@ -235,9 +252,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingOpenedFromRecentRecordingList: () => {
             posthog.capture('recording opened from recent recording list')
         },
-        reportRecordingPlayerSeekbarEventHovered: () => {
-            posthog.capture('recording player seekbar event hovered')
-        },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
             posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })
         },
@@ -247,20 +261,23 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
         },
-        reportRecordingExportedToFile: () => {
-            posthog.capture('recording exported to file')
+        reportRecordingExportedToFile: ({ format }) => {
+            posthog.capture('recording exported to file', { format })
+        },
+        reportRecordingDebuggedWithAI: ({ playerTimeSeconds, promptEdited }) => {
+            posthog.capture('recording debugged with ai', {
+                player_time_seconds: playerTimeSeconds,
+                prompt_edited: promptEdited,
+            })
+        },
+        reportRecordingDebugChatReopened: () => {
+            posthog.capture('recording debug chat reopened')
         },
         reportRecordingLoadedFromFile: (properties) => {
             posthog.capture('recording loaded from file', properties)
         },
-        reportRecordingListVisibilityToggled: (properties) => {
-            posthog.capture('recording list visibility toggled', properties)
-        },
         reportRecordingPinnedToList: (properties) => {
             posthog.capture('recording pinned to list', properties)
-        },
-        reportRecordingPlaylistCreated: (properties) => {
-            posthog.capture('recording playlist created', properties)
         },
     })),
 ])

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from posthog.redis import get_async_client
 
+from products.replay_vision.backend.temporal.gemini import is_gateway_refusal
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     MGET_BATCH_SIZE,
     REDIS_INDEX_KEY,
@@ -32,7 +33,8 @@ def is_gemini_file_gone(error: Exception) -> bool:
     """Whether a Gemini delete failure means the file no longer exists. Gemini reports missing
     files as 403 PERMISSION_DENIED ("...or it may not exist"), not just 404 — callers should
     untrack on either instead of retrying a doomed delete."""
-    return isinstance(error, APIError) and error.code in (403, 404)
+    # The gateway's own 403/404 (bad key, missing route) says nothing about the file, so it keeps the key for retry.
+    return isinstance(error, APIError) and error.code in (403, 404) and not is_gateway_refusal(error)
 
 
 async def delete_and_untrack(

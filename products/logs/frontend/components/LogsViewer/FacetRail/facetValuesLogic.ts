@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -27,6 +27,7 @@ export interface facetValuesLogicValues {
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -37,6 +38,7 @@ export interface facetValuesLogicValues {
     facetSearch: string
     facetValues: _LogFacetValueApi[]
     facetValuesLoading: boolean
+    fetchFailed: boolean
     fetchSignature: string
     fetchedSignature: string | null
     scopeSignature: string
@@ -68,6 +70,9 @@ export interface facetValuesLogicActions {
             signature: string
         }
     }
+    retryFacetValues: () => {
+        value: true
+    }
     setFacetSearch: (search: string) => {
         search: string
     }
@@ -82,6 +87,7 @@ export interface facetValuesLogicMeta {
             filters: LogsViewerFilters,
             queryFilterGroup: UniversalFiltersGroup,
             personId: string | undefined,
+            sessionId: string | undefined,
             utcDateRange: {
                 date_from: string | null | undefined
                 date_to: string | null | undefined
@@ -122,7 +128,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
     connect((props: FacetValuesLogicProps) => ({
         values: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'facetRefreshCounter'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId', 'facetRefreshCounter'],
             teamLogic,
             ['currentTeamId'],
             facetRailLogic({ id: props.id }),
@@ -136,6 +142,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
         // and the signature payload is only there for the reducer below to record.
         loadFacetValues: (signature: string) => ({ signature }),
         clearFetchedSignature: true,
+        retryFacetValues: true,
     }),
 
     reducers({
@@ -155,6 +162,15 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 loadFacetValues: (_, { signature }) => signature,
                 loadFacetValuesFailure: () => null,
                 clearFetchedSignature: () => null,
+            },
+        ],
+        // Drives this facet's inline error state, so one broken facet shows in place rather than
+        // as a global toast.
+        fetchFailed: [
+            false,
+            {
+                loadFacetValuesSuccess: () => false,
+                loadFacetValuesFailure: () => true,
             },
         ],
     }),
@@ -188,6 +204,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                             facetSearch: values.facetSearch || undefined,
                             filterGroup,
                             personId: values.personId,
+                            sessionId: values.sessionId,
                         },
                     })
                     // Bail out right after the round-trip: the rail (and this logic) unmounts when the
@@ -211,6 +228,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 s.filters,
                 s.queryFilterGroup,
                 s.personId,
+                s.sessionId,
                 s.utcDateRange,
                 s.currentTeamId,
                 s.facetRefreshCounter,
@@ -220,6 +238,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 filters: LogsViewerFilters,
                 queryFilterGroup: UniversalFiltersGroup,
                 personId: string | undefined,
+                sessionId: string | undefined,
                 utcDateRange: {
                     date_from: string | null | undefined
                     date_to: string | null | undefined
@@ -235,6 +254,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     searchTerm: filters.searchTerm,
                     queryFilterGroup,
                     personId,
+                    sessionId,
                 })}|r${facetRefreshCounter}`,
         ],
         // One trigger for the one in-flight request: a scope change and a keystroke in this facet's
@@ -244,6 +264,10 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
             (scopeSignature: string, facetSearch: string): string => `${scopeSignature}|${facetSearch}`,
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        retryFacetValues: () => actions.loadFacetValues(values.fetchSignature),
+    })),
 
     subscriptions(({ actions, values }) => {
         // Subscriptions fire with their initial value, so this is also the mount fetch.

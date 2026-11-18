@@ -4,6 +4,7 @@ Visual regression testing that keeps baselines in git.
 
 CI captures screenshots, the backend diffs them against committed baselines, developers review and approve changes in a web UI, and a bot commits the updated baselines back to the PR.
 No external baseline service — the repo is the source of truth.
+A repo can instead keep its baselines in a ledger in the database, where an approval commits nothing; see [Baselines in the database](#baselines-in-the-database).
 
 ## The idea
 
@@ -26,6 +27,186 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 **RunSnapshot** — one screenshot within a run. Links current and baseline artifacts, holds the computed result (`unchanged`, `changed`, `new`, `removed`) and the human review state (`pending`, `approved`). Snapshots are stored with a provisional result at creation; final classification happens at `complete_run` time when the backend compares against the GitHub baseline. The diff artifact and pixel metrics come later from async processing.
 
 **Supersession** — when a new run is created for the same (repo, branch, run_type), older runs get a `superseded_by` pointer. This prevents approving stale runs without GitHub API polling — the DB knows what's current.
+
+### Retention
+
+Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
+The windows and the reasons behind them are constants in `backend/logic/retention.py`.
+
+- Superseded runs on PR branches go after 3 days, on the default branch after 180 days.
+  A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
+- A PR branch with no run in 30 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+  Merge-queue branches (`trunk-merge/`) hold one batch run each and go after 7 days.
+- A run that an active quarantine names as its source stays, so the quarantine can still show where it came from.
+- Artifacts go by reference, never by age: content addressing means one upload backs every later run with the same pixels.
+  An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
+- Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
+  An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- A story-to-file map goes when the sweep deletes the last run that names it.
+- Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+  The budget stays below the time a deploy gives a busy worker to finish, so a deploy cannot kill a sweep.
+  Artifacts have their own task and budget, so a backlog of runs cannot use up the time the artifact sweep needs.
+
+### Weekly debt digest
+
+Every Monday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
+The digest is stateless: every Monday both conditions below are evaluated from current data, and nothing is stored about what was sent.
+An item repeats every week while it stands, and stops the week the condition no longer holds.
+
+Each message is Block Kit.
+The lead names the team and the week, and counts each condition that has items, with buttons to the repository's flakiness overview and its snapshots.
+Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
+Theme variants of one story list as one entry when the reader would see the same facts for each.
+A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
+Pile-ups never merge, because each theme variant carries its own toleration count.
+The last reply says when the next digest comes.
+A team that owns nothing gets no message at all.
+
+Two conditions, and nothing else:
+
+- **Quarantine expiring.**
+  An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`, plus one day.
+  The extra day is overlap: two weekly runs can fall slightly more than seven days apart, and a quarantine expiring in that gap would otherwise never be reported.
+  The flakiness page keeps the plain seven days.
+  It clears when somebody extends it past the window, lifts it, or lets it lapse.
+- **Tolerated N times in 30 days.**
+  `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in the last `TOLERATION_PILEUP_WINDOW_DAYS`, with no quarantine already covering the identity.
+  It matches the manual half of the rule the Tolerate dialog uses to suggest a quarantine.
+  The count spans every baseline.
+  A flaky story's baseline often moves between tolerations, and a count scoped to the current baseline would drop to zero at each move while the tolerations go on.
+  Automatic tolerations do not count: they absorb renderings under the diff thresholds, which never block anybody.
+  It clears when the tolerations age out of the window.
+  Reminders about retained exceptions repeat until they are removed or no longer apply.
+
+Attribution runs through the story index of the newest default-branch Storybook run, and then through `owners.yaml`.
+`vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each default-branch run records the map's SHA-256 in `metadata["story_index_hash"]`.
+The map is stored once per distinct content, under `visual_review/<repo_id>/story-index/<hash>.json`, and uploaded only when the store does not hold that hash yet.
+A reader accepts the stored bytes only when they hash to their name.
+A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.
+The full story id is looked up first and the width suffix is only stripped when that misses, because a story can be named after a width.
+The parsed map is cached by its hash, so a cached copy is never stale.
+Nothing is guessed from the identifier: a story name is not a path.
+Only Storybook runs are attributed today.
+
+Three outcomes have no owning team, and the digest keeps them apart:
+
+- **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which the message carries.
+- **The story is not in the index.** It moved, was renamed, was deleted, or it only exists on a branch.
+- **Ownership could not be worked out.** The newest default-branch run recorded no story index, the stored map could not be read, or the run type is not supported yet.
+
+All three go to whoever owns `products/visual_review/`, in a message of their own rather than inside the digest those maintainers get for what they own.
+Holding an item until a team takes it is not owning it, and the wording says so.
+The message goes out only when at least one item asks somebody to act.
+The first two outcomes are listed, each with a button to the file or the snapshot.
+The third is only counted in the footer, because it asks the reader for nothing; the reasons go to the log instead.
+When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
+
+Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
+A team opts out with `notifications: {visual_review: false}` under its entry.
+A shared Slack channel is refused, so a name match never carries an internal reminder out of the workspace.
+
+The digest is off for a repository until `debt_digest_enabled` is set on it.
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+The beat task runs on Monday morning and fans out only to the repositories that are on.
+A repository that owes nothing posts nothing.
+
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
+`--mode preview`, the default, prints and logs the plain text behind every message without posting.
+`--mode live` posts.
+
+### Quarantine notice
+
+The quarantine dialog has a "Notify the owning team in Slack" switch, on by default.
+When it is on, the first identifier of the request carries `notify_owners: true`, so the theme variants of one story send one notice.
+The API field `notify_owners` defaults to false, so scripts and agents that quarantine in bulk post nothing unless they ask.
+A Celery task, `notify quarantine owners`, runs after the row commits.
+It finds the owner with the same lookup as the flakiness page, and posts to the channel the digest uses, so a team that opted out of the digest gets no notice either.
+The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.
+It works for Storybook runs only, and it is best effort: a story no team owns, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
+The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
+The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
+
+### Automatic quarantine
+
+A flaky story fails the gate of merge queue runs, and every pull request in the batch is kicked out until somebody quarantines it.
+Visual review can quarantine such a story itself, once trusted runs prove that it is flaky.
+
+A trusted run is a full run on the default branch without a pull request, or a full run on a merge queue branch (`trunk-merge/`).
+The default branch comes from GitHub, not from the branch name.
+When a trusted run finishes, the backend looks at the trusted runs of the same run type from the last `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+One failure followed by a clean run is not enough.
+A pull request that broke the story and a later one that fixed or reverted it render the same way, and so does the default branch moving on between the two runs.
+A flake is proven only when the finishing run fails the story, and one of these holds:
+
+- **Same commit.** A clean run of the finishing run's commit rendered another picture against the same baseline. The code is identical, so only the rendering differs.
+- **Chain.** The story failed in run A, was clean in run B, and failed again in the finishing run C, where B's commit descends from A's and C's from B's. A deterministic story would need a break, a fix and a second break inside the window, all without a baseline edit.
+
+Tree order is plain git ancestry of the run commits, which GitHub answers; equal commits count.
+A default-branch run never descends from a merge queue run, because a squash merge writes new commits.
+The clean picture must differ from each failing picture, because a tolerated match of the failing picture is the same render.
+
+The finishing run's failing rows are read first, so a run that fails no story leaves after one query.
+Then up to `AUTO_QUARANTINE_RUNS_READ` window runs created before it or on its commit are read as possible ancestors.
+At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, built lazily and checked one at a time, and one evaluation stops after `AUTO_QUARANTINE_BUDGET_SECONDS`, leaving the rest to a later run.
+The decision is a pure function over the runs and the ancestry answers.
+Branch and pull request number are client-supplied, so before a proof counts, GitHub confirms where its runs came from: a default-branch run's commit must be in the default branch head, and a merge queue run must test the pull request its branch names.
+
+Guards:
+
+- Only `changed` counts. `new` and `removed` are problems of the baseline file.
+- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means the run's changes edited it, and the failure belongs to them.
+- An approved, tolerated, or quarantined result is no evidence either way.
+- At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
+- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed. The first proof the limit blocks in a window sends one Slack notice to whoever owns `products/visual_review/`, routed like the digest's items that no team owns.
+- The limit is counted again, and the story checked for an active quarantine, under a lock on the repository row, so two runs that finish together create one quarantine and stay within the limit.
+- A proof that is not applied is reported once per story per `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+The check runs before the finishing run is counted, so when that run completes a proof, it passes.
+An error in the check is logged and never fails the run.
+
+`auto_quarantine_mode` on the repository decides what a proof does, and also covers [automatic release](#automatic-release):
+
+- `off`, the default: nothing is checked.
+- `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
+- `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
+
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
+### Automatic release
+
+Quarantines pile up, because a person has to come back and lift each one.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for long enough.
+
+When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
+The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+It ends at the finishing run, and newer runs stay out, because the lift records the finishing run's commit.
+With fewer default-branch runs than that, nothing lifts.
+A quarantine lifts when all of these hold:
+
+- It was created before the window started, so a quarantine somebody just opened is never lifted under them.
+- No stored trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- Every default-branch run of the window rendered the story, so with no blocking row it was `unchanged` in each of them. The finishing run rendered it against a baseline.
+
+Merge queue runs are stored for 7 days and the window is usually longer, so a merge queue failure older than that is no longer visible: the evidence is the default-branch history, with the recent merge queue runs on top.
+The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
+A second read counts the story's rows in the window's default-branch runs, by the same kind of list, on the unique run and identifier index.
+
+The run's branch name and commit come from the client, so before anything lifts, GitHub must confirm that the finishing run's commit is in the default branch's history.
+When it does not, or GitHub cannot say, nothing lifts and a warning is logged.
+
+The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in the last 500 default-branch runs, since 1a2b3c4".
+A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
+No Slack notice goes out.
+A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.
+
+The same `auto_quarantine_mode` decides what happens:
+
+- `off`: nothing is checked and no task is queued.
+- `preview`: each quarantine that would lift is logged and sent as a `vr_quarantine_clean` event, once per story per 24 hours, and nothing changes.
+- `on`: the quarantine lifts, and the log line and event record it.
 
 ## The flow
 
@@ -50,7 +231,7 @@ Backend completes the run
   - tolerated hash cache: skip diffing for known sub-threshold pairs
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
-  - two-tier diff (Celery): pixel diff → SSIM for tall-page dilution
+  - diff (Celery): row alignment absorbs small vertical shifts, then pixel diff → SSIM for tall-page dilution
   - post GitHub Check (pass/fail)
        │
        ▼
@@ -81,6 +262,7 @@ Setup job: `vr run create --type storybook`
 Each shard: `vr run upload --run-id <id> --dir ./screenshots`
   - hash PNGs, POST /runs/{id}/add-snapshots
   - upload missing artifacts to S3
+  - with --storybook-index: send the story-to-file map's hash, upload the map if missing
   (shards run in parallel, idempotent per identifier)
        │
        ▼
@@ -92,6 +274,90 @@ Final job: `vr run complete --run-id <id>`
 ```
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
+
+## Baselines in the database
+
+A repo keeps its approved baselines in one of two places, chosen by `Repo.baseline_mode`:
+
+| Mode     | What decides a run                  | What an approval does                                     |
+| -------- | ----------------------------------- | --------------------------------------------------------- |
+| `yaml`   | The baseline file in git            | Commits the updated file to the PR branch                 |
+| `shadow` | The baseline file in git            | Commits the file, and also records the approval in the DB |
+| `ledger` | The baseline ledger in the database | Records the approval. No commit                           |
+
+`yaml` is the default, and the rest of this README describes it.
+`shadow` exists to check the ledger against the file before a repo switches. It changes no run result, no finalize and no commit status: the ledger side only records and compares, and a failure there is logged.
+
+### The ledger
+
+The ledger is an append-only list of baseline changes per repo and run type.
+Each entry belongs to a position on the default branch: position 0 is the commit the ledger was seeded at, and every later first-parent commit gets the next number.
+The ledger at a position holds, per identifier, the newest entry at or below that position.
+An entry with an empty hash removes the identifier.
+
+Three tables hold it:
+
+- `BaselineCommit` maps a default-branch commit to its position.
+- `BaselineEntry` is one change of one identifier's baseline at a position.
+- `BaselineApproval` is one approved change of one identifier in one pull request. It outlives the run it was made on.
+
+### What a run compares against
+
+A run compares against the ledger at the merge-base of its commit and the default branch, with the approvals its commit contains laid over it.
+An approval is contained when the run belongs to the approval's pull request, when the run's commit includes the commit the approval was made or last reproduced on, or when it includes the newest run commit of the approval's pull request.
+So a pull request keeps its approvals across pushes, a stacked pull request sees its parent's approvals, and a merge-queue run sees the approvals of every pull request it tests.
+An approval that landed after the run's merge-base still counts, because the ledger at that merge-base does not hold its hash yet.
+That covers a merge-queue run whose earlier pull request merged while the run was in progress, and a stacked pull request that has not rebased since its parent merged.
+
+Per snapshot, the ledger's hash wins when the render matches it.
+The approved hash is used only when the render does not match the ledger.
+An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
+The snapshot then shows as changed against the new baseline and needs a new approval.
+Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
+
+Each run stores what it compared against in `metadata["baseline"]`: the mode it ran in, the merge-base, its position, the approvals it used, and any conflict.
+
+### How an approval reaches the default branch
+
+When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
+An approval lands only when both of these hold:
+
+- The ledger's hash for the identifier is still the one the reviewer compared against. If another pull request changed it first, the approval is `conflicted`.
+- The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
+
+A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.
+A pull request that merged with no merge-queue run lands its own approval only when one of its runs made or reproduced it at the merged commit. Otherwise the approval is `voided`: the pull request may no longer render that picture.
+
+The service learns of merges by reading the default branch's commits from GitHub.
+A push to the default branch starts that read at once, through the PostHog GitHub App's `push` webhook. Nothing from the push itself goes into the ledger.
+A task every five minutes reads it too, for a push that arrives late or not at all, and so does a `ledger`-mode run that needs a commit the ledger does not know yet.
+When GitHub still shows the merged pull request as open, its commit waits, and the push asks GitHub again three times within about a minute before the five-minute task takes over.
+Once an hour it also checks every open approval against its pull request: a merged one lands, a closed one is marked `abandoned`.
+
+### When the ledger and the default branch disagree
+
+A `voided` or `conflicted` approval, a direct push, or a revert can leave the default branch rendering a picture the ledger does not hold.
+Full runs then report that snapshot as changed, and the merge queue stops on it.
+Fix it the same way as a wrong baseline in `yaml` mode: open a pull request that renders the story, approve the snapshot, and merge.
+A revert pull request needs an approval for the pictures it restores.
+
+### Operating it
+
+`./manage.py visual_review_baseline_ledger <subcommand> --repo owner/name`
+
+- `seed` starts the ledger at the default branch head from the verified baseline files. `--commit` picks another commit by its full SHA, `--run-type` limits it to some run types (the others start empty), and `--replace` starts an existing ledger again.
+- `seed --from-ledger` starts a new position 0 at the default branch head from the ledger's current state. Use it after the default branch was rewritten, or when the ledger fell too far behind.
+- `mode` prints the mode. `mode --set shadow|ledger|yaml` switches it. `shadow` and `ledger` need a seeded ledger.
+- `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
+- `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
+- `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, and commits that still wait for GitHub to show their pull request as merged.
+
+### Limits
+
+- Baselines are kept apart per run type, as the baseline files are. The commit positions and the mode are per repo, so every run type of a repo switches mode together.
+- The ledger follows the default branch only. A pull request that targets another branch still compares at its merge-base with the default branch.
+- The second landing check needs a merge queue that renders every snapshot before the merge, as an observe run. A repo without one lands an approval only when a run of the pull request saw it at the merged commit.
+- A merge queue that tests pull requests in parallel lanes does not test the exact tree that lands. Two pull requests in different lanes can change the same story; the second approval is then `conflicted`.
 
 ## CLI
 
@@ -109,7 +375,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards. Default `--purpose review`; pass `--purpose observe` on master to make the run tracking-only (non-approvable, no PR comment).
 
-**`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
+**`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts. Pass `--storybook-index <index.json> --storybook-root <dir>` to send the Storybook build's story-to-file map, which the debt digest and the flakiness page use to find each snapshot's owning team. A map that cannot be read or sent is logged and does not fail the upload.
 
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
@@ -123,25 +389,85 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
+  A merge-queue run does not heal its baseline file. When the file lacks an entry the merge-base has for a story the run still renders, the merge would delete that baseline from master, so the run fails with the missing identifiers. Restore the entries from master's baseline file and queue the PR again. `vr run complete` exits 1 for a failed run. Only an observe run under `--tolerate-drift` warns and exits 0 instead, so the failure gates the queue but not a master push.
+
+### PR comments
+
+Enabled per repo with `enable_pr_comments`.
+A run that needs review posts its own comment, so GitHub notifies the reviewers and the prompt sits at the bottom of the PR with the new changes.
+GitHub sends nothing for an edit, so a run must not rewrite an earlier comment into a new prompt — a reviewer who already approved would never learn that more changes arrived.
+After the new prompt lands, the run clears the previous comment of its own run type: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
+This order keeps the existing prompt on the PR when the post fails.
+Each run type keeps its own live prompt, because each one has a separate gate and a separate approval.
+An approval updates the prompt of its own run in place, because the reviewer who approved needs no notification.
+A run that never got a prompt, because it found nothing to review or because the post failed, posts a new comment on approval instead.
 
 ## Current state
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
-**Tolerated hashes** — when the two-tier diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
+**Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
+When a snapshot already has 3 manual or agent tolerations, or 10 automatic ones, in the last 30 days, the Tolerate button offers a quarantine first, because another toleration covers only that one rendering.
+
+**Recompute** — re-reads the gate of a completed run after a quarantine or toleration, and re-runs the CI job that completed the run, so the required check reads the new verdict.
+`run complete` records that job's ID from `JOB_CHECK_RUN_ID`; set it on the step in the workflow.
+GitHub re-runs a job with every job that depends on it, so the completing job re-runs only the verdict and the gate after it, and captures nothing.
+Without it, the target stays the `run create` job, and a re-run captures every snapshot again.
+Finalize re-runs the same job when it has no baseline to commit, because no new CI run starts then.
+
+**Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
+Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
+A shift of one or two rows with nothing else changed is absorbed as noise, and the snapshot keeps the shift in `diff_metadata.row_shift` plus a diff image that shows the moved row, so the run leaves a trace instead of disappearing.
+A taller shift is `change_kind=layout`, which still needs review.
+The cap is measured against the committed baseline on every run, so absorbed shifts cannot accumulate into a page that quietly moved.
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
-A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
-This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
-The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A quarantine opened through MCP expires within `AGENT_QUARANTINE_MAX_DAYS`: an omitted or later expiry becomes that cap, because no agent comes back to lift it.
+A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
+This is how a quarantined story's entry keeps up with the story.
+The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
+It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+In `ledger` mode finalize records the approval instead, and the entry lands in the ledger when the PR merges.
+A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
+The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
-Keep the quarantine on after the merge.
-An entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
-So every open branch still renders the story with no entry for it, and lifting the quarantine turns those runs `new` and reds their gate.
-Lift it once the open branches that render the story carry the entry, which they do after they merge the default branch.
+Neither the gate nor the PR comment shows a quarantined story's diff.
+So the author of a change to a quarantined story has to look for it: list the run's snapshots with `include_quarantined=true`.
+A fix for the flake itself usually renders the story exactly as its entry, so the run has nothing to approve.
+To record the fix, request a lift on merge for each snapshot the fix should release: the "Lift quarantine when #N merges" button on the run scene, `POST /api/projects/{team_id}/visual_review/runs/{id}/lift_on_merge/` with the snapshot's `identifier`, or the `visual-review-runs-lift-on-merge-create` MCP tool.
+The request takes the identifier, not a snapshot UUID, because a listing with `exclude_unchanged` leaves the `unchanged` snapshot out.
+To find such a snapshot, the run scene of a PR run lists the quarantined stories that rendered clean, and `quarantined_only=true` on the run snapshots endpoint lists only quarantined snapshots, `unchanged` ones included.
+The request names one quarantine event, so a later quarantine of the same story is never lifted by an old request.
+It also names the picture the default branch must render.
+An `unchanged` snapshot names its entry.
+A `changed` or `new` snapshot must be approved by identifier first, and then names the approved picture, which finalize commits as the entry.
+Requesting a lift never approves a picture, and approving a picture never requests a lift.
+
+A request is `pending` until one of these happens:
+
+- **`applied`.** A completed, full default-branch run without a PR contains the merge commit and renders the story with a hash equal to both the requested picture and the entry. Then the quarantine event ends and records the commit of that run as its lift commit, the same as a manual lift. Other pending requests on that event become `superseded`.
+- **`cancelled`.** A reviewer withdraws it, the PR closes without merging, or the PR merges into another branch.
+- **`superseded`.** The quarantine ended some other way, or another request lifted it.
+
+The match is exact on purpose: a stale or missing entry never gets a lift, and the request waits for a later run.
+Each completed default-branch run enqueues the check only when the repo has a pending request for its run type, so the check costs nothing for most runs.
+`detail` on the request says what the latest check found, for example that the default branch rendered a different picture.
+The lift records the verifying run's commit and not the merge commit, because that run is where the entry was proven to hold the picture.
+
+To lift by hand instead, lift the quarantine after the merge.
+Check first that the default branch renders the story as its entry.
+When the latest default-branch run still lists the story as changed, the lift fails nearly every run, and so does the expiry date.
+A `broken` entry is the usual sign, but its state covers 7 days, so it can lag a fix.
+Re-baseline such a story with the procedure above before the quarantine ends.
+A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
+That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
+So an older branch keeps the quarantine until it merges the default branch, and the lift cannot red its gate.
+The scope lasts `LIFT_SCOPE_DAYS` from the lift, and after that the lift applies to every branch.
+A quarantine that expires on its own date records no commit, so its end applies to every branch at once.
 
 **Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.
@@ -150,6 +476,11 @@ The share is split in two, because the two cost different things: a `hard` run f
 Rows are read over 30 days but rated over 7.
 The rate has to lapse before the history does, so a quarantine over a snapshot that stopped failing last week becomes liftable while the activity strip still shows what it used to do.
 
+The Team facet narrows the list to the snapshots one team owns.
+Each Storybook entry carries `owner_team`, resolved the same way as the debt digest: the newest default-branch run's story index names the story file, and `owners.yaml` names the team that owns it.
+`unowned` means no entry covers the file, and a null owner means the file or its owner is unknown, so the row only appears when no team is selected.
+The digest's "Open flakiness overview" button links here with `#teams=<team slug>`.
+
 The states are an urgency ladder, and each rung asks for a different fix:
 
 | State      | Meaning                                                        | Fix                                         |
@@ -157,11 +488,11 @@ The states are an urgency ladder, and each rung asks for a different fix:
 | `broken`   | Fails nearly every run                                         | Correct the baseline; a quarantine hides it |
 | `unstable` | Fails some runs and not others                                 | Stabilize the story, or quarantine it       |
 | `at_risk`  | Never fails, but its worst absorbed diff is near the threshold | Fix it before it starts failing             |
-| `noisy`    | Renders variants, absorbed with room to spare                  | Nothing                                     |
-| `clean`    | Nothing failing or absorbed inside the rate span               | Nothing                                     |
+| `clean`    | Nothing failing or at risk inside the rate span                | Nothing                                     |
 
-The page groups `noisy` and `clean` under one "Quiet" tile, so every listed entry is reachable from some tile.
-A row can be listed for history the rate span no longer counts, and it would otherwise sit in the totals with no way to display it.
+A diff absorbed far below the threshold is `clean`, and on its own it does not list a row.
+Every variant is diffed against the baseline itself, so the thresholds bound the total drift, and the absorption is internal handling rather than instability.
+A `clean` row is listed only for a quarantine or for gate failures further back in the read window, and the page shows it under the "Quiet" tile so every listed entry is reachable from some tile.
 
 `at_risk` exists because always being absorbed is not a safety property.
 A snapshot passes only while it stays under both diff thresholds, so one absorbed at 0.01% will never cross and one absorbed just under the line is a hard failure waiting for the next unrelated restyle.
@@ -180,7 +511,5 @@ Variants recorded against a superseded baseline can never match again.
 
 **Not yet built:**
 
-- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
-- Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

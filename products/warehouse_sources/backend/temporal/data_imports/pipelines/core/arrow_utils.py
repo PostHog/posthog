@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import re
 import json
 import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
-from functools import _make_key, wraps
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
@@ -16,14 +16,18 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 from arro3.core.types import ArrowSchemaExportable
-from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    NamingConvention,
+    fold_column_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -58,17 +62,24 @@ type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], in
 
 
 class BillingLimitsWillBeReachedException(NonReportableError):
-    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    """The sync was intentionally halted because the account will cross its Sources billing
     limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
     and subclassing NonReportableError keeps it out of error tracking."""
+
+
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# import teardown that records why an incremental sync is blocked, so keep the wording in step with
+# them. The raised message continues past this prefix with the keys that were used.
+DUPLICATE_PRIMARY_KEYS_ERROR = "The primary keys for this table are not unique"
 
 
 class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
-# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), by the
+# v3 load consumer, and by the import teardown that records why an incremental sync is blocked, so
+# all three keep recognizing the condition. Keep the wording in step with them.
 MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
 
 
@@ -78,6 +89,26 @@ class MissingPrimaryKeysException(Exception):
 
     def __init__(self, message: str = MISSING_PRIMARY_KEYS_ERROR) -> None:
         super().__init__(message)
+
+
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), so the
+# schema is paused with guidance instead of retrying rows whose shape cannot change. Keep the
+# wording in step with that entry.
+NON_MAPPING_ROW_ERROR = "Rows from this table are not JSON objects"
+
+
+class NonMappingRowError(Exception):
+    """A batch carries a row that isn't a key/value object, so there are no column names to build a
+    table from.
+
+    Usually a REST resource whose selected response field holds arrays or scalars instead of
+    objects, for example a reporting endpoint that returns bare row arrays and its column names
+    separately. The same shape comes back on every retry until the source config selects objects.
+    The message carries only the row's type, because row contents can hold customer data.
+    """
+
+    def __init__(self, row_type: str) -> None:
+        super().__init__(f"{NON_MAPPING_ROW_ERROR} (a row arrived as {row_type})")
 
 
 class QueryTimeoutException(Exception):
@@ -140,9 +171,41 @@ def normalize_column_name(column_name: str) -> str:
     return NamingConvention.normalize_identifier(column_name)
 
 
+def _strip_arrow_extension_metadata(type_def: Any) -> Any:
+    if isinstance(type_def, dict):
+        kind = type_def.get("type")
+        if kind == "struct":
+            for field in type_def.get("fields", []):
+                field["metadata"] = {
+                    key: value
+                    for key, value in field.get("metadata", {}).items()
+                    if not key.startswith("ARROW:extension")
+                }
+                _strip_arrow_extension_metadata(field.get("type"))
+        elif kind == "array":
+            _strip_arrow_extension_metadata(type_def.get("elementType"))
+        elif kind == "map":
+            _strip_arrow_extension_metadata(type_def.get("keyType"))
+            _strip_arrow_extension_metadata(type_def.get("valueType"))
+    return type_def
+
+
 def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Schema:
-    # PyArrow's stubs don't model Arrow C Data Interface inputs here.
-    return pa.schema(cast(Any, schema))
+    try:
+        # PyArrow's stubs don't model Arrow C Data Interface inputs here.
+        return pa.schema(cast(Any, schema))
+    except pa.ArrowInvalid:
+        # delta-rs tags some columns (e.g. a Postgres uuid column) with a canonical Arrow
+        # extension type (ARROW:extension:name=arrow.uuid) but stores them with their plain
+        # Delta primitive type (binary) rather than the extension's required storage
+        # (fixed_size_binary(16)). PyArrow's extension registry then refuses to reconstruct
+        # them from the Arrow C Data Interface. We only need the physical storage type here,
+        # so drop the stale extension tag and reimport.
+        if not isinstance(schema, deltalake.Schema):
+            raise
+        raw_schema = json.loads(schema.to_json())
+        _strip_arrow_extension_metadata(raw_schema)
+        return pa.schema(cast(Any, deltalake.Schema.from_json(json.dumps(raw_schema))))
 
 
 def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
@@ -289,7 +352,7 @@ def evolve_pyarrow_schema(
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
-    merge_keys = {_fold_column_name_for_match(name) for name in merge_key_columns or []}
+    merge_keys = {fold_column_name(name) for name in merge_key_columns or []}
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -362,7 +425,7 @@ def evolve_pyarrow_schema(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
             elif (
-                _fold_column_name_for_match(delta_field.name) in merge_keys
+                fold_column_name(delta_field.name) in merge_keys
                 and (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type))
                 and (pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type))
             ):
@@ -442,15 +505,23 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     debug_info = f'{{"load_id": {load_id}}}'
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
+    # Source data can already carry `_ph_debug`, e.g. files written by an earlier PostHog sync.
+    if "_ph_debug" in table.column_names:
+        return table.set_column(table.schema.get_field_index("_ph_debug"), "_ph_debug", column)
     return table.append_column("_ph_debug", column)
+
+
+UNNAMED_COLUMN_NAME = "unnamed_column"
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
     for column_name in table.column_names:
-        normalized_column_name = normalize_column_name(column_name)
-        temp_name = normalized_column_name
+        # A JSON key or Parquet field can be empty, which the naming convention rejects. A fixed
+        # name, rather than one from the column's position, stays the same when key order changes
+        # between batches.
+        temp_name = normalize_column_name(column_name) if column_name.strip() else UNNAMED_COLUMN_NAME
 
         if temp_name != column_name:
             while temp_name in used_names or temp_name in table.column_names:
@@ -469,11 +540,14 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
 
 
-def _fold_column_name_for_match(name: str) -> str:
-    try:
-        return NamingConvention.normalize_identifier(name)
-    except ValueError:
-        return name
+def drop_internal_columns(table: pa.Table) -> pa.Table:
+    """Drop the columns the pipeline adds itself from a source batch.
+
+    A source can return them when it reads a table PostHog wrote, such as a Delta table in a bucket.
+    Kept, they would exist twice in the batch once the pipeline adds its own.
+    """
+    internal = [name for name in table.column_names if name in INTERNAL_COLUMN_NAMES]
+    return table.drop_columns(internal) if internal else table
 
 
 def apply_enabled_columns_projection(
@@ -500,18 +574,16 @@ def apply_enabled_columns_projection(
     if enabled_columns is None:
         return table, []
 
-    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    retained = {fold_column_name(name) for name in enabled_columns}
     for primary_key in primary_keys or []:
-        retained.add(_fold_column_name_for_match(primary_key))
+        retained.add(fold_column_name(primary_key))
     if incremental_field:
-        retained.add(_fold_column_name_for_match(incremental_field))
+        retained.add(fold_column_name(incremental_field))
     for partition_key in partition_keys or []:
-        retained.add(_fold_column_name_for_match(partition_key))
+        retained.add(fold_column_name(partition_key))
 
     kept_names = [
-        name
-        for name in table.column_names
-        if name in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(name) in retained
+        name for name in table.column_names if name in INTERNAL_COLUMN_NAMES or fold_column_name(name) in retained
     ]
     dropped_names = [name for name in table.column_names if name not in set(kept_names)]
     if not dropped_names:
@@ -563,10 +635,9 @@ def source_uses_delta_write_column_selection(source_type: str) -> bool:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
         SourceRegistry,  # noqa: PLC0415
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception:
         return False
     return not source.supports_column_selection and not source.has_managed_hogql_schema
@@ -728,9 +799,58 @@ def _convert_uuid_to_string(row: dict) -> dict:
     return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
 
+RANGE_TYPES = (Range, Multirange)
+
+# Postgres quotes a bound in its range text output when the bound is empty or holds a character
+# that range syntax itself uses.
+_RANGE_BOUND_NEEDS_QUOTES = re.compile(r'[\s",\\()\[\]]')
+
+
+def _format_range_bound(value: Any) -> str:
+    # An infinite bound is written as nothing at all, so "[5,)" is a range with no upper bound.
+    if value is None:
+        return ""
+
+    text = str(value)
+    if text == "" or _RANGE_BOUND_NEEDS_QUOTES.search(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    return text
+
+
+def _format_range(value: Range | Multirange) -> str:
+    """Render a psycopg range or multirange the way Postgres writes it as text.
+
+    pyarrow has no type for either object, so the column has to be stored as a string. The Postgres
+    text form ("[4,5)", "empty", "{[1,4),[7,9)}") is what the Postgres source's own range loader
+    already produces for the range types it covers, so every range column reads the same way in the
+    warehouse. `str()` on these objects gives a Python rendering instead, which writes an infinite
+    bound as "None" and cannot be read back as a range.
+    """
+    if isinstance(value, Multirange):
+        return "{" + ",".join(_format_range(item) for item in value) + "}"
+
+    if value.isempty:
+        return "empty"
+
+    lower_bracket = "[" if value.lower_inc else "("
+    upper_bracket = "]" if value.upper_inc else ")"
+
+    return f"{lower_bracket}{_format_range_bound(value.lower)},{_format_range_bound(value.upper)}{upper_bracket}"
+
+
+def _json_default(obj: Any) -> str:
+    if isinstance(obj, RANGE_TYPES):
+        return _format_range(obj)
+
+    # orjson reads a TypeError from `default` as "still not serializable", so the caller falls
+    # through to its own fallbacks.
+    raise TypeError
+
+
 def _json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj).decode()
+        return orjson.dumps(obj, default=_json_default).decode()
     except TypeError:
         try:
             return json.dumps(obj)
@@ -744,12 +864,15 @@ def table_from_iterator(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter)
+    processed_batch = _process_batch(
+        batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter, masked_columns=masked_columns
+    )
 
     return processed_batch
 
@@ -760,13 +883,18 @@ def table_from_py_list(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
     return table_from_iterator(
-        iter(table_data), schema=schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+        iter(table_data),
+        schema=schema,
+        primary_keys=primary_keys,
+        binary_reporter=binary_reporter,
+        masked_columns=masked_columns,
     )
 
 
@@ -1203,8 +1331,8 @@ def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
     """Stop the sync when a batch has nulls in a column the table declares non-nullable.
 
-    delta-rs cannot write a null into a non-nullable column, and deltalake 1.6.1 has no operation to
-    relax an existing column to nullable in place. So a source that starts emitting nulls in a
+    delta-rs cannot write a null into a non-nullable column, and this path does not relax an existing
+    column to nullable in place. So a source that starts emitting nulls in a
     column the table created non-nullable is a schema change under the table, and the only fix is to
     reset and fully re-sync it -- which recreates the column as nullable. Surfaced as
     SchemaColumnTypeChangedException, the same reset-and-re-sync signal the decimal-widening path
@@ -1269,6 +1397,11 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     if issubclass(type_, uuid.UUID):
         return pa.string()
 
+    # Range and multirange values are rendered as Postgres text later in `_process_batch`, for the
+    # same reason.
+    if issubclass(type_, RANGE_TYPES):
+        return pa.string()
+
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
@@ -1289,6 +1422,17 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
             raise
 
     return column_data.tolist()
+
+
+def _object_array(values: Sequence[object | None]) -> np.ndarray[Any, np.dtype[Any]]:
+    # Filled element by element rather than with `np.array(values, dtype=object)`: numpy reads a
+    # sequence-like value (a psycopg `Multirange`) as a nested dimension, so a column of equal
+    # length ones flattens into a 2-D array of the items and the values themselves are lost.
+    array = np.empty(len(values), dtype=object)
+    for index, value in enumerate(values):
+        array[index] = value
+
+    return array
 
 
 def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str]]:
@@ -1337,19 +1481,31 @@ def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str
 
 
 def _process_batch(
-    table_data: list[dict],
+    # Not `list[dict]`: a source can hand the pipeline rows that aren't objects, which the guard
+    # below rejects.
+    table_data: list[Any],
     schema: Optional[pa.Schema] = None,
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
+    # Every step below reads a row as a mapping, so without this check a keyless row fails deep in
+    # the conversion with a bare `'list' object has no attribute 'items'`, which names neither the
+    # cause nor a fix.
+    for row in table_data:
+        if not isinstance(row, Mapping):
+            raise NonMappingRowError(type(row).__name__)
+
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+    masked = {fold_column_name(column) for column in masked_columns or []}
 
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
-            # Gather all unique keys from all items, not just the first
-            all_keys = set().union(*(d.keys() for d in table_data))
+            # Gather all unique keys from all items, not just the first. Use a dict, not a set, so
+            # that the columns keep the order the source gave them.
+            all_keys = dict.fromkeys(key for d in table_data for key in d)
             first_item = table_data[0]
             first_item = {key: first_item.get(key, None) for key in all_keys}
             table_data[0] = first_item
@@ -1361,7 +1517,7 @@ def _process_batch(
 
     drop_column_names: set[str] = set()
 
-    column_names = set(table_data[0].keys())
+    column_names = list(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:
@@ -1378,7 +1534,7 @@ def _process_batch(
             columnar_table_data[col] = pa.array(values)
         except:
             # Some values can't be interpreted by pyarrows directly
-            columnar_table_data[col] = np.array(values, dtype=object)
+            columnar_table_data[col] = _object_array(values)
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
@@ -1558,11 +1714,15 @@ def _process_batch(
                     # not str" phrase so source non-retryable matching still fires, but name the
                     # column and show examples so the offending cells can be found in the source.
                     offenders = [x for x in all_values if isinstance(x, str)]
-                    sample = [(x if x != "" else "<blank>") for x in offenders[:5]]
+                    # A masked column's cells must not reach the sync error, which project members can read.
+                    if fold_column_name(str(field_name)) in masked:
+                        examples = ""
+                    else:
+                        examples = f" such as {[(x if x != '' else '<blank>') for x in offenders[:5]]}"
                     raise TypeError(
                         f"must be real number, not str: column '{field_name}' is imported as a "
-                        f"number but contains {len(offenders)} non-numeric value(s) such as "
-                        f"{sample}. Ensure every cell in this column is a plain number (or empty)."
+                        f"number but contains {len(offenders)} non-numeric value(s){examples}. "
+                        "Ensure every cell in this column is a plain number (or empty)."
                     ) from e
 
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
@@ -1711,6 +1871,18 @@ def _process_batch(
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
+        # Convert Postgres range and multirange values to their text form. The source declares such
+        # a column as a string, and pyarrow rejects the psycopg object with "Expected bytes, got a
+        # 'Range'/'Multirange' object" when it builds the column array.
+        if issubclass(py_type, RANGE_TYPES):
+            range_str_array = pa.array(
+                [None if s is None else _format_range(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
+            columnar_table_data[field_name] = range_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
         # Same keep-or-drop rule as the schema-typed binary branch above; this one catches
         # columns whose binary type is only visible from the Python values (e.g. inferred
         # schemas, or a declared type the values don't match).
@@ -1740,53 +1912,6 @@ def _process_batch(
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
-
-
-# from `conditional-cache`, but changed to be made async
-def conditional_lru_cache_async(
-    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
-):
-    cache = CircularDict(maxlen=maxsize)
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            key = _make_key(args, kwargs, typed)
-
-            if key in cache:
-                return cache[key]
-
-            result = await func(*args, **kwargs)
-
-            if condition(result):
-                cache[key] = result
-
-            return result
-
-        def cache_remove(*args, **kwargs):
-            key = _make_key(args, kwargs, typed)
-            cache.pop(key, None)
-
-        def cache_pop(*args, **kwargs) -> Any:
-            """Remove and return a cached value without ever invoking `func` — unlike calling
-            `wrapper` itself, a cache miss returns `None` instead of computing and storing a
-            fresh result. For callers that only want to release an already-cached resource.
-
-            Checks membership before popping: CircularDict.pop(key, None) treats a `None`
-            default as "no default" and raises KeyError on a miss instead of returning it.
-            """
-            key = _make_key(args, kwargs, typed)
-            if key not in cache:
-                return None
-            return cache.pop(key)
-
-        cast(Any, wrapper).cache_remove = cache_remove
-        cast(Any, wrapper).cache_clear = lambda: cache.clear()
-        cast(Any, wrapper).cache_pop = cache_pop
-
-        return wrapper
-
-    return decorator
 
 
 def realign_decimal_buffers(table: pa.Table) -> pa.Table:
@@ -1836,6 +1961,9 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
     the latest occurrence of a key carries the freshest data. Either way the merge
     receives at most one source row per key, avoiding ambiguous multi-match merge
     semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
+
+    When no PK tuple repeats, the input table itself is returned, so the caller does not hold a
+    second copy of it.
     """
     if not pk_columns or pa_table.num_rows == 0:
         return pa_table
@@ -1854,6 +1982,10 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
 
     # 2. Group by PK, keeping only one position per PK
     grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
+
+    # One group per row keeps every row in its place, and `take` would only copy the whole table.
+    if grouped.num_rows == pa_table.num_rows:
+        return pa_table
 
     # 3. Sort those positions ascending so the output mirrors the input row order
     kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())

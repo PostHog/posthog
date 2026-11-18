@@ -7,12 +7,14 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    AttentionPullRequestListApi,
     GitHubSourceApi,
     PullRequestListApi,
     RepoOverviewApi,
     WorkflowHealthItemApi,
     WorkflowRunActivityApi,
 } from '../generated/api.schemas'
+import { workflowHealthItem } from '../lib/storyFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
@@ -27,6 +29,10 @@ const OVERVIEW: RepoOverviewApi = {
     rerun_cycles_prev: 30,
     merged_pr_count: 56,
     merged_pr_count_prev: 49,
+    reverting_pr_count: 3,
+    reverting_pr_count_prev: 1,
+    revert_share: 3 / 56,
+    revert_share_prev: 1 / 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     median_ready_to_merge_seconds: 9 * 3600,
@@ -40,6 +46,8 @@ const OVERVIEW: RepoOverviewApi = {
     // A slice of billable_minutes above, not an addition to it.
     merge_queue_billable_minutes: 1180,
     merge_queue_billable_minutes_prev: 940,
+    depot_ci_billable_minutes: 2610,
+    depot_ci_billable_minutes_prev: 1730,
     merge_queue_merged_pr_count: 48,
     merge_queue_merged_pr_count_prev: 41,
     merge_queue_median_first_gate_to_merge_seconds: 32 * 60,
@@ -75,6 +83,15 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
     ready_to_merge_series: [],
     ready_to_merge_series_granularity: 'day',
+    revert_share_series: [],
+    revert_share_series_granularity: 'day',
+    delivery_pipeline: {
+        merged_pr_count: 52,
+        stages: [
+            { stage: 'open_to_gate', median_seconds: 16 * 3600 + 18 * 60, p90_seconds: 4 * 86400, pr_count: 39 },
+            { stage: 'gate_to_merge', median_seconds: 30 * 60 + 42, p90_seconds: 3 * 3600 + 8 * 60, pr_count: 39 },
+        ],
+    },
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {
@@ -91,31 +108,26 @@ const ACTIVITY: WorkflowRunActivityApi = {
     limit: 500,
 }
 
+const RUN_COUNT = 320
+
 function healthItem(
     workflowName: string,
     costUsd: number,
     failures: number[],
-    successRate: number
+    successRate: number,
+    mergeQueueRunCount: number = 0
 ): WorkflowHealthItemApi {
-    return {
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    return workflowHealthItem({
         workflow_name: workflowName,
-        run_count: 320,
-        successful_run_count: Math.round(320 * successRate),
-        conclusive_run_count: 320,
+        run_count: RUN_COUNT,
+        successful_run_count: Math.round(RUN_COUNT * successRate),
+        conclusive_run_count: RUN_COUNT,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
-        p50_seconds: 540,
-        p95_seconds: 1680,
         last_failure_at: failures.some((f) => f > 0) ? '2026-07-01T16:00:00Z' : null,
-        latest_run_failed: false,
-        latest_run_conclusion: 'success',
-        latest_run_id: 123456,
-        latest_run_attempt: 1,
-        granularity: 'day',
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
-        rerun_cycles: 6,
+        merge_queue_run_count: mergeQueueRunCount,
         buckets: failures.map((failed, i) => ({
             bucket_start: `2026-06-${25 + i}T00:00:00Z`,
             run_count: 44 + i,
@@ -123,13 +135,14 @@ function healthItem(
             successes: 40 + i - failed,
             failures: failed,
         })),
-    }
+    })
 }
 
+// Two workflows the merge queue runs, so the table shows both the gating order and the muted rest.
 const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
-    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91),
+    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91, 186),
     healthItem('E2E - Playwright', 130.2, [5, 3, 6, 2, 4, 5, 3], 0.78),
-    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
+    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95, 174),
 ]
 
 const PULL_REQUESTS: PullRequestListApi = {
@@ -137,7 +150,14 @@ const PULL_REQUESTS: PullRequestListApi = {
         {
             author: { handle: 'jane-dev', display_name: 'Jane Dev', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-            ci: { runs: 6, passing: 4, failing: 2, pending: 0, failing_workflows: ['Backend CI', 'E2E - Playwright'] },
+            ci: {
+                runs: 6,
+                passing: 4,
+                failing: 2,
+                pending: 0,
+                inconclusive: 0,
+                failing_workflows: ['Backend CI', 'E2E - Playwright'],
+            },
             push_history: [
                 {
                     head_sha: 'aaa111',
@@ -178,7 +198,7 @@ const PULL_REQUESTS: PullRequestListApi = {
         {
             author: { handle: 'sam-eng', display_name: 'Sam Eng', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-            ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+            ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
             push_history: [
                 {
                     head_sha: 'ddd444',
@@ -221,6 +241,12 @@ const PULL_REQUESTS: PullRequestListApi = {
     limit: 1000,
 }
 
+const ATTENTION_PULL_REQUESTS: AttentionPullRequestListApi = {
+    items: PULL_REQUESTS.items.filter((item) => item.state === 'open'),
+    total: 1,
+    limit: 15,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Repo Overview',
@@ -247,6 +273,7 @@ const meta: Meta = {
                     failing_ci: 4,
                 },
                 'api/projects/:team_id/engineering_analytics/pull_requests/': PULL_REQUESTS,
+                'api/projects/:team_id/engineering_analytics/attention_pull_requests/': ATTENTION_PULL_REQUESTS,
                 'api/projects/:team_id/engineering_analytics/workflow_health/': WORKFLOW_HEALTH,
             },
         }),
@@ -258,7 +285,7 @@ type Story = StoryObj<typeof meta>
 
 export const RepoOverview: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
 }
 
 // The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
@@ -274,11 +301,27 @@ const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
 
 export const RepoOverviewWithTrunkQueueData: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW_WITH_TRUNK,
+            },
+        }),
+    ],
+}
+
+// Two connected repositories: the title gains the button that switches between them.
+export const RepoOverviewWithSeveralRepositories: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/sources/': [
+                    ...SOURCES,
+                    { id: 'src-2', repo: 'PostHog/posthog-js', prefix: '' },
+                ],
             },
         }),
     ],

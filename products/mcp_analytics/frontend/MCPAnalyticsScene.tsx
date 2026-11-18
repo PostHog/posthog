@@ -1,34 +1,36 @@
 import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
-import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
-import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
-import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
+import { FirstDataSeen } from './FirstDataSeen'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
-import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
+import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyticsMissingCapabilities'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
+import { MCPSetupMode } from './setupMode/MCPSetupMode'
+import { SetupGuideButton } from './setupMode/SetupGuideButton'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -38,29 +40,30 @@ export const scene: SceneExport = {
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
-const MCP_ANALYTICS_FEEDBACK_SURVEY_ID = '01a04991-bc80-0000-70c5-beeea0553cd0'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
-        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
-            <MCPAnalyticsSceneContent />
-        </FeaturePreviewSceneGate>
+        <>
+            <FirstDataSeen />
+            <MCPAnalyticsSceneBody />
+        </>
     )
 }
 
-function MCPAnalyticsSceneContent(): JSX.Element {
+function MCPAnalyticsSceneBody(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
         return <NotFound object="page" />
     }
 
-    // landing is a one-shot redirect marker, while search is Sessions-only.
+    // landing is a one-shot redirect marker, while search belongs to Sessions and Missing capabilities.
     // The date range stays shared across every tab.
     const { landing: _landing, ...tabParams } = searchParams
     const { search: _search, ...sharedParams } = tabParams
@@ -75,7 +78,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const dashboardTab: LemonTab<MCPAnalyticsTab> = {
         key: 'dashboard',
         label: 'Dashboard',
-        content: <MCPAnalyticsDashboard />,
+        content: <MCPAnalyticsLeaderboardHome />,
         link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
         'data-attr': 'mcp-analytics-dashboard-tab',
     }
@@ -109,6 +112,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
               ]
             : []),
         {
+            key: 'missing-capabilities',
+            label: 'Missing capabilities',
+            content: <MCPAnalyticsMissingCapabilities />,
+            link: combineUrl(urls.mcpAnalyticsMissingCapabilities(), tabParams).url,
+            'data-attr': 'mcp-analytics-missing-capabilities-tab',
+        },
+        {
             key: 'notifications',
             label: (
                 <span className="flex items-center gap-1.5">
@@ -128,36 +138,28 @@ function MCPAnalyticsSceneContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <MCPSetupMode />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
-                    <>
-                        <FeedbackSurveyButton
-                            surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
-                            properties={{
-                                feedback_surface: 'mcp_analytics',
-                                mcp_analytics_tab: activeTab,
-                            }}
-                            data-attr="mcp-analytics-feedback-button"
-                        />
-                        {onboardingState === 'onboarded' && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                onClick={() => askPostHogAI(TAB_AI_PROMPTS[activeTab])}
-                                data-attr="mcp-analytics-ask-ai"
-                            >
-                                Ask PostHog AI
+                    todayRailNav ? (
+                        <>
+                            <SetupGuideButton quill />
+                            <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
+                                Documentation
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <SetupGuideButton quill={false} />
+                            <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
+                                Documentation
                             </LemonButton>
-                        )}
-                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
-                            Documentation
-                        </LemonButton>
-                    </>
+                        </>
+                    )
                 }
             />
 

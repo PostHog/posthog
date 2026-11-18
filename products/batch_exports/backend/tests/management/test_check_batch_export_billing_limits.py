@@ -29,7 +29,7 @@ def team(organization):
     return create_team(organization=organization)
 
 
-def _create_batch_export(team, destination_type="S3", paused=False, deleted=False):
+def _create_batch_export(team, destination_type="AwsS3", paused=False, deleted=False):
     destination = BatchExportDestination.objects.create(type=destination_type, config={})
     return BatchExport.objects.create(
         name=f"{destination_type}-export",
@@ -123,7 +123,7 @@ def test_fleet_audit_lists_only_limited_teams_with_active_billable_exports(organ
 
     assert [report["team_id"] for report in reports] == [team_billable.id]
     assert reports[0]["over_billing_limit"] is True
-    assert reports[0]["active_billable_exports"] == ["S3"]
+    assert reports[0]["active_billable_exports"] == ["AwsS3"]
 
 
 def test_organization_id_reports_all_teams(organization):

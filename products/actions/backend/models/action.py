@@ -1,5 +1,5 @@
-from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Union
 
 from django.db import models
 from django.db.models import QuerySet
@@ -14,40 +14,26 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
+
+from products.actions.backend.facade.contracts import ActionSaved, ActionStep
+from products.actions.backend.logic import saved_handlers
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-ActionStepMatching = Literal["contains", "regex", "exact"]
-ACTION_STEP_MATCHING_OPTIONS: tuple[ActionStepMatching, ...] = get_args(ActionStepMatching)
-
-
-@dataclass
-class ActionStepJSON:
-    tag_name: Optional[str] = None
-    text: Optional[str] = None
-    text_matching: Optional[ActionStepMatching] = None
-    href: Optional[str] = None
-    href_matching: Optional[ActionStepMatching] = None
-    selector: Optional[str] = None
-    url: Optional[str] = None
-    url_matching: Optional[ActionStepMatching] = "contains"
-    event: Optional[str] = None
-    properties: Optional[list[dict]] = None
-
-
-class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Action(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
-    events = models.ManyToManyField("posthog.Event", blank=True)  # type: models.ManyToManyField
+    events = models.ManyToManyField("posthog.Event", blank=True, related_name="+")  # type: models.ManyToManyField
     post_to_slack = models.BooleanField(default=False)
     slack_message_format = models.CharField(default="", max_length=1200, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -118,23 +104,23 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
         }
 
     @property
-    def steps(self) -> list[ActionStepJSON]:
-        return [ActionStepJSON(**step) for step in self.steps_json or []]
+    def steps(self) -> list[ActionStep]:
+        return [ActionStep(**step) for step in self.steps_json or []]
 
     @steps.setter
     def steps(self, value: list[dict]) -> None:
-        # TRICKY: This is a little tricky as DRF will deserialize this here as a dict but typing wise we would expect an ActionStepJSON
-        self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
+        # TRICKY: This is a little tricky as DRF will deserialize this here as a dict but typing wise we would expect an ActionStep
+        self.steps_json = [asdict(ActionStep(**step)) for step in value]
 
     def get_step_events(self) -> list[Union[str, None]]:
         return [action_step.event for action_step in self.steps]
 
     def refresh_bytecode(self) -> None:
         from posthog.hogql.compiler.bytecode import create_bytecode
-        from posthog.hogql.property import action_to_expr
+        from posthog.hogql.property import steps_to_expr
 
         try:
-            new_bytecode = create_bytecode(action_to_expr(self)).bytecode
+            new_bytecode = create_bytecode(steps_to_expr(self.steps, self.team)).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
@@ -149,6 +135,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
 @receiver(post_save, sender=Action)
 def action_saved(sender: type, instance: Action, created: bool, **kwargs: object) -> None:
     reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
+    saved_handlers.dispatch(ActionSaved(action_id=instance.id, team_id=instance.team_id, created=created))
 
 
 @mutable_receiver(post_delete, sender=Action)

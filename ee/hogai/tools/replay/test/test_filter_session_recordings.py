@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+import time_machine
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from parameterized import parameterized
 from posthog.schema import (
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
+    MaxRecordingEventFilter,
     MaxRecordingUniversalFilters,
     PropertyOperator,
     RecordingDurationFilter,
@@ -20,12 +22,17 @@ from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.replay.filter_session_recordings import (
+    FilterSessionRecordingsTool,
+    FilterSessionRecordingsToolArgs,
+    FilterSessionRecordingsWithEventNegationToolArgs,
+)
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
 
-@freeze_time("2025-01-15T12:00:00Z")
+@time_machine.travel("2025-01-15T12:00:00Z", tick=False)
 class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -105,9 +112,123 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("No recordings found", result_text)
         self.assertIsNone(artifact)
 
+    def _event_filters(
+        self, event: str, properties: list[dict] | None = None, negation: bool | None = None
+    ) -> MaxRecordingUniversalFilters:
+        return MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[MaxRecordingEventFilter(id=event, properties=properties, negation=negation)],
+                    ),
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+    @parameterized.expand(
+        [
+            ("unlinked", {}, None, True, "cannot match any recording", "Replay Vision scanner"),
+            ("linked", {"$session_id": str(uuid7())}, None, True, "the cause is elsewhere", None),
+            (
+                "linked, recording disabled",
+                {"$session_id": str(uuid7())},
+                None,
+                False,
+                "session replay is disabled",
+                None,
+            ),
+            (
+                "unlinked, property never sent",
+                {},
+                [{"key": "plan", "value": "enterprise", "operator": "exact", "type": "event"}],
+                True,
+                "no `paywall_shown` events matched this filter",
+                None,
+            ),
+        ]
+    )
+    async def test_diagnoses_why_an_event_search_found_no_recordings(
+        self,
+        _name: str,
+        properties: dict[str, str],
+        filter_properties: list[dict] | None,
+        recording_enabled: bool,
+        expected: str,
+        expected_offer: str | None,
+    ):
+        for _ in range(20):
+            _create_event(
+                team=self.team,
+                event="paywall_shown",
+                distinct_id="user_1",
+                timestamp=datetime(2025, 1, 15, 10, 0, 0),
+                properties=properties,
+            )
+        flush_persons_and_events()
+        self.team.session_recording_opt_in = recording_enabled
+
+        tool = await self._create_tool()
+
+        result_text, _ = await tool._arun_impl(
+            recordings_filters=self._event_filters("paywall_shown", filter_properties)
+        )
+
+        self.assertIn("No recordings found", result_text)
+        self.assertIn(expected, result_text)
+        if expected_offer:
+            self.assertIn(expected_offer, result_text)
+        else:
+            self.assertIn("Do not offer a Replay Vision scanner", result_text)
+
+    async def test_diagnoses_an_event_the_project_never_sent(self):
+        tool = await self._create_tool()
+
+        result_text, _ = await tool._arun_impl(recordings_filters=self._event_filters("paywall_shown"))
+
+        self.assertIn("no `paywall_shown` events matched this filter", result_text)
+        self.assertIn("Do not offer a Replay Vision scanner", result_text)
+
+    @parameterized.expand([("flag on", True), ("flag off", False)])
+    async def test_negated_event_filter_follows_the_replay_negative_event_filters_flag(
+        self, _name: str, flag_enabled: bool
+    ):
+        buyer_session = self._produce_replay(distinct_id="buyer")
+        self._produce_replay(distinct_id="browser")
+        _create_event(
+            team=self.team,
+            event="purchase_completed",
+            distinct_id="buyer",
+            timestamp=datetime(2025, 1, 15, 10, 1, 0),
+            properties={"$session_id": buyer_session},
+        )
+        flush_persons_and_events()
+
+        with patch(
+            "ee.hogai.tools.replay.filter_session_recordings.has_replay_negative_event_filters_feature_flag",
+            return_value=flag_enabled,
+        ):
+            tool = await self._create_tool()
+        self.assertIs(
+            tool.args_schema,
+            FilterSessionRecordingsWithEventNegationToolArgs if flag_enabled else FilterSessionRecordingsToolArgs,
+        )
+        filters = self._event_filters("purchase_completed", negation=True)
+
+        if flag_enabled:
+            result_text, _ = await tool._arun_impl(recordings_filters=filters)
+            self.assertIn("Found 1 recording", result_text)
+            self.assertIn("User: browser", result_text)
+        else:
+            with self.assertRaises(MaxToolRetryableError):
+                await tool._arun_impl(recordings_filters=filters)
+
     async def test_returns_single_recording_with_metadata(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
-        self._produce_replay(
+        session_id = self._produce_replay(
             distinct_id="user_1",
             first_timestamp=base_time,
             last_timestamp=base_time + timedelta(minutes=5),
@@ -124,6 +245,10 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
         self.assertIn("Found 1 recording", result_text)
+        # Follow-up tools such as a scan take this id, and the model sees only this text.
+        self.assertIn(f"session_id={session_id}", result_text)
+        # The SDK sets session and distinct ids, so the metadata has to sit inside the untrusted-data fence.
+        self.assertIn("<recordings>", result_text)
         self.assertIn("User: user_1", result_text)
         self.assertIn("https://example.com/page1", result_text)
         self.assertIn("10 clicks", result_text)

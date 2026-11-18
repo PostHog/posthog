@@ -2,7 +2,15 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+    kafka_engine,
+    kafka_num_consumers,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.models.event.sql import EVENTS_TABLE_BASE_SQL, EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS
 
 """Raw sessions table v3
 
@@ -16,7 +24,7 @@ table should always aggregate again on session_id (the HogQL session table will 
 don't need to consider this).
 
 Upgrades over v2:
-* Has a property map for storing lower-tier ad ids, making it easier to add new ad ids in the future
+* Stores lower-tier ad ids as a flat 'key=value' array, making it easier to add new ad ids in the future
 * Stores presence of ad ids separately from the value, so e.g. channel type calculations only need to read 1 bit instead of a gclid string up to 100 chars
 * Parses JSON only once per event rather than once per column per event, saving CPU usage
 * Removes a lot of deprecated fields that are no longer used
@@ -140,8 +148,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
     entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
 
-    -- for lower-tier ad ids, just put them in a map, and set of the ones present
-    entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+    -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+    -- state made merges much more expensive
     entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
 
     -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -149,21 +157,23 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
-    -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+    -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
     -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
     -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-    pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-    autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-    screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+    -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+    pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+    autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+    screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- As a performance optimisation, also keep track of the uniq events for all of these combined.
     -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
     page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
     has_autocapture SimpleAggregateFunction(max, Boolean),
 
-    -- Flags - store every seen value for each flag
-    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
-    flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+    -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+    -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
+    flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
 
     -- Event names - store unique event names seen in this session
     event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -198,7 +208,7 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
 
     -- Indexes
     INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])),
     INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
     INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = {engine}""",
@@ -237,9 +247,28 @@ def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
 
 # Re-exported from the Django-free posthog.raw_sessions_v3_ad_ids module so the HogQL schema can
 # use it without booting Django; kept importable here for existing callers.
-from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS  # noqa: E402
+from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS, session_ad_id_url_params  # noqa: E402
 
 new_line = "\n"
+
+
+def _ad_id_value_sql(ad_id: str) -> str:
+    # The SDKs only promote a fixed set of URL params to event properties, so fall back to
+    # parsing the event's URL — this is what lets a new ad id apply to backfilled history.
+    # The lookups read _attribution_url, which is empty outside $pageview/$screen, so the
+    # per-event string scans stay off the bulk of the ingestion hot path.
+    # Form decoding, not plain: a query string spells a space as '+', and the SDK decodes it that
+    # way before promoting the property, so plain decoding would split one campaign into two values.
+    # left() caps what a client can pad into the URL; observed click IDs stay under ~120 chars
+    # toValidUTF8 wraps the truncation because both inner steps can emit invalid UTF-8:
+    # decodeURLFormComponent turns '%FF' into a raw byte, and left() counts bytes so it can cut a
+    # multi-byte character in half. Stored bytes then break every reader that expects text.
+    url_lookups = ", ".join(
+        f"nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, '{param}')), 2048)), '')"
+        for param in session_ad_id_url_params(ad_id)
+    )
+    return f"coalesce(nullIf(tupleElement(p, '{ad_id}'), ''), {url_lookups}) as {ad_id}"
+
 
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
@@ -257,7 +286,7 @@ PROPERTIES = f"""
             `$geoip_country_code` Nullable(String),
             `$geoip_subdivision_1_code` Nullable(String),
             `$geoip_subdivision_1_name` Nullable(String),
-            `$geoip_subdivision_city_name` Nullable(String),
+            `$geoip_city_name` Nullable(String),
             `$geoip_time_zone` Nullable(String),
             `$referring_domain` Nullable(String),
             `utm_source` Nullable(String),
@@ -273,6 +302,7 @@ PROPERTIES = f"""
         )') as p,
         JSONExtractString(person_properties, 'email') as _person_email,
         tupleElement(p, '$current_url') as _current_url,
+        if(event = '$pageview' OR event = '$screen', left(coalesce(_current_url, ''), 16384), '') as _attribution_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
         tupleElement(p, '$browser') as _browser,
         tupleElement(p, '$browser_version') as _browser_version,
@@ -284,7 +314,7 @@ PROPERTIES = f"""
         tupleElement(p, '$geoip_country_code') as _geoip_country_code,
         tupleElement(p, '$geoip_subdivision_1_code') as _geoip_subdivision_1_code,
         tupleElement(p, '$geoip_subdivision_1_name') as _geoip_subdivision_1_name,
-        tupleElement(p, '$geoip_subdivision_city_name') as _geoip_subdivision_city_name,
+        tupleElement(p, '$geoip_city_name') as _geoip_subdivision_city_name,
         tupleElement(p, '$geoip_time_zone') as _geoip_time_zone,
         tupleElement(p, '$referring_domain') as _referring_domain,
         tupleElement(p, 'utm_source') as _utm_source,
@@ -295,20 +325,17 @@ PROPERTIES = f"""
         tupleElement(p, 'gclid') as _gclid,
         tupleElement(p, 'gad_source') as _gad_source,
         tupleElement(p, 'fbclid') as _fbclid,
-{f",{new_line}".join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
-        CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-{f",{new_line}".join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-        )) AS Map(String, String)) as ad_ids_map,
+{f",{new_line}".join([f"        {_ad_id_value_sql(ad_id)}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
         CAST(arrayFilter(x -> x IS NOT NULL, [
-{f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            if({ad_id} IS NOT NULL, concat('{ad_id}=', {ad_id}), NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set,
         tupleElement(p, '$host') as _host"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False, extra_ctes=""):
     return """
 WITH
-    {PROPERTIES},
+    {extra_ctes}{PROPERTIES},
     -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
@@ -358,29 +385,28 @@ SELECT
     initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) as entry_fbclid,
 
     -- has gclid/fbclid for reading fewer bytes when calculating channel type
-    initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
-    initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
+    -- clients send "gclid": "" and that is not a click id, so an empty value must not count as present
+    initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+    initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
 
     -- other ad ids
-    initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
     initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
 
     -- channel type
-    initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, _gclid IS NOT NULL, _fbclid IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
+    initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, nullIf(_gclid, '') IS NOT NULL, nullIf(_fbclid, '') IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
 
 
     -- counts
-    initializeAggregation('uniqExactState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    initializeAggregation('uniqExactState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
+    initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
     event = '$autocapture' as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
-    mapKeys(properties_group_feature_flags) as flag_keys,
+    arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
 
     -- event names
     [event] as event_names,
@@ -394,11 +420,17 @@ SELECT
     false as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+-- Clients can send a UUIDv7 session id with a garbage timestamp (1970, year 6339). Each one puts its session in its
+-- own monthly partition, and its events stretch the session duration across months. Keep only events within 31 days
+-- of the session id's timestamp. The bound is symmetric because the client mints the session id with its own clock
+-- while the server corrects event timestamps, so a client clock that runs days ahead is still a real session.
+AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) BETWEEN timestamp - INTERVAL 31 DAY AND timestamp + INTERVAL 31 DAY
 AND {where}
     """.format(
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        extra_ctes=extra_ctes,
         session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",
@@ -434,6 +466,90 @@ MODIFY QUERY
             where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
         ),
     )
+
+
+# WarpStream ingestion pipeline on the ingestion-events cluster: Kafka table -> MV -> writable.
+# The ws2 names stay clear of the earlier hand-managed pipeline's objects, which hold the
+# unsuffixed names outside repo control.
+
+KAFKA_RAW_SESSIONS_V3_TABLE = "kafka_raw_sessions_v3_events_json_ws2"
+RAW_SESSIONS_V3_EVENTS_WS_MV = "raw_sessions_v3_events_json_ws2_mv"
+
+# The Kafka stream carries raw event JSON, so the columns the select reads from sharded_events
+# as materialized columns are derived here instead. The flags map expression matches the
+# properties_group_feature_flags materializer in posthog/clickhouse/property_groups.py.
+KAFKA_SOURCE_COLUMN_CTES = """JSONExtractString(properties, '$session_id') AS `$session_id`,
+    toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)')) AS `$session_id_uuid`,
+    mapSort(mapFilter((key, _) -> key LIKE '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))) AS properties_group_feature_flags,
+    _timestamp AS inserted_at,
+    """
+
+
+def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100,
+             kafka_num_consumers = {num_consumers},
+             kafka_thread_per_consumer = 1,
+             kafka_poll_timeout_ms = 10000,
+             kafka_max_block_size = 100000
+"""
+    ).format(
+        num_consumers=kafka_num_consumers(1),
+        table_name=KAFKA_RAW_SESSIONS_V3_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def WRITABLE_RAW_SESSIONS_INGESTION_TABLE_SQL_V3():
+    # On the ingestion layer the writable points at the sessions satellite cluster, where the
+    # live raw_sessions_v3 MergeTree lives.
+    return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
+        table_name=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        engine=Distributed(
+            data_table=TABLE_BASE_NAME_V3,
+            sharding_key="cityHash64(session_id_v7)",
+            cluster=settings.CLICKHOUSE_SESSIONS_CLUSTER,
+        ),
+        session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
+    )
+
+
+def RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        mv_name=RAW_SESSIONS_V3_EVENTS_WS_MV,
+        database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.{KAFKA_RAW_SESSIONS_V3_TABLE}",
+            extra_ctes=KAFKA_SOURCE_COLUMN_CTES,
+        ),
+    )
+
+
+def DROP_RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_V3_EVENTS_WS_MV}"
+
+
+def DROP_KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {KAFKA_RAW_SESSIONS_V3_TABLE}"
 
 
 def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
@@ -494,24 +610,22 @@ SELECT
     initializeAggregation('argMinState', false, max_ts_64) as entry_has_fbclid,
 
     -- other ad ids
-    initializeAggregation('argMinState', CAST(map(), 'Map(String, String)'), max_ts_64) as entry_ad_ids_map,
     initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) as entry_ad_ids_set,
 
     -- channel type
     initializeAggregation('argMinState', tuple(null_s, null_s, null_s, null_s, false, false, null_s), max_ts_64) as entry_channel_type_properties,
 
     -- counts
-    initializeAggregation('uniqExactState', null_uuid) as pageview_uniq,
-    initializeAggregation('uniqExactState', null_uuid) as autocapture_uniq,
-    initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
+    initializeAggregation('uniqState', null_uuid) as pageview_uniq,
+    initializeAggregation('uniqState', null_uuid) as autocapture_uniq,
+    initializeAggregation('uniqState', null_uuid) as screen_uniq,
 
     -- perf
     initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
     false as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
-    CAST([], 'Array(String)') as flag_keys,
+    CAST([], 'Array(String)') as flag_key_values,
 
     -- event names
     CAST([], 'Array(String)') as event_names,
@@ -526,6 +640,9 @@ SELECT
     true as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+-- same session timestamp guard as the events SELECT. accurateCastOrNull because accurateCast throws on a malformed
+-- session_id, and ClickHouse can evaluate this condition before the uuidv7 check above filters those rows out
+AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) BETWEEN min_first_timestamp - INTERVAL 31 DAY AND min_first_timestamp + INTERVAL 31 DAY
 AND {where}
     """.format(
         source_table=source_table,
@@ -720,23 +837,21 @@ SELECT
     argMinMerge(entry_has_gclid) as entry_has_gclid,
     argMinMerge(entry_has_fbclid) as entry_has_fbclid,
 
-    argMinMerge(entry_ad_ids_map) as entry_ad_ids_map,
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
     argMinMerge(entry_channel_type_properties) as entry_channel_type_properties,
 
     -- counts
-    uniqExactMerge(pageview_uniq) as pageview_uniq,
-    uniqExactMerge(autocapture_uniq) as autocapture_uniq,
-    uniqExactMerge(screen_uniq) as screen_uniq,
+    uniqMerge(pageview_uniq) as pageview_uniq,
+    uniqMerge(autocapture_uniq) as autocapture_uniq,
+    uniqMerge(screen_uniq) as screen_uniq,
 
     -- perf
     uniqUpToMerge(1)(page_screen_uniq_up_to) as page_screen_uniq_up_to,
     max(has_autocapture) as has_autocapture,
 
     -- flags
-    groupUniqArrayMapMerge(flag_values) as flag_values,
-    groupUniqArrayArray(flag_keys) as flag_keys,
+    groupUniqArrayArray(10000)(flag_key_values) as flag_key_values,
 
     -- event names
     groupUniqArrayArray(2000)(event_names) as event_names,
@@ -753,49 +868,6 @@ FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
 
 
 def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(

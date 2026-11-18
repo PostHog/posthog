@@ -1,4 +1,4 @@
-import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
+import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelBarHorizontalCompareData,
@@ -7,6 +7,7 @@ import {
     type FunnelBarHorizontalStepData,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    mergeFunnelBarHorizontalRows,
     resolveFunnelBarHorizontalHover,
 } from './funnelBarHorizontalTransforms'
 
@@ -23,13 +24,11 @@ function makeStep({
     ...overrides
 }: StepOverrides): FunnelStepWithConversionMetrics {
     return {
-        action_id: 'action',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 0,
         name: 'Step',
         order: 0,
-        type: EntityTypes.EVENTS,
         converted_people_url: '',
         dropped_people_url: null,
         droppedOffFromPrevious: 0,
@@ -102,13 +101,17 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(first.series[1].visibility?.tooltip).toBe(false)
         })
 
-        it('colors the segment from the step and the filler from options.fillerColor', () => {
-            const getColor = jest.fn(() => '#abcabc')
-            const [first] = buildFunnelBarHorizontalData(noBreakdownSteps, { ...options, getColor })
+        it('keeps the segment color from the first step and the filler color across steps', () => {
+            const getColor = (series: FunnelStepWithConversionMetrics): string =>
+                series.count === noBreakdownSteps[0].count ? '#abcabc' : '#defdef'
+            const result = buildFunnelBarHorizontalData(noBreakdownSteps, { ...options, getColor })
 
-            expect(first.series[0].color).toBe('#abcabc')
-            expect(first.series[1].color).toBe(options.fillerColor)
-            expect(getColor).toHaveBeenCalledWith(noBreakdownSteps[0])
+            expect(result.map((step) => step.series[0].color)).toEqual(['#abcabc', '#abcabc', '#abcabc'])
+            expect(result.map((step) => step.series[1].color)).toEqual([
+                options.fillerColor,
+                options.fillerColor,
+                options.fillerColor,
+            ])
         })
     })
 
@@ -193,11 +196,14 @@ describe('buildFunnelBarHorizontalData', () => {
         const breakdownFilter = { breakdown: '$browser' }
 
         it('collapses to one segment + filler, sourced from the single visible variant', () => {
-            const result = buildFunnelBarHorizontalData(collapsedSteps, { ...options, breakdownFilter })
+            const getColor = (series: FunnelStepWithConversionMetrics): string =>
+                series.breakdown_value === 'mobile' && series.count === 100 ? '#abcabc' : '#defdef'
+            const result = buildFunnelBarHorizontalData(collapsedSteps, { ...options, breakdownFilter, getColor })
 
             expect(result.every((s) => s.series.length === 2)).toBe(true)
             expect(result[0].series[0].label).toBe('mobile')
             expect(dataAcross(result, 0)).toEqual([100, 50])
+            expect(result.map((step) => step.series[0].color)).toEqual(['#abcabc', '#abcabc'])
             expect(result[0].series[0].meta?.breakdownIndex).toBe(0)
             expect(dataAcross(result, 1)).toEqual([0, 50])
         })
@@ -329,6 +335,18 @@ describe('buildFunnelBarHorizontalData', () => {
             // chart treats the blank gap above it as inert (no hover, tooltip, pointer cursor, or click).
             expect(result.map((s) => s.bars[0].series[1].trackData)).toEqual([[100], [100]])
             expect(result.map((s) => s.bars[1].series[1].trackData)).toEqual([[80], [80]])
+
+            // A step that lost the current period shifts previous into slot 0, so the entry level has to
+            // come from the matching period rather than the slot.
+            const sparseSteps = [
+                compareSteps[0],
+                { ...compareSteps[1], nested_breakdown: [compareSteps[1].nested_breakdown![1]] },
+            ]
+            const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, options)
+
+            expect(sparseResult[1].bars[0].series[0].data[0]).toBe(40)
+            expect(sparseResult[1].bars[0].series[1].data[0]).toBe(40)
+            expect(sparseResult[1].bars[0].series[1].trackData).toEqual([80])
         })
 
         // At the first step every bar sits exactly at its own entry level, so drop-off is always 0 —
@@ -376,17 +394,22 @@ describe('buildFunnelBarHorizontalData', () => {
             })
         })
 
-        it('colors each bar from the current step’s own variant, dimming the previous period', () => {
-            const getColor = jest.fn((v: FunnelStepWithConversionMetrics) =>
-                v.compare_label === 'previous' ? '#dimmed' : '#solid'
-            )
+        it('keeps each period color from its first-step variant', () => {
+            const getColor = (series: FunnelStepWithConversionMetrics): string =>
+                `${series.compare_label}-${series.count}`
             const result = buildFunnelBarHorizontalCompareData(compareSteps, { ...options, getColor })
 
-            expect(result[1].bars[0].series[0].color).toBe('#solid')
-            expect(result[1].bars[1].series[0].color).toBe('#dimmed')
-            // representative is step 1's own variant (per-step color), not step 0's
-            expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![0])
-            expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![1])
+            expect(result.map((step) => step.bars.map((bar) => bar.series[0].color))).toEqual([
+                ['current-100', 'previous-80'],
+                ['current-100', 'previous-80'],
+            ])
+
+            const sparseSteps = [
+                compareSteps[0],
+                { ...compareSteps[1], nested_breakdown: [compareSteps[1].nested_breakdown![1]] },
+            ]
+            const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, { ...options, getColor })
+            expect(sparseResult[1].bars[0].series[0].color).toBe('previous-80')
         })
 
         it('tags both the segment and filler of each bar with its period breakdownIndex', () => {
@@ -502,20 +525,38 @@ describe('buildFunnelBarHorizontalData', () => {
                 expect(currentDropOff?.visibility?.tooltip).toBe(false)
             })
 
-            it('dims each breakdown value’s previous-period segment', () => {
-                const getColor = jest.fn((v: FunnelStepWithConversionMetrics) =>
-                    v.compare_label === 'previous' ? '#dimmed' : '#solid'
-                )
-                const [step0] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, { ...options, getColor })
+            it('keeps each breakdown-period color from its first-step variant', () => {
+                const getColor = (series: FunnelStepWithConversionMetrics): string =>
+                    `${series.breakdown_value}-${series.compare_label}-${series.count}`
+                const result = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, { ...options, getColor })
 
-                expect(step0.bars[0].series.filter((s) => !s.meta?.isDropOff).map((s) => s.color)).toEqual([
-                    '#solid',
-                    '#solid',
+                expect(
+                    result.map((step) =>
+                        step.bars.map((bar) =>
+                            bar.series.filter((series) => !series.meta?.isDropOff).map((series) => series.color)
+                        )
+                    )
+                ).toEqual([
+                    [
+                        ['mobile-current-60', 'desktop-current-40'],
+                        ['mobile-previous-45', 'desktop-previous-30'],
+                    ],
+                    [
+                        ['mobile-current-60', 'desktop-current-40'],
+                        ['mobile-previous-45', 'desktop-previous-30'],
+                    ],
                 ])
-                expect(step0.bars[1].series.filter((s) => !s.meta?.isDropOff).map((s) => s.color)).toEqual([
-                    '#dimmed',
-                    '#dimmed',
-                ])
+
+                const sparseSteps = [
+                    breakdownCompareSteps[0],
+                    {
+                        ...breakdownCompareSteps[1],
+                        nested_breakdown: breakdownCompareSteps[1].nested_breakdown!.slice(2),
+                    },
+                ]
+                const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, { ...options, getColor })
+                expect(sparseResult[1].bars[0].series[0].color).toBe('desktop-current-40')
+                expect(sparseResult[1].bars[1].series[0].color).toBe('desktop-previous-30')
             })
         })
     })
@@ -727,6 +768,48 @@ describe('buildFunnelBarHorizontalData', () => {
                 `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
                 FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
             ])
+        })
+    })
+
+    describe('mergeFunnelBarHorizontalRows', () => {
+        it('stacks each row in one chart, with the drop-off last and the row meta per bar', () => {
+            const segment = (breakdownIndex: number, value: number): FunnelBarHorizontalStepData['series'][number] => ({
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
+                label: `value ${breakdownIndex}`,
+                data: [value],
+                meta: { isDropOff: false, breakdownIndex },
+            })
+            const dropOff = (
+                value: number,
+                entry: number,
+                compareLabel: 'current' | 'previous'
+            ): FunnelBarHorizontalStepData['series'][number] => ({
+                key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+                label: 'Drop-off',
+                data: [value],
+                trackData: [entry],
+                meta: { isDropOff: true, breakdownIndex: null, compareLabel },
+            })
+            // The previous period's segment key first appears after the current period's drop-off.
+            const rows: FunnelBarHorizontalStepData[] = [
+                { label: '0', series: [segment(0, 60), dropOff(40, 100, 'current')] },
+                { label: '0', series: [segment(1, 50), dropOff(30, 80, 'previous')] },
+            ]
+
+            const merged = mergeFunnelBarHorizontalRows(rows)
+
+            expect(merged.map((s) => s.key)).toEqual([
+                `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
+                `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
+                FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+            ])
+            expect(merged.map((s) => s.data)).toEqual([
+                [60, 0],
+                [0, 50],
+                [40, 30],
+            ])
+            expect(merged[2].trackData).toEqual([100, 80])
+            expect(merged[2].bars?.map((bar) => bar.meta?.compareLabel)).toEqual(['current', 'previous'])
         })
     })
 })

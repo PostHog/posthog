@@ -28,29 +28,31 @@ export const GATEWAY_CONNECT_DEFAULTS: GatewayConnectCredentials = {
 
 type GatewayConnectServer = Pick<
   McpGatewayServer,
-  "template_id" | "template_auth_type"
+  "template_id" | "template_auth_type" | "auth_type"
 >;
 
 /**
- * The auth mechanism a connection must use: catalog templates fix it, custom
- * servers leave it null — every credential is personal, so each member picks
- * their own mechanism when they connect.
+ * The auth mechanism a connection must use: catalog templates fix it, and a
+ * custom server keeps the mechanism it was added with. Null only for custom
+ * servers registered before that was recorded; the member then picks one.
  */
 export function gatewayConnectAuthType(
   server: GatewayConnectServer,
 ): McpAuthType | null {
+  if (server.auth_type) return server.auth_type;
   return server.template_id ? (server.template_auth_type ?? "oauth") : null;
 }
 
 /**
- * OAuth connects need no input up front — the browser round-trip collects the
- * grant. Everything else (API-key templates, custom servers where the member
- * chooses) must collect credentials before installing.
+ * OAuth template connects need no input up front — the browser round-trip
+ * collects the grant. Everything else must collect credentials before
+ * installing: API-key servers ask for the member's own key, and custom OAuth
+ * servers offer the optional client id and secret.
  */
 export function gatewayConnectNeedsCredentials(
   server: GatewayConnectServer,
 ): boolean {
-  return gatewayConnectAuthType(server) !== "oauth";
+  return !server.template_id || gatewayConnectAuthType(server) !== "oauth";
 }
 
 /** Same decision for a catalog template with no gateway row yet. */

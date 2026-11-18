@@ -12,9 +12,13 @@ import { cn } from './lib/utils'
  * on the buttons. Use {@link getPaginationRange} to build a first/last + sibling
  * window with ellipses for large page counts.
  */
-function Pagination({ className, ...props }: React.ComponentProps<'nav'>): React.ReactElement {
+const Pagination = React.forwardRef<HTMLElement, React.ComponentProps<'nav'>>(function Pagination(
+    { className, ...props },
+    ref
+) {
     return (
         <nav
+            ref={ref}
             aria-label="Pagination"
             data-quill
             data-slot="pagination"
@@ -22,7 +26,7 @@ function Pagination({ className, ...props }: React.ComponentProps<'nav'>): React
             {...props}
         />
     )
-}
+})
 
 const PaginationContent = React.forwardRef<HTMLUListElement, React.ComponentProps<'ul'>>(function PaginationContent(
     { className, ...props },
@@ -103,9 +107,13 @@ const PaginationNext = React.forwardRef<HTMLButtonElement, Omit<PaginationButton
     }
 )
 
-function PaginationEllipsis({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const PaginationEllipsis = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function PaginationEllipsis(
+    { className, ...props },
+    ref
+) {
     return (
         <span
+            ref={ref}
             aria-hidden
             data-slot="pagination-ellipsis"
             className={cn('quill-pagination__ellipsis', className)}
@@ -115,7 +123,7 @@ function PaginationEllipsis({ className, ...props }: React.ComponentProps<'span'
             <span className="sr-only">More pages</span>
         </span>
     )
-}
+})
 
 type PaginationRangeItem = number | 'ellipsis'
 

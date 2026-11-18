@@ -38,20 +38,29 @@ export function runValidators(validators: Validator[], request: Request, url: UR
 }
 
 /**
- * Rejects a request that repeats any of the named query params.
- *
- * OAuth request parameters MUST NOT be included more than once (RFC 6749 §3.1).
+ * OAuth request parameters MUST NOT be included more than once (RFC 6749 §3.1). A handler that
+ * parses a form body checks that itself, because a `Validator` cannot read the body.
  */
+export function findDuplicateParam(params: URLSearchParams, names: readonly string[]): string | null {
+    for (const name of names) {
+        if (params.getAll(name).length > 1) {
+            return name
+        }
+    }
+    return null
+}
+
+export function duplicateParamError(param: string): ValidationError {
+    return {
+        error: 'invalid_request',
+        error_description: `Duplicate ${param} parameter is not allowed`,
+    }
+}
+
+/** Rejects a request that repeats any of the named query params. */
 export function noDuplicateParams(...params: string[]): Validator {
     return (_request, url) => {
-        for (const param of params) {
-            if (url.searchParams.getAll(param).length > 1) {
-                return {
-                    error: 'invalid_request',
-                    error_description: `Duplicate ${param} parameter is not allowed`,
-                }
-            }
-        }
-        return null
+        const duplicate = findDuplicateParam(url.searchParams, params)
+        return duplicate ? duplicateParamError(duplicate) : null
     }
 }

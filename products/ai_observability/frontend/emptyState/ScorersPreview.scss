@@ -1,0 +1,114 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ScorersPreview {
+    --scorers-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    &__radio {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+    }
+
+    &__table {
+        font-size: 0.6875rem;
+
+        th,
+        td {
+            padding: 0.5rem;
+            white-space: normal;
+        }
+    }
+
+    &__tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    &__tab {
+        padding: 0.375rem 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__swap {
+        display: grid;
+
+        > * {
+            grid-area: 1 / 1;
+            min-width: 0;
+        }
+    }
+
+    &__scores {
+        margin: 0;
+        font-size: 0.75rem;
+
+        > div {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+
+        dt,
+        dd {
+            margin: 0;
+        }
+    }
+}
+
+@each $workflow in (offline, review) {
+    .ScorersPreview__when-#{$workflow} {
+        @include preview-swap-hidden;
+    }
+
+    #scorers-preview-#{$workflow}:checked ~ * {
+        .ScorersPreview__when-#{$workflow} {
+            @include preview-swap-visible;
+        }
+
+        .ScorersPreview__tab--#{$workflow} {
+            background: color-mix(in oklab, var(--scorers-preview-accent) 8%, transparent);
+            border-color: var(--scorers-preview-accent);
+            animation: ScorersPreview__pulse 2s ease-in-out infinite;
+
+            @include preview-accent-text(var(--scorers-preview-accent));
+        }
+    }
+
+    #scorers-preview-#{$workflow}:focus-visible ~ * .ScorersPreview__tab--#{$workflow} {
+        outline: 2px solid var(--scorers-preview-accent);
+        outline-offset: 2px;
+    }
+}
+
+@keyframes ScorersPreview__pulse {
+    0%,
+    100% {
+        border-color: var(--scorers-preview-accent);
+    }
+
+    50% {
+        border-color: color-mix(in oklab, var(--scorers-preview-accent) 45%, transparent);
+    }
+}
+
+@include preview-motion-guards('ScorersPreview');
+
+@media (prefers-reduced-motion: reduce) {
+    .ScorersPreview__swap > * {
+        transition: none;
+    }
+}

@@ -21,7 +21,7 @@ import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, Timesta
 import { Clickhouse } from '../helpers/clickhouse'
 import { waitForExpect } from '../helpers/expectations'
 import { ensureKafkaTopics } from '../helpers/kafka'
-import { createUserTeamAndOrganization, uniqueTestId } from '../helpers/sql'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '../helpers/sql'
 
 jest.mock('~/common/utils/logger')
 
@@ -89,7 +89,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('postgres parity', () => {
-    jest.retryTimes(1) // Reduced from 5 to limit timeout amplification when kafka/clickhouse is degraded
+    jest.retryTimes(1, { logErrorsBeforeRetry: true }) // Reduced from 5 to limit timeout amplification when kafka/clickhouse is degraded
     let postgres: PostgresRouter
     let kafkaProducer: KafkaProducerWrapper
     let server: IngestionGeneralServer
@@ -569,7 +569,7 @@ describe('postgres parity', () => {
             (await clickhouse.fetchPersons(teamId)).length === 1 ? ['deleted!'] : []
         )
         const clickHousePersons = await clickhouse.fetchPersons(teamId)
-        const postgresPersons = await fetchPersons(postgres, teamId)
+        const postgresPersons = await fetchPostgresPersons(postgres, teamId)
 
         expect(clickHousePersons.length).toEqual(1)
         expect(postgresPersons.length).toEqual(1)

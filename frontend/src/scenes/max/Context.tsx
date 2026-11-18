@@ -377,7 +377,7 @@ export const ContextDisplay = React.memo(function ContextDisplay({
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
-    const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
+    const { handleTaxonomicFilterChange, openContextPicker } = useActions(maxContextLogic)
 
     if (!showContextUI) {
         return null
@@ -402,6 +402,7 @@ export const ContextDisplay = React.memo(function ContextDisplay({
                             groupType={mainTaxonomicGroupType}
                             groupTypes={taxonomicGroupTypes}
                             onChange={handleTaxonomicFilterChange}
+                            onOpen={openContextPicker}
                             icon={<IconAtSign className="text-secondary" />}
                             placeholder={!hasData && !hasToolContext ? 'Add context' : null}
                             placeholderClass="text-secondary"

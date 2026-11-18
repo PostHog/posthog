@@ -1,4 +1,4 @@
-.PHONY: build build-linux build-darwin build-all clean test run deps lint fmt help
+.PHONY: build build-linux build-darwin build-all clean test run deps tidy lint fmt help
 
 # Binary name
 BINARY_NAME=posthog-live
@@ -50,6 +50,9 @@ clean:
 # Install dependencies
 deps:
 	$(GOMOD) download
+
+# Add missing and remove unused module requirements
+tidy:
 	$(GOMOD) tidy
 
 # Run tests
@@ -77,6 +80,7 @@ help:
 	@echo "  make -f Makefile.tui run                  Build and run locally"
 	@echo "  make -f Makefile.tui clean                Remove build artifacts"
 	@echo "  make -f Makefile.tui deps                 Download Go dependencies"
+	@echo "  make -f Makefile.tui tidy                 Tidy Go module requirements"
 	@echo "  make -f Makefile.tui test                 Run Go tests"
 	@echo "  make -f Makefile.tui fmt                  Format Go code"
 	@echo "  make -f Makefile.tui lint                 Run golangci-lint"

@@ -1,7 +1,7 @@
 import './LemonCollapse.scss'
 
 import clsx from 'clsx'
-import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import React, { ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
@@ -28,7 +28,8 @@ interface LemonCollapsePropsBase<K extends React.Key> {
 }
 
 interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
-    activeKey?: K
+    /** Pass this to control the panel. `null` or `undefined` then means closed, not uncontrolled. */
+    activeKey?: K | null
     defaultActiveKey?: K
     onChange?: (activeKey: K | null) => void
     multiple?: false
@@ -76,7 +77,10 @@ export function LemonCollapse<K extends React.Key>({
     } else {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKey, setLocalActiveKey] = useState<K | null>(props.defaultActiveKey ?? null)
-        const effectiveActiveKey = props.activeKey ?? localActiveKey
+        // Read the presence of `activeKey` rather than its value. A caller that controls the panel
+        // has no other way to say "closed", so falling back on a nullish value would reopen the
+        // panel from whatever the user last clicked.
+        const effectiveActiveKey = 'activeKey' in props ? (props.activeKey ?? null) : localActiveKey
         isPanelExpanded = (key: K) => key === effectiveActiveKey
         onPanelChange = (key: K, isExpanded: boolean): void => {
             props.onChange?.(isExpanded ? key : null)
@@ -136,6 +140,7 @@ function LemonCollapsePanel({
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
     const bodyRef = useRef<HTMLDivElement>(null)
     const { rendered, shown } = useAnimatedPresence(isExpanded, 200, bodyRef)
+    const bodyId = useId()
 
     const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
         if (header && typeof header === 'object' && 'children' in header) {
@@ -162,6 +167,12 @@ function LemonCollapsePanel({
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                     size={size}
+                    // The header button is the only focusable control, so the panel state has to
+                    // reach a screen reader from here. The wrapper below carries the same state for
+                    // CSS, where a non-focusable element is all a stylesheet needs.
+                    aria-expanded={isExpanded}
+                    // A closed panel unmounts its body, so point at it only while it exists.
+                    aria-controls={rendered ? bodyId : undefined}
                 >
                     {headerChildren}
                 </LemonButton>
@@ -179,6 +190,7 @@ function LemonCollapsePanel({
             {rendered && (
                 <div
                     ref={bodyRef}
+                    id={bodyId}
                     className={clsx('LemonCollapsePanel__body', bodyClassName)}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: shown ? contentHeight : 0 }}

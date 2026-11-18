@@ -1,6 +1,6 @@
 import uuid
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import (
     dataclass,
     field as dataclass_field,
@@ -23,17 +23,25 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
+from posthog.hogql.database.schema.persons import REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
+from posthog.models.team.event_retention import events_retention_months_for_team
 
-from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_for_team,
+    get_restricted_property_names,
+)
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    retention_build_floor,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .adapters.factory import MarketingSourceFactory
 from .attribution_weights import (
@@ -42,15 +50,18 @@ from .attribution_weights import (
     build_position_based_weights,
     build_time_decay_weights,
 )
+from .constants import MAX_TOUCHPOINTS_PER_PERSON
 from .conversion_goal_conditions import (
     action_match_expr,
+    action_property_keys,
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
 )
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .marketing_lazy_precompute import marketing_ensure_precomputed
+from .marketing_lazy_precompute import events_latest_day_computed_at, marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
-from .utils import build_source_normalization_expr
+from .utils import build_source_normalization_expr, test_account_conditions
 
 # Freshness windows for the precompute read path. The Dagster warmer
 # (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
@@ -130,7 +141,7 @@ def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
 
     utm_campaign is optional — a source alone is enough. The precompute path
     (build_touchpoints_precompute_query) and the fallback path (_build_pageview_event_filter,
-    _build_utm_pageview_array) must all gate on this same rule, or the two disagree and one
+    _build_utm_pageview_arrays) must all gate on this same rule, or the two disagree and one
     window's touchpoints go missing.
     """
 
@@ -153,12 +164,19 @@ def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
     return ast.Or(exprs=[not_empty(source_field), *[not_empty(p) for p in CLICK_ID_PROPERTIES]])
 
 
-def build_touchpoints_precompute_query() -> ast.SelectQuery:
-    """Config-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
+def build_touchpoints_precompute_query(
+    team: Optional[Team] = None, filter_test_accounts: bool = False
+) -> ast.SelectQuery:
+    """Goal-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
     goal, attribution mode or window. Every attribution query reuses the same materialized rows
     (identical query hash → one shared lazy-computation job per team); attribution happens at read
     time. Columns are aliased to the marketing_touchpoints_preaggregated schema — the lazy framework
     prepends team_id/job_id and appends expires_at, and resolves the time_window placeholders per job.
+
+    Test-account filtering is the one thing that splits that shared job in two. It has to be baked in
+    rather than applied on read, because the framework keys the job on this query's AST, and the rows
+    it materializes would otherwise already have the internal traffic in them. A team that never turns
+    the toggle on keeps exactly one job, since the arguments then add nothing to the query.
     """
 
     def _prop_to_string(event_property: str) -> ast.Expr:
@@ -202,6 +220,7 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
                     right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
                 ),
                 build_pageview_touchpoint_condition("utm_source"),
+                *(test_account_conditions(team, filter_test_accounts) if team else []),
             ]
         ),
     )
@@ -219,9 +238,10 @@ class SharedTouchpointsPrecompute:
     the lock.
     """
 
-    def __init__(self, team: Team, config: MarketingAnalyticsConfig) -> None:
+    def __init__(self, team: Team, config: MarketingAnalyticsConfig, filter_test_accounts: bool = False) -> None:
         self._team = team
         self._config = config
+        self._filter_test_accounts = filter_test_accounts
         self._lock = threading.Lock()
         self._result: Optional[LazyComputationResult] = None
         self._range: Optional[tuple[datetime, datetime]] = None
@@ -233,7 +253,7 @@ class SharedTouchpointsPrecompute:
                 self._range = (date_from, date_to)
                 self._result = marketing_ensure_precomputed(
                     team=self._team,
-                    insert_query=build_touchpoints_precompute_query(),
+                    insert_query=build_touchpoints_precompute_query(self._team, self._filter_test_accounts),
                     time_range_start=date_from - window,
                     time_range_end=date_to,
                     ttl_seconds=PRECOMPUTE_TTL_SECONDS,
@@ -287,6 +307,16 @@ class ConversionGoalProcessor:
     # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
+    # Passed down by the runner, since a processor has no query of its own to read it from.
+    filter_test_accounts: bool = False
+    # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions), which bounds how
+    # old the goal's data can be. The runner takes the oldest across all goals for `dataComputedAt`.
+    precompute_computed_at: datetime | None = None
+    # True once this goal's read is served from precompute. A served goal with an unknown latest-day stamp
+    # (None) must still reach the runner, so it cannot rely on the stamp alone.
+    precompute_served: bool = False
+    precompute_latest_day_computed_at: datetime | None = None
+    include_session_ids: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -422,7 +452,7 @@ class ConversionGoalProcessor:
                 name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
             )
             # A row can be missing the currency property or carry an empty string; treat those as already
-            # in the base currency rather than letting convertCurrency null the whole amount out.
+            # in the base currency rather than letting convertCurrency convert the whole amount to 0.
             return ast.Call(
                 name="if",
                 args=[
@@ -516,24 +546,34 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
-        Reads the preagg table when eligible, falls back to events scan on any failure.
+        Serves precompute-only when the goal is precomputable: it reads the preagg tables, and reports
+        not-ready (rather than scanning events live) when the window has not been warmed. Only a
+        non-precomputable goal, or a rare precompute build error, reaches the live events scan.
         """
         if self._should_use_precompute(date_from, date_to):
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
                 precomputed = self._build_attribution_from_precomputes(date_from, date_to, touchpoints)
-                if precomputed is not None:
-                    return precomputed
             except Exception:
+                # A genuine build error is a rare safety valve — fall through to the live scan below rather
+                # than fail the dashboard. A not-warmed window is NOT an error; it returns None (handled
+                # in the else) so it can surface as not-ready instead of a live scan.
                 CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
                 logger.exception(
                     "conversion_goal_precompute_failed",
                     goal_id=self.goal.conversion_goal_id,
                     team_id=self.team.pk,
                 )
+            else:
+                if precomputed is not None:
+                    return precomputed
+                # Precompute-only: a precomputable goal with no warm window must not fall back to the live
+                # events scan (the expensive query this path exists to avoid). Report not-ready; the warmer
+                # materializes the window and the UI shows a "computing" state until it does.
+                raise MarketingPrecomputeNotReady(goal_id=self.goal.conversion_goal_id)
 
-        # Live events scan. Reaching here means the precompute did not serve this goal.
+        # Live events scan — reached only for non-precomputable goals, or after a precompute build error.
         with self.timings.measure("ma_goal_events_fallback"):
             array_collection = self.build_array_collection_query(additional_conditions)
             return self.build_attribution_pipeline(array_collection)
@@ -558,12 +598,31 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        if self._uses_revenue_analytics_property():
+            return False
         # The shared touchpoints precompute is config-agnostic: build_touchpoints_precompute_query()
         # always materializes the default UTM property names. A goal that remaps any tracked field via
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
         return True
+
+    def _uses_revenue_analytics_property(self) -> bool:
+        """The revenue virtual properties resolve only through the revenue analytics join, which the
+        precompute's plain events scan does not carry, so printing its INSERT fails with "Field not found".
+        Other `$virt_` properties map to columns on the events table and precompute fine.
+
+        A substring match, because a HogQL filter's key is a whole expression such as
+        `person.properties.$virt_mrr > 0`.
+        """
+        keys = [getattr(self.goal, "math_property", None)]
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None:
+            keys.append(currency.property)
+        keys.extend(getattr(prop, "key", None) for prop in self.goal.properties or [])
+        if self.goal.kind == "ActionsNode":
+            keys.extend(action_property_keys(self.goal, self.team))
+        return any(name in key for key in keys if key for name in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
         """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
@@ -577,7 +636,32 @@ class ConversionGoalProcessor:
         # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
+        if self._test_account_filters_restricted_for_user():
+            return False
+        if self._touchpoints_reach_retention_floor(date_from):
+            return False
         return True
+
+    def _touchpoints_reach_retention_floor(self, date_from: datetime) -> bool:
+        """The executor misses any range before the events-retention floor, so the precompute path would report not-ready forever."""
+        months = events_retention_months_for_team(self.team, self.team.pk)
+        if months is None:
+            return False
+        touchpoints_start = date_from - timedelta(days=self.config.attribution_window_days)
+        return touchpoints_start < retention_build_floor(months)
+
+    def _test_account_filters_restricted_for_user(self) -> bool:
+        """True when dropping test accounts inside the precompute could leak a property this user can't read.
+
+        The precompute evaluates the rules with no user attached, so they compare against real values
+        rather than masked ones, and toggling the filter would report how many rows match.
+
+        Coarse on purpose: it asks whether the user has any restriction, not which properties the rules
+        name, since reading those means walking arbitrary filter trees where a miss fails open.
+        """
+        if not self.filter_test_accounts or not self.team.test_account_filters:
+            return False
+        return bool(get_restricted_properties_for_team(team_id=self.team.pk, user=self.user))
 
     def _precompute_materialized_event_properties(self) -> set[str]:
         """Event property names the precompute path resolves into scalar columns of the preagg table."""
@@ -636,7 +720,6 @@ class ConversionGoalProcessor:
             ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
             ast.Alias(alias="conversion_timestamp", expr=ast.Field(chain=["events", "timestamp"])),
             ast.Alias(alias="conversion_math_value", expr=self._get_conversion_value_expr()),
-            # Stored for a future "show conversion session recordings" feature; the attribution read ignores it.
             ast.Alias(alias="session_id", expr=_prop_to_string("$session_id")),
         ]
         # Conversion-side UTM value per tracked field, aliased to the {field}_name table columns.
@@ -659,6 +742,10 @@ class ConversionGoalProcessor:
             ),
         ]
         where_exprs = add_conversion_goal_property_filters(where_exprs, self.goal, self.team)
+        # Baked into the precompute rather than applied when it is read. The lazy framework hashes this
+        # query's AST for the job key, so a filtered read gets its own materialization instead of
+        # reusing the unfiltered team's rows.
+        where_exprs.extend(test_account_conditions(self.team, self.filter_test_accounts))
 
         return ast.SelectQuery(
             select=select_columns,
@@ -686,7 +773,9 @@ class ConversionGoalProcessor:
         # Touchpoints are config-agnostic, so a multi-goal read shares one materialization. Without a
         # shared handle each goal materializes the same window itself, which is what a standalone
         # caller gets.
-        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(self.team, self.config)
+        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(
+            self.team, self.config, self.filter_test_accounts
+        )
         with self.timings.measure("ma_ensure_touchpoints"):
             touchpoints_result = shared_touchpoints.get(date_from, date_to)
         if not touchpoints_result.ready:
@@ -708,6 +797,16 @@ class ConversionGoalProcessor:
         # runner collects this once the goal pool has joined and schedules the revalidation.
         if touchpoints_result.stale or conversions_result.stale:
             self.precompute_stale = True
+
+        # Oldest materialization across the two precomputes bounds how old this goal's data can be; the
+        # runner takes the oldest across all goals for `dataComputedAt`.
+        stamps = [r.computed_at for r in (touchpoints_result, conversions_result) if r.computed_at is not None]
+        self.precompute_computed_at = min(stamps) if stamps else None
+        self.precompute_served = True
+        self.precompute_latest_day_computed_at = events_latest_day_computed_at(
+            touchpoints_result.served_windows + conversions_result.served_windows,
+            date_to.replace(hour=0, minute=0, second=0, microsecond=0),
+        )
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(
@@ -739,6 +838,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
             select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["c", "conversion_session_ids"]))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
@@ -821,7 +922,7 @@ class ConversionGoalProcessor:
         """Per-person conversion arrays read from the precomputed marketing_conversions table, matching
         the array shape _build_conversion_only_arrays produces from a live events scan. Each table row is
         already a single conversion (event filtered at INSERT time), so we just groupArray per person —
-        the same arrayFilter sentinels are kept so the result is row-for-row identical to the fallback.
+        the same positive / non-empty filters are applied so the result is row-for-row identical to the fallback.
 
         The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, conversion_timestamp);
         because job_id is part of the dedup key, the same physical conversion materialized under several
@@ -880,6 +981,13 @@ class ConversionGoalProcessor:
                 )
             )
 
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="conversion_session_ids",
+                    expr=parse_expr("groupArrayIf(session_id, toUnixTimestamp(conversion_timestamp) > 0)"),
+                )
+            )
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_conversions_preaggregated",
             job_ids=job_ids,
@@ -893,12 +1001,58 @@ class ConversionGoalProcessor:
             date_to=date_to,
             timestamp_column="conversion_timestamp",
         )
+        if self.include_session_ids:
+            deduped_rows.distinct = False
+            deduped_rows.group_by = list(deduped_rows.select)
+            deduped_rows.select.append(
+                ast.Alias(alias="session_id", expr=parse_expr("argMax(session_id, (computed_at, session_id))"))
+            )
 
         return ast.SelectQuery(
             select=select_columns,
             select_from=ast.JoinExpr(table=deduped_rows),
             group_by=[ast.Field(chain=["person_id"])],
         )
+
+    def _build_capped_touchpoint_arrays(
+        self,
+        timestamp: ast.Expr,
+        field_value: Callable[[TrackedField], ast.Expr],
+        tie_breaker: ast.Expr | None = None,
+        condition: ast.Expr | None = None,
+    ) -> list[ast.Expr]:
+        # Downstream reads every utm_* array positionally against utm_timestamps. Collecting whole
+        # (timestamp, *TRACKED_FIELDS) tuples keeps them aligned through the sort and the cap.
+        sort_key = [timestamp] if tie_breaker is None else [timestamp, tie_breaker]
+        touchpoint = ast.Tuple(exprs=[*sort_key, *(field_value(field) for field in TRACKED_FIELDS)])
+        collected = (
+            ast.Call(name="groupArray", args=[touchpoint])
+            if condition is None
+            else ast.Call(name="groupArrayIf", args=[touchpoint, condition])
+        )
+        capped = ast.Call(
+            name="arraySlice",
+            args=[
+                ast.Call(name="arraySort", args=[collected]),
+                ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
+            ],
+        )
+        field_indexes = range(len(sort_key) + 1, len(sort_key) + 1 + len(TRACKED_FIELDS))
+        columns: list[ast.Expr] = [ast.Alias(alias="utm_touchpoints", expr=capped)]
+        for index, alias in [(1, "utm_timestamps"), *zip(field_indexes, (f.utm_array for f in TRACKED_FIELDS))]:
+            columns.append(
+                ast.Alias(
+                    alias=alias,
+                    expr=ast.Call(
+                        name="arrayMap",
+                        args=[
+                            ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=index)),
+                            ast.Field(chain=["utm_touchpoints"]),
+                        ],
+                    ),
+                )
+            )
+        return columns
 
     def _build_touchpoint_arrays_from_table(
         self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
@@ -916,25 +1070,11 @@ class ConversionGoalProcessor:
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Alias(
-                alias="utm_timestamps",
-                expr=ast.Call(
-                    name="groupArray",
-                    args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])])],
-                ),
+            *self._build_capped_touchpoint_arrays(
+                timestamp=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])]),
+                field_value=lambda field: ast.Field(chain=[field.attributed_name]),
             ),
         ]
-        for field in TRACKED_FIELDS:
-            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
-            # positionally against it, and a stored row can legitimately carry an empty value for any
-            # field except campaign and source (which the precompute WHERE requires). Filtering the
-            # empties out here shifted every later element onto the wrong touchpoint.
-            select_columns.append(
-                ast.Alias(
-                    alias=field.utm_array,
-                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                )
-            )
 
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_touchpoints_preaggregated",
@@ -1025,17 +1165,14 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion arrays for each tracked field
+        if self.include_session_ids:
+            select_columns.append(self._build_conversion_session_ids_array(conversion_event))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
             )
 
-        # Add pageview UTM arrays (timestamps + each tracked field)
-        select_columns.append(self._build_utm_pageview_array("utm_timestamps", utm_source_field, "timestamp"))
-        for field in TRACKED_FIELDS:
-            select_columns.append(
-                self._build_utm_pageview_array(field.utm_array, utm_source_field, resolved[field.name])
-            )
+        select_columns.extend(self._build_utm_pageview_arrays(utm_source_field, resolved))
 
         # Build HAVING clause
         having_expr = ast.CompareOperation(
@@ -1094,8 +1231,12 @@ class ConversionGoalProcessor:
             # For general queries, apply date conditions to all events
             event_filter = self._build_general_event_filter(date_conditions)
 
-        # Combine all conditions
-        all_conditions = [event_filter, *non_event_conditions]
+        # Test accounts sit outside `event_filter`, which is an OR over the conversion and pageview arms.
+        all_conditions = [
+            event_filter,
+            *non_event_conditions,
+            *test_account_conditions(self.team, self.filter_test_accounts),
+        ]
         return ast.And(exprs=all_conditions) if len(all_conditions) > 1 else all_conditions[0]
 
     def _build_action_event_filter(
@@ -1202,39 +1343,48 @@ class ConversionGoalProcessor:
 
         return ast.And(exprs=conditions) if conditions else ast.Constant(value=True)
 
+    def _build_conversion_session_ids_array(self, conversion_event: Optional[str]) -> ast.Alias:
+        # Keep empty IDs so session IDs stay aligned with the conversion timestamps.
+        return ast.Alias(
+            alias="conversion_session_ids",
+            expr=parse_expr(
+                "groupArrayIf(toString(ifNull(events.properties.$session_id, '')), "
+                "{conversion} AND toUnixTimestamp(events.timestamp) > 0)",
+                {"conversion": self._build_conversion_event_condition(conversion_event)},
+            ),
+        )
+
+    def _build_conversion_values_array(
+        self,
+        alias: str,
+        conversion_event: Optional[str],
+        value: Callable[[], ast.Expr],
+        sentinel: ast.Constant,
+        keep: Callable[[ast.Expr], ast.Expr],
+    ) -> ast.Alias:
+        # groupArrayIf instead of filtering groupArray(...) afterwards: the per-person state then holds only
+        # conversions, not one sentinel per scanned pageview, which dominates memory for heavy people.
+        # The if() stays so the value is only evaluated on conversion rows.
+        def per_row() -> ast.Expr:
+            return ast.Call(
+                name="if", args=[self._build_conversion_event_condition(conversion_event), value(), sentinel]
+            )
+
+        return ast.Alias(alias=alias, expr=ast.Call(name="groupArrayIf", args=[per_row(), keep(per_row())]))
+
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array.
 
         Uses 0 as sentinel for non-conversion events. A Unix timestamp of 0
         (1970-01-01) is impossible for real events, so x > 0 safely filters them.
         """
-        return ast.Alias(
-            alias="conversion_timestamps",
-            expr=ast.Call(
-                name="arrayFilter",
-                args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["x"]),
-                            op=ast.CompareOperationOp.Gt,
-                            right=ast.Constant(value=0),
-                        ),
-                    ),
-                    ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
-                                    ast.Constant(value=0),
-                                ],
-                            )
-                        ],
-                    ),
-                ],
+        return self._build_conversion_values_array(
+            "conversion_timestamps",
+            conversion_event,
+            value=lambda: ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+            sentinel=ast.Constant(value=0),
+            keep=lambda timestamp: ast.CompareOperation(
+                left=timestamp, op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
             ),
         )
 
@@ -1248,33 +1398,13 @@ class ConversionGoalProcessor:
         change the result (SUM). Negative conversion values (e.g. refunds)
         are not currently supported — they would be dropped by the filter.
         """
-        return ast.Alias(
-            alias="conversion_math_values",
-            expr=ast.Call(
-                name="arrayFilter",
-                args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["x"]),
-                            op=ast.CompareOperationOp.Gt,
-                            right=ast.Constant(value=0),
-                        ),
-                    ),
-                    ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    self._get_conversion_value_expr(),
-                                    ast.Constant(value=0),
-                                ],
-                            )
-                        ],
-                    ),
-                ],
+        return self._build_conversion_values_array(
+            "conversion_math_values",
+            conversion_event,
+            value=self._get_conversion_value_expr,
+            sentinel=ast.Constant(value=0),
+            keep=lambda amount: ast.CompareOperation(
+                left=amount, op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
             ),
         )
 
@@ -1313,55 +1443,25 @@ class ConversionGoalProcessor:
 
     def _build_conversion_utm_array(self, alias: str, conversion_event: Optional[str], utm_field: str) -> ast.Alias:
         """Build array for conversion event UTM data"""
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Call(
-                name="arrayFilter",
+        return self._build_conversion_values_array(
+            alias,
+            conversion_event,
+            value=lambda: ast.Call(
+                name="toString",
                 args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[ast.Field(chain=["x"])])]),
-                    ),
                     ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    ast.Call(
-                                        name="toString",
-                                        args=[
-                                            ast.Call(
-                                                name="ifNull",
-                                                args=[
-                                                    ast.Field(chain=["events", "properties", utm_field]),
-                                                    ast.Constant(value=""),
-                                                ],
-                                            )
-                                        ],
-                                    ),
-                                    ast.Constant(value=""),
-                                ],
-                            )
-                        ],
-                    ),
+                        name="ifNull",
+                        args=[ast.Field(chain=["events", "properties", utm_field]), ast.Constant(value="")],
+                    )
                 ],
             ),
+            sentinel=ast.Constant(value=""),
+            keep=lambda utm: ast.Call(name="notEmpty", args=[utm]),
         )
 
-    def _build_utm_pageview_array(self, alias: str, utm_source_field: str, return_field: str) -> ast.Alias:
-        """Build array for UTM pageview data.
-
-        Every array this builds is read positionally against `utm_timestamps`
-        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
-        keep exactly one element per UTM pageview, in the same order. That means **every** array is
-        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
-        never by whether its own value happens to be set. `utm_source` or an ad click id is the
-        touchpoint qualifier; every other tracked field, `utm_campaign` included, is routinely empty
-        on a qualifying pageview, and dropping those positions used to shift every later element:
-        touchpoint i's timestamp paired with touchpoint j's value.
-        """
+    def _build_utm_pageview_arrays(self, utm_source_field: str, resolved: dict[str, str]) -> list[ast.Expr]:
+        # The row qualifies on `utm_source` or an ad click id. Every other tracked field, `utm_campaign`
+        # included, is routinely empty on a qualifying pageview and still keeps its slot in the tuple.
         pageview_with_utm = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -1372,78 +1472,24 @@ class ConversionGoalProcessor:
                 build_pageview_touchpoint_condition(utm_source_field),
             ]
         )
-        timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
-        qualified = ast.Lambda(
-            args=["_tp"],
-            expr=ast.CompareOperation(
-                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0),
-            ),
-        )
-
-        if return_field == "timestamp":
-            return ast.Alias(
-                alias=alias,
-                expr=ast.Call(
-                    name="arrayFilter",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.CompareOperation(
-                                left=ast.Field(chain=["x"]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ),
-                        ast.Call(name="groupArray", args=[qualified_timestamp]),
-                    ],
-                ),
-            )
-
-        value_expr = ast.Call(
-            name="toString",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=["events", "properties", return_field]),
-                        ast.Constant(value=""),
-                    ],
-                )
-            ],
-        )
-        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
-        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Call(
-                name="arrayMap",
+        return self._build_capped_touchpoint_arrays(
+            timestamp=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+            field_value=lambda field: ast.Call(
+                name="toString",
                 args=[
-                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
                     ast.Call(
-                        name="arrayFilter",
+                        name="ifNull",
                         args=[
-                            qualified,
-                            ast.Call(
-                                name="groupArray",
-                                args=[
-                                    ast.Tuple(
-                                        exprs=[
-                                            qualified_timestamp,
-                                            ast.Call(
-                                                name="if",
-                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
-                                            ),
-                                        ]
-                                    )
-                                ],
-                            ),
+                            ast.Field(chain=["events", "properties", resolved[field.name]]),
+                            ast.Constant(value=""),
                         ],
-                    ),
+                    )
                 ],
             ),
+            # Single-touch models credit the first touchpoint among equal timestamps. Ties sort by the same
+            # uuid hash the events table orders by, so the winner is deterministic instead of scan order.
+            tie_breaker=ast.Call(name="cityHash64", args=[ast.Field(chain=["events", "uuid"])]),
+            condition=pageview_with_utm,
         )
 
     def _build_single_touch_array_join_subquery(
@@ -1469,6 +1515,13 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value and fallback for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=parse_expr("conversion_session_ids[i]"),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1647,6 +1700,13 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=parse_expr("conversion_session_ids[i]"),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1762,6 +1822,8 @@ class ConversionGoalProcessor:
             ast.Field(chain=["person_id"]),
             ast.Field(chain=["conversion_math_value"]),
         ]
+        if self.include_session_ids:
+            touchpoint_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
@@ -1806,6 +1868,8 @@ class ConversionGoalProcessor:
         outer_select: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            outer_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             outer_select.append(
@@ -1846,6 +1910,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             select_columns.append(

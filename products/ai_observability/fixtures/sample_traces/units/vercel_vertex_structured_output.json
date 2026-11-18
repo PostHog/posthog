@@ -1,0 +1,72 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Structured hotel availability check",
+  "scenario": "A travel booking backend calls a Gemini model on Vertex AI through the Vercel AI SDK to check hotel availability for a Porto trip, and the model returns a structured JSON list of candidate hotels.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "google.vertex.chat"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gemini-2.5-flash-lite"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$geoip_disable": true,
+        "$ai_model_parameters": {},
+        "teamId": "aca2b51ca21bc59f90540a57",
+        "$ai_tokens_source": "sdk",
+        "$ai_output_tokens": 265,
+        "$ai_lib": "posthog-ai",
+        "$lib_version": "5.10.0",
+        "$ai_http_status": 200,
+        "requestId": "fdd5baf5-01dc-70c6-f972-ac87d5ee8853",
+        "$ai_input_tokens": 3011,
+        "$lib": "posthog-node",
+        "$ai_provider": "google.vertex.chat",
+        "$ai_lib_version": "7.9.4",
+        "$ai_framework_version": "5",
+        "$ai_framework": "vercel",
+        "$ai_trace_id": "aio:itinerary_availability_check:97b376f9-5fbb-7c31-6275-4da9906c6515:req-8841",
+        "$ai_base_url": "",
+        "$ai_latency": 2.437,
+        "feature": "itinerary_availability_check",
+        "$ai_model": "gemini-2.5-flash-lite",
+        "$ai_image_input_tokens": 1806,
+        "$ai_text_input_tokens": 1205,
+        "$ai_text_output_tokens": 265,
+        "$ai_input": [
+          {
+            "content": "Check hotel availability for my Porto trip",
+            "role": "posthog"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"outcome\": \"success\", \"confidence\": \"api\", \"candidateHotels\": [\"Porto Central\", \"Ribeira Lodge\", \"Douro Terrace\", \"Aveiro Suites\"], \"needsManualReview\": false, \"blockedIds\": [], \"finalOutcome\": \"success\", \"hotelOptions\": [{\"name\": \"Porto Central\", \"requiresDeposit\": false, \"expired\": false, \"sourceSystem\": \"api\"}, {\"name\": \"Ribeira Lodge\", \"requiresDeposit\": false, \"expired\": false, \"sourceSystem\": \"api\"}, {\"name\": \"Douro Terrace\", \"requiresDeposit\": false, \"expired\": false, \"sourceSystem\": \"api\"}, {\"name\": \"Aveiro Suites\", \"requiresDeposit\": false, \"expired\": false, \"sourceSystem\": \"api\"}]}",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

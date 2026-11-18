@@ -1,13 +1,13 @@
 import json
 import base64
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.urls import resolve
 
 import jwt as pyjwt
 from parameterized import parameterized
@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from posthog.auth import ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.test.authentication_checks import covers_authentication
 
 TEST_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.RECORDING_API,
@@ -59,7 +60,7 @@ def _unsigned_alg_none_token(claims: dict, audience: str = PosthogJwtAudience.RE
 
 
 @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET="new-key,old-key")
-class TestScopedServiceJwtPurpose(APIBaseTest):
+class TestScopedServiceJwtPurpose(SimpleTestCase):
     def test_mint_round_trips_claims_and_audience(self):
         token = TEST_PURPOSE.mint({"team_id": 123, "ticket_id": "abc"})
 
@@ -113,21 +114,25 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         super().setUp()
         self.factory = RequestFactory()
         self.authentication = TeamScopedAuthentication()
+        # A real second team, so a cross-team test fails on the team check and not on a missing row.
+        self.other_team = self.create_team_with_organization(self.organization)
 
-    def _request(self, token: str | None, url_team_id: int | str | None = None) -> Request:
+    def _request(self, token: str | None, url_team_id: int | str | None = None, endpoint: str = "query") -> Request:
+        path = f"/api/projects/{url_team_id}/{endpoint}/" if url_team_id is not None else "/internal/endpoint"
         if token is not None:
-            django_request = self.factory.get("/internal/endpoint", HTTP_AUTHORIZATION=f"Bearer {token}")
+            django_request = self.factory.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
         else:
-            django_request = self.factory.get("/internal/endpoint")
+            django_request = self.factory.get(path)
         if url_team_id is not None:
-            django_request.resolver_match = cast(Any, SimpleNamespace(kwargs={"team_id": str(url_team_id)}))
-        return Request(django_request)  # ty: ignore[invalid-return-type]
+            django_request.resolver_match = resolve(path)
+        return Request(django_request)
 
     def _authenticate(self, authentication: ScopedServiceJWTAuthentication, request: Request) -> tuple[Any, Any]:
         result = authentication.authenticate(request)
         assert result is not None
         return result
 
+    @covers_authentication(ScopedServiceJWTAuthentication)
     def test_valid_token_authenticates_as_the_token_team(self):
         token = TEST_PURPOSE.mint({"team_id": self.team.id})
 
@@ -138,10 +143,19 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         assert user.current_team_id == self.team.id
         assert user.current_organization_id == self.team.organization_id
 
-    def test_token_for_another_team_cannot_reach_the_url_team(self):
-        token = TEST_PURPOSE.mint({"team_id": self.team.id + 1})
+    @parameterized.expand(
+        [
+            # /query/ resolves to parent_lookup_team_id; /feature_flags/ resolves to
+            # parent_lookup_project_id. A lookup missing from either family lets a token
+            # minted for one team authenticate on that route for another team.
+            ("team_id_route", "query"),
+            ("project_id_route", "feature_flags"),
+        ]
+    )
+    def test_token_for_another_team_cannot_reach_the_url_team(self, _name, endpoint):
+        token = TEST_PURPOSE.mint({"team_id": self.other_team.id})
         with pytest.raises(AuthenticationFailed):
-            self.authentication.authenticate(self._request(token, url_team_id=self.team.id))
+            self.authentication.authenticate(self._request(token, url_team_id=self.team.id, endpoint=endpoint))
 
     @parameterized.expand(
         [
@@ -188,3 +202,9 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         user, _auth = self._authenticate(FleetScopedAuthentication(), self._request(token))
 
         assert user.current_team_id == self.team.id
+
+    def test_fleet_scoped_purpose_with_team_claim_rejects_another_url_team(self):
+        token = TEST_PURPOSE.mint({"team_id": self.team.id})
+
+        with pytest.raises(AuthenticationFailed):
+            FleetScopedAuthentication().authenticate(self._request(token, url_team_id=self.other_team.id))

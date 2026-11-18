@@ -40,6 +40,15 @@ MAX_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_COHORTS_PER_BATCH"
 # Per-pod CH parallelism = max_concurrent_activities × MAX_CONCURRENT_COHORTS_PER_BATCH.
 MAX_CONCURRENT_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_CONCURRENT_COHORTS_PER_BATCH", "5"))
 
+# How many batch activities one cycle runs at the same time. 0 means no limit: every
+# batch starts at once. Without a limit, ClickHouse concurrency is
+# pods x max_concurrent_activities x MAX_CONCURRENT_COHORTS_PER_BATCH, so it moves with
+# the pod count. With a limit it is at most
+# MAX_CONCURRENT_BATCHES x MAX_CONCURRENT_COHORTS_PER_BATCH for any pod count. Keep
+# pods x max_concurrent_activities >= this value, or batches wait for a worker slot
+# and the cycle runs slower than the limit allows.
+MAX_CONCURRENT_BATCHES = int(os.environ.get("LOGS_ALERTING_MAX_CONCURRENT_BATCHES", "0"))
+
 # How long the per-cohort flush barrier waits for the Kafka broker to ack
 # dispatched notifications before treating them as undelivered (state rolls
 # back and the next cycle retries). The flush drains the process-wide internal

@@ -153,6 +153,7 @@ export interface ReminderApi {
     /** @nullable */
     readonly last_fired_at: string | null
     readonly status: ReminderStatusEnumApi
+    deleted?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -229,6 +230,7 @@ export interface PatchedReminderApi {
     /** @nullable */
     readonly last_fired_at?: string | null
     readonly status?: ReminderStatusEnumApi
+    deleted?: boolean
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */

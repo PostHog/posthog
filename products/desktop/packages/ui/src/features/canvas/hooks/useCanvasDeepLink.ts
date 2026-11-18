@@ -1,6 +1,12 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -19,14 +25,13 @@ const log = logger.scope("canvas-deep-link");
  * Mirrors `useScoutDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
  * subscribes for links delivered while the app is already running. The live
- * subscription acts on every link unconditionally — gating it behind the
- * project-bluebird flag would drop a link that arrives before the flag resolves
- * (the main process emits rather than queues once a listener is attached, so a
- * discarded payload is unrecoverable). Navigation is safe regardless: the
- * Channels space is flag-gated at the route, which redirects out when off.
+ * subscription acts on every link unconditionally: the main process emits
+ * rather than queues once a listener is attached, so a discarded payload is
+ * unrecoverable.
  */
 export function useCanvasDeepLink() {
   const trpcReact = useHostTRPC();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -41,16 +46,25 @@ export function useCanvasDeepLink() {
     }),
   );
 
-  const openCanvas = useCallback((channelId: string, dashboardId: string) => {
-    log.info(
-      `Opening canvas from deep link: channelId=${channelId} dashboardId=${dashboardId}`,
-    );
-    track(ANALYTICS_EVENTS.DEEP_LINK_CANVAS, {
-      channel_id: channelId,
-      dashboard_id: dashboardId,
-    });
-    navigateToChannelDashboard(channelId, dashboardId);
-  }, []);
+  const openCanvas = useCallback(
+    (channelId: string, dashboardId: string) => {
+      log.info(
+        `Opening canvas from deep link: channelId=${channelId} dashboardId=${dashboardId}`,
+      );
+      track(ANALYTICS_EVENTS.DEEP_LINK_CANVAS, {
+        channel_id: channelId,
+        dashboard_id: dashboardId,
+      });
+      void focusOrOpenBrowserTab(tabsClient, {
+        href: `/spaces/${channelId}/dashboards/${dashboardId}`,
+        dashboardId,
+      }).then((handled) => {
+        if (handled) return;
+        navigateToChannelDashboard(channelId, dashboardId);
+      });
+    },
+    [tabsClient],
+  );
 
   useEffect(() => {
     const pending = pendingDeepLink.data;

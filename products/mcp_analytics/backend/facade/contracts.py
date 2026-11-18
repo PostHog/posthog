@@ -16,6 +16,14 @@ class IntentGenerationUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CustomHarnessRule:
+    """A team's own harness: calls whose client token contains `pattern` are labelled `name`."""
+
+    name: str
+    pattern: str
+
+
+@dataclass(frozen=True)
 class Submission:
     id: UUID
     kind: SubmissionKind
@@ -65,6 +73,7 @@ class CreateMissingCapabilitySubmission:
 class MCPSession:
     session_id: str
     tool_calls: int
+    error_calls: int
     session_start: datetime
     session_end: datetime
     distinct_id_count: int
@@ -91,6 +100,16 @@ class MCPToolCall:
     is_error: bool
     error_message: str
     duration_ms: int | None
+    parameters: str
+    response: str
+    error_type: str
+    error_status: str
+    exec_verb: str
+    exec_target_tool: str
+    input_keys: list[str]
+    error_code: str
+    error_field: str
+    llm_model: str
 
 
 @dataclass(frozen=True)
@@ -198,6 +217,25 @@ class ToolOverlap:
 
 
 @dataclass(frozen=True)
+class IntentClusterLongTail:
+    intent_count: int
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+    sample_intents: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RecurringIntentEntry:
+    intent_text: str
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+
+
+@dataclass(frozen=True)
 class IntentClusterSnapshotMeta:
     distance_threshold: float
     embedding_model: str
@@ -229,6 +267,9 @@ class IntentClusterSnapshot:
     computed_with: IntentClusterSnapshotMeta | None = None
     tools: list[ToolPivot] = field(default_factory=list)
     tool_overlaps: list[ToolOverlap] = field(default_factory=list)
+    long_tail: IntentClusterLongTail | None = None
+    recurring: list[RecurringIntentEntry] = field(default_factory=list)
+    intent_text_redacted: bool = False
 
 
 @dataclass(frozen=True)
@@ -280,6 +321,29 @@ class ActivityToolRow:
 class ActivityClientRow:
     client: str
     calls: int
+
+
+@dataclass(frozen=True)
+class MeasuredServerStatsRow:
+    """One server's aggregate over a window of new-SDK $mcp_tool_call events."""
+
+    server_name: str
+    calls: int
+    sessions: int
+    errors: int
+    calls_with_intent: int
+    distinct_tools: int
+    client_names: int
+
+
+@dataclass(frozen=True)
+class MeasuredToolStatsRow:
+    """One tool's aggregate for a server over the same window."""
+
+    tool_name: str
+    description: str
+    calls: int
+    errors: int
 
 
 @dataclass(frozen=True)

@@ -1,10 +1,24 @@
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { Counter } from 'prom-client'
+
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
-import { TeamManager } from '~/common/utils/team-manager'
+import { TeamManager, isValidTeamId } from '~/common/utils/team-manager'
+import { InternalPerson } from '~/types'
 
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
+
+const CALLER_TAG = 'cdp/hogflow-person-enrichment'
+
+// One failed leader read pauses the reads for every person, so a leader that stops answering costs one timeout.
+const LEADER_READ_COOLDOWN_MS = 10_000
+
+const consistentReadsCounter = new Counter({
+    name: 'cdp_person_consistent_reads_total',
+    help: 'Person lookups that needed properties from the personhog leader, by reason and outcome',
+    labelNames: ['reason', 'outcome'],
+})
 
 export type PersonGetArgs = {
     teamId: number
@@ -15,11 +29,18 @@ const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.id}`
 
 const fromKey = (key: string): PersonGetArgs => {
     const [teamId, ...idParts] = key.split(':')
-    return { teamId: parseInt(teamId), id: idParts.join(':') }
+    return { teamId: Number(teamId), id: idParts.join(':') }
 }
+
+const fromValidKeys = (keys: string[]): PersonGetArgs[] =>
+    keys.map(fromKey).filter(({ teamId }) => isValidTeamId(teamId))
 
 export type PersonManagerPerson = {
     id: string
+    // The bigint row id, where `id` is the uuid.
+    int_id: string
+    // Required properties that the leader did not have either, so each is asked for once per entry.
+    absent_on_leader?: Set<string>
     properties: Record<string, any>
     team_id: number
     // Populated by fetchPersonsByPersonIds when the person has at least one distinct_id
@@ -30,14 +51,38 @@ export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
     distinct_id: string
 }
 
+export type PersonLookupOptions = {
+    forceFresh?: boolean
+    requiredProperties?: string[]
+}
+
+function consistentReadReason(
+    person: PersonManagerPerson,
+    options: PersonLookupOptions | undefined
+): 'force_fresh' | 'stub' | 'missing_property' | undefined {
+    if (options?.forceFresh) {
+        return 'force_fresh'
+    }
+    if (Object.keys(person.properties).length === 0) {
+        return 'stub'
+    }
+    const missing = options?.requiredProperties?.some(
+        (key) => !(key in person.properties) && !person.absent_on_leader?.has(key)
+    )
+    return missing ? 'missing_property' : undefined
+}
+
 export class PersonsManagerService {
     private lazyLoaderByPersonId: LazyLoader<PersonManagerPerson>
     private lazyLoaderByDistinctId: LazyLoader<PersonManagerPersonWithDistinctId>
+    private leaderReadsInFlight = new Map<string, Promise<InternalPerson | null>>()
+    private leaderReadsPausedUntil = 0
 
     constructor(
         private teamManager: TeamManager,
         private personRepository: PersonReadRepository,
-        private siteUrl: string
+        private siteUrl: string,
+        private consistentPersonReader?: ConsistentPersonReader
     ) {
         this.lazyLoaderByPersonId = new LazyLoader({
             name: 'person_manager_lookup_by_person_id',
@@ -56,11 +101,15 @@ export class PersonsManagerService {
         this.lazyLoaderByDistinctId.clear()
     }
 
+    public get hasConsistentReads(): boolean {
+        return this.consistentPersonReader !== undefined
+    }
+
     public async getCyclotronPerson(
         teamId: number,
         id: string,
         kind: 'distinct_id' | 'person_id',
-        options?: { forceFresh?: boolean }
+        options?: PersonLookupOptions
     ): Promise<CyclotronPerson | null> {
         const key = toKey({ teamId, id })
 
@@ -82,6 +131,8 @@ export class PersonsManagerService {
             return null
         }
 
+        await this.refreshPropertiesFromLeader(dbPerson, options)
+
         return {
             id: dbPerson.id,
             properties: dbPerson.properties,
@@ -91,16 +142,72 @@ export class PersonsManagerService {
         }
     }
 
+    /** A new person is an empty stub on the replica until the writer applies its first properties. */
+    private async refreshPropertiesFromLeader(
+        person: PersonManagerPerson,
+        options: PersonLookupOptions | undefined
+    ): Promise<void> {
+        if (!this.consistentPersonReader) {
+            return
+        }
+        const reason = consistentReadReason(person, options)
+        if (!reason) {
+            return
+        }
+        if (Date.now() < this.leaderReadsPausedUntil) {
+            consistentReadsCounter.inc({ reason, outcome: 'skipped' })
+            return
+        }
+
+        try {
+            const consistent = await this.readFromLeader(this.consistentPersonReader, person)
+            consistentReadsCounter.inc({ reason, outcome: consistent ? 'found' : 'not_found' })
+            if (consistent) {
+                // `person` is the cached entry, so a later lookup does not go back to older properties.
+                person.properties = consistent.properties
+            }
+            for (const key of options?.requiredProperties ?? []) {
+                if (!(key in person.properties)) {
+                    ;(person.absent_on_leader ??= new Set()).add(key)
+                }
+            }
+        } catch (error) {
+            // A failed consistent read must not fail the lookup.
+            this.leaderReadsPausedUntil = Date.now() + LEADER_READ_COOLDOWN_MS
+            consistentReadsCounter.inc({ reason, outcome: 'error' })
+            logger.warn('[PersonManager]', 'Consistent person read failed, using the replica properties', {
+                teamId: person.team_id,
+                personId: person.id,
+                error: String(error),
+            })
+        }
+    }
+
+    private readFromLeader(
+        reader: ConsistentPersonReader,
+        person: PersonManagerPerson
+    ): Promise<InternalPerson | null> {
+        const key = `${person.team_id}:${person.int_id}`
+        let read = this.leaderReadsInFlight.get(key)
+        if (!read) {
+            read = reader
+                .fetchPersonById(person.team_id, person.int_id, CALLER_TAG)
+                .finally(() => this.leaderReadsInFlight.delete(key))
+            this.leaderReadsInFlight.set(key, read)
+        }
+        return read
+    }
+
     private async fetchPersonsByDistinctIds(
         ids: string[]
     ): Promise<Record<string, PersonManagerPersonWithDistinctId | undefined>> {
-        const teamPersons = ids.map(fromKey)
+        const teamPersons = fromValidKeys(ids)
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
-            'cdp/hogflow-person-enrichment'
+            CALLER_TAG
         )
 
         // Map results back to the original keys
@@ -111,6 +218,7 @@ export class PersonsManagerService {
 
             result[key] = {
                 id: row.uuid,
+                int_id: row.id,
                 properties: row.properties,
                 team_id: row.team_id,
                 distinct_id: row.distinct_id,
@@ -121,13 +229,13 @@ export class PersonsManagerService {
     }
 
     private async fetchPersonsByPersonIds(ids: string[]): Promise<Record<string, PersonManagerPerson | undefined>> {
-        const teamPersons = ids.map(fromKey)
+        const teamPersons = fromValidKeys(ids)
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
-            'cdp/hogflow-person-enrichment'
+            CALLER_TAG
         )
 
         // Fetch one distinct_id per person so callers that need to identify the user
@@ -146,7 +254,7 @@ export class PersonsManagerService {
                     teamId,
                     intIds,
                     { limitPerPerson: 1 },
-                    'cdp/hogflow-person-enrichment'
+                    CALLER_TAG
                 )
                 return { teamId, map }
             })
@@ -169,6 +277,7 @@ export class PersonsManagerService {
 
             result[key] = {
                 id: row.uuid,
+                int_id: row.id,
                 properties: row.properties,
                 team_id: row.team_id,
                 distinct_id: distinctIdByTeamAndIntId.get(`${row.team_id}:${row.id}`),

@@ -1,0 +1,62 @@
+{
+    "RB1": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims the evidence bundle omits task-linkage fields; nearest clusters 24 (no trace carve-out fired) and 5 (prompt trusts flag unverified) assert different defects."
+    },
+    "RB2": {
+        "cluster": 12,
+        "confidence": "medium",
+        "reason": "Same code region and behavior as cluster 12 (reviewer-resolution chain paid redundantly per push at receivers.py:144-156), though RB2 attributes it to public/private wrapper duplication; runner-up cluster 11."
+    },
+    "RB3": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster mentions urgency_threshold or a model-TextChoices vs serializer-ChoiceField naming collision; new to the registry."
+    },
+    "RB4": {
+        "cluster": 16,
+        "confidence": "high",
+        "reason": "Identical to cluster 16: the deferred facade import sits outside the dispatch helper's try/except, so an import failure escapes the on_commit stamphog leg."
+    },
+    "RB5": {
+        "cluster": 27,
+        "confidence": "high",
+        "reason": "Identical to cluster 27: fail-soft stamphog_connected=False is indistinguishable from genuinely disconnected, producing misleading disabled-state UI copy; the log-noise aside overlaps runner-up cluster 51."
+    },
+    "RB6": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims the README's 'through facade/inbox_hooks.py' attribution points at the registering module instead of the checking code in tasks.py."
+    },
+    "RB7": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "AGENTS.md wording clusters exist (37, 49, 71, 72) but none claims the 'two linkage-verified trigger paths' bullet lacks anchors to the two stamp sites."
+    },
+    "RB8": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Identical to cluster 3: review_local.py:321 reads self_driving_review with truthy bool() coercion instead of a strict is-True / validated-shape check."
+    },
+    "RB9": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims the carve-out rationale comment is duplicated across review_pr.py, review_local.py, and reviewer.py and will drift; new to the registry."
+    },
+    "RB10": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims handle_task_run_saved logs an expected missing-task condition as ERROR; clusters 40 and 51 concern exception handling in different functions."
+    },
+    "RB11": {
+        "cluster": 38,
+        "confidence": "high",
+        "reason": "Identical to cluster 38: redundant stamphog_pr_url local alias before the on_commit lambda in receivers.py."
+    },
+    "RB12": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims Pipeline is constructed with a hardcoded PR number 0 offline; cluster 67 (empty provenance in review_local) is a different defect."
+    }
+}

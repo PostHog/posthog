@@ -1,3 +1,4 @@
+import { strToU8, zipSync } from 'fflate'
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,12 +13,16 @@ vi.mock('@/hono/metrics', () => ({
 }))
 
 import { ContextMillResourceCache, type ContextMillResourceCacheOptions } from '@/hono/cache/ContextMillResourceCache'
+import { OmnibusSkillsCache } from '@/hono/cache/OmnibusSkillsCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import type { ContextMillArchiveContents } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { SkillCatalog } from '@/skills/skill-catalog'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+import { makeSharedBlobRedisStubs } from './helpers/shared-blob-redis-stubs'
 
-type EntryLoader = () => Promise<ContextMillResource[]>
+type EntryLoader = () => Promise<ContextMillResource[] | ContextMillArchiveContents>
 
 class TestContextMillResourceCache extends ContextMillResourceCache {
     constructor(
@@ -32,8 +37,9 @@ class TestContextMillResourceCache extends ContextMillResourceCache {
         this.loader = loader
     }
 
-    protected override loadEntries(): Promise<ContextMillResource[]> {
-        return this.loader()
+    protected override async loadArchiveContents(): Promise<ContextMillArchiveContents> {
+        const loaded = await this.loader()
+        return Array.isArray(loaded) ? { entries: loaded, omnibusSkillsArchive: null } : loaded
     }
 }
 
@@ -67,14 +73,14 @@ function createMockRedis(): MockRedis {
         }),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...makeRedisRateLimitStubs(),
+        ...makeSharedBlobRedisStubs(store),
         _store: store,
         _setCalls: setCalls,
     }
 }
 
-const MANIFEST_BYTES_KEY = 'mcp:shared-blob:context-mill:manifest:bytes'
-const MANIFEST_FRESH_KEY = 'mcp:shared-blob:context-mill:manifest:fresh'
-const MANIFEST_LOCK_KEY = 'mcp:shared-blob:context-mill:manifest:lock'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:current'
+const MANIFEST_LOCK_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:lock'
 
 function bodyKey(uri: string): string {
     const hash = createHash('sha256').update(uri).digest('hex')
@@ -117,8 +123,8 @@ describe('ContextMillResourceCache', () => {
         expect(slim.entries.map((e) => e.uri).sort()).toEqual(entries.map((e) => e.uri).sort())
         expect(slim.entries[0]).not.toHaveProperty('text')
 
-        // Body keys must land before the manifest bytes key in Redis writes.
-        const manifestIdx = redis._setCalls.indexOf(MANIFEST_BYTES_KEY)
+        // Body keys must land before readers can discover the manifest.
+        const manifestIdx = redis._setCalls.indexOf(MANIFEST_CURRENT_KEY)
         expect(manifestIdx).toBeGreaterThan(-1)
         for (const e of entries) {
             const bodyIdx = redis._setCalls.indexOf(bodyKey(e.uri))
@@ -127,6 +133,40 @@ describe('ContextMillResourceCache', () => {
         }
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'cold_miss' })
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'lock_acquired' })
+    })
+
+    it('publishes the omnibus skills with the manifest and keeps the last copy when a release does not parse', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            const omnibus = new OmnibusSkillsCache(redis)
+            const skillArchive = (name: string): Uint8Array =>
+                zipSync({
+                    [`${name}/SKILL.md`]: strToU8(`---\nname: ${name}\ndescription: Add ${name}.\n---\n\n# ${name}`),
+                })
+            const cache = new TestContextMillResourceCache(
+                redis,
+                async () => ({ entries: [makeEntry('a')], omnibusSkillsArchive: skillArchive('instrument-logs') }),
+                { omnibusSkills: omnibus }
+            )
+
+            await cache.loadOrRefresh()
+            const published = await omnibus.readIfChanged(undefined)
+            expect(SkillCatalog.fromZip(published!.bytes).listNames()).toEqual(['instrument-logs'])
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'omnibus_published' })
+
+            await cache.invalidate()
+            cache.setLoader(async () => ({
+                entries: [makeEntry('b')],
+                omnibusSkillsArchive: zipSync({ 'broken/notes.md': strToU8('no entry point') }),
+            }))
+            const { manifest } = await cache.loadOrRefresh()
+
+            expect(manifest.entries.map((entry) => entry.uri)).toEqual(['posthog://skill/b'])
+            expect(await omnibus.readIfChanged(published!.sha)).toBeNull()
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'omnibus_error' })
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 
     it('serves manifest from cache on warm hit without calling upstream', async () => {
@@ -319,6 +359,36 @@ describe('ContextMillResourceCache', () => {
         }
     })
 
+    it('degrades to background_error when the lock acquire fails, without an unhandled rejection', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const unhandled = vi.fn()
+        process.on('unhandledRejection', unhandled)
+        try {
+            const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')], {
+                freshSeconds: 0,
+                waitIntervalMs: 5,
+                waitTimeoutMs: 100,
+            })
+            await cache.loadOrRefresh()
+            cache.setLoader(async () => [makeEntry('b')])
+            redis.set = vi.fn(async () => {
+                throw new Error('Command timed out')
+            })
+
+            const stale = await cache.loadOrRefresh()
+            expect(stale.result).toBe('stale_hit')
+
+            await new Promise((r) => setTimeout(r, 30))
+
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'background_error' })
+            expect(redis._store.has(MANIFEST_LOCK_KEY)).toBe(false)
+            expect(unhandled).not.toHaveBeenCalled()
+        } finally {
+            process.off('unhandledRejection', unhandled)
+            consoleError.mockRestore()
+        }
+    })
+
     it('falls back to a direct load when the writer never publishes', async () => {
         redis._store.set(MANIFEST_LOCK_KEY, 'someone-else')
         const entries = [makeEntry('fallback')]
@@ -330,7 +400,7 @@ describe('ContextMillResourceCache', () => {
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
         expect(result).toBe('fallback')
         expect(upstream).toHaveBeenCalledTimes(1)
-        expect(redis._store.has(MANIFEST_BYTES_KEY)).toBe(false)
+        expect(redis._store.has(MANIFEST_CURRENT_KEY)).toBe(false)
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'wait_timeout' })
     })
 
@@ -338,6 +408,6 @@ describe('ContextMillResourceCache', () => {
         const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')])
         await cache.loadOrRefresh()
         expect(redis._store.has(MANIFEST_LOCK_KEY)).toBe(false)
-        expect(redis._store.has(MANIFEST_FRESH_KEY)).toBe(true)
+        expect(redis._store.has(MANIFEST_CURRENT_KEY)).toBe(true)
     })
 })

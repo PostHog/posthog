@@ -37,17 +37,15 @@ import {
     LemonLabel,
     LemonMenu,
     LemonSelect,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -70,20 +68,30 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
+import {
+    CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP,
+    EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON,
+    MATCHING_ESTIMATE_TOOLTIP,
+} from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
+    BlastRadiusError,
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
+    isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
@@ -162,7 +170,7 @@ function summarizeProperties(
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
-            value = property.cohort_name || `ID ${property.value}`
+            value = cohortFilterName(property)
         } else if (Array.isArray(property.value)) {
             const displayValues = property.value.map(resolveValue)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
@@ -344,7 +352,7 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
-    blastRadiusErrors: Record<string, boolean>
+    blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     calculateBlastRadiusForCondition: (
         sortKey: string,
         properties: AnyPropertyFilter[] | undefined,
@@ -465,7 +473,7 @@ const ConditionContent = ({
     isDragDropEnabled: boolean
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeCohortFlagTargeting = useRealtimeCohortsServing()
     const { aggregationLabel } = useValues(groupsModel)
 
     // Combined ref callback
@@ -512,6 +520,7 @@ const ConditionContent = ({
         releaseFilters.aggregation_group_type_index
     )
     const resolvedSingularTargetName = aggregationLabel(resolvedGroupTypeIndex, true).singular
+    const blastRadiusError = group.sort_key ? blastRadiusErrors[group.sort_key] : undefined
 
     return (
         <div
@@ -637,6 +646,7 @@ const ConditionContent = ({
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
                                             propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
+                                            logicalRowDividerTooltip={CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP}
                                             addText="Add filter"
                                             onChange={(properties) => {
                                                 updateConditionSet(index, undefined, properties)
@@ -646,8 +656,14 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            sendAllKeyUpdates
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                            showCohortFlagTargeting
+                                        />
+                                        <CohortFlagTargetingNotice
+                                            properties={group.properties ?? []}
+                                            className="mt-2"
                                         />
                                     </div>
 
@@ -686,27 +702,32 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                        {blastRadiusError ? (
                                             <div
                                                 role="status"
-                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                                className="text-xs text-muted mt-2 flex items-start gap-2 min-h-[calc(3lh_+_0.25rem)]"
                                             >
-                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
-                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    onClick={() =>
-                                                        group.sort_key &&
-                                                        calculateBlastRadiusForCondition(
-                                                            group.sort_key,
-                                                            group.properties,
-                                                            resolvedGroupTypeIndex
-                                                        )
-                                                    }
-                                                >
-                                                    Retry
-                                                </LemonButton>
+                                                <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusError}
+                                                    pluralName={resolvedTargetName}
+                                                />
+                                                {isBlastRadiusErrorRetryable(blastRadiusError) && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            group.sort_key &&
+                                                            calculateBlastRadiusForCondition(
+                                                                group.sort_key,
+                                                                group.properties,
+                                                                resolvedGroupTypeIndex
+                                                            )
+                                                        }
+                                                    >
+                                                        Retry
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                         ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
@@ -771,9 +792,8 @@ const ConditionContent = ({
                                                 })()}
                                             </div>
                                         ) : (
-                                            <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                                <Spinner className="text-sm" /> Calculating affected{' '}
-                                                {resolvedTargetName}…
+                                            <div className="text-xs text-muted mt-2">
+                                                <BlastRadiusSkeleton targetName={resolvedTargetName} />
                                             </div>
                                         )}
                                     </div>

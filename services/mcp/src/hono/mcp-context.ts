@@ -4,7 +4,13 @@ import type { McpMode } from '@/lib/utils'
 
 export interface MCPClientContext extends Pick<
     RequestProperties,
-    'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'
+    | 'mcpClientName'
+    | 'mcpClientVersion'
+    | 'mcpProtocolVersion'
+    | 'mcpConsumer'
+    | 'mcpVendorClient'
+    | 'mcpElicitationUrlSupported'
+    | 'mcpUiSupported'
 > {}
 
 export interface MCPRequestContext
@@ -23,6 +29,9 @@ export interface MCPRequestContext
             | 'mcpSessionId'
             | 'mcpConversationId'
             | 'region'
+            | 'features'
+            | 'tools'
+            | 'excludeTools'
         > {
     mode?: McpMode | undefined
     authMethod: McpAuthMethod
@@ -44,15 +53,30 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpClientName: props.mcpClientName,
         mcpClientVersion: props.mcpClientVersion,
         mcpProtocolVersion: props.mcpProtocolVersion,
+        mcpElicitationUrlSupported: props.mcpElicitationUrlSupported,
+        mcpUiSupported: props.mcpUiSupported,
         transport: props.transport,
         mcpSessionId: props.mcpSessionId,
         mcpConversationId: props.mcpConversationId,
         mcpConsumer: props.mcpConsumer,
         mode: props.mode,
         region: props.region,
+        features: props.features,
+        tools: props.tools,
+        excludeTools: props.excludeTools,
         mcpVendorClient: props.mcpVendorClient,
         authMethod: classifyAuthMethod(props.apiToken),
     }
+}
+
+/**
+ * The id a request carries to group its events by, most specific first. MCP 2026-07-28
+ * removed `initialize` and the `Mcp-Session-Id` header, so for those clients only the
+ * agent's handle is ever present. `getEffectiveSessionUuid` turns this into `$session_id`.
+ * Wrapper-only hints group analytics but do not replace conversation handles for context switches.
+ */
+export function resolveSessionKey(requestContext: MCPRequestContext): string | undefined {
+    return requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId
 }
 
 export function buildMCPSessionAnalyticsProperties(sessionContext: MCPSessionContext | null): Record<string, unknown> {

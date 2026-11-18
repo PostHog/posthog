@@ -1,36 +1,29 @@
-"""
-Facade API for the tasks product — the data surface other apps may import.
-
-Responsibilities:
-- Accept ids / DTOs as input.
-- Call into the product's models and logic.
-- Convert Django models to DTOs before returning — never return ORM instances.
-- Stay thin and stable.
-
-This module is deliberately light: it imports the models and small helpers only. The
-heavy behavioral surfaces (sandbox provisioning, warming, the multi-turn agent machinery,
-temporal workflows, max tools) live in sibling facade submodules (``sandbox``, ``warm``,
-``agents``, ``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
-config-only importer never drags docker/temporalio onto the ``django.setup()`` path.
-Functions that bridge to those heavy surfaces import them lazily inside the function body.
-"""
-
 import re
+import copy
+import json
 import time
 import hashlib
 import logging
-from collections.abc import Collection, Iterable, Sequence
+from collections import Counter
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Literal
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
+from functools import partial
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
+from django.core import signing
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError as DjangoValidationError,
+)
+from django.db import IntegrityError, connection, transaction
 from django.db.models import (
+    BooleanField,
     Case,
     CharField,
     Count,
@@ -39,59 +32,127 @@ from django.db.models import (
     F,
     Func,
     IntegerField,
+    Max,
     Min,
+    Model,
     OuterRef,
+    Prefetch,
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
+    UUIDField,
     Value,
     When,
 )
-from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Coalesce
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
+from rest_framework.exceptions import (
+    PermissionDenied as ApiPermissionDenied,
+    ValidationError,
+)
 
+from posthog.api.tagged_item import replace_tags_on_object
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.ingress.contracts import WebhookDelivery
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.scopes.checks import scopes_not_covered
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
+from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri
 
-from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.facade import api as cdp_facade
+from products.posthog_ai.backend.task_ownership import (
+    detach_conversations_for_task_handoff,
+    soft_delete_conversations_for_task,
+)
+from products.tasks.backend.activity_logging import log_sandbox_custom_image_update
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+    ARTIFACT_SCRIPT_SHA256_KEY as ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
+    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    FINAL_MESSAGE_MAX_CHARS,
+    GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
+    SUBSCRIPTION_PLAN_NAMES,
+    TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
-    TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
+    TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
     is_blocked_sandbox_env_key,
+    is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
+from products.tasks.backend.contract_checks import drive_allowed
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.profiles import (
+    GithubAccess,
+    NetworkAccess,
+    SourceKind,
+    TaskProfile,
+    TaskRunOptions,
+    TaskSource,
+    find_task_profile,
+    resolve_task_origin,
+)
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    gitlab_tasks_enabled,
+    own_subscription_cloud_enabled as own_subscription_cloud_enabled,
+    pi_cloud_runtime_enabled,
+    run_stream_presence_gated,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.gitlab_repository_access import gitlab_repository_error
+from products.tasks.backend.logic.log_slice import (
+    LogPart,
+    LogPartSummary,
+    log_entries,
+    slice_log_parts_from,
+    slice_log_parts_tail,
+    summarize_log_part,
+    summary_from_json,
+    summary_to_json,
+)
+from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_command import send_set_config_option
+from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -101,14 +162,38 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+from products.tasks.backend.logic.services.space_setup import (
+    SPACE_SETUP_FEED_EVENT,
+    SPACE_SETUP_MODEL,
+    SPACE_SETUP_REASONING_EFFORT,
+    SPACE_SETUP_RUNTIME_ADAPTER,
+    SpaceSetupUnavailableError as SpaceSetupUnavailableError,
+    build_space_setup_prompt,
+    space_setup_task_title,
+)
+from products.tasks.backend.logic.services.unattended_plan import (
+    can_bill_plan_unattended as can_bill_plan_unattended,
+    unattended_model_access_state as unattended_model_access_state,
+)
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
+from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PRIOR_RUN_SUMMARY_STATE_KEY,
+    PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
+    TASK_RUN_SUMMARY_STATE_KEY,
+    TASK_RUN_TAGS_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
     ChannelInstructions,
+    ChannelMembership,
     ChannelStar,
     DesktopBetaTermsAcceptance,
     InvalidTaskOriginError,
@@ -120,27 +205,84 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskCommentActivity,
     TaskOwnershipChangedError,
     TaskPin,
     TaskRun,
+    TaskRunAlreadyLiveError as TaskRunAlreadyLiveError,
     TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
 )
-from products.tasks.backend.pr_urls import merge_pr_output
+from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
+    merge_pr_output,
+    normalize_verified_pull_request_urls,
+    read_head_branches,
+    read_pr_urls as read_pr_urls,
+)
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.public_create import (
+    asks_for_run as asks_for_run,
+    create_fields_from_options as create_fields_from_options,
+    idempotent_request as idempotent_request,
+    options_from_request as options_from_request,
+    public_idempotency_key as public_idempotency_key,
+    request_fingerprint as request_fingerprint,
+    uses_public_create as uses_public_create,
+)
+from products.tasks.backend.repository_config_analytics import (
+    capture_repository_config_changed,
+    capture_space_context_changed,
+    repositories_differ,
+)
+from products.tasks.backend.run_options import (
+    run_only_option_names as run_only_option_names,
+    run_options_record as run_options_record,
+    validate_run_options as validate_run_options,
+)
+from products.tasks.backend.task_done import (
+    TaskDoneError as TaskDoneError,
+    check_wake as check_wake,
+    check_wake_by_task_id as check_wake_by_task_id,
+    close_task as close_task,
+    wake_refusal,
+    warm_done_mode,
+)
+from products.tasks.backend.task_profiles import (
+    PUBLIC_RUN_OPTIONS as PUBLIC_RUN_OPTIONS,
+    SPACE_SETUP,
+    USER,
+    WIZARD,
+)
+from products.tasks.backend.task_run_sync import (
+    collect_status_mismatches,
+    repair_status_mismatches,
+    sync_task_pr_urls,
+    sync_task_status,
+)
+from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
-    TEAM_READABLE_ORIGIN_PRODUCTS,
+    PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
+    readable_without_channel,
+    scout_trial_visibility_q,
     task_control_q,
     task_run_visibility_q,
     task_visibility_q,
 )
 
 from . import contracts
+from .task_run_signals import hidden_task_ids, task_run_start_refusal
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
+
+    from products.canvas.backend.facade.contracts import CanvasSummary
+    from products.signals.backend.facade.self_driving import SelfDrivingQuotaGate
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +294,12 @@ _TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TASK_SERVER_ONLY_ORIGIN_PRODUCTS = Task.SERVER_ONLY_ORIGIN_PRODUCTS
 TaskRuntime = Task.Runtime
+TaskStatus = Task.Status
+TaskStatusReason = Task.StatusReason
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
-
-WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
 # pinned because these runs route to the unbilled `onboarding` gateway product, which allowlists a
@@ -165,23 +308,71 @@ WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
 WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
+
+class _AutoArchiveUnchanged:
+    pass
+
+
+_AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
+
 __all__ = [
+    "is_current_task_run_actor",
+    "mint_private_gateway_token",
+    "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
+    "TASK_RUN_SUMMARY_STATE_KEY",
+    "TASK_SERVER_ONLY_ORIGIN_PRODUCTS",
     "TaskOriginProduct",
     "TaskRuntime",
+    "TaskStatus",
+    "TaskDoneError",
+    "TaskRunAlreadyLiveError",
+    "check_wake",
+    "check_wake_by_task_id",
+    "close_task",
+    "TaskStatusReason",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "ActiveSessionCapRefused",
+    "WarmRunActivationUnavailable",
+    "append_imported_task_run_log",
     "append_task_run_log",
+    "attach_task_run_input_files",
+    "create_imported_task",
+    "create_imported_task_run",
+    "get_imported_task_run",
+    "get_task_by_origin_key",
+    "get_task_id_by_idempotency_key",
+    "find_task_for_idempotency_key",
+    "task_source_in_team",
+    "IdempotencyKeyReused",
+    "touch_imported_task",
     "apply_task_run_model_config",
+    "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
+    "ensure_subscription_owner",
+    "get_run_plan",
+    "own_subscription_cloud_enabled",
+    "can_bill_plan_unattended",
+    "unattended_model_access_state",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "MAX_SANDBOX_TTL_SECONDS",
+    "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
+    "is_public_sandbox_repo",
+    "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
+    "get_owner_origin_latest_run",
+    "owner_origin_has_non_terminal_run",
+    "owner_origin_open_task_ids",
+    "owner_origin_recent_task_ids",
+    "owner_origin_task_ids_with_state_entry",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -196,6 +387,7 @@ __all__ = [
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
+    "TIMED_OUT_INACTIVITY_STATE_KEY",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
     "ensure_personal_channel_id",
@@ -207,6 +399,8 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_user_attachment_max_size_bytes",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -221,16 +415,25 @@ __all__ = [
     "filter_uncovered_workflow_dispatch_run_ids",
     "maintain_workflow_dispatch_outbox",
     "get_task_detail",
+    "task_access_scope",
+    "normalize_verified_pull_request_urls_batch",
     "get_task_id_for_run",
+    "get_task_run_completed_at",
     "get_task_run",
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
+    "get_task_run_source",
+    "get_task_run_claude_model_access",
     "get_task_run_sandbox_connection",
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
     "get_task_run_living_artifact",
+    "capture_context_wiki_changed",
     "capture_relay_command_telemetry",
+    "PermissionResponseUnavailable",
+    "validate_permission_response_target",
+    "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
@@ -242,42 +445,70 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
-    "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
-    "list_task_run_peers",
     "list_task_repositories",
+    "list_task_run_ids",
     "list_task_runs",
     "list_tasks",
+    "list_workflow_last_runs",
     "pi_cloud_runtime_enabled",
+    "gitlab_repository_error",
+    "gitlab_tasks_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
+    "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
+    "read_task_run_html_artifact",
+    "read_task_run_living_artifact_version",
+    "sandbox_token_has_open_network",
+    "is_html_artifact",
+    "get_task_run_log_urls",
+    "get_task_run_log_size",
+    "read_task_run_log_content",
+    "read_task_run_conversation_logs",
+    "thread_view_of_log_content",
+    "read_task_run_conversation_log_slice",
+    "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_mobile_pickup",
+    "task_mobile_push_taken_over",
+    "task_mobile_push_delivery_allowed",
+    "task_mobile_push_user_ids",
+    "task_mobile_push_suppressed_token_ids",
+    "enqueue_task_mobile_pr_outcome",
+    "claim_mobile_push_cooldown",
+    "release_mobile_push_cooldown",
+    "record_run_failure_cause",
     "signal_task_run_client_activity",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
+    "start_missing_first_run",
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
-    "signal_task_run_peer_message",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
+    "upload_task_run_artifacts",
     "start_task_run",
     "task_accessible_for_run_view",
     "task_channel_id",
     "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
+    "get_pull_requests_for_tasks",
+    "get_prior_pr_output_by_task",
+    "read_pr_urls",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
@@ -288,6 +519,8 @@ __all__ = [
     "list_task_artifacts",
     "list_task_comments",
     "retrieve_task_comment",
+    "list_canvas_comments",
+    "retrieve_canvas_comment",
     "update_sandbox_environment",
     "update_task",
     "update_task_run",
@@ -348,6 +581,7 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         workflow_id=run.workflow_id,
         mode=run.mode,
         task_origin_product=parent.origin_product if parent is not None else None,
+        task_created_at=parent.created_at if parent is not None else None,
         created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
@@ -375,6 +609,21 @@ def _hedgehog_config(user: "User") -> dict | None:
     }
 
 
+# The User columns `_user_basic_info` reads; a field read outside this set triggers a
+# per-user deferred-load query wherever the queryset restricts to these columns.
+_TASK_CREATED_BY_FIELDS = (
+    "id",
+    "uuid",
+    "distinct_id",
+    "first_name",
+    "last_name",
+    "email",
+    "is_email_verified",
+    "hedgehog_config",
+    "role_at_organization",
+)
+
+
 def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
     """Map a core ``User`` to the display DTO (matches ``UserBasicSerializer`` fields)."""
     if user is None:
@@ -397,11 +646,26 @@ _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
 _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
+        "ai_agent_name",
         "ai_stage",
         "auto_publish",
+        "benjamin_enabled",
+        "claude_model_access",
+        "claude_subscription_user_id",
+        "codex_max_subagents",
+        "codex_model_access",
+        "codex_shared_prompt_cache",
+        "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
+        "disable_repo_hooks",
+        "disable_skills",
         "fast_mode",
+        # An imported transcript's provenance and mirror cursor: the viewer marks the run as
+        # imported, and the legacy mirror reads its own cursor back through this DTO.
+        "conversation_last_message_id",
+        "conversation_messages_copied",
+        "imported_from",
         "initial_permission_mode",
         "mode",
         "model",
@@ -420,8 +684,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_app_agent_design_enabled",
         "slack_artifact_delivery",
         "slack_chart_delivery",
+        "slack_chart_links",
         "slack_thread_url",
     }
 )
@@ -432,7 +698,19 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # event wholesale, which for a Slack trigger can be a private channel's message content.
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
+# `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
+# `agent_instructions` can carry a member's personal instructions, so the same applies.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset(
+    {
+        "agent_instructions",
+        "caller_ends_run",
+        "end_run_when_done",
+        "initial_prompt_override",
+        "store_skills",
+        "store_skills_bridge",
+        "systemPrompt",
+    }
+)
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -442,12 +720,15 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
-def _task_run_log_url(run: TaskRun) -> str | None:
+def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
+    # Protected traces must go through the permission-checked logs endpoint.
+    if has_analytics_context:
+        return None
     cache_key = f"task_run_log_url:{run.id}"
     cached_url = get_tasks_cache().get(cache_key)
     if cached_url:
@@ -459,7 +740,31 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
+def _can_read_task_run_summary(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    user_id: int | None = None,
+    include_agent_state: bool = False,
+) -> bool:
+    if include_agent_state:
+        return True
+    parent = task if task is not None else run.task
+    # A missing viewer never matches, even when the creator was deleted and created_by_id is null.
+    return parent.origin_product != Task.OriginProduct.WORKFLOW or (
+        user_id is not None and parent.created_by_id == user_id
+    )
+
+
+def _task_run_detail_to_dto(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+    include_log_url: bool = True,
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -471,6 +776,14 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
     )
 
     state = parse_run_state(run.state)
+    has_analytics_context = "analytics_query_context" in (run.state or {})
+    protected_context = has_analytics_context and not (
+        include_agent_state
+        or (analytics_context_reader is not None and analytics_context_reader(run.state["analytics_query_context"]))
+    )
+    can_read_summary = _can_read_task_run_summary(
+        run, task=task, user_id=user_id, include_agent_state=include_agent_state
+    )
     return contracts.TaskRunDetailDTO(
         id=run.id,
         task=run.task_id,
@@ -482,15 +795,24 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run),
-        error_message=run.error_message,
-        output=run.output,
+        log_url=(
+            f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/logs/"
+            if has_analytics_context and include_agent_state and include_log_url
+            else _task_run_log_url(run, has_analytics_context=has_analytics_context)
+            if include_log_url
+            else None
+        ),
+        error_message=run.error_message if not protected_context else None,
+        output=run.output if not protected_context else None,
+        task_summary=run.task_summary if can_read_summary and not protected_context else None,
+        task_tags=run.task_tags if can_read_summary and not protected_context else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
-        artifacts=run.artifacts or [],
+        artifacts=(run.artifacts or []) if not protected_context else [],
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
         preview_available=task_run_preview_ready(run.state),
+        scheduled_at=run.scheduled_at,
     )
 
 
@@ -499,6 +821,49 @@ class _LatestRunUnset:
 
 
 _LATEST_RUN_UNSET = _LatestRunUnset()
+
+
+class _PriorPrOutputUnset:
+    pass
+
+
+_PRIOR_PR_OUTPUT_UNSET = _PriorPrOutputUnset()
+
+# The fields that identify the PR a task points at. A run that opened no PR of its own
+# borrows these from the run that did; everything else in an output stays run-local.
+_INHERITED_PR_OUTPUT_KEYS = ("pr_url", "pr_urls", "pr_summaries", "pr_state", "pr_merged")
+
+
+def _inherited_pr_fields(output: object) -> dict[str, Any]:
+    if not isinstance(output, dict):
+        return {}
+    urls = read_pr_urls(output)
+    if not urls:
+        return {}
+    fields = {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
+    # An output can carry `pr_urls` without `pr_url`, and some readers look only at the latter
+    # (the feed's `has_pr` predicate, `get_latest_pr_url_by_task`), so mirror the primary-first
+    # shape `merge_pr_output` stores.
+    primary = output.get("pr_url")
+    if not isinstance(primary, str) or not primary:
+        primary = urls[0]
+    fields["pr_url"] = primary
+    fields["pr_urls"] = [primary, *(url for url in urls if url != primary)]
+    return fields
+
+
+def _prior_pr_output_from_runs(task: Task) -> dict[str, Any] | None:
+    """The task's most recent PR-carrying run output, taken from the runs already in memory.
+
+    Every caller that maps one task prefetches ``runs``, and ``Task.latest_run`` has just walked
+    them, so the row this needs is loaded — a query for it would be a second trip for rows the
+    request already holds. Same team scoping and same recency rule as ``Task.latest_run``. The
+    list path batches its own lookup instead and passes the result in.
+    """
+    pr_runs = [run for run in task.runs.all() if run.team_id == task.team_id and read_pr_urls(run.output)]
+    if not pr_runs:
+        return None
+    return max(pr_runs, key=lambda run: (run.created_at, run.id)).output
 
 
 def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
@@ -524,18 +889,153 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     task = (
         _visible_task_qs(team_id, user_id)
         .filter(id=task_id, internal=False)
-        .only("id", "title", "created_by_id")
+        .only("id", "title", "created_by_id", "status", "status_reason")
         .first()
     )
     if task is None:
         return None
-    latest_run = task.runs.order_by("-created_at").only("status").first()
     return contracts.TaskSlackUnfurlDTO(
         id=task.id,
         title=task.title,
         created_by_id=task.created_by_id,
-        latest_run_status=latest_run.get_status_display() if latest_run else None,
+        status=task.status_label,
     )
+
+
+@frozen
+class _SlackUnfurlArtifact:
+    task: Task
+    run_id: UUID
+    entry: dict[str, Any]
+
+
+def _slack_unfurl_artifact_entry(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None,
+    artifact_id: str | None,
+    name: str | None,
+) -> _SlackUnfurlArtifact | None:
+    """The downloadable artifact the user may see, by its id or by its file name (newest upload wins).
+
+    A run with analytics context is refused. The download endpoint checks the caller's access to
+    that context against the request, and an unfurl has no request, so it fails closed.
+    """
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id, internal=False).only("id", "title").first()
+    if task is None or (artifact_id is None and name is None):
+        return None
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task.id)
+    if run_id is not None:
+        runs = runs.filter(pk=run_id)
+    if runs.filter(state__has_key="analytics_query_context").exists():
+        return None
+    matches = [
+        (run_pk, entry)
+        for run_pk, artifacts in runs.values_list("id", "artifacts")
+        for entry in artifacts or []
+        if entry.get("storage_path") and (entry.get("id") == artifact_id if artifact_id else entry.get("name") == name)
+    ]
+    if not matches:
+        return None
+    run_pk, entry = max(matches, key=lambda match: str(match[1].get("uploaded_at") or ""))
+    return _SlackUnfurlArtifact(task=task, run_id=run_pk, entry=entry)
+
+
+def get_task_artifact_for_slack_unfurl(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
+) -> contracts.TaskArtifactSlackUnfurlDTO | None:
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
+    )
+    if found is None:
+        return None
+    entry = found.entry
+    size = entry.get("size")
+    uploaded_at = entry.get("uploaded_at")
+    try:
+        uploaded = datetime.fromisoformat(uploaded_at) if isinstance(uploaded_at, str) else None
+    except ValueError:
+        uploaded = None
+    return contracts.TaskArtifactSlackUnfurlDTO(
+        name=str(entry.get("name") or "artifact"),
+        content_type=str(entry.get("content_type") or ""),
+        size=size if isinstance(size, int) else None,
+        uploaded_at=uploaded,
+        task_id=found.task.id,
+        task_title=found.task.title,
+        run_id=found.run_id,
+        artifact_id=str(entry["id"]),
+        download_path=_artifact_download_path(team_id, found.task.id, found.run_id, str(entry["id"])),
+    )
+
+
+def read_task_artifact_for_slack_unfurl(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    max_bytes: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
+) -> bytes | None:
+    """The artifact's bytes, with the same access checks as ``get_task_artifact_for_slack_unfurl``."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
+    )
+    if found is None:
+        return None
+    size = found.entry.get("size")
+    if not isinstance(size, int) or size > max_bytes:
+        return None
+    return object_storage.read_bytes(found.entry["storage_path"], missing_ok=True)
+
+
+_StateEntryResult = TypeVar("_StateEntryResult")
+
+
+def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> object:
+    """One key of the task's shared state bag, or ``None`` when the task or the key is missing."""
+    state = Task.objects.filter(id=task_id, team_id=team_id).values_list("state", flat=True).first()
+    return (state or {}).get(key)
+
+
+def update_task_state_entry(
+    task_id: str | UUID,
+    team_id: int,
+    key: str,
+    update: Callable[[Any], tuple[Any, _StateEntryResult]],
+) -> _StateEntryResult | None:
+    """Row-locked read-modify-write of one key in the task's shared state bag.
+
+    ``update`` gets the current value (``None`` when unset) and returns the value to store and a
+    result for the caller. Returning the current value unchanged skips the write. Returns ``None``
+    without calling ``update`` when the task does not exist.
+    """
+    results: list[_StateEntryResult] = []
+
+    def _mutate(state: dict[str, Any]) -> None:
+        current = state.get(key)
+        value, result = update(current)
+        results.append(result)
+        if value != current:
+            state[key] = value
+
+    try:
+        Task.mutate_state_atomic(task_id, _mutate, team_id=team_id)
+    except Task.DoesNotExist:
+        return None
+    return results[0]
 
 
 def attach_slack_thread_reference(
@@ -588,13 +1088,31 @@ def has_slack_thread_reference(
     )
 
 
+def _readable_status_detail(task: Task, latest_run: TaskRun | None, may_read_latest_context: bool) -> str | None:
+    if latest_run is None or not may_read_latest_context:
+        return None
+    if task.status_reason != Task.StatusReason.UNEXPECTED_FAILURE:
+        return task.status_detail
+    return latest_run.error_message if latest_run.status == TaskRun.Status.FAILED else None
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
+    user_id: int | None = None,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+    include_latest_run_log_url: bool = True,
+    prior_pr_output: dict[str, Any] | None | _PriorPrOutputUnset = _PRIOR_PR_OUTPUT_UNSET,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskDetailDTO:
-    """Map a ``Task`` to its HTTP detail DTO."""
+    """Map a ``Task`` to its HTTP detail DTO.
+
+    ``prior_pr_output`` is the task's most recent PR-carrying run output, which backfills
+    the PR onto ``latest_run`` when that run opened none itself. Callers that map a page of
+    tasks pass it to keep the lookup to one query; a single task leaves it unset and the
+    answer comes from the runs that caller already prefetched.
+    """
     if not include_latest_run:
         resolved_latest_run = None
     elif isinstance(latest_run, _LatestRunUnset):
@@ -604,34 +1122,73 @@ def _task_detail_to_dto(
     latest_run_id = getattr(task, "_latest_run_id", None)
     if latest_run_id is None and resolved_latest_run is not None:
         latest_run_id = resolved_latest_run.id
+    latest_run_dto = (
+        _task_run_detail_to_dto(
+            resolved_latest_run,
+            task=task,
+            user_id=user_id,
+            include_log_url=include_latest_run_log_url,
+            analytics_context_reader=analytics_context_reader,
+        )
+        if resolved_latest_run is not None
+        else None
+    )
+    may_read_latest_context = (
+        resolved_latest_run is None
+        or "analytics_query_context" not in (resolved_latest_run.state or {})
+        or (
+            analytics_context_reader is not None
+            and analytics_context_reader(resolved_latest_run.state["analytics_query_context"])
+        )
+    )
+    if latest_run_dto is not None and may_read_latest_context and not read_pr_urls(latest_run_dto.output):
+        # A resumed run starts with an empty output, so the PR an earlier run opened drops
+        # out of `latest_run` — and with it the PR button every client reads from there.
+        # Logs and artifacts already survive a resume; the PR has to as well.
+        resolved_prior_pr_output = (
+            _prior_pr_output_from_runs(task) if isinstance(prior_pr_output, _PriorPrOutputUnset) else prior_pr_output
+        )
+        inherited = _inherited_pr_fields(resolved_prior_pr_output)
+        if inherited:
+            latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
+    description = getattr(task, "_description_preview", None)
+    if description is None:
+        description = task.description
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
         slug=task.slug,
         title=task.title,
         title_manually_set=task.title_manually_set,
-        description=task.description,
+        description=description,
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
         repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
-        signal_report=task.signal_report_id,
+        repository_integration=task.repository_integration_id,
+        signal_report=task.signal_report_source_id,
         json_schema=task.json_schema,
         internal=task.internal,
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=latest_run_dto,
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        status=task.status,
+        status_reason=task.status_reason,
+        status_detail=_readable_status_detail(task, resolved_latest_run, may_read_latest_context),
         slack_thread_references=_task_slack_thread_references(task),
-        origin_key=task.origin_key,
+        origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
+        client_provenance=task.client_provenance,
+        last_client=task.last_client,
+        last_client_at=task.last_client_at,
     )
 
 
@@ -684,15 +1241,43 @@ def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[st
     return parse_run_state(run_state).resume_snapshot_carry_state()
 
 
-def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
+def get_task_run(
+    run_id: str | UUID, team_id: int | None = None, *, include_child_environments: bool = False
+) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")
     if team_id is not None:
-        qs = qs.filter(team_id=team_id)
+        qs = qs.filter(
+            Q(team_id=team_id) | Q(team__parent_team_id=team_id) if include_child_environments else Q(team_id=team_id)
+        )
     run = qs.filter(id=run_id).first()
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def latest_agent_startup_success(*, team_id: int, repository: str, provider: str, runtime: str) -> datetime | None:
+    started = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__has_key="agent_startup_success",
+            state__agent_startup_success__repository=repository.lower(),
+            state__agent_startup_success__provider=provider,
+            state__agent_startup_success__runtime=runtime,
+        )
+        .order_by("-state__agent_startup_success__started_at")
+        .values_list("state__agent_startup_success__started_at", flat=True)
+        .first()
+    )
+    if not isinstance(started, str):
+        return None
+    try:
+        started_at = parse_datetime(started)
+    except ValueError:
+        return None
+    if started_at is None or django_timezone.is_naive(started_at):
+        return None
+    return started_at
 
 
 def find_signal_implementation_run(
@@ -748,13 +1333,14 @@ def find_signal_implementation_run(
     task = run.task
     # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
     # signal-report checks keep a future writer of the key from silently widening the carve-out.
-    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
+    signal_report_id = task.signal_report_source_id
+    if signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
         return None
     return contracts.SignalImplementationRunDTO(
         run_id=run.id,
         task_id=task.id,
         team_id=run.team_id,
-        signal_report_id=task.signal_report_id,
+        signal_report_id=signal_report_id,
         task_created_by_id=task.created_by_id,
     )
 
@@ -797,6 +1383,63 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
+def get_task_run_completed_at(run_ids: Iterable[str | UUID], team_id: int) -> dict[UUID, datetime | None]:
+    """Each run's ``completed_at`` by run id, team-scoped. Runs not found for the team are left out.
+
+    A primary-key read for callers that only need the completion time, so they skip a join to the
+    task run table.
+    """
+    return dict(
+        TaskRun.objects.filter(id__in=list(run_ids), team_id=team_id).order_by().values_list("id", "completed_at")
+    )
+
+
+def task_access_scope(*, team_id: int, user: User) -> contracts.TaskAccessScope:
+    team = Team.objects.get(id=team_id)
+    access = UserAccessControl(user=user, team=team)
+    return contracts.TaskAccessScope(
+        user_id=user.id,
+        has_resource_access=access.has_resource_access("task"),
+        allowed_ids=access.allowlisted_resource_ids_by_scope.get("task", frozenset()),
+        blocked_ids=access.blocked_resource_ids_by_scope.get("task", frozenset()),
+    )
+
+
+def normalize_verified_pull_request_urls_batch(
+    *, team_id: int, after: UUID | None = None, limit: int = 1000
+) -> UUID | None:
+    rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
+    if after is not None:
+        rows = rows.filter(id__gt=after)
+    batch = list(rows.values_list("id", "task_id", "state")[:limit])
+    for run_id, task_id, state in batch:
+        verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
+        if normalize_verified_pull_request_urls(verified) == verified:
+            continue
+
+        def normalize(latest_state: dict[str, Any]) -> None:
+            latest_state["verified_pr_urls"] = normalize_verified_pull_request_urls(
+                latest_state.get("verified_pr_urls")
+            )
+
+        TaskRun.mutate_state_atomic(run_id, normalize)
+        sync_task_pr_urls(task_id)
+    return batch[-1][0] if len(batch) == limit else None
+
+
+def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -> bool:
+    """Whether the GitHub webhook confirmed that a run of this task opened the pull request.
+
+    A run's `output.pr_url` is writable through the API. `verified_pr_urls` is server-owned, so a
+    caller that edits the pull request checks this before it trusts the URL.
+    """
+    verified_url = canonical_github_pull_request_url(pr_url)
+    verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+    if verified_url is not None:
+        verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+    return TaskRun.objects.filter(verified_filter, task_id=task_id, team_id=team_id).exists()
+
+
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
@@ -807,8 +1450,53 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
+def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
+    return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
+
+
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp. A person-started Inbox run on a customer-created task carries the
+    ``inbox`` stamp from ``Task.create_run``; it names no pipeline identity, so stage-to-identity
+    lookups miss it.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
+
+
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
+    """The id of the user who started each task, without loading the full task."""
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return {}
+    rows = Task.objects.filter(id__in=ids, team_id__in=teams, created_by_id__isnull=False).values_list(
+        "id", "created_by_id"
+    )
+    return {str(task_id): created_by_id for task_id, created_by_id in rows}
 
 
 def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
@@ -818,53 +1506,97 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
     server-verifiable Inbox shapes qualify:
 
-    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
-      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
-      caller can't forge one. Acting on a report is entitled through self-driving
-      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
+      integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
+      team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
+      entitled through self-driving (`product-autonomy`). A discussion that resolved a
+      repository, or that carries the team integration while repo-less, is not exempt under
+      this shape, because `create_task` only gives it either after the gate passed. Re-checking
+      here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
       would turn the exemption into ungated cloud code work.
+    - ``SIGNAL_REPORT`` linked to a report in this team that also carries an ``implementation``
+      ``SignalReportTask`` row for this task (the Inbox "Create PR"). Such a task holds a
+      repository by design, so the repo-less shape above can never cover it. Auto-start opens the
+      same PR run for the same report from the server without consulting the gate, and
+      self-driving prices a PR flat and caps it per report, so gating the button would only make
+      the outcome depend on who started the run. ``record_report_task`` writes the row on both
+      paths. The relationship label is client input, but it counts only on a row scoped to this
+      team and to the report the task itself links, so asserting it buys nothing on its own.
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
     bypass. The report's own team is re-checked here even though the write serializer
     already enforces it, so a future write path can't silently widen the exemption.
     """
-    return Task.objects.filter(
-        Q(
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report__team_id=team_id,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
-        )
-        | Q(
-            origin_product=Task.OriginProduct.SIGNALS_CHAT,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
+    linked_report_id = Case(
+        When(
+            source_kind=SourceKind.SIGNAL_REPORT.value,
+            source_id__isnull=False,
+            then=Cast("source_id", UUIDField()),
         ),
-        id=task_id,
-        team_id=team_id,
-    ).exists()
+        When(Q(source_kind__isnull=True) | Q(source_id__isnull=True), then=F("signal_report_id")),
+        output_field=UUIDField(),
+    )
+    report_in_team = Exists(signal_report_queryset().filter(id=OuterRef("_linked_report_id"), team_id=team_id))
+    return (
+        Task.objects.annotate(_linked_report_id=linked_report_id)
+        .filter(
+            Q(
+                report_in_team,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                repository__isnull=True,
+                repositories=[],
+                github_integration_id__isnull=True,
+                github_user_integration__isnull=True,
+            )
+            | Q(
+                origin_product=Task.OriginProduct.SIGNALS_CHAT,
+                repository__isnull=True,
+                repositories=[],
+                github_integration_id__isnull=True,
+                github_user_integration__isnull=True,
+            )
+            | Q(
+                report_in_team,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                signal_report_tasks__team_id=team_id,
+                signal_report_tasks__report_id=F("_linked_report_id"),
+                signal_report_tasks__relationship="implementation",
+            ),
+            id=task_id,
+            team_id=team_id,
+        )
+        .exists()
+    )
 
 
-def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
+def get_in_progress_runs_for_github_integration(
+    team_id: int, integration_id: int, user_id: int | None
+) -> contracts.InProgressGithubRunsDTO:
     """In-progress runs whose task uses this team GitHub integration.
 
     Used by core's integration API to block disconnecting a GitHub integration while
     live runs still depend on it for credential refresh — deleting the row SET_NULLs
     ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    The count covers every run, but the named task is the oldest one ``user_id`` can read.
     """
-    return TaskRun.objects.filter(
+    runs = TaskRun.objects.filter(
         team_id=team_id,
         status=TaskRun.Status.IN_PROGRESS,
         task__github_integration_id=integration_id,
-    ).count()
+    )
+    count = runs.count()
+    if not count:
+        return contracts.InProgressGithubRunsDTO(count=0)
+    oldest = runs.filter(task_run_visibility_q(user_id)).order_by("created_at").values("task_id", "task__title").first()
+    if oldest is None:
+        return contracts.InProgressGithubRunsDTO(count=count)
+    return contracts.InProgressGithubRunsDTO(
+        count=count, oldest_task_id=oldest["task_id"], oldest_task_title=oldest["task__title"] or None
+    )
 
 
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
@@ -896,39 +1628,120 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
-def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
-    """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
+def get_signal_report_implementation_runs(
+    team_id: int, report_id: str, task_ids: Iterable[str | UUID]
+) -> list[contracts.TaskRunDTO]:
+    return [
+        _task_run_to_dto(run)
+        for run in TaskRun.objects.filter(
+            source_q(SourceKind.SIGNAL_REPORT, [report_id], via="task__"),
+            team_id=team_id,
+            task_id__in=task_ids,
+            task__team_id=team_id,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            task__deleted=False,
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+    ]
+
+
+def _pull_request_state(output: Mapping[str, object]) -> str:
+    """The state of the PR in ``output.pr_url``. ``pr_merged`` wins over ``pr_state``: it is the
+    webhook-attested flag, and runs merged before ``pr_state`` existed only carry it."""
+    if output.get("pr_merged"):
+        return "merged"
+    state = output.get("pr_state")
+    return state if isinstance(state, str) and state in PR_STATES else "unknown"
+
+
+def get_pull_requests_for_tasks(
+    team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
+) -> dict[str, list[contracts.TaskPullRequest]]:
+    result: dict[str, list[contracts.TaskPullRequest]] = {}
+    seen: set[tuple[str, str]] = set()
+    for task_id, output in (
+        TaskRun.objects.filter(
+            *conditions,
+            team_id=team_id,
+            task_id__in=task_ids,
+        )
+        .order_by("-created_at", "-id")
+        .values_list("task_id", "output")
+    ):
+        if not isinstance(output, dict):
+            continue
+        for url in read_pr_urls(output):
+            key = (str(task_id), url)
+            if key in seen:
+                continue
+            seen.add(key)
+            state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
+            result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
+    return result
+
+
+def _jsonb_path_exists(path: str) -> Func:
+    """``jsonb_path_exists(output, <literal path>)``. The path is always a literal here, so no
+    caller input reaches the expression."""
+    return Func("output", Value(path), function="jsonb_path_exists", output_field=BooleanField())
+
+
+# A run carries a PR when its output yields a usable URL — the rule ``read_pr_urls`` applies in
+# Python: a non-empty *string* under ``pr_url``, or any non-empty string in ``pr_urls``. Both
+# halves check the JSON type, so SQL selects a run exactly when Python can read a URL out of it.
+# Without that, `{"pr_url": 123}` satisfies a bare non-empty test and wins the newest-run pick,
+# then Python finds no URL and an older run holding the real PR is never reached. Indexing
+# ``pr_urls[0]`` would be wrong for the same reason: it misses ``["", "…/pull/1"]``.
+_PR_CARRYING_OUTPUT_Q = Q(_jsonb_path_exists('$.pr_url ? (@.type() == "string" && @ != "")')) | Q(
+    _jsonb_path_exists('$.pr_urls[*] ? (@.type() == "string" && @ != "")')
+)
+
+
+def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:
+    """Latest usable PR URL per task, for the supplied task ids.
+
+    Reads the same normalized shape as everything else: the newest run that carries a PR, and its
+    primary URL whether the run recorded ``pr_url`` or only ``pr_urls``. Matching ``pr_url`` alone
+    left a ``pr_urls``-only run with no URL here, which is how Slack App Home lost the link.
+    """
     ids = [str(t) for t in task_ids]
     if not ids:
         return {}
     rows = (
-        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
-        .exclude(output__pr_url="")
+        TaskRun.objects.filter(*conditions, task_id__in=ids)
+        .filter(_PR_CARRYING_OUTPUT_Q)
         .order_by("task_id", "-created_at", "-id")
-        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-        .values("task_id", "output_pr_url_text")
         .distinct("task_id")
+        .values_list("task_id", "output")
     )
-    return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+    urls_by_task = ((str(task_id), read_pr_urls(output)) for task_id, output in rows)
+    return {task_id: urls[0] for task_id, urls in urls_by_task if urls}
+
+
+def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) -> dict[str, dict[str, Any]]:
+    """Most recent run ``output`` that carries a PR, per task.
+
+    A run records the PR it opened in its own ``output``. A later run — a resume, a follow-up
+    message — starts with an empty ``output``, so a reader that sees only the newest run finds
+    no PR on a task that plainly has one. This supplies the PR that run inherits.
+    """
+    ids = [str(task_id) for task_id in task_ids]
+    if not ids:
+        return {}
+    rows = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=ids)
+        .filter(_PR_CARRYING_OUTPUT_Q)
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+        .values_list("task_id", "output")
+    )
+    return {str(task_id): output for task_id, output in rows if isinstance(output, dict)}
 
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
-    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``,
-    narrowed by any extra ``Q`` ``conditions`` on the run.
-
-    For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
-    *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
-    index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
-    own report-association tables. Returns a query expression — no ORM instances cross the boundary.
-
-    Scoped to ``team_id`` so the set stays bounded to the request's tenant rather than scanning every
-    team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
-    """
-    return (
-        TaskRun.objects.filter(*conditions, team_id=team_id, output__pr_url__isnull=False)
-        .exclude(output__pr_url="")
-        .values("task_id")
-    )
+    """Find same-team tasks with a primary PR or a PR array, including array-only outputs."""
+    return TaskRun.objects.filter(*conditions, team_id=team_id).filter(_PR_CARRYING_OUTPUT_Q).values("task_id")
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
@@ -961,7 +1774,7 @@ def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Sub
     )
 
 
-def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
+def get_merged_pr_task_ids(task_ids: Iterable[str | UUID], *conditions: Q) -> set[str]:
     """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
 
     Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
@@ -971,7 +1784,7 @@ def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
     if not ids:
         return set()
     rows = (
-        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, task_id__in=ids, output__pr_url__isnull=False)
         .exclude(output__pr_url="")
         .order_by("task_id", "-created_at", "-id")
         .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
@@ -1040,6 +1853,37 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
+def get_latest_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False, terminal_only: bool = False
+) -> contracts.TaskRunDTO | None:
+    runs = TaskRun.objects.filter(
+        team__organization_id=organization_id,
+        task__team__organization_id=organization_id,
+        task__internal=True,
+        environment=TaskRun.Environment.CLOUD,
+        state__ai_stage=ai_stage,
+    )
+    if active_only:
+        runs = runs.filter(
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ]
+        )
+    if terminal_only:
+        runs = runs.filter(status__in=_TERMINAL_TASK_RUN_STATUSES)
+    run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
+    return _task_run_to_dto(run) if run is not None else None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
+
+
 def get_stale_queued_task_run_ids(
     older_than: timedelta,
     limit: int,
@@ -1092,7 +1936,7 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         .values_list("task_run_id", flat=True)
     )
     uncovered_ids = [run_id for run_id in candidate_ids if run_id not in live_dispatch_run_ids]
-    if not is_workflow_dispatch_shadow_enabled():
+    if not settings.TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED:
         return uncovered_ids
     runs = {
         run.id: run
@@ -1209,7 +2053,7 @@ def _gauge_rows(values_qs, value_key: str, *, with_status: bool, now=None) -> li
         rows.append(
             contracts.TaskRunGaugeRow(
                 environment=row["environment"],
-                origin_product=row["task__origin_product"] or "unknown",
+                origin_product=row["origin_product"] or "unknown",
                 value=value,
                 status=row["status"] if with_status else None,
             )
@@ -1228,7 +2072,7 @@ def collect_task_run_state_metrics(
 
     The caller (a core celery task) owns which statuses count as open/age/terminal and the
     recency window; this returns the raw numbers grouped by (status, environment,
-    parent origin_product) so no ORM leaks across the boundary.
+    origin_product) so no ORM leaks across the boundary.
 
     A QUEUED run's age counts from ``queued_at``, not from row creation:
     ``prepare_for_cloud_resume`` re-queues an existing run without resetting ``created_at``,
@@ -1247,14 +2091,14 @@ def collect_task_run_state_metrics(
     return contracts.TaskRunStateMetricsDTO(
         runs_in_status=_gauge_rows(
             TaskRun.objects.filter(status__in=open_statuses)
-            .values("status", "environment", "task__origin_product")
+            .values("status", "environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=True,
         ),
         oldest_open_age_seconds=_gauge_rows(
             TaskRun.objects.filter(status__in=age_statuses)
-            .values("status", "environment", "task__origin_product")
+            .values("status", "environment", "origin_product")
             .annotate(oldest_waiting_since=Min(age_anchor)),
             "oldest_waiting_since",
             with_status=True,
@@ -1262,14 +2106,16 @@ def collect_task_run_state_metrics(
         ),
         created_recently=_gauge_rows(
             TaskRun.objects.filter(created_at__gte=window_start)
-            .values("environment", "task__origin_product")
+            .values("environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=False,
         ),
         terminal_recently=_gauge_rows(
-            TaskRun.objects.filter(status__in=terminal_statuses, updated_at__gte=window_start)
-            .values("status", "environment", "task__origin_product")
+            TaskRun.objects.filter(status__in=terminal_statuses)
+            .annotate(terminal_at=Coalesce(F("completed_at"), F("updated_at"), output_field=DateTimeField()))
+            .filter(terminal_at__gte=window_start)
+            .values("status", "environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=True,
@@ -1277,7 +2123,56 @@ def collect_task_run_state_metrics(
     )
 
 
+def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in collect_status_mismatches()
+    ]
+
+
+def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in repair_status_mismatches()
+    ]
+
+
 # --- Writes ---
+
+
+def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
+    Task.objects.get(team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK)
+    for run_id in TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True):
+        TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
+
+
+def link_slack_task_to_report(
+    *, team_id: int, task_id: str, report_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Link only a saved Slack task; a repeated activity must not add another discussion entry.
+
+    `question` is the verified Slack user's own message, recorded for the report's scout. Pass it only
+    for a thread in a public Slack channel.
+    """
+    from products.signals.backend.facade.api import record_slack_report_discussion
+
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(
+            team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK, created_by_id=user_id
+        )
+        if task.signal_report_source_id is not None:
+            return
+        record_slack_report_discussion(
+            team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id, question=question
+        )
+        task.signal_report_id = UUID(report_id)
+        task.source_kind = SourceKind.SIGNAL_REPORT.value
+        task.source_id = str(task.signal_report_id)
+        task.save(update_fields=["signal_report_id", "source_kind", "source_id", "updated_at"])
 
 
 def create_and_run_task(
@@ -1285,17 +2180,20 @@ def create_and_run_task(
     team,
     title: str,
     description: str,
-    origin_product: "Task.OriginProduct",
     user_id: int,
+    profile: TaskProfile,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
     start_workflow: bool = True,
+    scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
-    internal: bool = False,
+    free_trial_enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
+    source: TaskSource | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -1307,31 +2205,55 @@ def create_and_run_task(
     ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
+
+    ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
+    that flag before it takes the report row lock, so handing the result over keeps the flag
+    request out of the lock. Left NULL, the gate reads the flag itself.
+
+    ``continue_admitted_pipeline`` is for server-side report orchestration after admission.
+    It lets implementation finish an accepted report/scout pipeline when the spend cap changes.
+    New manual work leaves it false and checks the quota before creating a run.
+
+    ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
+    materializes it at or after that time. The run still stores its complete execution settings.
+
     """
-    # create_pr=False sessions (research, repo selection, custom agents) can never open the
-    # billable PR, so the quota gate must not block them.
+    origin = resolve_task_origin(profile=profile)
+    origin_product = cast("Task.OriginProduct", origin.origin_product)
+    columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
+    signal_report_id = columns.signal_report_id
+    if columns.hog_flow_id is not None:
+        extra["hog_flow_id"] = columns.hog_flow_id
+    # Research and repository selection continue an admitted pipeline; their caller owns
+    # admission. Direct implementation creation still needs its own quota check.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
-        # Distinct stage from create_task's `manual_create`: the main caller here is the
-        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
-        # dark-launch bucket.
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        if not continue_admitted_pipeline:
+            enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        enforce_self_driving_free_trial(
+            team,
+            report_id=signal_report_id,
+            stage="task_create",
+            enabled=free_trial_enabled,
+            continue_admitted_pipeline=continue_admitted_pipeline,
+        )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
+    if channel is None and not origin.internal and not readable_without_channel(origin_product, profile):
         channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product,
+        profile=profile,
         user_id=user_id,
         repository=repository,
         channel=channel,
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
+        scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
-        internal=internal,
+        continue_admitted_pipeline=continue_admitted_pipeline,
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
@@ -1341,6 +2263,122 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+_NON_TERMINAL_RUN_STATUSES = (
+    TaskRun.Status.NOT_STARTED,
+    TaskRun.Status.QUEUED,
+    TaskRun.Status.IN_PROGRESS,
+)
+
+
+def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origin_product: str) -> bool:
+    """Whether this owner already has a run of this origin that has not finished.
+
+    Internal origins are hidden from the task APIs, so callers that admit one run at a time
+    check here instead of listing tasks. ``origin_product`` is required so one product's open
+    run does not block another's. Soft-deleting a task does not stop its run, so deleted tasks count.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__team_id=team_id,
+        task__created_by_id=created_by_id,
+        task__origin_product=origin_product,
+        status__in=_NON_TERMINAL_RUN_STATUSES,
+    ).exists()
+
+
+def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
+    """Ids of this owner's tasks of this origin that have a run that has not finished, deleted tasks included."""
+    return set(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            status__in=_NON_TERMINAL_RUN_STATUSES,
+        ).values_list("task_id", flat=True)
+    )
+
+
+def owner_origin_task_ids_with_state_entry(
+    *, team_id: int, created_by_id: int, origin_product: str, key: str
+) -> set[UUID]:
+    """Ids of this owner's tasks of this origin whose shared state holds a non-null ``key``, deleted tasks included."""
+    return set(
+        Task.objects.filter(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            state__has_key=key,
+        )
+        .exclude(state__contains={key: None})
+        .values_list("id", flat=True)
+    )
+
+
+def owner_origin_recent_run_ids(
+    *, team_id: int, created_by_id: int, origin_product: str, since: datetime, limit: int
+) -> list[UUID]:
+    """Ids of runs started since ``since`` on this owner's tasks of this origin, newest first, deleted tasks included."""
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def owner_origin_recent_task_ids(
+    *, team_id: int, created_by_id: int, origin_product: str, since: datetime, limit: int
+) -> list[UUID]:
+    """Ids of this owner's tasks of this origin created since ``since``, newest first. Deleted tasks are left out."""
+    return list(
+        Task.objects.filter(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+            created_at__gte=since,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_owner_origin_latest_run(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    created_by_id: int,
+    origin_product: str,
+) -> contracts.TaskRunDTO | None:
+    """Latest run of a task, only when team, owner, and origin all match.
+
+    A miss on any of those is ``None``. Internal tasks are invisible on the normal task APIs,
+    so this is the read those products use for their own runs.
+    """
+    try:
+        task = Task.objects.filter(
+            id=task_id,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+        ).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return None
+    if task is None:
+        return None
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        return None
+    return _task_run_to_dto(run, task=task)
 
 
 def create_wizard_cloud_run(
@@ -1375,17 +2413,17 @@ def create_wizard_cloud_run(
         team=team,
         title="Set up PostHog",
         description=prompt,
-        origin_product=Task.OriginProduct.ONBOARDING,
+        profile=WIZARD,
         user_id=user_id,
         repository=repository,
+        options=TaskRunOptions(
+            adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER, model=WIZARD_CLOUD_RUN_MODEL, mcp_scopes="read_only"
+        ),
         create_pr=True,
         mode="background",
         branch=branch,
         wizard_config={},
         wizard_head_branch=head_branch,
-        posthog_mcp_scopes="read_only",
-        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
-        model=WIZARD_CLOUD_RUN_MODEL,
         ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
@@ -1425,12 +2463,14 @@ def create_task_without_run(
     *,
     team,
     user_id: int,
-    origin_product: "Task.OriginProduct",
+    profile: TaskProfile,
     title: str = "",
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
+    options: TaskRunOptions | None = None,
+    source: TaskSource | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -1439,17 +2479,21 @@ def create_task_without_run(
     """
     if channel is None:
         channel = (
-            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)[0]
+            None
+            if readable_without_channel(profile.origin_product, profile)
+            else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product,
+        profile=profile,
         user_id=user_id,
         repository=repository,
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+        options=options,
+        source=source,
     )
     return task.id
 
@@ -1467,7 +2511,7 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     return create_task_without_run(
         team=Team.objects.get(id=team_id),
         user_id=user_id,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        profile=USER,
         title=title,
         description=description,
         channel=channel,
@@ -1480,10 +2524,23 @@ def create_run(
     mode: str = "background",
     extra_state: dict | None = None,
     branch: str | None = None,
+    acting_user_id: int | None = None,
+    subscription_owner_id: int | None = None,
 ) -> contracts.TaskRunDTO:
-    """Create a new run for an existing task (e.g. resuming an interactive sandbox session)."""
+    """Create a new run for an existing task (e.g. resuming an interactive sandbox session).
+
+    ``acting_user_id`` attributes the run to the user whose AI run preferences should apply
+    when ``extra_state`` pins no runtime selection; it falls back to the task's creator.
+    ``subscription_owner_id`` names whose plan the run bills to, when that is not the acting user.
+    """
     task = Task.objects.get(id=task_id)
-    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+    run = task.create_run(
+        mode=mode,
+        extra_state=extra_state,
+        branch=branch,
+        acting_user_id=acting_user_id,
+        subscription_owner_id=subscription_owner_id,
+    )
     return _task_run_to_dto(run, task=task)
 
 
@@ -1495,6 +2552,70 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def reserve_warm_task_run(run_id: str | UUID) -> bool:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return False
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).first()
+        if run is None or run.state.get("warm_activation_started"):
+            return False
+        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+        run.state["warm_activation_started"] = True
+        run.save(update_fields=["state", "updated_at"])
+    return True
+
+
+def release_warm_task_run_reservation(run_id: str | UUID) -> None:
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().filter(id=run_id, state__await_user_message=True).first()
+        if run is not None:
+            run.state.pop("warm_activation_started", None)
+            run.save(update_fields=["state", "updated_at"])
+
+
+def activate_warm_task_run(run_id: str | UUID) -> None:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).select_related("task").first()
+        if run is None:
+            return
+        run.state.pop("await_user_message", None)
+        run.save(update_fields=["state", "updated_at"])
+        task.observe_run_started_beside_live_runs(run)
+
+
+def record_run_failure_cause(run_id: str | UUID, error_type: str) -> None:
+    try:
+        TaskRun.update_state_atomic(run_id, updates={"failure_error_type": error_type})
+    except Exception:
+        logger.warning("Failed to record failure cause for task run %s", run_id, exc_info=True)
+
+
+def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bool:
+    """Promote a bot-authored run to user authorship when the actor now has a usable GitHub install.
+
+    Delegates to ``upgrade_run_to_user_authorship``, which persists the change and leaves
+    runs that are bot-authored by design (signal reports, caller-token runs) untouched.
+    Returns True when the run was promoted.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        upgrade_run_to_user_authorship,
+    )
+
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    actor_user = User.objects.filter(id=actor_user_id).first()
+    if run is None or actor_user is None:
+        return False
+    return upgrade_run_to_user_authorship(run, actor_user, run.state) is not None
 
 
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
@@ -1543,9 +2664,8 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     run = TaskRun.objects.filter(
         pk=run_id, status=TaskRun.Status.QUEUED
     ).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is None:
+    if run is None or not run.mark_failed(error, error_type=error_type, expected_status=TaskRun.Status.QUEUED):
         return False
-    run.mark_failed(error, error_type=error_type)
     run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
 
@@ -1577,29 +2697,68 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    if run is not None and run.mark_completed(
+        notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"}
+    ):
+        _observe_claimed_terminal(run, error_type=None)
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
+def claim_and_fail_stale_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
+
+    ``not_updated_since`` makes the claim lose to a run written at or after that time.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
     update, so concurrent reapers of the same row resolve to exactly one winner (the losers match
     zero rows). The winner finalizes via ``mark_failed`` (error message, ``completed_at``, stream +
     analytics). Intentionally cross-team (janitor sweep).
     """
-    claimed = TaskRun.objects.filter(
+    claimable = TaskRun.objects.filter(
         id=run_id,
         status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
-    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    )  # nosemgrep: celery-task-team-scope-audit
+    if not_updated_since is not None:
+        claimable = claimable.filter(updated_at__lt=not_updated_since)
+    claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_failed(error, error_type=error_type)
+    if run is not None and run.mark_failed(error, error_type=error_type):
+        _observe_claimed_terminal(run, error_type=error_type)
+        resume_workflow_step_for_run(run)
     return True
+
+
+def _fail_run_whose_workflow_is_gone(run: TaskRun) -> None:
+    claimed = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        status=TaskRun.Status.IN_PROGRESS,
+    ).update(status=TaskRun.Status.FAILED)
+    if not claimed:
+        return
+
+    def finalize() -> None:
+        if run.mark_failed(
+            "This run stopped before it finished, so a new run replaced it.", error_type="workflow_gone"
+        ):
+            _observe_claimed_terminal(run, error_type="workflow_gone")
+            resume_workflow_step_for_run(run)
+
+    transaction.on_commit(finalize)
+
+
+def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
+    # The conditional update already wrote the terminal status, so mark_* sees a terminal run and
+    # skips its own count. The claim winner counts the transition here instead.
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_task_run_terminal,
+    )
+
+    observe_task_run_terminal(run, error_type=error_type, termination_reason=None)
 
 
 def redispatch_task_run(run_id: str | UUID) -> str:
@@ -1636,9 +2795,11 @@ def upsert_internal_sandbox_env(
     nothing a person set on a row (before or after it became internal) can ride into an
     internally provisioned run.
 
-    ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``, so concurrent
-    callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
-    matching row and deleting the rest.
+    ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``. A transaction-scoped
+    advisory lock on ``(team_id, name, internal)`` serializes concurrent callers, so they cannot
+    both INSERT. Without it, a dedupe could delete a row that another caller already returned.
+    Duplicates from before the lock are still deduped: we keep the oldest matching row and
+    delete the rest.
     """
     defaults: dict = {
         "network_access_level": network_access_level,
@@ -1650,22 +2811,27 @@ def upsert_internal_sandbox_env(
     if allowed_domains is not None:
         defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
-    try:
-        env, _ = SandboxEnvironment.objects.update_or_create(
-            team_id=team_id, name=name, internal=internal, defaults=defaults
-        )
-        return env.id
-    except SandboxEnvironment.MultipleObjectsReturned:
-        with transaction.atomic():
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                [team_id, f"internal-sandbox-env:{internal}:{name}"],
+            )
+        try:
+            env, _ = SandboxEnvironment.objects.update_or_create(
+                team_id=team_id, name=name, internal=internal, defaults=defaults
+            )
+            return env.id
+        except SandboxEnvironment.MultipleObjectsReturned:
             dupes = list(
                 SandboxEnvironment.objects.filter(team_id=team_id, name=name, internal=internal).order_by("created_at")
             )
             keeper = dupes[0]
             SandboxEnvironment.objects.filter(id__in=[d.id for d in dupes[1:]]).delete()
-        for key, value in defaults.items():
-            setattr(keeper, key, value)
-        keeper.save(update_fields=list(defaults.keys()))
-        return keeper.id
+            for key, value in defaults.items():
+                setattr(keeper, key, value)
+            keeper.save(update_fields=list(defaults.keys()))
+            return keeper.id
 
 
 def create_completed_sandbox_snapshot(external_id: str) -> UUID:
@@ -1688,6 +2854,38 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
         defaults={"accepted_by_user_id": user_id},
     )
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
+
+
+def revoke_desktop_beta_terms(organization_id: UUID, user: User) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    with transaction.atomic():
+        acceptance = DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).first()
+        if acceptance is not None:
+            acceptance.delete()
+            # The deleted row is the only record of who accepted and when, so the audit entry keeps both.
+            log_activity(
+                organization_id=organization_id,
+                team_id=None,
+                user=user,
+                was_impersonated=get_was_impersonated(),
+                item_id=organization_id,
+                scope="Organization",
+                activity="updated",
+                detail=Detail(
+                    changes=[
+                        Change(
+                            type="Organization",
+                            action="revoked",
+                            field="PostHog Desktop beta terms",
+                            before={
+                                "accepted_by_user_id": acceptance.accepted_by_user_id,
+                                "accepted_at": acceptance.accepted_at.isoformat(),
+                            },
+                            after=None,
+                        )
+                    ]
+                ),
+            )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=False)
 
 
 # --- Sandbox environments (presentation CRUD) ---
@@ -1789,7 +2987,7 @@ def update_sandbox_environment(
     env_id: str | UUID, team_id: int, user_id: int, **fields
 ) -> contracts.SandboxEnvironmentDTO | None:
     """Partially update a visible environment. Returns ``None`` if not found/visible."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return None
     if "environment_variables" in fields:
@@ -1806,7 +3004,7 @@ def update_sandbox_environment(
 
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible environment. Returns whether a row was deleted."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return False
     env.delete()
@@ -1816,13 +3014,14 @@ def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -
 # --- Sandbox custom images (presentation CRUD + builder/build flows) ---
 
 
-def sandbox_custom_images_enabled(team_id: int, user_id: int) -> bool:
+def sandbox_custom_images_enabled(team_id: int, user_id: int, origin_product: str | None = None) -> bool:
     """Whether custom base images are available for this team (Modal VM runtime flag gate)."""
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     user = User.objects.only("id", "distinct_id").get(id=user_id)
     return is_custom_images_enabled(
         distinct_id=user.distinct_id or f"user-{user_id}",
         organization_id=str(team.organization_id),
+        origin_product=origin_product,
     )
 
 
@@ -1859,6 +3058,18 @@ def _accessible_custom_images(team_id: int, user_id: int):
         .filter(Q(private=False) | Q(created_by_id=user_id))
         .select_related("created_by")
     )
+
+
+def _get_writable_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> SandboxCustomImage | None:
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None or image.created_by_id == user_id:
+        return image
+    level = UserPermissions(
+        user=User.objects.get(id=user_id), team=Team.objects.get(id=team_id)
+    ).current_team.effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        raise ApiPermissionDenied("Only the image's creator or a project admin can change a shared custom image.")
+    return image
 
 
 def _reload_image_dto(image_pk: UUID) -> contracts.SandboxCustomImageDTO:
@@ -1924,7 +3135,7 @@ def ensure_sandbox_custom_image_builder_task(
     image_id: str | UUID, team_id: int, user_id: int
 ) -> contracts.SandboxCustomImageDTO | None:
     """Revive (or reuse) the image's builder session; new sessions are seeded with the stored spec."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     ensure_image_builder_task(image, user_id)
@@ -1937,7 +3148,8 @@ def build_sandbox_custom_image(
     """Persist the image spec and kick off the scan → build → publish workflow.
 
     The spec comes from ``spec_yaml`` when provided, otherwise it is read from the
-    builder task's live sandbox. Raises ``ValueError`` on an invalid or empty spec.
+    live sandbox of the caller's own builder task, falling back to the stored spec.
+    Raises ``ValueError`` on an invalid or empty spec.
     """
     from products.tasks.backend.logic.services.image_spec import (  # noqa: PLC0415
         SandboxImageSpecError,
@@ -1950,16 +3162,20 @@ def build_sandbox_custom_image(
     )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
         raise ValueError("A build is already in progress for this image")
 
     try:
-        spec = parse_image_spec_yaml(spec_yaml) if spec_yaml is not None else read_spec_from_builder_sandbox(image)
+        spec = (
+            parse_image_spec_yaml(spec_yaml)
+            if spec_yaml is not None
+            else read_spec_from_builder_sandbox(image, user_id)
+        )
     except SandboxImageSpecError as e:
-        # Builder sandbox gone → the stored spec is the only correct rebuild source.
+        # No builder sandbox of the caller's to read → the stored spec is the only correct rebuild source.
         if spec_yaml is None and image.spec:
             spec = parse_image_spec_json(image.spec)
         else:
@@ -1981,6 +3197,9 @@ def build_sandbox_custom_image(
     )
     if not updated:
         raise ValueError("A build is already in progress for this image")
+    after = copy.copy(image)
+    after.spec = spec.model_dump()
+    log_sandbox_custom_image_update(image, after, user_id)
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -1995,11 +3214,12 @@ def update_sandbox_custom_image(
     name: str | None = None,
     description: str | None = None,
 ) -> contracts.SandboxCustomImageDTO | None:
-    """Rename (and optionally re-describe) a visible custom image.
+    """Rename (and optionally re-describe) a custom image the caller can change.
 
     Only mutable metadata (`name`, `description`) is editable here — the build spec,
     status, and published image reference are managed by the build/scan flow. Returns
-    ``None`` when the image is not visible to the caller.
+    ``None`` when the image is not visible to the caller, and raises ``PermissionDenied``
+    when the caller can see it but cannot change it.
     """
     updates: dict[str, str] = {}
     if name is not None:
@@ -2009,6 +3229,9 @@ def update_sandbox_custom_image(
     if not updates:
         return get_sandbox_custom_image(image_id, team_id, user_id)
 
+    image = _get_writable_custom_image(image_id, team_id, user_id)
+    if image is None:
+        return None
     updated = (
         _accessible_custom_images(team_id, user_id)
         .filter(id=image_id)
@@ -2016,6 +3239,10 @@ def update_sandbox_custom_image(
     )
     if not updated:
         return None
+    after = copy.copy(image)
+    for key, value in updates.items():
+        setattr(after, key, value)
+    log_sandbox_custom_image_update(image, after, user_id)
     # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
     # concurrent delete removes the row between the update above and this read,
     # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
@@ -2023,8 +3250,8 @@ def update_sandbox_custom_image(
 
 
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
-    """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    """Delete a custom image the caller can change. Environments referencing it fall back to the default base (SET_NULL)."""
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return False
     image.delete()
@@ -2045,8 +3272,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
-#     a caller could otherwise force directory snapshot creation while the feature flag is off.
 #   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
 #     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
@@ -2065,11 +3290,59 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "sandbox_environment_id",
+        # Worker-interpreted trial markers must never be caller-writable.
+        "scout_trial",
+        "scout_trial_judge",
+        "scout_trial_private",
+        "include_live_context",
+        "disable_skills",
+        "analytics_query_context",
+        "sandbox_oauth_token_ids",
+        # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
+        # would count as a root run and start more generations, and a parent that reset its count
+        # would lift its fan-out cap.
+        "agent_parent_task_id",
+        "agent_parent_run_id",
+        "agent_started_run_count",
+        "resume_from_run_id",
+        # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
+        "agent_memory_locked",
+        "run_source",
+        "pr_base_branch",
+        "stack_base_branch",
         "github_credential_source",
+        "token_cost",
+        "token_cost_incomplete",
+        "compute_cost",
+        # Trial funding is stamped by admission, never by clients.
+        "self_driving_funding",
+        "failure_error_type",
+        "startup_failure",
+        "startup_started_at",
+        "startup_completed_at",
+        "startup_provider",
+        "startup_runtime",
+        "agent_startup_attempt",
+        "agent_startup_success",
+        "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
+        # Decides which repositories the run's GitHub token can write to.
+        "github_access_repositories",
         "verified_pr_urls",
+        "prewarmed",
+        "await_user_message",
+        "warm_activation_started",
+        "warm_activation_message_id",
+        "warm_activation_submission_id",
+        "warm_permission_mode_failed",
+        "warm_activated",
+        TASK_RUN_SUMMARY_STATE_KEY,
+        PRIOR_RUN_SUMMARY_STATE_KEY,
+        TASK_RUN_TAGS_STATE_KEY,
+        PRIOR_RUN_TAGS_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -2078,21 +3351,32 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        "agent_egress_probe",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "systemPrompt",
+        # Resolved from the project and personal settings; a PATCHable value would let a task
+        # controller write arbitrary text into the agent's user-level instructions file.
+        "agent_instructions",
         "wizard_config",
+        "reconciled_pr_merge_url",
         "wizard_head_branch",
-        "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
-        # Rollout stamps written once at dispatch by _capture_run_feature_flags; a PATCHable
-        # value would let a task controller bypass the org feature flags (for telemetry, that
-        # means injecting the internal OTLP capture token into their sandbox and re-enabling
-        # the run-log mirror with the rollout off).
+        # The image a run boots from; a PATCHed value would pick an image the task never asked for.
+        "sandbox_template",
+        "custom_image_id",
+        # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
+        # creation; a PATCHable value would let a task controller bypass the org feature flags
+        # (for telemetry, that means injecting the internal OTLP capture token into their
+        # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        "overlap_clone_boot_enabled",
+        "stream_presence_gated",
+        "stream_thin_tail",
         PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
@@ -2100,16 +3384,17 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
-        # Written once at loop fire time; seeding copies these storage paths into the
-        # run's artifact prefix, so a PATCHable value would be an arbitrary
-        # object-storage read (and write-location) primitive.
-        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        "cancel_fallback_stream_generation",
+        "stream_generation",
         "pending_external_followups",
         "pending_external_followups_generation",
+        "pending_external_followups_checkpoint",
+        "task_management_ci_idle_skips",
+        "task_management_ci_wait_checks",
         # Terminal reason markers owned by the workflow (see the note above). Spelled as literals
         # rather than imported from the update_task_run_status activity, which would pull temporalio
         # onto this module's import path; the workflow writes them through
@@ -2117,11 +3402,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
-        TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+        STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
+        TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
         # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
-        # at insight-report time to attribute the captured event to a repository and sandbox
+        # at activity-report time to attribute the captured event to a repository and sandbox
         # image. A PATCHable value would let the sandbox agent forge that attribution.
         ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
         ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -2130,20 +3416,22 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
-        # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
-        # terminal bookkeeping from running twice. A caller must not be able to forge either.
+        "github_token_scope",
+        # Historical loop runs use this server stamp to keep owner credential revocation fail-closed.
         "loop_id",
-        "loop_trigger_id",
-        "trigger_context",
+        # Stamped at creation by workflow tasks: a PATCHable value would widen the run's connector allowlist.
         "config_snapshot",
-        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
-        # is_interactive_signals_run reads its presence the same way, to tell a pipeline-started
-        # signals run from one a person started; forging it would move the run off the interactive
-        # budget and out of its per-run spend ceiling.
+        # is_interactive_signals_run reads it the same way, so forging it would move the run off
+        # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        "billing_product",
+        # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
+        GATEWAY_PRODUCT_STATE_KEY,
+        # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
+        # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
+        "ai_agent_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
         # PR, which is the exact forgery the stamp exists to prevent.
@@ -2158,10 +3446,52 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        # The OpenAI queue the run's Codex turns join; `priority` costs more than standard.
+        "service_tier",
+        "claude_model_access",
+        "claude_subscription_user_id",
+        "codex_model_access",
+        "codex_subscription_user_id",
+        "rtk_effective",
+        "benjamin_effective",
+        "usage_metrics_recorded",
+        # get_task_run_actor_user mints the sandbox OAuth token for slack_actor_user_id when
+        # interaction_origin is "slack"; a removed actor falls back to the task creator.
+        "interaction_origin",
+        "slack_actor_user_id",
+        "slack_actor_slack_user_id",
+        # The Slack app edits and deletes this message without checking which thread it is in, so a
+        # forged ts would let a caller rewrite or remove any bot message in the channel.
+        "slack_progress_message_ts",
+        # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
+        "autoresearch_training_run_id",
+        # Set only when the agent's `finish` call saves its report. A forged marker would stop the
+        # relay from saving the run's final message and make readers trust a caller-written one.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     }
 )
 
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+TASK_RUN_FAILURE_ERROR_TYPES = (
+    "agent_reported",
+    "agent_server_crash",
+    "agent_declined",
+    "output_parse_failed",
+    "poll_timeout",
+    "pi_runtime_error",
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+    "upstream_request_rejected",
+    "content_block_rejection",
+    "turn_ended_without_response",
+    "subscription_usage_limit",
+    "task_spend_limit",
+    "agent_error",
+    "ActiveSessionCapError",
+)
 
 # `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
 # the caller's. Signals reads it to decide refund finality (billing.report_pr_is_merged): a report
@@ -2170,6 +3500,18 @@ _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, 
 # PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
 # go through `_merge_caller_output`, not merge caller output directly.
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _carries_final_message(validated_data: dict) -> bool:
+    output = validated_data.get("output")
+    return isinstance(output, dict) and isinstance(output.get("final_message"), str) and bool(output["final_message"])
+
+
+def is_finish_report_output(output: object) -> bool:
+    if not isinstance(output, dict) or set(output) != {"final_message"}:
+        return False
+    report = output["final_message"]
+    return isinstance(report, str) and 0 < len(report) <= FINAL_MESSAGE_MAX_CHARS
 
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
@@ -2191,9 +3533,7 @@ def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
 
 
 def _task_run_queryset():
-    return TaskRun.objects.select_related(
-        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
-    )
+    return TaskRun.objects.select_related("task", "task__created_by", "task__github_user_integration")
 
 
 def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
@@ -2204,22 +3544,6 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
-
-
-def _get_peer_sender_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
-    return (
-        _task_run_queryset()
-        .filter(
-            pk=run_id,
-            team_id=team_id,
-            task_id=task_id,
-            environment=TaskRun.Environment.CLOUD,
-            status=TaskRun.Status.IN_PROGRESS,
-            task__runtime=Task.Runtime.PI,
-            task__deleted=False,
-        )
-        .first()
-    )
 
 
 def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
@@ -2267,6 +3591,8 @@ def task_accessible_for_run_view(
     *,
     bypass_visibility: bool = False,
     for_control: bool = False,
+    sandbox_task_id: UUID | None = None,
+    sandbox_request: bool = False,
 ) -> bool:
     """Whether the parent task exists and (unless bypassed) is visible to the user.
 
@@ -2289,21 +3615,76 @@ def task_accessible_for_run_view(
     Threads from a direct message are excluded: a DM has no audience beyond its author, so
     there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
-    task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+    trial_visibility = scout_trial_visibility_q(user_id)
+    if sandbox_request or sandbox_task_id is not None:
+        trial_visibility = ~Task.scout_experiment_q() | Q(id=sandbox_task_id)
+    visibility = trial_visibility & Q(deleted=False)
     if not bypass_visibility:
         scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
-        task_filter = task_filter.filter(scope_q)
-    return task_filter.exists()
+        visibility &= scope_q
+    # Classify the same row used for authorization, including denied reads whose errors stay private.
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id)
+        .annotate(
+            is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
+            accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
+        )
+        .values("is_trial", "accessible", "profile", "created_by_id")
+        .first()
+    )
+    if task is not None and task["is_trial"]:
+        tag_queries(is_scout_experiment=True)
+    if task is None or not task["accessible"]:
+        return False
+    acts_on_its_own_task = sandbox_task_id is not None and str(sandbox_task_id) == str(task_id)
+    if for_control and not (bypass_visibility or acts_on_its_own_task):
+        return drive_allowed(task["profile"], created_by_id=task["created_by_id"], user_id=user_id)
+    return True
 
 
-def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunDetailDTO]:
+def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
+    """Ids of every run of a task, team-scoped. Caller enforces task visibility."""
+    return list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True))
+
+
+def list_task_runs(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> list[contracts.TaskRunDetailDTO]:
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
-    return [_task_run_detail_to_dto(run) for run in runs]
+    return [
+        _task_run_detail_to_dto(run, user_id=user_id, analytics_context_reader=analytics_context_reader) for run in runs
+    ]
+
+
+def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__run_source", flat=True)
+        .first()
+    )
+
+
+def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__claude_model_access", flat=True)
+        .first()
+    )
 
 
 def get_task_run_detail(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team.
 
@@ -2311,7 +3692,16 @@ def get_task_run_detail(
     boot-prompt keys that are withheld from human readers.
     """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
+    return (
+        _task_run_detail_to_dto(
+            run,
+            include_agent_state=include_agent_state,
+            user_id=user_id,
+            analytics_context_reader=analytics_context_reader,
+        )
+        if run is not None
+        else None
+    )
 
 
 def get_task_run_stream_info(
@@ -2329,10 +3719,14 @@ def get_task_run_stream_info(
         id=run.id,
         state=run.state or {},
         origin_product=origin_product_label(run),
+        is_terminal=run.is_terminal,
+        state_event=run.build_stream_state_event(),
     )
 
 
-def signal_workflow_completion(run_id: str | UUID, status: str, error_message: str | None) -> None:
+def signal_workflow_completion(
+    run_id: str | UUID, status: str, error_message: str | None, error_type: str | None = None
+) -> None:
     """Send a completion signal to a run's Temporal workflow (best-effort)."""
     import asyncio  # noqa: PLC0415 — only needed when signalling
 
@@ -2343,8 +3737,10 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
     )
 
     run = TaskRun.objects.filter(pk=run_id).first()
-    if run is None:
+    if run is None or (run.scheduled_at is not None and run.queued_at is None):
         return
+    if error_type is not None:
+        record_run_failure_cause(run.id, error_type)
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(run.workflow_id)
@@ -2391,28 +3787,6 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
-def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
-    user = run.task.created_by
-    if user is None or not user.distinct_id:
-        return False
-    try:
-        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
-        organization_id = str(team.organization_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
-                user.distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
-        return False
-
-
 def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
     if not repository:
         return False
@@ -2451,8 +3825,6 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
             extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
         )
         return
-    if not _is_wizard_pr_ready_email_enabled(run):
-        return
 
     if not run.task.mark_pr_ready_email_queued(pr_url):
         return
@@ -2473,7 +3845,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
     """
     try:
-        if old_pr_url:
+        if old_pr_url or (run.state or {}).get("billing_product") == "posthog_ai":
             return
         new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
@@ -2482,7 +3854,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
         # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
         # must not import signals internals.
-        if not new_pr_url.startswith("https://github.com/"):
+        if not new_pr_url.startswith(GITHUB_PR_URL_PREFIX):
             return
         organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
         if organization_id is None:
@@ -2504,28 +3876,59 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
 
-def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
-    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
-    credits quota with enforcement on. The implementation task is the step that leads to the
-    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
-    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
-    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
-    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
+def enforce_self_driving_free_trial(
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
+) -> None:
+    """Keep fresh PR-opening work unavailable during the legacy reports-only trial.
+
+    Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
+    if enabled is False:
+        return
+    from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        FreeTrialPullRequestRefused,
+        capture_signal_report_free_trial_paused,
+        self_driving_free_trial_enabled,
+    )
+
+    if not self_driving_free_trial_enabled(
+        team, admitted_report_id=report_id if continue_admitted_pipeline else None, enabled=enabled
+    ):
+        return
+    capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
+    raise FreeTrialPullRequestRefused()
+
+
+def enforce_self_driving_pr_quota(
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    gate: "SelfDrivingQuotaGate | None" = None,
+) -> None:
+    """Pass a pre-resolved gate when enforcement must happen under a database lock."""
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
-    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         capture_signal_report_quota_paused,
+        self_driving_limit_name,
         self_driving_quota_gate,
     )
 
-    gate = self_driving_quota_gate(team)
+    if gate is None:
+        gate = self_driving_quota_gate(team)
     if gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
         raise QuotaLimitExceeded(
-            "Your organization reached its self-driving pull request limit. "
-            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+            f"Your organization reached its self-driving {self_driving_limit_name(team)}. "
+            "New work is paused; work already underway will finish. "
+            "Increase the limit in Settings > Billing, or ask an organization admin to do so."
         )
 
 
@@ -2536,7 +3939,10 @@ def update_task_run(
     *,
     validated_data: dict,
     only_if_non_terminal: bool = False,
+    only_if_not_started: bool = False,
     caller_is_agent: bool = False,
+    user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -2544,12 +3950,13 @@ def update_task_run(
     output/state merges take a row lock, terminal transitions signal Temporal + dispatch
     push/Slack updates after commit, and a cloud→local transition cancels the workflow.
     """
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
-        handle_loop_run_terminal,
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
+        observe_task_run_terminal,
         observe_wizard_run_unbound,
     )
 
@@ -2558,6 +3965,8 @@ def update_task_run(
         return None
 
     validated_data = dict(validated_data)
+    if "state" in validated_data and not isinstance(validated_data["state"], dict):
+        raise ValueError("Run state must be an object.")
     if (
         "status" in validated_data
         and not caller_is_agent
@@ -2566,6 +3975,14 @@ def update_task_run(
         # A human-driven status write on an analysis run is a way to buy another funded analysis:
         # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
         # run's own agent write status through paths that do not pass through here.
+        validated_data.pop("status")
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.WORKFLOW
+        and validated_data["status"] != TaskRun.Status.CANCELLED
+    ):
+        # A finished status wakes the workflow step with this run's output, so only the agent may set it.
         validated_data.pop("status")
 
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
@@ -2587,11 +4004,24 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal:
+        if (
+            has_output_merge
+            or has_state_mutation
+            or only_if_non_terminal
+            or only_if_not_started
+            or "status" in validated_data
+            or "branch" in validated_data
+        ):
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_not_started and run.status != TaskRun.Status.NOT_STARTED:
+            return None
         if only_if_non_terminal and run.is_terminal:
-            return _task_run_detail_to_dto(run)
+            if validated_data.get("status") == run.status:
+                transaction.on_commit(lambda: resume_workflow_step_for_run(run))
+            return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
         old_status = run.status
+        old_output = run.output
+        old_branch = run.branch
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
 
@@ -2604,7 +4034,7 @@ def update_task_run(
                 setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
                 update_fields.add(key)
                 continue
-            if key in ("state_remove_keys", "state_append"):
+            if key in ("state_remove_keys", "state_append", "error_type"):
                 continue
             if key == "state" and has_state_merge:
                 existing_state = run.state if isinstance(run.state, dict) else {}
@@ -2642,6 +4072,30 @@ def update_task_run(
             update_fields.add("state")
 
         new_status = validated_data.get("status")
+        if only_if_not_started and new_status == TaskRun.Status.CANCELLED:
+            # A dormant run has no workflow to complete its stream after cancellation.
+            run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
+            update_fields.add("state")
+        if (
+            caller_is_agent
+            and new_status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED}
+            and old_status != new_status
+            and _carries_final_message(validated_data)
+        ):
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": output["final_message"][:FINAL_MESSAGE_MAX_CHARS]}
+            run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
+            update_fields.update({"output", "state"})
+        elif (
+            caller_is_agent
+            and new_status == TaskRun.Status.COMPLETED
+            and old_status != new_status
+            and run.task.origin_product == Task.OriginProduct.WORKFLOW
+            and (run.state or {}).get("end_run_when_done")
+        ):
+            if isinstance(run.output, dict):
+                run.output = {key: value for key, value in run.output.items() if key != "final_message"}
+                update_fields.add("output")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
                 run.completed_at = django_timezone.now()
@@ -2649,14 +4103,23 @@ def update_task_run(
 
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
+        PullRequestReconciler.schedule(run, previous_output=old_output, previous_branch=old_branch)
         run.publish_stream_state_event()
 
-    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
-    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
-    # (consecutive_failures would double-count). The workflow's status-update activity
-    # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
-        handle_loop_run_terminal(run)
+        # This PATCH performed the transition, so the status-update activity skips its count.
+        observe_task_run_terminal(
+            run,
+            error_type=validated_data.get("error_type")
+            or ("agent_reported" if new_status == TaskRun.Status.FAILED else None),
+            termination_reason=None,
+        )
+        try:
+            if run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_cost(run_id=run.id, team_id=run.team_id)
+                run.refresh_from_db(fields=["state", "updated_at"])
+        except Exception:
+            logger.warning("task_run_cost_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
@@ -2668,8 +4131,9 @@ def update_task_run(
                 "task_run_failed",
                 {
                     "error_message": truncate_error_message(run.error_message),
-                    "error_type": "agent_reported",
+                    "error_type": validated_data.get("error_type") or "agent_reported",
                     "duration_seconds": run._duration_seconds(),
+                    **run.failure_sandbox_backend_properties(),
                 },
             )
         observe_wizard_run_unbound(run)
@@ -2679,7 +4143,9 @@ def update_task_run(
         observe_prewarmed_unused_if_never_activated(
             run, reason="released" if new_status == TaskRun.Status.CANCELLED else "other"
         )
-        signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
+        signal_workflow_completion(
+            run.id, new_status, validated_data.get("error_message"), validated_data.get("error_type")
+        )
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,
@@ -2709,7 +4175,15 @@ def update_task_run(
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
 
-    return _task_run_detail_to_dto(run)
+    if new_status in _TERMINAL_TASK_RUN_STATUSES:
+        resume_workflow_step_for_run(run)
+
+    return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
+
+
+TASK_RUN_SUMMARY_MAX_CHARS = 1500
+TASK_RUN_TAGS_MAX_COUNT = 10
+TASK_RUN_TAG_MAX_CHARS = 50
 
 
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
@@ -2729,28 +4203,68 @@ def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *
 
 
 def set_task_run_output(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, user_id: int | None = None
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
+
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     task = run.task
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
-    existing = run.output if isinstance(run.output, dict) else {}
-    merged = merge_pr_output(existing, output)
-    run.output = _apply_caller_output(existing, output, merged)
-    run.save(update_fields=["output", "updated_at"])
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(pk=run.pk, team_id=team_id)
+        existing = run.output if isinstance(run.output, dict) else {}
+        merged = merge_pr_output(existing, output)
+        run.output = _apply_caller_output(existing, output, merged)
+        run.save(update_fields=["output", "updated_at"])
+        PullRequestReconciler.schedule(run, previous_output=existing, previous_branch=run.branch)
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema:
+    if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
     _send_wizard_pr_ready_email_for_pr(run)
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, user_id=user_id)
+
+
+def set_task_run_summary(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    summary: str,
+    tags: list[str] | None = None,
+    sync_task_tags: bool = True,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> contracts.TaskRunDetailDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    updates: dict[str, Any] = {TASK_RUN_SUMMARY_STATE_KEY: summary}
+    # Omitted tags keep the current set, so a summary-only call does not erase them.
+    if tags is not None:
+        updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
+    with transaction.atomic():
+        run.state = TaskRun.update_state_atomic(run.id, updates=updates)
+        if sync_task_tags and tags is not None and not run.task.is_scout_experiment:
+            replace_tags_on_object(tags, run.task)
+    run.refresh_from_db()
+    run.publish_stream_state_event()
+    return _task_run_detail_to_dto(
+        run,
+        include_agent_state=include_agent_state,
+        user_id=user_id,
+        analytics_context_reader=analytics_context_reader,
+    )
 
 
 def _entries_show_agent_activity(entries: list[dict]) -> bool:
@@ -2791,10 +4305,205 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries)
+    run.append_log(entries, lock_attempts=1)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
+
+
+def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[contracts.TaskRunInputFile]) -> None:
+    """Bind trusted, already-stored inputs inside the caller's run-creation transaction.
+
+    The caller owns the objects and verifies their scope before attaching them. Keeping their
+    immutable locations avoids storage I/O while the task creation transaction is open.
+    """
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the facade import path
+        build_task_artifact_entry,
+    )
+
+    run = TaskRun.objects.get(id=run_id, team_id=team_id, task__team_id=team_id)
+    if run.status not in {TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED} or run.artifacts:
+        raise ValueError("Input files must be attached before the task run starts.")
+    if len({file.id for file in files}) != len(files):
+        raise ValueError("Input files must have distinct identifiers.")
+    run.artifacts = [
+        build_task_artifact_entry(
+            artifact_id=file.id,
+            name=file.name,
+            artifact_type="file",
+            source="internal",
+            size=file.size_bytes,
+            content_type=file.content_type,
+            storage_path=file.storage_path,
+        )
+        for file in files
+    ]
+    run.save(update_fields=["artifacts", "updated_at"])
+
+
+def get_task_id_by_idempotency_key(team_id: int, key: str) -> UUID | None:
+    return Task.objects.filter(idempotency_key_q(key), team_id=team_id).values_list("id", flat=True).first()
+
+
+PUBLIC_CREATE_FINGERPRINT_STATE_KEY = "public_create_fingerprint"
+
+
+class IdempotencyKeyReused(Exception):
+    pass
+
+
+def find_task_for_idempotency_key(
+    team_id: int, user_id: int | None, key: str, fingerprint: str
+) -> contracts.TaskDetailDTO | None:
+    task = Task.objects.filter(idempotency_key_q(key), team_id=team_id).first()
+    if task is None:
+        return None
+    if (
+        task.deleted
+        or (task.state or {}).get(PUBLIC_CREATE_FINGERPRINT_STATE_KEY) != fingerprint
+        or not _visible_task_qs(team_id, user_id).filter(pk=task.pk).exists()
+    ):
+        raise IdempotencyKeyReused(key)
+    return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def task_source_in_team(team_id: int, source: TaskSource) -> bool:
+    try:
+        source_id = UUID(source.id)
+    except ValueError:
+        return False
+    if source.kind == SourceKind.SIGNAL_REPORT:
+        return signal_report_queryset().filter(team_id=team_id, pk=source_id).exists()
+    return False
+
+
+def get_task_by_origin_key(
+    team_id: int, origin_key: str, *, include_latest_run: bool = True
+) -> contracts.TaskDetailDTO | None:
+    """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
+    origin key is an idempotency handle for a system writer, not a user-facing lookup."""
+    task = Task.objects.filter(idempotency_key_q(origin_key), team_id=team_id, deleted=False).first()
+    return _task_detail_to_dto(task, include_latest_run=include_latest_run) if task is not None else None
+
+
+def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
+    """The run that holds a task's imported transcript (``state.imported_from`` set), or None."""
+    run = (
+        TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__has_key="imported_from")
+        .order_by("created_at", "id")
+        .first()
+    )
+    return _task_run_detail_to_dto(run) if run is not None else None
+
+
+def create_imported_task(
+    team_id: int,
+    user_id: int,
+    *,
+    profile: TaskProfile,
+    title: str,
+    origin_key: str,
+    created_at: datetime,
+) -> contracts.TaskDetailDTO:
+    """Create the task that hosts a transcript imported from elsewhere.
+
+    Backdated to the source's creation time so the task list keeps the order the user remembers.
+    The title comes from the source, not the user, so a later rename of the task must win over it.
+    """
+    return create_task(
+        team_id,
+        user_id,
+        validated_data={
+            "title": title,
+            "title_manually_set": False,
+            "description": "",
+            "origin_product": profile.origin_product,
+            "profile": profile.key,
+            "origin_key": origin_key,
+            "internal": not profile.listed,
+            "created_at": created_at,
+        },
+    )
+
+
+def create_imported_task_run(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    state: dict,
+    created_at: datetime,
+    completed_at: datetime,
+) -> contracts.TaskRunDetailDTO:
+    """Create a completed run that never executed, to host a transcript imported from elsewhere.
+
+    The run is backdated to the source's timestamps so the task sorts and reads as old as the
+    conversation it came from. Nothing dispatches a workflow for it; a later real run chains to it
+    through ``resume_from_run_id`` like any earlier run. A task holds one import run: the create
+    runs under the task's row lock and returns the existing run when a concurrent import won.
+    """
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        existing = (
+            TaskRun.objects.filter(task=task, team_id=team_id, state__has_key="imported_from")
+            .order_by("created_at", "id")
+            .first()
+        )
+        if existing is not None:
+            return _task_run_detail_to_dto(existing)
+        run = TaskRun.objects.create(
+            task=task,
+            team_id=team_id,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state=state,
+            completed_at=completed_at,
+        )
+        # created_at is auto_now_add, so the backdate has to go through update().
+        TaskRun.objects.filter(id=run.id).update(created_at=created_at)
+    run.refresh_from_db()
+    return _task_run_detail_to_dto(run)
+
+
+def append_imported_task_run_log(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    batch_id: str,
+    expected_state: dict,
+    state_updates: dict,
+    completed_at: datetime,
+) -> bool:
+    """Append lines to an import run's log and record how far the source has been copied.
+
+    Holds the run's row lock across the append so two copies of the same source cannot both
+    append the same lines: the append only happens while ``expected_state`` still matches the
+    run's state, and returns False when another writer moved it on first. ``batch_id`` names
+    this batch in the log, so a retry after the append succeeded but the state write failed
+    skips the append instead of writing the lines twice. Imported transcripts are user chat
+    history, so the log is never tagged for expiry, and there is no workflow to heartbeat.
+    ``completed_at`` follows the source so the run reads as current as the conversation it copies.
+    """
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(id=run_id, task_id=task_id, team_id=team_id)
+        state = run.state or {}
+        if any(state.get(key) != value for key, value in expected_state.items()):
+            return False
+        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        run.state = {**state, **state_updates}
+        run.completed_at = completed_at
+        run.save(update_fields=["state", "completed_at"])
+    return True
+
+
+def touch_imported_task(task_id: str | UUID, team_id: int, *, title: str | None, last_activity_at: datetime) -> None:
+    """Keep an imported task's list row in step with its source conversation."""
+    tasks = Task.objects.filter(id=task_id, team_id=team_id)
+    tasks.update(last_activity_at=last_activity_at)
+    if title:
+        # A title the user set on the task outranks the source's generated one.
+        tasks.filter(title_manually_set=False).update(title=title)
 
 
 def clear_task_run_conversation(
@@ -2884,6 +4593,28 @@ def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) 
         )
 
 
+def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
+    """The plan a run bills to, or `None` for a run on PostHog credits."""
+    try:
+        access = resolve_model_access(state or {})
+    except InvalidModelAccess:
+        return None
+    if access.adapter is None:
+        return None
+    return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
+
+
+def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
+    """Refuse anyone but the owner of the plan a run bills to. A run on PostHog credits allows everyone."""
+    run_state = state or {}
+    for adapter, plan_name in SUBSCRIPTION_PLAN_NAMES.items():
+        if (
+            run_state.get(f"{adapter}_model_access") == "own-subscription"
+            and run_state.get(f"{adapter}_subscription_user_id") != actor_user_id
+        ):
+            raise PermissionDenied(f"Only the user who started this run can use its {plan_name}.")
+
+
 def validate_task_run_sandbox_token(
     token: str,
     run_id: str | UUID,
@@ -2907,6 +4638,59 @@ def validate_task_run_sandbox_token(
         and claims.team_id == team_id
         and claims.sandbox_id == sandbox_id
     )
+
+
+def issue_codex_subscription_access_grant(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    run_token: str,
+    rejected_access_token_sha256: str | None,
+) -> CodexAccessGrant | None:
+    """The run owner's ChatGPT access token for a Codex own-subscription run.
+
+    None when the run token does not authorize this run: wrong run, a sandbox that is no
+    longer the run's active sandbox, or a run that does not use the owner's ChatGPT plan.
+    Raises ``CodexReauthRequired`` when the owner must reconnect, ``CodexAuthError`` when
+    OpenAI could not refresh the token.
+    """
+    from jwt import InvalidTokenError  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        validate_codex_subscription_run_token,
+    )
+    from products.tasks.backend.temporal.metrics import increment_credential_refresh  # noqa: PLC0415
+
+    try:
+        claims = validate_codex_subscription_run_token(run_token)
+    except (InvalidTokenError, ValueError):
+        return None
+    if claims.run_id != str(run_id) or claims.task_id != str(task_id) or claims.team_id != team_id:
+        return None
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "state").first()
+    if run is None:
+        return None
+    state = run.state or {}
+    owner_id = state.get("codex_subscription_user_id")
+    if (
+        state.get("sandbox_id") != claims.sandbox_id
+        or state.get("codex_model_access") != "own-subscription"
+        or not isinstance(owner_id, int)
+    ):
+        return None
+    try:
+        grant = CodexUserIntegration.issue_access_grant(
+            owner_id, rejected_access_token_sha256=rejected_access_token_sha256, source="tasks_run"
+        )
+    except CodexReauthRequired:
+        increment_credential_refresh("codex", "orphaned")
+        raise
+    except CodexAuthError:
+        increment_credential_refresh("codex", "failed")
+        raise
+    increment_credential_refresh("codex", "refreshed" if grant.refreshed else "skipped")
+    return grant
 
 
 def sync_task_run_session(
@@ -2997,8 +4781,18 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
     return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
 
+def _downloadable_artifact_entry(artifacts: list[dict[str, Any]] | None, artifact_id: str) -> dict[str, Any] | None:
+    entry = next((a for a in artifacts or [] if a.get("id") == artifact_id), None)
+    # Reference entries carry no file, so there is nothing to download for them.
+    return entry if entry is not None and entry.get("storage_path") else None
+
+
+def _artifact_download_path(team_id: int, task_id: UUID, run_id: UUID, artifact_id: str) -> str:
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/artifacts/{artifact_id}/download/"
+
+
 def _build_artifact_download_path(run: TaskRun, artifact_id: str) -> str:
-    return f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+    return _artifact_download_path(run.team_id, run.task_id, run.id, artifact_id)
 
 
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
@@ -3023,6 +4817,7 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
+    script_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
@@ -3035,6 +4830,8 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if script_sha256 is not None:
+        entry[ARTIFACT_SCRIPT_SHA256_KEY] = script_sha256
     if metadata:
         entry["metadata"] = metadata
     return entry
@@ -3047,9 +4844,49 @@ def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storag
     )
 
 
+ARTIFACT_SCRIPT_HASH_BUDGET_BYTES = 64 * 1024 * 1024
+
+
+def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
+    return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
+
+
+def _new_version_may_run_scripts(manifest: list[dict], name: str, base: dict | None, budget: int) -> tuple[bool, int]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        stored_bytes_match_digest,
+    )
+
+    if not _earlier_versions_run_scripts([*manifest, *([base] if base else [])], name):
+        return False, 0
+    previous = base or next((e for e in reversed(manifest) if e.get("name") == name), None)
+    if previous is None:
+        return True, 0
+    size = previous.get("size")
+    if not isinstance(size, int) or size > budget:
+        return False, 0
+    return stored_bytes_match_digest(previous.get("storage_path"), previous.get(ARTIFACT_SCRIPT_SHA256_KEY)), size
+
+
+def _append_versions(manifest: list[dict], entries: list[dict]) -> list[dict]:
+    for entry in entries:
+        if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(manifest, entry["name"]):
+            del entry[ARTIFACT_SCRIPT_SHA256_KEY]
+        manifest.append(entry)
+    return manifest
+
+
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
     run.artifacts = manifest
     run.save(update_fields=["artifacts", "updated_at"])
+
+
+def get_user_attachment_max_size_bytes(name: str, content_type: str) -> int:
+    """The largest file a user may attach to a task run, the same on every surface that attaches one."""
+    from products.tasks.backend.presentation.serializers import (  # noqa: PLC0415 — pure size helpers, kept off the api import path
+        get_task_run_artifact_max_size_bytes,
+    )
+
+    return get_task_run_artifact_max_size_bytes(name, content_type, "user_attachment")
 
 
 def upload_task_run_artifacts(
@@ -3059,6 +4896,7 @@ def upload_task_run_artifacts(
     *,
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"] | None = None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -3079,6 +4917,7 @@ def upload_task_run_artifacts(
         return None
 
     uploaded: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     for artifact in artifacts:
         artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
@@ -3088,6 +4927,14 @@ def upload_task_run_artifacts(
         content_type = artifact.get("content_type")
         if content_type:
             extras["ContentType"] = content_type
+
+        may_run_scripts = written_with_open_network
+        if may_run_scripts and is_html_artifact(safe_name, content_type or ""):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                [*(run.artifacts or []), *uploaded], safe_name, None, hash_budget
+            )
+            hash_budget -= spent
+        script_sha256 = hashlib.sha256(content_bytes).hexdigest() if may_run_scripts else None
 
         object_storage.write(storage_path, content_bytes, extras or None)
         _tag_artifact_object(run, storage_path)
@@ -3102,6 +4949,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                script_sha256=script_sha256,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -3118,8 +4966,9 @@ def upload_task_run_artifacts(
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
         uploaded_ids = {entry["id"] for entry in uploaded}
-        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
-        manifest.extend(uploaded)
+        manifest = _append_versions(
+            [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids], uploaded
+        )
         _save_artifact_manifest(run, manifest)
 
     if uploaded_by == "agent":
@@ -3168,6 +5017,7 @@ def register_task_run_posthog_references(
         by_id = {str(entry.get("id")): entry for entry in manifest if entry.get("id")}
         reference_count = sum(1 for entry in manifest if entry.get("type") == "reference")
         now = django_timezone.now().isoformat()
+        manifest_changed = False
 
         for reference in references:
             object_kind = str(reference["object_kind"])
@@ -3185,6 +5035,7 @@ def register_task_run_posthog_references(
                 metadata["source_message_ids"] = source_message_ids
                 metadata["occurrence_count"] = len(source_message_ids)
                 existing["metadata"] = metadata
+                manifest_changed = True
                 continue
 
             if reference_count >= MAX_RUN_REFERENCE_ARTIFACTS:
@@ -3210,8 +5061,10 @@ def register_task_run_posthog_references(
             manifest.append(entry)
             by_id[artifact_id] = entry
             created.append(entry)
+            manifest_changed = True
 
-        _save_artifact_manifest(run, manifest)
+        if manifest_changed:
+            _save_artifact_manifest(run, manifest)
 
     for entry in created if attribute_as_agent else []:
         reference_metadata = entry.get("metadata")
@@ -3293,6 +5146,7 @@ def finalize_task_run_artifact_uploads(
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"],
     uploaded_by_user_id: int | None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -3319,6 +5173,7 @@ def finalize_task_run_artifact_uploads(
     artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
     new_entries: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     new_storage_paths: list[str] = []
 
     for artifact in artifacts:
@@ -3347,6 +5202,27 @@ def finalize_task_run_artifact_uploads(
         if content_length > max_size_bytes:
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
 
+        script_sha256 = None
+        base_artifact_id = artifact.get("base_artifact_id")
+        base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
+        if (
+            written_with_open_network
+            and (base_artifact_id is None or base_entry is not None)
+            and is_html_artifact(safe_name, content_type)
+            and content_length <= hash_budget
+        ):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                manifest, safe_name, base_entry, hash_budget - content_length
+            )
+            hash_budget -= content_length + spent
+            if may_run_scripts:
+                try:
+                    uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+                except Exception:
+                    logger.warning("task_run.artifact_script_hash_failed", extra={"task_run_id": str(run.id)})
+                    uploaded_bytes = None
+                script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
+
         entry = _build_artifact_manifest_entry(
             artifact_id=artifact_id,
             name=safe_name,
@@ -3356,6 +5232,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            script_sha256=script_sha256,
             metadata=artifact.get("metadata"),
         )
         entry["uploaded_by"] = uploaded_by
@@ -3373,8 +5250,9 @@ def finalize_task_run_artifact_uploads(
         with transaction.atomic():
             locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
             new_ids = {entry["id"] for entry in new_entries}
-            merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
-            merged.extend(new_entries)
+            merged = _append_versions(
+                [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids], new_entries
+            )
             _save_artifact_manifest(locked_run, merged)
         # Count versions from the locked merge, or a concurrent same-named finalize is missed.
         manifest = merged
@@ -3432,6 +5310,118 @@ def get_task_run_living_artifact(
     return serialized
 
 
+_LivingVersionResult = TypeVar("_LivingVersionResult")
+
+
+def _task_run_living_artifact_version(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    artifact_id: str | UUID,
+    version: int,
+    load: Callable[[Any, int], _LivingVersionResult | None],
+) -> tuple[_LivingVersionResult | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        LivingArtifactVersionTooLarge,
+        get_task_artifact_for_run,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return None, "not_found"
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        result = load(artifact, version)
+    except LivingArtifactVersionTooLarge:
+        return None, "too_large"
+    except Exception:
+        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
+        return None, "read_failed"
+    if result is None:
+        return None, "not_found"
+    return result, None
+
+
+def read_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
+    """Read the content of one living artifact version.
+
+    Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
+    artifact or version isn't found or keeps no content, ``(None, "too_large")`` if a stored version is
+    over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        read_living_artifact_version,
+    )
+
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, read_living_artifact_version
+    )
+
+
+def describe_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionPreview | None, str | None]:
+    """Describe one living artifact version for a preview, without reading its stored bytes. Errors as in the read."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        describe_living_artifact_version,
+    )
+
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, describe_living_artifact_version
+    )
+
+
+def presign_task_run_living_artifact_version_download(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> contracts.LivingArtifactVersionDownload:
+    """Presign a download URL for one stored living artifact version.
+
+    The error is ``"not_found"`` if the artifact or version isn't found, ``"not_stored"`` if the version
+    keeps its content as text, and ``"unavailable"`` if presigning fails. Both fields are None if the run
+    isn't found.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        resolve_living_artifact_version,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error=None)
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    resolved = resolve_living_artifact_version(artifact, version) if artifact is not None else None
+    if artifact is None or resolved is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    if not resolved.storage_path:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_stored")
+    url = object_storage.get_presigned_url(
+        resolved.storage_path,
+        content_type=resolved.content_type or None,
+        # Agent-written HTML or SVG must not render as a page, so the browser always saves it.
+        content_disposition=content_disposition_header(
+            as_attachment=True, filename=PurePosixPath(artifact.name).name or "artifact"
+        )
+        or "attachment",
+    )
+    if not url:
+        return contracts.LivingArtifactVersionDownload(url=None, error="unavailable")
+    return contracts.LivingArtifactVersionDownload(url=url, error=None)
+
+
 def create_task_run_living_artifact(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -3439,6 +5429,7 @@ def create_task_run_living_artifact(
     *,
     artifact: dict,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -3449,7 +5440,7 @@ def create_task_run_living_artifact(
     if run is None:
         return None, None
     try:
-        created = create_living_artifact(run=run, **artifact)
+        created = create_living_artifact(run=run, written_with_open_network=written_with_open_network, **artifact)
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
@@ -3465,6 +5456,7 @@ def edit_task_run_living_artifact(
     team_id: int,
     *,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -3497,6 +5489,7 @@ def edit_task_run_living_artifact(
             source_storage_path=source_storage_path,
             name=name,
             metadata=metadata,
+            written_with_open_network=written_with_open_network,
         )
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
@@ -3587,9 +5580,8 @@ def presign_task_run_artifact_download(
     if run is None:
         return None, None
 
-    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
-    # Reference entries carry no file, so there is nothing to download for them.
-    if entry is None or not entry.get("storage_path"):
+    entry = _downloadable_artifact_entry(run.artifacts, artifact_id)
+    if entry is None:
         return None, "not_found"
 
     filename = str(entry.get("name") or "artifact")
@@ -3601,6 +5593,73 @@ def presign_task_run_artifact_download(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def _run_has_open_network(run: TaskRun) -> bool:
+    environment = None
+    if (run.state or {}).get("sandbox_environment_id"):
+        environment = run.get_sandbox_environment()
+        if environment is None:
+            return False
+    profile = run.task.stored_profile
+    if profile is not None and (environment is None or environment.internal):
+        return profile.network.levels[0] == NetworkAccess.FULL
+    if environment is None:
+        return True
+    return (
+        environment.network_access_level == SandboxNetworkAccessLevel.FULL and environment.updated_at <= run.created_at
+    )
+
+
+def sandbox_token_has_open_network(
+    team_id: int, token_id: UUID | int | str, *, task_id: UUID | str | None = None
+) -> bool:
+    runs = TaskRun.objects.filter(team_id=team_id, state__sandbox_oauth_token_ids__contains=[str(token_id)])
+    if task_id is not None:
+        runs = runs.filter(task_id=task_id)
+    checked = False
+    for run in runs.select_related("task"):
+        if not _run_has_open_network(run):
+            return False
+        checked = True
+    return checked
+
+
+def task_run_artifact_entry(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> dict[str, Any] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in run.artifacts or []
+            if entry.get("id") == artifact_id
+            and entry.get("storage_path")
+            and not entry.get("dismissed_at")
+            and (
+                (entry.get("type") == "output" and entry.get("uploaded_by") == "user")
+                or (entry.get("type") in ("output", "artifact") and entry.get("source") == "agent_output")
+            )
+        ),
+        None,
+    )
+
+
+def read_task_run_html_artifact(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> bytes | None:
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    entry = task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
+    if entry is None or not is_html_artifact(str(entry.get("name") or ""), str(entry.get("content_type") or "")):
+        return None
+    try:
+        return object_storage.read_bytes(str(entry["storage_path"]), missing_ok=True)
+    except Exception:
+        logger.exception("task_run.artifact_preview_read_failed", extra={"task_run_id": str(run_id)})
+        return None
 
 
 def read_task_run_artifact(
@@ -3657,33 +5716,247 @@ def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, u
     return str(analysis_task.id), created
 
 
-def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_id: int, *, insight: dict) -> int | None:
-    """Append one validated analysis finding to a run. Returns its index, or ``None`` if not visible."""
+def report_task_analysis_activity(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, activity: dict
+) -> int | None:
+    """Append one validated activity record to a run. Returns its index, or ``None`` if not visible."""
     from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
-        append_analysis_insight,
+        append_analysis_activity,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return append_analysis_insight(run=run, insight=insight)
+    return append_analysis_activity(run=run, activity=activity)
 
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+    log_urls = get_task_run_log_urls(run_id, task_id, team_id)
+    if log_urls is None:
+        return None
+    return read_task_run_log_content(log_urls)
 
+
+_MARK_WATCHED_REDIS_TIMEOUT_SECONDS = 0.5
+
+
+def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        get_task_run_stream_key,
+        get_task_run_stream_watched_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    info = get_task_run_stream_info(run_id, task_id, team_id)
+    if info is None or info.is_terminal or not run_stream_presence_gated(info.state):
+        return
+    try:
+        get_tasks_stream_redis_sync(
+            run_uses_dedicated_stream(info.state),
+            socket_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+        ).set(
+            get_task_run_stream_watched_key(get_task_run_stream_key(str(info.id))),
+            "1",
+            ex=TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        )
+    except Exception:
+        logger.warning("task_run_stream_mark_watched_failed run_id=%s", info.id, exc_info=True)
+
+
+_KEPT_TOOL_RESPONSE_FIELDS = ("decisionReason", "message")
+
+
+def _drop_tool_response_copy(entry: object) -> bool:
+    notification = entry.get("notification") if isinstance(entry, dict) else None
+    params = notification.get("params") if isinstance(notification, dict) else None
+    update = params.get("update") if isinstance(params, dict) else None
+    meta = update.get("_meta") if isinstance(update, dict) else None
+    claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
+    if not isinstance(claude_code, dict) or "toolResponse" not in claude_code:
+        return False
+    tool_response = claude_code["toolResponse"]
+    kept = (
+        {key: tool_response[key] for key in _KEPT_TOOL_RESPONSE_FIELDS if isinstance(tool_response.get(key), str)}
+        if isinstance(tool_response, dict)
+        else {}
+    )
+    if kept:
+        claude_code["toolResponse"] = kept
+    else:
+        del claude_code["toolResponse"]
+    return True
+
+
+def thread_view_of_log_content(log_content: str) -> str:
+    lines = log_content.split("\n")
+    for index, line in enumerate(lines):
+        if '"toolResponse"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if _drop_tool_response_copy(entry):
+            lines[index] = json.dumps(entry, separators=(",", ":"))
+    return "\n".join(lines)
+
+
+def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    chain = run.get_history_chain()
+    if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
+        return read_task_run_log_content([ancestor.log_url for ancestor in chain])
 
-    resume_chain = run.get_resume_chain()
+    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log_url]), chain)
+    parts: list[str] = []
+    for ancestor, content in zip(chain, contents):
+        marker = {
+            "type": "pi_run_started",
+            "timestamp": ancestor.created_at.isoformat(),
+            "taskId": str(ancestor.task_id),
+            "runId": str(ancestor.id),
+        }
+        parts.append(json.dumps(marker) + "\n")
+        parts.append(content)
+    return "".join(parts)
+
+
+_LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
+
+
+def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]]) -> LogPartSummary:
+    """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
+    so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
+    cache error counts as a miss, and the summary comes from the log itself."""
+    from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    head = object_storage.head_object(log_url)
+    size = int(head.get("ContentLength", 0)) if head else 0
+    if not size:
+        return summarize_log_part(entries())
+    # The cache pickles values, so it holds only a JSON string: the object size, then the summary.
+    key = f"tasks:log-part-summary:v5:{hashlib.sha256(log_url.encode()).hexdigest()}"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
+        cached = None
+    if isinstance(cached, str) and cached.startswith(f"{size}:"):
+        summary_hit = summary_from_json(cached.removeprefix(f"{size}:"))
+        if summary_hit is not None:
+            return summary_hit
+    summary = summarize_log_part(entries())
+    try:
+        cache.set(key, f"{size}:{summary_to_json(summary)}", timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
+    return summary
+
+
+def _conversation_log_parts(log_urls: list[str]) -> list[LogPart]:
+    """The run logs of a resume chain as slice parts. The summaries load in parallel, and a part's entries load
+    only when the slice needs them."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    def loader(log_url: str) -> Callable[[], list[str]]:
+        read: list[list[str]] = []
+
+        def entries() -> list[str]:
+            if not read:
+                read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
+            return read[0]
+
+        return entries
+
+    loaders = [loader(log_url) for log_url in log_urls]
+    pairs = list(zip(log_urls, loaders))
+    if len(pairs) == 1:
+        summaries = [_conversation_log_part_summary(*pairs[0])]
+    else:
+        summaries = list(_TASK_LOG_READ_EXECUTOR.map(lambda pair: _conversation_log_part_summary(*pair), pairs))
+    return [LogPart(summary=summary, entries=entries) for summary, entries in zip(summaries, loaders)]
+
+
+def read_task_run_conversation_log_slice(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    tail_bytes: int,
+    before: int | None = None,
+    start: int | None = None,
+) -> contracts.TaskRunLogSliceDTO | None:
+    """Part of the conversation log, read from the run logs that overlap it.
+
+    With ``start``, every entry from that index to the end, or the latest turns when they are too many. Else the
+    latest turns that end before index ``before``, at least ``tail_bytes`` long. A Pi chain puts run markers
+    between its runs, so its indexes change when the chain grows: it returns the full log, not sliced.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    if run.task.runtime == Task.Runtime.PI:
+        content = read_task_run_conversation_logs(run_id, task_id, team_id)
+        if content is None:
+            return None
+        return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
+    chain = run.get_history_chain()
+    parts = _conversation_log_parts([ancestor.log_url for ancestor in chain])
+    if start is not None:
+        sliced = slice_log_parts_from(parts, start, tail_bytes)
+    else:
+        sliced = slice_log_parts_tail(parts, tail_bytes, before)
+    return contracts.TaskRunLogSliceDTO(
+        content=sliced.content,
+        offset=sliced.offset,
+        count=sliced.count,
+        preamble=sliced.preamble,
+        turns_before=sliced.turns_before,
+        origin=str(chain[0].id),
+    )
+
+
+def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
+    """Log URLs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return [ancestor.log_url for ancestor in run.get_resume_chain()]
+
+
+def get_task_run_log_size(log_urls: list[str], *, strict: bool = False) -> int:
+    """Total byte size of the given log objects, without downloading them. Storage-only: safe off the request thread."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    def _size(log_url: str) -> int:
+        head = object_storage.head_object_strict(log_url) if strict else object_storage.head_object(log_url)
+        return int(head.get("ContentLength", 0)) if head else 0
+
+    if len(log_urls) == 1:
+        return _size(log_urls[0])
+    return sum(_TASK_LOG_READ_EXECUTOR.map(_size, log_urls))
+
+
+def read_task_run_log_content(log_urls: list[str]) -> str:
+    """Concatenated JSONL content for the given log URLs. Storage-only: safe off the request thread."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
     chunks: Iterable[str]
-    if len(resume_chain) == 1:
-        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    if len(log_urls) == 1:
+        chunks = [object_storage.read(log_urls[0], missing_ok=True) or ""]
     else:
         chunks = _TASK_LOG_READ_EXECUTOR.map(
-            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+            lambda log_url: object_storage.read(log_url, missing_ok=True) or "", log_urls
         )
 
     parts: list[str] = []
@@ -3693,6 +5966,203 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
+
+
+def parse_task_run_log_entries(log_content: str) -> Iterator[dict]:
+    """The JSON objects in a JSONL log, skipping blank and malformed lines."""
+    for log_line in log_content.splitlines():
+        log_line = log_line.strip()
+        if not log_line:
+            continue
+        try:
+            parsed_line = json.loads(log_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed_line, dict):
+            yield parsed_line
+
+
+def _read_run_stream_entries(run: TaskRun) -> list[dict]:
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        DATA_KEY,
+        get_task_run_stream_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    try:
+        client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(run.state))
+        raw_entries = client.xrange(get_task_run_stream_key(str(run.id)))
+    except Exception:
+        logger.warning("task_run_stream_read_failed run_id=%s", run.id, exc_info=True)
+        return []
+    entries: list[dict] = []
+    for _stream_id, fields in raw_entries:
+        raw = fields.get(DATA_KEY) if isinstance(fields, dict) else None
+        if raw is None:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            entries.append(parsed)
+    return entries
+
+
+def read_task_run_stream_entries(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict]:
+    """Every frame still held in the run's live Redis stream, oldest first.
+
+    The stream is capped and expires after the run ends, so a caller that needs the whole history
+    uses ``read_task_run_history``. Returns an empty list when the run is not visible or the
+    stream is gone.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    return _read_run_stream_entries(run) if run is not None else []
+
+
+_USER_PROMPT_METHODS = frozenset({"_posthog/user_message", "session/prompt"})
+
+
+def _holds_user_prompt(entries: list[dict]) -> bool:
+    for entry in entries:
+        notification = entry.get("notification") if entry.get("type") == "notification" else None
+        if isinstance(notification, dict) and notification.get("method") in _USER_PROMPT_METHODS:
+            return True
+    return False
+
+
+def _server_notification_key(entry: dict) -> str | None:
+    # A persisted server notification carries no event id, but both stores hold the same timestamped event.
+    notification = entry.get("notification") if entry.get("type") == "notification" else None
+    method = notification.get("method") if isinstance(notification, dict) else None
+    if entry.get("event_id") or not isinstance(method, str) or not method.startswith("_posthog/"):
+        return None
+    return json.dumps(entry, sort_keys=True)
+
+
+def _overlap_with_log_tail(log_entries: list[dict], stream_entries: list[dict]) -> int:
+    """How many leading stream entries the log already holds, as the tail it ends with."""
+    if not stream_entries:
+        return 0
+    first = stream_entries[0]
+    for start in range(max(0, len(log_entries) - len(stream_entries)), len(log_entries)):
+        size = len(log_entries) - start
+        if log_entries[start] == first and log_entries[start:] == stream_entries[:size]:
+            return size
+    return 0
+
+
+def _entry_time(entry: dict) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(entry["timestamp"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _merge_by_timestamp(entries: list[dict], extra: list[dict]) -> list[dict]:
+    """Slots each of ``extra`` in before the first of ``entries`` stamped later, keeping both orders."""
+    merged: list[dict] = []
+    pending = list(extra)
+    for entry in entries:
+        entry_time = _entry_time(entry)
+        while pending and entry_time is not None and (pending_time := _entry_time(pending[0])) is not None:
+            if pending_time > entry_time:
+                break
+            merged.append(pending.pop(0))
+        merged.append(entry)
+    return [*merged, *pending]
+
+
+def read_task_run_history(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int
+) -> list[dict] | None:
+    """Every frame of the conversation across the run's resume chain, oldest first.
+
+    The logs hold every run, and the run's live stream adds what its log has not caught up with
+    yet. The agent stamps one event id in both stores, so a stream entry the logs already cover is
+    dropped, the way the thread's stream view merges them. An agent that stamps no ids keeps the
+    whole run in an untrimmed stream, which then stands in for the run's own log, apart from the
+    server notifications that only the log holds.
+
+    Returns ``None`` without downloading any log when the logs to read are over ``max_bytes``, and
+    an empty list when the run is not visible.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return []
+    log_urls = [ancestor.log_url for ancestor in run.get_resume_chain()]
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_MAX_LENGTH,
+    )
+
+    stream_entries = _read_run_stream_entries(run)
+    # A stream at the length cap may have lost its head to the trim, so only a shorter one can stand in for the log.
+    stream_is_whole_run = (
+        len(stream_entries) < TASK_RUN_STREAM_MAX_LENGTH
+        and not any(entry.get("event_id") for entry in stream_entries)
+        and _holds_user_prompt(stream_entries)
+    )
+    if log_urls and get_task_run_log_size(log_urls) > max_bytes:
+        return None
+    if stream_is_whole_run:
+        earlier_entries = (
+            list(parse_task_run_log_entries(read_task_run_log_content(log_urls[:-1]))) if log_urls[:-1] else []
+        )
+        # A server notification can reach the log after its live write failed or was skipped for want of a watcher.
+        streamed = {_server_notification_key(entry) for entry in stream_entries}
+        persisted_only = [
+            entry
+            for entry in parse_task_run_log_entries(read_task_run_log_content(log_urls[-1:]))
+            if (key := _server_notification_key(entry)) is not None and key not in streamed
+        ]
+        return [*earlier_entries, *_merge_by_timestamp(stream_entries, persisted_only)]
+    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
+    if not any(entry.get("event_id") for entry in stream_entries):
+        # Without ids the backlog index matches nothing, so the log's catch-up of the stream is cut by position.
+        stream_entries = stream_entries[_overlap_with_log_tail(log_entries, stream_entries) :]
+    backlog = TaskRunStreamBacklogIndex(log_entries)
+    persisted_server_notifications = {
+        key for key in (_server_notification_key(entry) for entry in log_entries) if key is not None
+    }
+    uncovered = [
+        entry
+        for entry in stream_entries
+        if not backlog.covers(entry) and _server_notification_key(entry) not in persisted_server_notifications
+    ]
+    # A live-only server notification can predate log frames, so it goes back to its place in time.
+    live_only = [entry for entry in uncovered if _server_notification_key(entry) is not None]
+    tail = [entry for entry in uncovered if _server_notification_key(entry) is None]
+    return _merge_by_timestamp([*log_entries, *tail], live_only)
+
+
+def publish_task_run_stream_notification(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, method: str, params: dict, *, persist: bool = True
+) -> contracts.StreamNotificationDelivery:
+    """Write a server-originated ``_posthog/*`` notification to the run's live stream, and to its S3
+    log unless ``persist`` is off.
+
+    The live write reaches connected threads the way an agent-server frame would; the log append is
+    what a later bootstrap replays, so the frame survives the stream's expiry. A persisted frame is
+    written live only after the log append succeeds, so a thread never shows a frame that a reload
+    loses. A frame that only matters to threads open right now skips the log, which is a rewrite of
+    the whole object. The result reports each leg, so a caller can decide which one it needs.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return contracts.StreamNotificationDelivery(live=False, persisted=False)
+    event = run.build_notification_event(method, params)
+    if persist:
+        try:
+            run.append_log([event], lock_attempts=1)
+        except Exception:
+            logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
+            return contracts.StreamNotificationDelivery(live=False, persisted=False)
+    live = run.publish_stream_event(event) is not None
+    return contracts.StreamNotificationDelivery(live=live, persisted=persist)
 
 
 def create_task_run_connection_token(
@@ -3735,46 +6205,42 @@ def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, origin_product=Task.OriginProduct.TASK_ANALYSIS).exists()
 
 
-def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
-    """Whether the task exists on the team and was created by this user. The peers
-    endpoints gate on it: peer visibility and attribution derive entirely from the
-    task creator, so broader task access must not extend to them."""
-    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
-
-
-def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
+def resolve_stream_base_url() -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
-    Returns the configured agent-proxy URL only when it is set for this environment AND the
-    read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
-    server owns this decision; clients just connect to whatever URL comes back.
+    The server owns this decision; clients just connect to whatever URL comes back.
     """
-    from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
-
-    proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
-    if not proxy_url:
-        return None
-    # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
-    # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
-    if settings.DEBUG or force_proxy:
-        return proxy_url
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                STREAM_VIA_PROXY_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": str(organization_id)},
-                group_properties={"organization": {"id": str(organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return None
-    return proxy_url if enabled else None
+    return settings.TASKS_AGENT_PROXY_PUBLIC_URL or None
 
 
 # --- Task run commands (user_message signal + sandbox proxy) ---
+
+
+class PermissionResponseUnavailable(Exception):
+    def __init__(self, *, target_ended: bool) -> None:
+        self.code = "permission_target_ended" if target_ended else "agent_session_not_ready"
+        self.status_code = 409 if target_ended else 503
+        super().__init__("This run has ended." if target_ended else "The agent is still starting. Please try again.")
+
+
+def validate_permission_response_target(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.is_terminal:
+        raise PermissionResponseUnavailable(target_ended=True)
+
+
+def classify_permission_response(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, status_code: int, data: object
+) -> bool:
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415
+        is_agent_session_not_ready,
+        permission_response_succeeded,
+    )
+
+    validate_permission_response_target(run_id, task_id, team_id)
+    if is_agent_session_not_ready(status_code, data):
+        raise PermissionResponseUnavailable(target_ended=False)
+    return 200 <= status_code < 300 and permission_response_succeeded(data)
 
 
 def validate_task_run_artifact_ids(
@@ -3802,9 +6268,17 @@ def signal_task_run_user_message(
     actor_user_id: int | None = None,
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
+    person_message: str | None = None,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
+    workflow_id: str | None = None,
+    plan_owner_consented: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
+
+    ``plan_owner_consented`` lets someone other than the plan owner message a run on the owner's
+    plan. Only a caller that collected the owner's consent may set it, such as the Slack app,
+    where the thread creator chooses who may join their threads.
 
     Returns ``True`` on success, ``False`` when the target workflow is gone
     (completed or evicted — a terminal outcome), ``None`` when the run isn't
@@ -3813,6 +6287,10 @@ def signal_task_run_user_message(
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        SandboxNotFoundError,
+    )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -3820,27 +6298,69 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    from products.tasks.backend.exceptions import (
-        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
-    )
+    if not plan_owner_consented:
+        ensure_subscription_owner(run.state, actor_user_id)
+    check_wake(run.task, source="follow_up")
+    if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        if not run.is_terminal:
+            raise RuntimeError("Task run is still stopping. Try again shortly.")
+        sandbox_id = (run.state or {}).get("sandbox_id")
+        if sandbox_id:
+            try:
+                sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+                if sandbox.is_running():
+                    raise RuntimeError("Task run is still stopping. Try again shortly.")
+            except SandboxNotFoundError:
+                pass
+        return False
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    claimed_warm_run = False
+    if (run.state or {}).get("await_user_message"):
+        message_id = message_id or str(uuid4())
+        with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=team_id)
+            claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+            state = claimed.state or {}
+            if state.get("await_user_message"):
+                if (
+                    state.get("cancel_requested_at")
+                    or state.get("warm_permission_mode_failed")
+                    or (state.get("warm_activation_started") and state.get("warm_activation_message_id") != message_id)
+                ):
+                    return False
+                claimed_warm_run = not state.get("warm_activation_started", False)
+                if claimed_warm_run:
+                    task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+                claimed.state = {**state, "warm_activation_started": True, "warm_activation_message_id": message_id}
+                claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
-        context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
+        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
-            run.workflow_id,
+            workflow_id or run.workflow_id,
             content,
             artifact_ids,
             message_id,
             actor_user_id,
             context,
             steer=steer,
+            **({"rpc_timeout": rpc_timeout} if rpc_timeout is not None else {}),
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if claimed_warm_run:
+                with transaction.atomic():
+                    claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+                    state = claimed.state or {}
+                    if state.get("await_user_message") and state.get("warm_activation_message_id") == message_id:
+                        state.pop("warm_activation_started", None)
+                        state.pop("warm_activation_message_id", None)
+                        claimed.state = state
+                        claimed.save(update_fields=["state", "updated_at"])
             if not run.is_terminal and (run.state or {}).get("await_user_message"):
                 raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
@@ -3852,183 +6372,6 @@ def signal_task_run_user_message(
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
-
-
-# --- Agent peer messaging (docs: logic/services/peer_messages.py) ---
-
-
-def agent_peer_messaging_enabled(team: Team, user: User) -> bool:
-    """Whether agent-to-agent peer messaging is enabled for this team/user. v1
-    callers additionally require the Pi runtime on the sender task."""
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_PEER_MESSAGING_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent peer messaging flag check failed; treating as disabled")
-        return False
-
-
-def list_task_run_peers(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[contracts.TaskRunPeerDTO] | None:
-    """Peer agent runs the given run may message. ``None`` when the sender isn't eligible.
-
-    Discovery and send validation share one visibility policy
-    (``peer_messages.visible_peer_runs``), so an agent can only message what it can
-    list; the per-entry ``sendable`` flag is the liveness contract — clients never
-    infer eligibility from status labels.
-    """
-    from products.tasks.backend.logic.services import (
-        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
-    )
-
-    run = _get_peer_sender_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return [contracts.TaskRunPeerDTO(**entry) for entry in peer_messages.list_peer_run_entries(run)]
-
-
-def signal_task_run_peer_message(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    target_run_id: str,
-    content: str,
-    artifact_ids: list[str],
-) -> contracts.PeerMessageSendResultDTO | None:
-    """Send a peer message from one agent run to another. ``None`` when the sender
-    isn't eligible.
-
-    Unlike ``signal_task_run_user_message`` this composes the signal context
-    entirely server-side (``kind``/``peer_message_id``/``from_run_id``/``from_task_id``,
-    never reserved actor keys, never merged from agent input) and carries no
-    ``actor_user_id`` — the delivery activity's peer mode preserves the recipient's
-    already-bound credential identity. The synchronous result means ``accepted``,
-    never "delivered": the sandbox handoff happens later inside the target workflow,
-    which records the delivery outcome on the message row.
-    """
-    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
-
-    from products.tasks.backend.logic.services import (
-        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
-    )
-    from products.tasks.backend.models import AgentPeerMessage  # noqa: PLC0415
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_followup_message,
-    )
-
-    sender_run = _get_peer_sender_run(run_id, task_id, team_id)
-    if sender_run is None:
-        return None
-
-    prepared = peer_messages.validate_and_prepare_peer_message(sender_run, target_run_id, content, artifact_ids)
-    if isinstance(prepared, peer_messages.PeerMessageRejection):
-        return contracts.PeerMessageSendResultDTO(result="rejected", detail=prepared.detail)
-    message = prepared.message
-    target_artifact_ids = prepared.artifact_ids
-    target_run = prepared.target_run
-
-    envelope = peer_messages.compose_peer_envelope(sender_run, content)
-    context = peer_messages.build_peer_message_context(message)
-    # Statuses where the server may have accepted the signal before the client saw
-    # the error. Re-signaling with the same message id is safe end-to-end (the
-    # sandbox dedupes deliveries by message_id), so these retry inline; if they
-    # still fail, the row must NOT terminalize — see the handler below.
-    transient_statuses = (
-        RPCStatusCode.UNAVAILABLE,
-        RPCStatusCode.DEADLINE_EXCEEDED,
-        RPCStatusCode.CANCELLED,
-    )
-    signal_attempts = 3
-    try:
-        for attempt in range(1, signal_attempts + 1):
-            try:
-                signal_task_followup_message(
-                    target_run.workflow_id,
-                    envelope,
-                    target_artifact_ids,
-                    str(message.id),
-                    None,
-                    context,
-                    steer=False,
-                )
-                break
-            except RPCError as retry_error:
-                if retry_error.status in transient_statuses and attempt < signal_attempts:
-                    time.sleep(0.2 * attempt)
-                    continue
-                raise
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            peer_messages.mark_peer_message_outcome(
-                str(message.id),
-                AgentPeerMessage.Outcome.TARGET_FINISHED,
-                failure_phase="signal",
-                failure_detail="target workflow gone",
-            )
-            return contracts.PeerMessageSendResultDTO(
-                result="target_finished",
-                detail="The target run has already finished; it can no longer receive messages.",
-                message_id=str(message.id),
-            )
-        if e.status in transient_statuses:
-            # At-least-once ambiguity: the signal may have landed, so a terminal
-            # outcome here could contradict a later successful delivery. Leave the
-            # row non-terminal — delivery marks it delivered if the signal landed,
-            # and otherwise it ages out of queue capacity after the delivery window.
-            logger.warning(
-                "peer message signal hit a transient error; leaving row non-terminal",
-                extra={"peer_message_id": str(message.id), "status": str(e.status)},
-            )
-            return contracts.PeerMessageSendResultDTO(
-                result="rejected",
-                detail=(
-                    "Signaling the target run hit a transient error; the message may still "
-                    "be delivered. If it does not arrive, try again in a few minutes."
-                ),
-                message_id=str(message.id),
-            )
-        peer_messages.mark_peer_message_outcome(
-            str(message.id),
-            AgentPeerMessage.Outcome.DELIVERY_FAILED,
-            failure_phase="signal",
-            failure_detail=str(e),
-        )
-        return contracts.PeerMessageSendResultDTO(
-            result="rejected",
-            detail="Signaling the target run failed. Try again shortly.",
-            message_id=str(message.id),
-        )
-    except Exception as e:
-        # Terminalize before surfacing: an accepted row left behind would hold the
-        # target's queue capacity for the whole delivery window.
-        peer_messages.mark_peer_message_outcome(
-            str(message.id),
-            AgentPeerMessage.Outcome.DELIVERY_FAILED,
-            failure_phase="signal",
-            failure_detail=str(e),
-        )
-        return contracts.PeerMessageSendResultDTO(
-            result="rejected",
-            detail="Signaling the target run failed. Try again shortly.",
-            message_id=str(message.id),
-        )
-
-    peer_messages.mark_peer_message_signaled(str(message.id))
-    return contracts.PeerMessageSendResultDTO(
-        result="accepted",
-        detail="Message accepted for delivery. It will reach the target as a queued turn; delivery is not confirmed synchronously.",
-        message_id=str(message.id),
-    )
 
 
 def apply_task_run_model_config(
@@ -4081,6 +6424,10 @@ def apply_task_run_model_config(
         # gated model the caller could not have started the run on.
         logger.warning("Model access denied switching task run %s to %s", run.id, model)
         return False
+    if model and not pinned_run_allows_model(run.state, model):
+        # A gateway denial does not fall back, so an off-pin model fails every turn.
+        logger.warning("Model %s is outside the gateway pin of task run %s", model, run.id)
+        return False
 
     auth_token = (
         create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
@@ -4099,6 +6446,13 @@ def apply_task_run_model_config(
     if applied:
         TaskRun.update_state_atomic(run.id, updates=applied)
     return len(applied) == len(requested)
+
+
+def task_run_model_outside_gateway_pin(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, model: str | None
+) -> bool:
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and not pinned_run_allows_model(run.state, model)
 
 
 def get_task_run_sandbox_connection(
@@ -4122,7 +6476,9 @@ def get_task_run_sandbox_connection(
 
     run_state = parse_run_state(run.state)
     if not run_state.sandbox_url:
-        return contracts.TaskRunSandboxConnectionDTO(sandbox_url=None, sandbox_connect_token=None)
+        return contracts.TaskRunSandboxConnectionDTO(
+            sandbox_url=None, sandbox_connect_token=None, run_is_terminal=run.is_terminal
+        )
 
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         sandbox_transport_token,
@@ -4135,6 +6491,7 @@ def get_task_run_sandbox_connection(
         sandbox_connect_token=transport_token,
         connection_token=connection_token,
         sandbox_token_param=token_param,
+        run_is_terminal=run.is_terminal,
     )
 
 
@@ -4228,6 +6585,21 @@ def resolve_task_run_preview_redirect(
     )
 
 
+def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+    """Whether ``sandbox_url`` is the configured hogland control-plane origin.
+
+    Thin facade wrapper: presentation may not import ``logic`` directly (see
+    products/architecture.md § Presentation Layer), so both the sandbox-URL allowlist gate
+    and the request-transport decision in the command relay view go through this one edge
+    instead of reaching into ``logic.services.agent_command`` themselves.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        is_hogland_sandbox_url as _is_hogland_sandbox_url,
+    )
+
+    return _is_hogland_sandbox_url(sandbox_url)
+
+
 # Relay control verbs whose outcome PostHog AI funnels track. Captured here (gated on
 # origin_product) so the generic relay stays product-agnostic while the conversation layer stops
 # firing them as the renderer drives permission/cancel through `runs/{run}/command/`.
@@ -4308,9 +6680,10 @@ def relay_task_run_message(
     text: str,
     text_parts: list[str] | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
-    flag signal the running task workflow to stream the text inline.
+    flag give the running task workflow the text as the turn's final answer.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
@@ -4320,13 +6693,17 @@ def relay_task_run_message(
     post-last-tool-use answer, and posting only that keeps the interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
+
+    ``trace_id`` is the gateway trace id of the turn that wrote this answer, which the
+    posted reply keeps so a rating on it can name the turn. Absent when the sandbox
+    reported none.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
-        signal_agent_text_delta,
+        signal_agent_final_text,
     )
     from products.tasks.backend.temporal.process_task.activities.feature_flags import (  # noqa: PLC0415 — keep temporal off the api import path
         AGENT_DESIGN_STATE_KEY,
@@ -4345,7 +6722,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(run.workflow_id, trimmed)
+            signal_agent_final_text(run.workflow_id, trimmed, trace_id)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -4356,6 +6733,9 @@ def relay_task_run_message(
             text=trimmed,
             delete_progress=True,
             message_id=message_id,
+            trace_id=trace_id,
+            offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -4398,10 +6778,10 @@ def user_has_usable_personal_github(user_id: int) -> bool:
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    github_integration = IntegrationManager.github.oauth.find(task.team_id)
     if github_integration is None:
         return False
-    task.github_integration = github_integration
+    task.github_integration_id = github_integration.id
     task.save(update_fields=["github_integration", "updated_at"])
     return True
 
@@ -4425,6 +6805,32 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
+    # GitLab runs commit as the connection's token, so they never resolve a GitHub identity.
+    if task.repository_integration_id is not None:
+        if github_user_token:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_token_not_allowed",
+                detail="GitLab tasks don't use a GitHub token. Start the run without github_user_token.",
+                attr="github_user_token",
+            )
+        return PrAuthorshipMode.BOT, None
+
+    if not Task._github_resolution_allowed(
+        task.origin_product, has_repository=bool(task.repositories or task.repository)
+    ):
+        if pr_authorship_mode == PrAuthorshipMode.USER:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_authorization_required",
+                detail="User-authored runs are not allowed for this task without a repository.",
+                attr="pr_authorship_mode",
+            )
+        return None, None
+
+    if task.github_access_limit == GithubAccess.NONE:
+        return PrAuthorshipMode.BOT, None
+
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
@@ -4443,7 +6849,7 @@ def _resolve_cloud_pr_authorship_mode(
             task.save(update_fields=["github_user_integration", "updated_at"])
         return PrAuthorshipMode.USER, None
 
-    if _ensure_task_team_github_integration(task):
+    if _ensure_task_team_github_integration(task) or task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return PrAuthorshipMode.BOT, None
 
     return None, contracts.TaskRunValidationError(
@@ -4466,6 +6872,23 @@ def _github_credential_source_extra_state(pr_authorship_mode, github_user_token:
     return {"github_credential_source": source.value}
 
 
+def _task_run_runtime_state_fields(validated_data: dict) -> dict[str, Any]:
+    return {
+        key: validated_data.get(key)
+        for key in (
+            "pr_authorship_mode",
+            "auto_publish",
+            "run_source",
+            "signal_report_id",
+            "runtime_adapter",
+            "model",
+            "reasoning_effort",
+            "context_window",
+            "fast_mode",
+        )
+    }
+
+
 def bootstrap_task_run(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskRunCreateResult | None:
@@ -4475,6 +6898,7 @@ def bootstrap_task_run(
     ``TaskRunCreateResult`` carrying either the created run DTO or a structured validation error.
     Mirrors ``TaskRunViewSet.create`` byte-for-byte (minus the usage gate, which the view applies).
     """
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -4492,19 +6916,19 @@ def bootstrap_task_run(
                 kind="detail", detail="An analysis task runs once. Start a new analysis instead."
             )
         )
+    if _is_unlinked_report_warm_task(task):
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
+        )
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
-    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
-    signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
-    context_window = validated_data.get("context_window")
-    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4518,18 +6942,14 @@ def bootstrap_task_run(
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     for key, value in {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
-        "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
         "provider": provider,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
+        "benjamin_enabled": validated_data.get("benjamin_enabled"),
+        "claude_model_access": validated_data.get("claude_model_access"),
+        "codex_model_access": validated_data.get("codex_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -4603,15 +7023,48 @@ def bootstrap_task_run(
             },
         )
 
+    trial_admission = None
+    if environment == TaskRun.Environment.CLOUD and task.uses_self_driving_billing(mode):
+        trial_admission = prepare_task_trial(
+            team=task.team, origin=task.origin_product, report_id=task.signal_report_source_id, mode=mode
+        )
+        if trial_admission is None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="task_bootstrap",
+            )
+
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
-        run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+        run = task.create_run(
+            environment=environment,
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            acting_user_id=user_id,
+            _trial_admission=trial_admission,
+        )
+    except InvalidModelAccess as error:
+        return contracts.TaskRunCreateResult(error=contracts.TaskRunValidationError(kind="detail", detail=str(error)))
     except InvalidTaskOriginError as error:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
+    except TaskDoneError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -4634,6 +7087,9 @@ def bootstrap_task_run(
     return contracts.TaskRunCreateResult(run=_task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)))
 
 
+WORKFLOW_START_FAILED_ERROR = "Failed to start task workflow."
+
+
 def _trigger_task_processing_workflow(
     task: Task,
     run: TaskRun,
@@ -4642,22 +7098,17 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
-) -> None:
+) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
     )
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        RunSource,
-        parse_run_state,
-    )
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
     from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
-    run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
+    posthog_mcp_scopes = dispatched_run_scopes(task, run.state)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -4677,30 +7128,36 @@ def _trigger_task_processing_workflow(
             ),
         )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
+        return None
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
         if raise_on_error:
             raise
+        return WORKFLOW_START_FAILED_ERROR
 
 
 # Statuses from which a cloud run may be started via the start endpoint.
 _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
 
-def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str:
+def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
-    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``. The usage gate (429) is applied by the view between this check and ``start_task_run``.
+    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"scheduled"``,
+    ``"bad_status:<current>"``, or ``"ok"``, together with the stored run source. The view
+    applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return "not_found"
+        return "not_found", None
+    run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
-        return "not_cloud"
+        return "not_cloud", run_source
+    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+        return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
-        return f"bad_status:{run.status}"
-    return "ok"
+        return f"bad_status:{run.status}", run_source
+    return "ok", run_source
 
 
 def start_task_run(
@@ -4709,7 +7166,7 @@ def start_task_run(
     """Apply run-scoped attachments and trigger the cloud workflow for a startable run.
 
     Caller must have already verified startability and applied the usage gate. Returns
-    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, or ``"started"``
+    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, ``"task_done"``, or ``"started"``
     (``task_id`` set). Rolls back any pending-state writes on failure (re-raising), mirroring
     the original view.
     """
@@ -4720,6 +7177,7 @@ def start_task_run(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None
+    ensure_subscription_owner(run.state, user_id)
     task = run.task
 
     pending_user_message = validated_data.get("pending_user_message")
@@ -4738,6 +7196,7 @@ def start_task_run(
             state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
@@ -4748,6 +7207,8 @@ def start_task_run(
             )
             if not run.matches_task_ownership(task):
                 return "ownership_changed", None
+            if wake_refusal(task, source="start_run") is not None:
+                return "task_done", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -4781,7 +7242,7 @@ def resume_task_run_in_cloud(
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
-    ``"auth_error:<detail>"``
+    ``"task_done"`` (409), ``"run_in_progress"`` (409), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -4798,8 +7259,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    ensure_subscription_owner(run.state, user_id)
 
-    from products.tasks.backend.feature_flags import is_workflow_dispatch_restart_enabled  # noqa: PLC0415
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         RestartSnapshot,
         build_restart_payload,
@@ -4807,10 +7268,7 @@ def resume_task_run_in_cloud(
     )
     from products.tasks.backend.models import TaskWorkflowDispatch  # noqa: PLC0415
 
-    distinct_id = run.task.created_by.distinct_id if run.task.created_by else str(run.id)
-    restart_dispatch_enabled = is_workflow_dispatch_restart_enabled(
-        str(run.task.team.organization_id), distinct_id or str(run.id)
-    )
+    restart_dispatch_enabled = settings.TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED
     logger.info(
         "resume_in_cloud_called",
         extra={
@@ -4825,11 +7283,12 @@ def resume_task_run_in_cloud(
         },
     )
 
+    warm_done_mode(run.task)
     with transaction.atomic():
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update(of=("self",))
-            .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+            .select_related("task", "task__created_by", "task__github_user_integration")
             .get(pk=run.pk, task_id=task.id, team_id=team_id)
         )
         if not run.matches_task_ownership(task):
@@ -4839,6 +7298,8 @@ def resume_task_run_in_cloud(
 
         if task.origin_product not in Task.OriginProduct.values:
             return "invalid_origin", None, None
+        if wake_refusal(task, source="cloud_resume") is not None:
+            return "task_done", None, None
 
         is_cloud_active = run.status in (
             TaskRun.Status.QUEUED,
@@ -4846,6 +7307,12 @@ def resume_task_run_in_cloud(
         )
         if is_cloud_active:
             return "already_active", None, None
+
+        if (
+            task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}
+            and (run.state or {}).get("billing_product") != "posthog_ai"
+        ):
+            raise ValidationError("Start a new run to continue automated report or scout work.")
 
         if get_pr_authorship_mode(run.task, run.state) == PrAuthorshipMode.USER:
             pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
@@ -4864,12 +7331,18 @@ def resume_task_run_in_cloud(
                     ),
                 }
 
+        try:
+            task.refuse_run_beside_live_run(source="cloud_resume", exclude_run_id=run.id)
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress", None, None
+
         prior_status = run.status
         prior_environment = run.environment
         prior_completed_at = run.completed_at
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_resume()
+        task.observe_run_started_beside_live_runs(run)
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -4906,7 +7379,7 @@ def resume_task_run_in_cloud(
             run.environment = prior_environment
             run.completed_at = prior_completed_at
             run.queued_at = prior_queued_at
-            run.state = prior_state
+            run.restore_cloud_resume_state(prior_state)
             run.error_message = "Failed to start cloud workflow"
             run.save(
                 update_fields=[
@@ -4967,22 +7440,90 @@ def is_internal_debug_team(team_id: int | None) -> bool:
 
 
 def _task_detail_queryset():
-    return Task.objects.select_related(
-        "created_by", "team", "github_integration", "github_user_integration"
-    ).prefetch_related("runs")
+    return Task.objects.select_related("created_by", "team", "github_user_integration").prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+def _visible_task_qs(
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
+    for_list: bool = False,
+):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
-    control predicate when ``for_control`` (mutations, runs, agent commands)."""
-    qs = Task.objects.filter(team_id=team_id, deleted=False)
+    control predicate when ``for_control`` (mutations, runs, agent commands).
+
+    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
+    endpoint admits a channel collaborator while task detail returns 404 for the same task.
+    """
+    qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
-        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        channel_team_id = team_id if for_list else None
+        qs = qs.filter(
+            task_control_q(user_id, channel_team_id)
+            if for_control
+            else task_visibility_q(user_id, channel_team_id) | _shared_slack_thread_q()
+        )
+        # Another product may hide tasks it owns from this user, for example the copies of chats a
+        # user cannot continue as tasks yet.
+        hidden = hidden_task_ids(team_id, user_id)
+        if hidden:
+            qs = qs.exclude(id__in=hidden)
     return qs
 
 
+def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
+    from products.tasks.backend.logic.task_review import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        task_review as build_task_review,
+    )
+
+    return build_task_review(team_id, task_id, user_id, page)
+
+
+def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dict[str, str]:
+    from products.tasks.backend.logic.pull_request_titles import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        pull_request_titles,
+    )
+
+    return pull_request_titles(team_id, user_id, task_ids)
+
+
+def get_task_repository_state(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskRepositoryState | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id)
+        .values_list(
+            "repository",
+            "repositories",
+            "github_integration_id",
+            "github_user_integration_id",
+            "repository_integration_id",
+        )
+        .first()
+    )
+    if task is None:
+        return None
+    repository, repositories, github_integration, github_user_integration, repository_integration = task
+    return contracts.TaskRepositoryState(
+        repository=repository,
+        repositories=repositories or ([repository] if repository else []),
+        github_integration=github_integration,
+        github_user_integration=github_user_integration,
+        repository_integration=repository_integration,
+    )
+
+
 def get_task_detail(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """A single task as a detail DTO, team-scoped and visibility-gated.
 
@@ -4990,12 +7531,16 @@ def get_task_detail(
     """
     task = (
         _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
-        .select_related("created_by", "team", "github_integration", "github_user_integration")
-        .prefetch_related("runs")
+        .select_related("created_by")
+        .prefetch_related("runs", Prefetch("team", queryset=Team.objects.only("id", "name")))
         .filter(id=task_id)
         .first()
     )
-    return _task_detail_to_dto(task) if task is not None else None
+    return (
+        _task_detail_to_dto(task, user_id=user_id, analytics_context_reader=analytics_context_reader)
+        if task is not None
+        else None
+    )
 
 
 def get_conversation_task_dtos(
@@ -5014,30 +7559,12 @@ def get_conversation_task_dtos(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
-        .filter(task_visibility_q(user_id))
-        .select_related("created_by", "team")
+        .filter(task_visibility_q(user_id, team_id))
+        .select_related("created_by")
+        .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
-    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
-
-
-def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
-        return False
+    return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:
@@ -5106,11 +7633,33 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
     the task.
     """
-    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
+    visible = _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id)
+    if not for_control:
+        return visible.exists()
+    row = visible.values_list("profile", "created_by_id").first()
+    if row is None:
+        return False
+    profile_key, created_by_id = row
+    return drive_allowed(profile_key, created_by_id=created_by_id, user_id=user_id)
 
 
-def list_pinned_task_ids(team_id: int, user_id: int) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).values("id")
+def _task_drive_allowed(task: Task, user_id: int | None) -> bool:
+    return drive_allowed(task.profile, created_by_id=task.created_by_id, user_id=user_id)
+
+
+def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
+    tasks = Task.objects.filter(Task.scout_experiment_q(), team_id=team_id)
+    if visible_task_id is not None:
+        tasks = tasks.exclude(id=visible_task_id)
+    return tasks.values_list("id", flat=True)
+
+
+def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
+    return Task.objects.filter(Task.scout_experiment_q(), id=task_id, team_id=team_id).exists()
+
+
+def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
+    visible_tasks = _visible_task_qs(team_id, user_id, for_list=True).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -5143,6 +7692,52 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
+def list_workflow_last_runs(
+    team_id: int, user_id: int | None, hog_flow_ids: Iterable[UUID]
+) -> dict[UUID, contracts.WorkflowLastRunDTO]:
+    """The newest visible task of each given workflow, keyed by workflow id, in one query.
+
+    Uses the same rows as the workflow's run history (``hog_flow_id`` task list with archived tasks
+    included), so a list row never names a run that the history hides. Workflows without a
+    visible task are absent from the result.
+    """
+    ids = list(hog_flow_ids)
+    if not ids:
+        return {}
+    latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
+    rows = (
+        _visible_task_qs(team_id, user_id, for_list=True)
+        .filter(source_q(SourceKind.HOG_FLOW, ids), internal=False)
+        .annotate(
+            _workflow_id=Case(
+                When(
+                    source_kind=SourceKind.HOG_FLOW.value,
+                    source_id__isnull=False,
+                    then=Cast("source_id", UUIDField()),
+                ),
+                default=F("hog_flow_id"),
+                output_field=UUIDField(),
+            ),
+        )
+        .order_by("_workflow_id", "-created_at", "-id")
+        .distinct("_workflow_id")
+        .annotate(
+            _run_status=Subquery(latest_run.values("status")[:1]),
+            _run_created_at=Subquery(latest_run.values("created_at")[:1]),
+        )
+        .values_list("_workflow_id", "id", "created_at", "_run_status", "_run_created_at")
+    )
+    return {
+        hog_flow_id: contracts.WorkflowLastRunDTO(
+            hog_flow_id=hog_flow_id,
+            task_id=task_id,
+            status=run_status or TaskRun.Status.NOT_STARTED,
+            ran_at=run_created_at or created_at,
+        )
+        for hog_flow_id, task_id, created_at, run_status, run_created_at in rows
+    }
+
+
 #: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a
 #: page boundary can't drop or repeat a row when two tasks share a timestamp. A null
 #: `last_activity_at` (rows written outside the ORM) sorts first under `DESC`, which is where a row
@@ -5153,21 +7748,98 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
+#: Built from the two source classes, so a new origin product becomes a source without an edit here.
+#: Product-private origin products are left out because the task list never shows their tasks.
+# django-stubs types only the class-body form of TextChoices; Django supports this functional form.
+TaskListSource = TextChoices(  # type: ignore[call-overload]
+    "TaskListSource",
+    [
+        # The value is also the label, so the API docs show "posthog_ai", not a title-cased "Posthog Ai".
+        (source.upper(), (source, source))
+        for source in sorted(
+            {
+                *TaskClientProvenance.values,
+                *(
+                    product
+                    for product in Task.OriginProduct.values
+                    if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
+                ),
+            }
+        )
+    ],
+)
+
+
+def _task_sources_q(sources: list[str]) -> Q:
+    user_created = Q(origin_product=Task.OriginProduct.USER_CREATED)
+    matches = Q(pk__in=[])
+    for source in sources:
+        if source == TaskClientProvenance.POSTHOG_DESKTOP:
+            # A user-created task with no other known client counts as desktop, the same as the desktop app.
+            matches |= user_created & ~Q(
+                client_provenance__in=[TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB]
+            )
+        elif source == TaskClientProvenance.POSTHOG_WEB:
+            # PostHog AI runs in the web app, so the desktop app shows its tasks as web tasks too.
+            matches |= (user_created & Q(client_provenance=source)) | Q(origin_product=Task.OriginProduct.POSTHOG_AI)
+        elif source in TaskClientProvenance.values:
+            matches |= user_created & Q(client_provenance=source)
+        else:
+            matches |= Q(origin_product=source)
+    return matches
+
+
+def _task_source(origin_product: str, client_provenance: str | None) -> str:
+    # The reverse of _task_sources_q, so every listed source filters back to its own tasks.
+    if origin_product == Task.OriginProduct.POSTHOG_AI:
+        return TaskClientProvenance.POSTHOG_WEB
+    if origin_product == Task.OriginProduct.USER_CREATED:
+        if client_provenance in (TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB):
+            return client_provenance
+        return TaskClientProvenance.POSTHOG_DESKTOP
+    return origin_product
+
+
+def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
+    """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
+    pairs = (
+        _visible_task_qs(team_id, user_id, for_list=True)
+        .filter(internal=False, archived=False, created_by_id=user_id)
+        .exclude(id__in=exclude_task_ids)
+        .order_by()
+        .values_list("origin_product", "client_provenance")
+        .distinct()
+    )
+    return sorted({_task_source(origin_product, client_provenance) for origin_product, client_provenance in pairs})
+
 
 def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+    team_id: int,
+    user_id: int | None,
+    *,
+    filters: dict,
+    bypass_visibility: bool = False,
+    basic: bool = False,
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
 
+    client_provenance = filters.get("client_provenance")
+    if client_provenance:
+        qs = qs.filter(client_provenance=client_provenance)
+
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
+
+    sources = filters.get("sources")
+    if sources:
+        qs = qs.filter(_task_sources_q(sources))
 
     stage = filters.get("stage")
     if stage:
@@ -5198,6 +7870,10 @@ def _list_tasks_queryset(
     if channel:
         qs = qs.filter(channel_id=channel)
 
+    hog_flow_id = filters.get("hog_flow_id")
+    if hog_flow_id:
+        qs = qs.filter(source_q(SourceKind.HOG_FLOW, [hog_flow_id]))
+
     if search:
         search_term = search.strip()
         if search_term:
@@ -5211,20 +7887,28 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    task_status = filters.get("task_status")
+    if task_status:
+        qs = qs.filter(status=task_status)
+
     # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
-    # loop persist onto the latest run's output (same latest-run subquery shape
-    # as the status filter, so "the task's PR" means what the API's latest_run
-    # shows). KeyTextTransform, so the comparison is text = text.
+    # loop persist onto a run's output. KeyTextTransform, so the comparison is
+    # text = text.
     pr_state = filters.get("pr_state")
     if pr_state:
-        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
-            :1
-        ]
+        # Anchored on the newest PR-carrying run, the one `_task_detail_to_dto` inherits
+        # `latest_run.output` from. A resumed run never gains a `pr_state` of its own, so reading
+        # the newest run would answer `pr_state=open` differently from the `latest_run` this same
+        # endpoint returns.
+        latest_pr_run = latest_run.filter(_PR_CARRYING_OUTPUT_Q)
+        latest_run_pr_state = latest_pr_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values(
+            "_pr_state"
+        )[:1]
         qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
         if pr_state == "merged":
             # Runs merged before pr_state existed only carry the older
             # pr_merged flag; honor both spellings.
-            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+            latest_run_pr_merged = latest_pr_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
                 "_pr_merged"
             )[:1]
             qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
@@ -5232,6 +7916,8 @@ def _list_tasks_queryset(
             )
         else:
             qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    # `ci_status` stays on the newest run: unlike the PR, it is not inherited across a resume.
 
     ci_status = filters.get("ci_status")
     if ci_status:
@@ -5291,41 +7977,132 @@ def _list_tasks_queryset(
     else:
         qs = qs.filter(archived=False)
 
-    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").annotate(
-        _latest_run_id=Subquery(latest_run.values("id")[:1])
+    # The list DTO needs only two relations: ``created_by`` for ``_user_basic_info`` and
+    # ``team.name`` for the ``slug`` prefix (the integration FK ids are columns on the task row).
+    # Narrow prefetches keep the full ~100-column Team row and the full User row out of every
+    # task row. Latest runs are resolved per page in ``_tasks_to_dtos``, which avoids a
+    # correlated ``posthog_task_run`` subquery on every task row.
+    qs = qs.prefetch_related(
+        Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
+        Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
+
+    if basic:
+        qs = qs.annotate(_description_preview=Substr("description", 1, TASK_DESCRIPTION_PREVIEW_LENGTH)).defer(
+            "description"
+        )
 
     return qs
 
 
-def _latest_runs_by_id(run_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
-    unique_run_ids = list(dict.fromkeys(run_ids))
-    if not unique_run_ids:
+def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
+    task_id_list = list(task_ids)
+    if not task_id_list:
         return {}
 
-    return {run.id: run for run in TaskRun.objects.filter(id__in=unique_run_ids, team_id=team_id)}
+    runs = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=task_id_list)
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+    )
+    return {run.task_id: run for run in runs}
 
 
-def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
+def _tasks_to_dtos(
+    tasks: Iterable[Task],
+    team_id: int,
+    user_id: int | None = None,
+    *,
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
-    latest_run_ids_by_task_id = {
-        task.id: latest_run_id
+    latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
+    # Resolved for the whole page in one query, rather than one per task inside the mapper.
+    needs_prior_pr = [
+        task.id
         for task in task_list
-        if (latest_run_id := getattr(task, "_latest_run_id", None)) is not None
-    }
-    latest_runs_by_id = _latest_runs_by_id(latest_run_ids_by_task_id.values(), team_id)
-
-    dtos = []
-    for task in task_list:
-        latest_run_id = latest_run_ids_by_task_id.get(task.id)
-        latest_run = latest_runs_by_id.get(latest_run_id) if latest_run_id is not None else None
-        dtos.append(_task_detail_to_dto(task, latest_run=latest_run))
-    return dtos
+        if (run := latest_runs_by_task_id.get(task.id)) is not None and not read_pr_urls(run.output)
+    ]
+    prior_pr_output_by_task_id = get_prior_pr_output_by_task(team_id, needs_prior_pr)
+    return [
+        _task_detail_to_dto(
+            task,
+            user_id=user_id,
+            latest_run=latest_runs_by_task_id.get(task.id),
+            prior_pr_output=prior_pr_output_by_task_id.get(str(task.id)),
+            analytics_context_reader=analytics_context_reader,
+        )
+        for task in task_list
+    ]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id, user_id)
+
+
+_SEARCH_KIND_ORDER = (
+    TaskSearchDocument.Kind.TASK,
+    TaskSearchDocument.Kind.CANVAS,
+    TaskSearchDocument.Kind.CHANNEL,
+    TaskSearchDocument.Kind.PULL_REQUEST,
+    TaskSearchDocument.Kind.ARTIFACT,
+)
+_SEARCH_BULK_KINDS = {TaskSearchDocument.Kind.PULL_REQUEST, TaskSearchDocument.Kind.ARTIFACT}
+_SEARCH_BULK_KIND_PAGE_SHARE = 0.25
+_SEARCH_CANDIDATE_FACTOR = 3
+_SEARCH_MAX_CANDIDATES = 150
+
+
+def _mixed_search_page(documents: Iterable[TaskSearchDocument], page_size: int) -> list[TaskSearchDocument]:
+    quota = int(page_size * _SEARCH_BULK_KIND_PAGE_SHARE)
+    used: Counter[str] = Counter()
+    page: list[TaskSearchDocument] = []
+    overflow: list[TaskSearchDocument] = []
+    for document in documents:
+        if document.kind in _SEARCH_BULK_KINDS and used[document.kind] >= quota:
+            overflow.append(document)
+            continue
+        used[document.kind] += 1
+        page.append(document)
+    return (page + overflow)[:page_size]
+
+
+def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSummaryDTO | None:
+    """The run state a search row needs to draw the task's icon."""
+    if run is None:
+        return None
+    interactive = (run.state or {}).get("mode") == "interactive"
+    output = run.output if isinstance(run.output, dict) else {}
+    pr_url = output.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
+    return contracts.TaskLatestRunSummaryDTO(
+        id=run.id,
+        status=run.status,
+        environment=run.environment,
+        mode="interactive" if interactive else "background",
+        pr_url=pr_url,
+        pr_state=_pull_request_state(output) if pr_url else None,
+    )
+
+
+def _search_result_payload(document: TaskSearchDocument, latest_runs: dict[Any, TaskRun]) -> dict:
+    """One search row, with the fields a client needs to draw it without a second request."""
+    task = document.task if document.task_id else None
+    return {
+        "id": str(document.id),
+        "kind": document.kind,
+        "title": document.title,
+        "subtitle": document.subtitle,
+        "task_id": str(document.task_id) if document.task_id else None,
+        "task_run_id": str(document.task_run_id) if document.task_run_id else None,
+        "channel_id": str(document.channel_id) if document.channel_id else None,
+        "created_by": _user_basic_info(task.created_by if task else None),
+        "origin_product": task.origin_product if task else None,
+        "latest_run": _search_latest_run_summary(latest_runs.get(document.task_id) if document.task_id else None),
+        "updated_at": document.updated_at,
+        "metadata": document.metadata,
+    }
 
 
 def search_tasks(
@@ -5335,12 +8112,16 @@ def search_tasks(
     *,
     limit: int = 20,
     bypass_visibility: bool = False,
+    exclude_task_ids: Iterable[UUID] = (),
 ) -> list[dict]:
     normalized = query.strip().lower()
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).filter(internal=False).values("id")
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True)
+        .filter(internal=False)
+        .exclude(id__in=exclude_task_ids)
+        .values("id")
     )
     visibility = Q(task_id__in=Subquery(visible_task_ids)) | (
         Q(task__isnull=True, channel__deleted=False) & Channel.visible_to_q(user_id, relation="channel")
@@ -5358,8 +8139,10 @@ def search_tasks(
     matches = exact_match
     if len(normalized) >= 3:
         matches |= Q(search_text__icontains=normalized)
-    documents = (
+    page_size = min(limit, 50)
+    candidates = (
         TaskSearchDocument.objects.for_team(team_id)
+        .select_related("task__created_by")
         .filter(visibility)
         .filter(matches)
         .annotate(
@@ -5368,32 +8151,33 @@ def search_tasks(
                 When(search_text__startswith=normalized, then=Value(1)),
                 default=Value(2),
                 output_field=IntegerField(),
-            )
+            ),
+            _kind_rank=Case(
+                *[When(kind=kind, then=Value(rank)) for rank, kind in enumerate(_SEARCH_KIND_ORDER)],
+                default=Value(len(_SEARCH_KIND_ORDER)),
+                output_field=IntegerField(),
+            ),
         )
-        .order_by("_rank", "-updated_at")[: min(limit, 50)]
+        .order_by("_rank", "_kind_rank", "-updated_at")[
+            : min(page_size * _SEARCH_CANDIDATE_FACTOR, _SEARCH_MAX_CANDIDATES)
+        ]
     )
-    return [
-        {
-            "id": str(document.id),
-            "kind": document.kind,
-            "title": document.title,
-            "subtitle": document.subtitle,
-            "task_id": str(document.task_id) if document.task_id else None,
-            "task_run_id": str(document.task_run_id) if document.task_run_id else None,
-            "channel_id": str(document.channel_id) if document.channel_id else None,
-            "metadata": document.metadata,
-        }
-        for document in documents
-    ]
+    documents = _mixed_search_page(candidates, page_size)
+    latest_runs = _latest_runs_by_task_id((document.task_id for document in documents if document.task_id), team_id)
+    return [_search_result_payload(document, latest_runs) for document in documents]
 
 
 def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:
     return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
 
-def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
+def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    tasks = Task.objects.filter(team_id=team_id, deleted=False, internal=False).filter(task_visibility_q(user_id))
+    tasks = (
+        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
+        .filter(task_visibility_q(user_id, team_id))
+        .exclude(id__in=exclude_task_ids)
+    )
     plural = (
         tasks.exclude(repositories=[])
         .annotate(repository_name=Func(F("repositories"), function="unnest", output_field=CharField()))
@@ -5410,41 +8194,124 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
-def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
+def _latest_run_summary(
+    raw: object, prior_pr: object = None, *, can_read_summary: bool
+) -> contracts.TaskLatestRunSummaryDTO | None:
+    if not isinstance(raw, dict):
+        return None
+    # Same inheritance the task detail response applies: a run that opened no PR of its own shows
+    # the one an earlier run opened, so the sidebar and the detail view agree about a resumed task.
+    pr_source = raw if read_pr_urls(raw) else (prior_pr if isinstance(prior_pr, dict) else {})
+    urls = read_pr_urls(pr_source)
+    pr_url = urls[0] if urls else None
+    return contracts.TaskLatestRunSummaryDTO(
+        id=raw["id"],
+        status=raw.get("status"),
+        environment=raw.get("environment"),
+        mode=raw.get("mode", "background"),
+        pr_url=pr_url,
+        pr_state=_pull_request_state(pr_source) if pr_url else None,
+        task_summary=(raw.get("task_summary") or raw.get("prior_run_summary")) if can_read_summary else None,
+    )
+
+
+def get_task_summaries(
+    team_id: int,
+    user_id: int | None,
+    *,
+    ids: list,
+    limit: int | None = None,
+    offset: int = 0,
+    exclude_task_ids: Iterable[UUID] = (),
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
 
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(status="status", environment="environment"))
+        .annotate(
+            _mode=Case(
+                When(state__mode="interactive", then=Value("interactive")),
+                default=Value("background"),
+                output_field=CharField(),
+            ),
+            _data=JSONObject(
+                id="id",
+                status="status",
+                environment="environment",
+                mode="_mode",
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+                task_summary="state__task_summary",
+                prior_run_summary="state__prior_run_summary",
+                has_analytics_context=Case(
+                    When(state__has_key="analytics_query_context", then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+                analytics_query_context="state__analytics_query_context",
+            ),
+        )
+    )
+    # The newest run that opened a PR, which is not always the newest run.
+    latest_pr_run = (
+        TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
+        .filter(_PR_CARRYING_OUTPUT_Q)
+        .order_by("-created_at", "-id")
+        .annotate(
+            _pr=JSONObject(
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+            )
+        )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
-        .filter(task_visibility_q(user_id))
-        .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+        .filter(task_visibility_q(user_id, team_id))
+        .exclude(id__in=exclude_task_ids)
+        .annotate(
+            _latest_run=Subquery(latest_run.values("_data")[:1]),
+            _latest_pr_run=Subquery(latest_pr_run.values("_pr")[:1]),
+        )
         .order_by("-created_at", "id")
     )
+    count = tasks.count()
+    if limit is not None:
+        tasks = tasks[offset : offset + limit]
     summaries: list[contracts.TaskSummaryDTO] = []
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
-        latest = (
-            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
-            if isinstance(raw, dict)
-            else None
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or (
+            user_id is not None and task.created_by_id == user_id
         )
+        if isinstance(raw, dict) and raw.get("has_analytics_context"):
+            can_read_summary = (
+                can_read_summary
+                and analytics_context_reader is not None
+                and analytics_context_reader(raw.get("analytics_query_context"))
+            )
+        latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
         summaries.append(
             contracts.TaskSummaryDTO(
                 id=task.id,
                 title=task.title,
                 repository=task.repository,
+                created_by_id=task.created_by_id,
                 created_at=task.created_at,
                 updated_at=task.updated_at,
                 origin_product=task.origin_product,
                 latest_run=latest,
+                status=task.status,
+                status_reason=task.status_reason,
             )
         )
-    return summaries
+    return summaries, count
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
@@ -5459,12 +8326,126 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
+def _capture_no_repo_selection_override(
+    *, team: Team, report_id: str, resolved_repository: str | None, relationship: str | None
+) -> None:
+    """Record a person starting work on a report whose scout chose no repository.
+
+    The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
+    person wanted, and `resolved_repository` separates a recovery from a cascade that also found
+    nothing. `relationship` separates a "Create PR" override from an Ask AI one, which start from
+    different intents. Keyed on the team, like the other scout events. Best-effort: a capture
+    failure must never fail the task creation."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_no_repo_selection_overridden",
+            properties={
+                "report_id": report_id,
+                "team_id": team.id,
+                "resolved_repository": resolved_repository,
+                "relationship": relationship,
+            },
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
+
+
+def _capture_report_task_refused_without_repository(*, team: Team, report_id: str) -> None:
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_implementation_refused_no_repository",
+            properties={"report_id": report_id, "team_id": team.id},
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning(
+            "signal_report_implementation_refused_no_repository capture failed for report %s: %s", report_id, e
+        )
+
+
+def create_task_and_run(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    run_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
+) -> contracts.TaskRunResult:
+    if custom_image_id := run_data.get("custom_image_id"):
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if custom_image is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id")
+            )
+        if not custom_image.is_ready:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
+                )
+            )
+    if sandbox_environment_id := run_data.get("sandbox_environment_id"):
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if sandbox_environment is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id")
+            )
+
+    create_data = dict(validated_data)
+    create_data.pop("branch", None)
+    task = create_task(
+        team_id,
+        user_id,
+        validated_data=create_data,
+        client_provenance=client_provenance,
+        code_access_allowed=code_access_allowed,
+    )
+    return _start_first_run(
+        task, team_id, user_id, run_data=run_data, only_if_no_runs="idempotency_key" in validated_data
+    )
+
+
+def start_missing_first_run(
+    team_id: int, user_id: int | None, *, task: contracts.TaskDetailDTO, run_data: dict
+) -> contracts.TaskRunResult:
+    return _start_first_run(task, team_id, user_id, run_data=run_data, only_if_no_runs=True)
+
+
+def _start_first_run(
+    task: contracts.TaskDetailDTO, team_id: int, user_id: int | None, *, run_data: dict, only_if_no_runs: bool
+) -> contracts.TaskRunResult:
+    from products.signals.backend.facade.api import ReportTaskCapExceeded
+
+    try:
+        result = run_task(task.id, team_id, user_id, validated_data=run_data, only_if_no_runs=only_if_no_runs)
+        if result is None:
+            return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
+        return contracts.TaskRunResult(
+            task=result.task or task,
+            run_error=result.error.detail if result.error else result.run_error,
+        )
+    except ReportTaskCapExceeded as error:
+        return contracts.TaskRunResult(task=task, run_error=error.detail)
+    except Exception:
+        logger.exception("Failed to create first run for task %s", task.id)
+        return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
+
+
 def create_task(
     team_id: int,
     user_id: int | None,
     *,
     validated_data: dict,
     client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
+    warm_retry_token: str | None = None,
 ) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
@@ -5472,11 +8453,19 @@ def create_task(
     ``resolve_user_github_integration_for_task`` so no internal/other-product import leaks into
     presentation. ``validated_data`` carries the validated write fields (integrations already
     resolved to instances by the write serializer's PK fields).
+
+    ``code_access_allowed`` is the caller's Desktop-access outcome, which only the request layer can
+    evaluate. It upgrades a report discussion from the repo-less exempt shape to a full cloud task:
+    a resolved repository and the team's GitHub credential. Defaults to ``False`` so a caller that
+    never ran the gate creates the exempt shape.
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        implementation_access_instruction,
+        implementation_access_repositories,
+        is_pull_request_run_request,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -5488,11 +8477,28 @@ def create_task(
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    profile = find_task_profile(validated_data.get("profile"))
+    reuses_no_warm_run = uses_public_create(validated_data)
+    source = validated_data.pop("source", None)
+    if source is not None:
+        columns = apply_task_source(source, signal_report_id=None, hog_flow_id=None)
+        validated_data["source_kind"] = source.kind.value
+        validated_data["source_id"] = source.id
+        if columns.signal_report_id is not None and "signal_report" not in validated_data:
+            validated_data["signal_report_id"] = columns.signal_report_id
+        if columns.hog_flow_id is not None:
+            validated_data["hog_flow_id"] = columns.hog_flow_id
+    fingerprint = validated_data.pop("idempotency_fingerprint", None)
+    if fingerprint is not None:
+        validated_data["state"] = {
+            **validated_data.get("state", {}),
+            PUBLIC_CREATE_FINGERPRINT_STATE_KEY: fingerprint,
+        }
     if (
         validated_data.get("channel") is None
         and user_id is not None
         and not validated_data.get("internal", False)
-        and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
+        and not readable_without_channel(validated_data["origin_product"], profile)
     ):
         validated_data["channel"] = _ensure_personal_channel(team_id, user_id)[0]
     validated_data["client_provenance"] = client_provenance
@@ -5504,9 +8510,18 @@ def create_task(
     warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
     warm_custom_image_id = validated_data.pop("custom_image_id", None)
     warm_initial_permission_mode = validated_data.pop("initial_permission_mode", None)
+    warm_run_id = validated_data.pop("warm_run_id", None)
+    warm_submission_id = validated_data.pop("warm_submission_id", None)
+    warm_submission_id = str(warm_submission_id) if warm_submission_id else None
+    if warm_run_id is not None and validated_data["origin_product"] not in (
+        Task.OriginProduct.USER_CREATED,
+        Task.OriginProduct.POSTHOG_AI,
+    ):
+        raise ValidationError({"warm_run_id": "Only supported for user-created and PostHog AI tasks."})
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    validated_data.pop("scheduled_at", None)
     # Names the task from the pasted content while `description` stays the bare prompt. Write-only,
     # never persisted, so it must be popped before `Task.objects.create(**validated_data)`.
     naming_source = (validated_data.pop("naming_source", None) or "").strip() or None
@@ -5520,7 +8535,13 @@ def create_task(
         and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
     ):
         validated_data["repositories"] = channel.repositories
-        validated_data["github_integration"] = channel.github_integration
+        validated_data["github_integration"] = (
+            IntegrationManager.github.oauth.get_many(team.id, [channel.github_integration_id]).get(
+                channel.github_integration_id
+            )
+            if channel.github_integration_id is not None
+            else None
+        )
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
@@ -5530,31 +8551,73 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+    uses_repository_integration = validated_data.get("repository_integration_id") is not None
+    if (
+        validated_data.get("repository")
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
+        default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
+
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+    signal_report = validated_data.get("signal_report")
+    report_discussion = (
+        validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report is not None
+        and signal_report_task_relationship not in (None, "implementation")
+    )
 
     # Reuse is scoped to the submitting origin product: `_find_idling_warm_run` filters on it, so an
     # origin that never warms simply finds nothing. The warm call and this create call are separate
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
-    if warm_branch_provided and user_id is not None:
-        warm_run = _find_idling_warm_run(
-            team_id,
-            user_id,
-            origin_product=validated_data["origin_product"],
-            repository=validated_data.get("repository"),
-            repositories=validated_data.get("repositories", []),
-            github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
-            branch=warm_branch,
-            runtime_adapter=warm_runtime_adapter,
-            model=warm_model,
-            reasoning_effort=warm_reasoning_effort,
-            sandbox_environment_id=warm_sandbox_environment_id,
-            custom_image_id=warm_custom_image_id,
-            initial_permission_mode=warm_initial_permission_mode,
+    # Warm runs are provisioned for GitHub repositories, and a GitLab project path can match a GitHub name.
+    if warm_branch_provided and user_id is not None and not reuses_no_warm_run and not uses_repository_integration:
+        # Post-defaults comparison: warm runs are provisioned with the default triple
+        # filled in, so the requested selection must be resolved the same way to match.
+        warm_selection = _with_ai_run_defaults(
+            {"runtime_adapter": warm_runtime_adapter, "model": warm_model, "reasoning_effort": warm_reasoning_effort},
+            team_id=team_id,
+            acting_user_id=user_id,
+        )
+        warm_runtime_adapter = warm_selection.get("runtime_adapter")
+        warm_model = warm_selection.get("model")
+        warm_reasoning_effort = warm_selection.get("reasoning_effort")
+        warm_github_integration_id = getattr(validated_data.get("github_integration"), "id", None)
+        if report_discussion:
+            warm_github_integration_id = _report_task_github_integration_id(
+                team, code_access_allowed=code_access_allowed
+            )
+        warm_run = (
+            None
+            if validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT and not report_discussion
+            else _find_idling_warm_run(
+                team_id,
+                user_id,
+                origin_product=validated_data["origin_product"],
+                posthog_mcp_scopes=profile.mcp_scopes if profile is not None else "full",
+                repository=validated_data.get("repository"),
+                repositories=validated_data.get("repositories", []),
+                github_integration_id=warm_github_integration_id,
+                branch=warm_branch,
+                runtime_adapter=warm_runtime_adapter,
+                model=warm_model,
+                reasoning_effort=warm_reasoning_effort,
+                sandbox_environment_id=warm_sandbox_environment_id,
+                custom_image_id=warm_custom_image_id,
+                initial_permission_mode=warm_initial_permission_mode,
+                warm_run_id=warm_run_id,
+                warm_submission_id=warm_submission_id,
+                retry_token=warm_retry_token,
+                signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
+                task_runtime=validated_data.get("runtime"),
+                json_schema=validated_data.get("json_schema"),
+            )
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
             team_id=team_id,
@@ -5577,6 +8640,11 @@ def create_task(
                 )
                 warm_run = None
         if warm_run is not None:
+            if Team.objects.filter(id=team_id, organization__is_pending_deletion=True).exists():
+                raise PermissionDenied(
+                    "This organization is scheduled for deletion. Select another organization to run tasks."
+                )
+            _warm_retry_message_id(warm_retry_token, warm_run)
             warm_task = warm_run.task
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
             if should_set_client_provenance:
@@ -5592,9 +8660,29 @@ def create_task(
                 raise ComputeBillingLimitError(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
+            if (cap_detail := _active_session_cap_refusal(warm_task)) is not None:
+                raise ActiveSessionCapRefused(cap_detail)
+            report_reservation = (
+                _reserve_report_warm_activation(
+                    team,
+                    warm_task,
+                    relationship=signal_report_task_relationship,
+                    description=validated_data.get("description"),
+                )
+                if report_discussion
+                else None
+            )
             description = (validated_data.get("description") or "").strip()
+            requested_title = (validated_data.get("title") or "").strip()
             update_fields: list[str] = []
-            if description and not (warm_task.title or "").strip():
+            if "created_on_mobile" not in (warm_task.state or {}):
+                warm_task.state = {**(warm_task.state or {}), **validated_data.get("state", {})}
+                update_fields.append("state")
+            if requested_title and not (warm_task.title or "").strip():
+                warm_task.title = requested_title
+                warm_task.title_manually_set = True
+                update_fields += ["title", "title_manually_set"]
+            elif description and not (warm_task.title or "").strip():
                 warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
@@ -5605,35 +8693,72 @@ def create_task(
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
                 update_fields.append("channel")
+            if client_provenance is not None:
+                warm_task.last_client = client_provenance
+                warm_task.last_client_at = django_timezone.now()
+                update_fields += ["last_client", "last_client_at"]
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
             if should_set_client_provenance:
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
-            _activate_warm_run(
-                warm_run,
-                warm_task,
-                team_id,
-                message=pending_user_message or description or None,
-                description=description or None,
-                artifact_ids=pending_user_artifact_ids,
-                auto_publish=warm_auto_publish,
-                reasoning_effort=warm_reasoning_effort,
-            )
-            return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+            try:
+                _activate_warm_run(
+                    warm_run,
+                    warm_task,
+                    team_id,
+                    message=pending_user_message or description or None,
+                    branch=warm_branch,
+                    description=description or None,
+                    artifact_ids=pending_user_artifact_ids,
+                    auto_publish=warm_auto_publish,
+                    reasoning_effort=warm_reasoning_effort,
+                    retry_token=warm_retry_token,
+                    initial_permission_mode=warm_initial_permission_mode if warm_run_id else None,
+                    submission_id=warm_submission_id,
+                )
+            except WarmRunClaimedByOtherSubmission:
+                pass
+            except WarmPermissionModeUnavailable:
+                from products.tasks.backend.facade.cancellation import cancel_task_run
 
-    # The relationship the client asserted (validated by the serializer, which rejects `research`).
-    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
-    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+                cancel_task_run(warm_run.id, warm_task.id, team_id, only_if_awaiting_first_message=True)
+                with transaction.atomic():
+                    unused_task = Task.objects.select_for_update().get(id=warm_task.id, team_id=team_id)
+                    unused_run = TaskRun.objects.select_for_update().get(id=warm_run.id, team_id=team_id)
+                    unused_state = unused_run.state or {}
+                    if (
+                        unused_state.get("await_user_message")
+                        and unused_state.get("warm_permission_mode_failed")
+                        and not unused_state.get("warm_activation_started")
+                    ):
+                        unused_task.soft_delete()
+            except Exception:
+                if report_reservation is not None:
+                    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+                        delete_report_task_artefact,
+                    )
 
-    # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
-    # creating a report-linked task that can never open a PR.
-    signal_report = validated_data.get("signal_report")
+                    delete_report_task_artefact(team_id=warm_task.team_id, artefact_id=report_reservation)
+                raise
+            else:
+                return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
+
+    refuse_without_repository = False
+    # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
+    # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
+    # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
+    # starts repo-less: the sandbox boots without a clone and the agent clones on demand with the
+    # credential an entitled caller's task carries (see `task_exempt_from_code_access`).
     if (
         signal_report is not None
         and not validated_data.get("repository")
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report_task_relationship in (None, "implementation")
     ):
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
             persisted_repo_selection,
@@ -5642,13 +8767,14 @@ def create_task(
             cascade_select_repository,
         )
 
-        # The report's own selection is authoritative — including a scout's deliberate no-repo
-        # (`repository=None`), which must not fall through to the cascade.
+        # A named selection wins. A no-repo selection (`repository=None`) does not: autostart
+        # already honors it in signals (it never creates a task without a repository), so reaching
+        # here means a person clicked "Create PR", which is the stronger signal. Fall through to
+        # the cascade rather than create a task whose sandbox can only read, never push.
         selection = persisted_repo_selection(str(signal_report.id))
-        resolved_repository = (
-            selection.repository
-            if selection is not None
-            else cascade_select_repository(
+        resolved_repository = selection.repository if selection is not None else None
+        if not resolved_repository:
+            resolved_repository = cascade_select_repository(
                 team_id,
                 user_id,
                 validated_data.get("description") or "",
@@ -5656,12 +8782,41 @@ def create_task(
                 single_repo_wins=True,
                 allow_refresh=False,
             )
-        )
+            if selection is not None:
+                _capture_no_repo_selection_override(
+                    team=team,
+                    report_id=str(signal_report.id),
+                    resolved_repository=resolved_repository,
+                    relationship=signal_report_task_relationship,
+                )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+        refuse_without_repository = (
+            not resolved_repository and client_provenance != TaskClientProvenance.POSTHOG_DESKTOP
+        )
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+    # The credential follows the entitlement, not the repository: an entitled report task carries
+    # the team's GitHub integration even when nothing resolved, so the agent can still clone what
+    # the conversation turns out to need. That is the shape a repo-less user-created task already
+    # has, and provisioning keys the token off the attached integration, so a task created without
+    # the gate stays credential-less.
+    entitled_report_task = (
+        code_access_allowed
+        and signal_report is not None
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    )
+    if (
+        (validated_data.get("repository") or entitled_report_task)
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
+        if signal_report is not None:
+            integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
+            default_integration = (
+                _team_github_integration_or_none(team.id, integration_id) if integration_id is not None else None
+            )
+        else:
+            default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -5669,6 +8824,7 @@ def create_task(
         validated_data.get("repository")
         and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
         and not validated_data.get("github_user_integration")
+        and not uses_repository_integration
     ):
         task_stub = Task(
             team=team,
@@ -5681,6 +8837,12 @@ def create_task(
         if github_user_integration is not None:
             validated_data["github_user_integration"] = github_user_integration.integration
 
+    if validated_data["origin_product"] == Task.OriginProduct.ACCOUNT_AUDIT:
+        validated_data["repository"] = None
+        validated_data["repositories"] = []
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
+
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
         validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
@@ -5690,16 +8852,62 @@ def create_task(
 
     # The write serializer binds the report as `signal_report` (a PK field); direct callers may
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
-    # Gated regardless of the relationship label: the label is client-selected and manually
-    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
     signal_report_id = (
         str(getattr(report_ref, "id", report_ref))
         if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
-    if signal_report_id:
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
+    if signal_report_id and (
+        signal_report_task_relationship in (None, "implementation")
+        or is_pull_request_run_request(validated_data.get("description"))
+    ):
+        enforce_self_driving_free_trial(team, report_id=signal_report_id)
+    if refuse_without_repository and signal_report is not None:
+        _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
+        raise ValidationError(
+            {"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED},
+            code="report_implementation_repository_unresolved",
+        )
+
+    if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
+        from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+            github_optional_pilot_enabled,
+            pilot_repository_integration_id,
+        )
+
+        integration_id = (
+            pilot_repository_integration_id(team_id, validated_data["repository"])
+            if validated_data.get("repository")
+            else None
+        )
+        repository_integration = (
+            _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+        )
+        if repository_integration is not None:
+            validated_data["github_integration"] = repository_integration
+        elif github_optional_pilot_enabled(team_id):
+            raise ValidationError(
+                {
+                    "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                }
+            )
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+        if repository := validated_data.get("repository"):
+            # Tells the agent about the repositories `run_task` adds to its token, as auto-start does.
+            validated_data["description"] = (validated_data.get("description") or "") + (
+                implementation_access_instruction(
+                    repository=repository,
+                    access_repositories=implementation_access_repositories(team_id=team_id, repository=repository),
+                )
+            )
+
+    if report_ref:
+        validated_data["source_kind"] = SourceKind.SIGNAL_REPORT.value
+        validated_data["source_id"] = str(getattr(report_ref, "id", report_ref))
+    if validated_data.get("origin_key") is not None:
+        validated_data["idempotency_key"] = validated_data["origin_key"]
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -5710,18 +8918,48 @@ def create_task(
                 team_id=team_id,
                 report_id=signal_report_id,
                 relationship=signal_report_task_relationship,
+                description=validated_data.get("description"),
+                created_by_id=user_id,
             )
         task = Task.objects.create(**validated_data)
-        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        if task.signal_report_source_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship
             # (defaults to implementation, which also writes the auto-start spend gate row) so a
             # manually-started task matches autostarted ones.
             record_report_task(
                 team_id=task.team_id,
-                report_id=str(task.signal_report_id),
+                report_id=str(task.signal_report_source_id),
                 task_id=str(task.id),
                 relationship=signal_report_task_relationship,
             )
+
+    # Only an override is a change. The inherited case is already counted by `task_created`.
+    if channel is not None and repositories_differ(channel.repositories, task.repositories):
+        capture_repository_config_changed(
+            team=team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_created",
+            previous_repositories=channel.repositories,
+            repositories=task.repositories,
+            previous_integration_id=channel.github_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(channel.id),
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=channel.repositories,
+        )
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            create_tracker_issue_for_report,
+        )
+
+        create_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=signal_report_id,
+            repository=task.repository,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -5741,7 +8979,12 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 
 
 def update_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    expected_repository_state: tuple | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
     validated_data = dict(validated_data)
@@ -5755,13 +8998,45 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        if not _task_drive_allowed(task, user_id):
+            return None
+        if (
+            expected_repository_state is not None
+            and not validated_data.keys().isdisjoint(
+                {
+                    "repository",
+                    "repositories",
+                    "repository_integration_id",
+                    "github_integration",
+                    "github_user_integration",
+                }
+            )
+            and expected_repository_state
+            != (
+                task.repository,
+                task.repositories or ([task.repository] if task.repository else []),
+                task.github_integration_id,
+                task.github_user_integration_id,
+                task.repository_integration_id,
+            )
+        ):
+            raise ValidationError("Repository configuration changed. Try again.")
+        previous_repositories = list(task.repositories or [])
+        previous_integration_id = task.github_integration_id
 
-        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
-        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
+        # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
+        # attached, so an attachable one would credential a run the create path left credential-less.
+        if task.origin_product in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.ACCOUNT_AUDIT,
+        ):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)
             validated_data.pop("github_user_integration", None)
+            validated_data.pop("repository_integration_id", None)
         if "repositories" in validated_data:
             repositories = validated_data["repositories"]
             validated_data["repository"] = repositories[0] if repositories else None
@@ -5770,16 +9045,63 @@ def update_task(
                 validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
             else:
                 validated_data.pop("repository")
+        profile = task.stored_profile
+        changes_github_access = not validated_data.keys().isdisjoint(
+            {"repository", "repositories", "github_integration", "github_user_integration"}
+        )
+        github_access = task.github_access_limit
+        if (
+            (profile is not None or github_access == GithubAccess.NONE)
+            and changes_github_access
+            and not Task.attaches_github(
+                task.origin_product,
+                profile,
+                has_repository=bool(validated_data.get("repository", task.repository)),
+                github_access=github_access,
+            )
+        ):
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+            task.github_integration = None
+            task.github_user_integration = None
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         if "archived" in validated_data and validated_data["archived"] != task.archived:
             validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
+        repo_fields_touched = any(key in validated_data for key in ("repositories", "repository", "github_integration"))
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
+        github_fields_touched = repo_fields_touched or "github_user_integration" in validated_data
+        if github_fields_touched and not Task._github_resolution_allowed(
+            task.origin_product, has_repository=bool(task.repositories or task.repository)
+        ):
+            task.github_integration = None
+            task.github_user_integration = None
         task.save()
         logger.info("Task %s updated successfully", task.id)
+
+    if repo_fields_touched:
+        space_repositories = (
+            Channel.objects.filter(id=task.channel_id).values_list("repositories", flat=True).first()
+            if task.channel_id
+            else None
+        )
+        capture_repository_config_changed(
+            team=task.team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=task.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(task.channel_id) if task.channel_id else None,
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=space_repositories,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -5790,8 +9112,11 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return False
+        if not _task_drive_allowed(task, user_id):
+            return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
+        soft_delete_conversations_for_task(task.id)
     return True
 
 
@@ -5805,57 +9130,37 @@ class TaskHandoffError(Exception):
 def handoff_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, target_user_id: int
 ) -> contracts.TaskDetailDTO | None:
-    """Hand ``task_id`` off to ``target_user_id``: they become the task's owner.
-
-    Ownership is what `task_control_q` keys on, so the recipient drives the task
-    afterwards (steer, archive, forward thread messages), and future runs resolve
-    GitHub authorship and notification recipients from them. Membership in the
-    project's organization is required — anything weaker would hand control of a
-    task to someone who can't see the project.
-
-    Visibility follows the recipient when the task lives in a private space: a
-    task in the actor's ``#me`` (or a legacy channel-less task) moves into the
-    recipient's ``#me`` so they can open what's now theirs. Public channels stay
-    put; both sides keep the shared view.
-
-    Only the owner can hand a task off: ``task_control_q`` also grants control
-    over team-owned origin products, and giving a task away is stricter than
-    driving it. The recipient must be an org member with access to this project
-    (``all_users_with_access`` honors private-project access control), otherwise
-    they'd end up owning a task they can't open.
-
-    Returns the updated task detail, or ``None`` when the actor can't control the
-    task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
-    (not a member with project access, or the current owner).
-
-    All task runs must be terminal and every sandbox session must be closed
-    before a handoff. The transfer rotates a server-owned ownership version and
-    revokes task-bound sandbox OAuth tokens, so old runs cannot execute or refresh
-    credentials under the recipient's identity.
-    """
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
     if user_id is None or task.created_by_id != user_id:
         return None
+    if not _task_drive_allowed(task, user_id):
+        return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
-    target = task.team.all_users_with_access().filter(id=target_user_id).first()
-    if target is None:
-        raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
-
     previous_owner_id = task.created_by_id
     actor = User.objects.filter(id=user_id).only("first_name", "email", "distinct_id").first() if user_id else None
     actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "Someone"
-    target_name = target.first_name.strip() or target.email
+    channel = task.channel
     with transaction.atomic():
+        if channel is not None and channel.channel_type == Channel.ChannelType.PRIVATE:
+            if _locked_visible_channel(channel.id, team_id, user_id, no_key=True) is None:
+                return None
         locked = Task.objects.select_for_update().get(pk=task.pk)
-        # Under the lock: two concurrent handoffs settle last-writer-loses
-        # instead of double-announcing and rerouting mid-flight.
-        if locked.deleted:
+
+        if locked.deleted or locked.channel_id != task.channel_id:
             return None
         if locked.created_by_id != previous_owner_id:
             raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
+        if locked.is_scout_experiment:
+            raise TaskHandoffError("Scout comparison tasks stay with the operator who launched them.")
+        if not Task.objects.filter(id=locked.id).filter(task_control_q(user_id)).exists():
+            return None
+        target = locked.team.all_users_with_access().filter(id=target_user_id).first()
+        if target is None:
+            raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
+        target_name = target.first_name.strip() or target.email
         if (
             TaskRun.objects.filter(task_id=locked.id, team_id=team_id)
             .exclude(status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -5881,24 +9186,34 @@ def handoff_task(
 
         channel = locked.channel
         if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
-            # Never widen: a task in one private space moves to the other private
-            # space rather than becoming visible to the whole project, and a legacy
-            # channel-less task joins the recipient's #me where they'll find it.
             locked.channel = _ensure_personal_channel(team_id, target.id)[0]
+        elif channel.channel_type == Channel.ChannelType.PRIVATE:
+            ChannelMembership.objects.for_team(team_id).get_or_create(
+                channel_id=channel.id, user_id=target.id, defaults={"team_id": team_id}
+            )
         locked.created_by = target
-        # The stored GitHub-user preference names the old owner's installation; the
-        # recipient picks their own on their next run. Carrying it across would
-        # defer to user-scoped resolution anyway (it keys on created_by), so clear it.
+
         if locked.github_user_integration_id is not None:
             locked.github_user_integration = None
-        # A stamped built-in agent task may borrow its credential owner's MCP Store
-        # grants. Handing ownership off while keeping that borrow would hand the old
-        # owner's connected accounts to whoever drives the run now, so drop the borrow.
+
         locked.state = {
             key: value for key, value in (locked.state or {}).items() if key != MCP_CREDENTIAL_OWNER_STATE_KEY
         }
         locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
         locked.save()
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            queue_task_handoff_claims,
+        )
+
+        # After commit, so the report locks it takes are never waited on while this task row is locked.
+        transaction.on_commit(
+            partial(
+                queue_task_handoff_claims,
+                team_id=team_id,
+                task_id=str(locked.id),
+                previous_user_id=user_id,
+            )
+        )
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,
             task_id=locked.id,
@@ -5908,8 +9223,6 @@ def handoff_task(
             payload={
                 "from_user_id": previous_owner_id,
                 "to_user_id": target.id,
-                # Clients render names straight from the payload (ids alone would need a
-                # member lookup); both are same-org members, so carrying names is safe.
                 "from_display_name": actor_name if user_id is not None else None,
                 "to_display_name": target_name,
             },
@@ -5925,8 +9238,7 @@ def handoff_task(
     )
 
     notify_task_handoff(locked, recipient=target, actor=actor, message_id=message.id)
-    # Task.capture_event would attribute to the new owner (it keys on created_by);
-    # the actor initiated the handoff, so capture under their identity instead.
+
     try:
         posthoganalytics.capture(
             distinct_id=str(actor.distinct_id) if actor is not None and actor.distinct_id else str(locked.team.uuid),
@@ -5973,7 +9285,7 @@ def prepare_task_staged_artifacts(
 
     # Staged artifacts feed the task's next run, so this is control, not viewing.
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     prepared: list[contracts.StagedArtifactPreparedDTO] = []
@@ -6034,7 +9346,7 @@ def finalize_task_staged_artifacts(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
@@ -6088,8 +9400,11 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
     the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
     """
-    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
-    return github_integration_id if exists else None
+    try:
+        IntegrationManager.github.oauth.get(team_id, github_integration_id)
+    except IntegrationNotFound:
+        return None
+    return github_integration_id
 
 
 def can_mint_readonly_github_token(team_id: int) -> bool:
@@ -6106,11 +9421,60 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def readonly_github_integration_id(team_id: int) -> int | None:
+    """Id of the GitHub integration a read-only sandbox token would be minted from, or ``None``.
+
+    Pairs with :func:`can_mint_readonly_github_token` for callers that must validate repository
+    names against the credential a downscoped run will actually hold, because a repository the
+    mintable installation cannot reach is a clone that fails mid-run. Team-level installations only, same
+    rule as the mint. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        resolve_readonly_github_integration,
+    )
+
+    integration = resolve_readonly_github_integration(team_id)
+    return integration.integration.id if integration is not None else None
+
+
+def _with_ai_run_defaults(
+    data: dict,
+    *,
+    team_id: int,
+    acting_user_id: int | None,
+    internal: bool = False,
+    runtime: str = Task.Runtime.ACP,
+) -> dict:
+    """A copy of ``data`` with the team/user default AI run triple filled in when it pins
+    no runtime selection (see ``resolve_ai_run_selection``).
+
+    Applied ahead of warm-run matching so requests and warm runs compare post-defaults —
+    a warm run provisioned under the default triple must match a submit that pinned
+    nothing. ``Task.create_run`` applies the same resolution as a safety net for every
+    other path, so this is deterministic double-resolution, not a divergence.
+    """
+    if internal:
+        return data
+    from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — keep ORM-heavy logic services off the api import path
+        apply_ai_run_defaults,
+    )
+
+    updated = dict(data)
+    apply_ai_run_defaults(updated, team_id, acting_user_id, runtime=runtime)
+    return updated
+
+
+def _warm_run_claimed_by_other_submission(run: TaskRun, submission_id: str | None) -> bool:
+    claimed_submission = (run.state or {}).get("warm_activation_submission_id")
+    return bool(submission_id and claimed_submission and claimed_submission != submission_id)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
     *,
     origin_product: str,
+    posthog_mcp_scopes: "PosthogMcpScopes" = "full",
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -6121,6 +9485,12 @@ def _find_idling_warm_run(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
+    warm_run_id: str | UUID | None = None,
+    warm_submission_id: str | None = None,
+    retry_token: str | None = None,
+    signal_report_id: str | UUID | None = None,
+    task_runtime: str | None = None,
+    json_schema: dict[str, Any] | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -6136,7 +9506,8 @@ def _find_idling_warm_run(
     authorship rules to another.
 
     Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
-    match the request, plus its permission mode when the caller states one. Reasoning effort is deliberately
+    match the request, plus its permission mode and task runtime when the caller states them. The warm Task's
+    output schema must equal the requested one. Reasoning effort is deliberately
     excluded: activation applies the final effort before the first turn. Other mismatches return ``None`` so
     the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
@@ -6144,16 +9515,45 @@ def _find_idling_warm_run(
     """
     if user_id is None:
         return None
+    retry_run_id = None
+    if retry_token is not None:
+        try:
+            token_run_id, _, _ = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+                retry_token, max_age=60
+            )
+            retry_run_id = UUID(token_run_id)
+        except (signing.BadSignature, ValueError, TypeError) as error:
+            raise WarmRunActivationUnavailable("invalid_retry") from error
+        if warm_run_id is not None and str(warm_run_id) != str(retry_run_id):
+            raise WarmRunActivationUnavailable("target_unavailable")
+    elif warm_run_id is not None:
+        claimed = TaskRun.objects.filter(
+            id=warm_run_id,
+            team_id=team_id,
+            task__created_by_id=user_id,
+            task__origin_product=origin_product,
+            state__warm_activation_started=True,
+        ).first()
+        if claimed is not None:
+            if _warm_run_claimed_by_other_submission(claimed, warm_submission_id):
+                return None
+            raise WarmRunActivationUnavailable("target_unavailable")
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
+
     repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
+    report_filter = source_q(SourceKind.SIGNAL_REPORT, [signal_report_id], via="task__") if signal_report_id else Q()
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
+            report_filter,
+            **({"id": warm_run_id or retry_run_id} if warm_run_id or retry_run_id else {}),
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=origin_product,
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
+            **({"state__billing_product": "posthog_ai"} if origin_product == Task.OriginProduct.SIGNAL_REPORT else {}),
             branch=branch or None,
             **repository_filter,
         )
@@ -6169,6 +9569,12 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        if dispatched_run_scopes(run.task, state) != posthog_mcp_scopes:
+            continue
+        if state.get("cancel_requested_at") or state.get("warm_permission_mode_failed"):
+            continue
+        if state.get("warm_activation_started") and retry_token is None:
+            continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
         ]
@@ -6182,11 +9588,19 @@ def _find_idling_warm_run(
         )
         if have != wanted:
             continue
+        if task_runtime is not None and run.task.runtime != task_runtime:
+            continue
+        if (json_schema or None) != (run.task.json_schema or None):
+            continue
         # Asymmetric on purpose, and load-bearing: a warm Run's state ALWAYS holds a concrete permission
         # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
         # Code app — must keep reusing their warms. Folding this into the tuple above would compare None
         # against "default" and break every one of those reuses.
-        if initial_permission_mode is not None and state.get("initial_permission_mode") != initial_permission_mode:
+        if (
+            not warm_run_id
+            and initial_permission_mode is not None
+            and state.get("initial_permission_mode") != initial_permission_mode
+        ):
             continue
         return run
     return None
@@ -6220,12 +9634,21 @@ def _warm_sandbox_selection_is_accessible(
     return True
 
 
-def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
+def _idling_warm_run_for_task(task: Task, posthog_mcp_scopes: "PosthogMcpScopes") -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
+
     run = task.latest_run
-    if run is None or run.is_terminal:
+    if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        return None
+    if (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (run.state or {}).get("billing_product") != "posthog_ai"
+    ):
         return None
     if not (run.state or {}).get("await_user_message"):
+        return None
+    if dispatched_run_scopes(task, run.state) != posthog_mcp_scopes:
         return None
     return run
 
@@ -6245,12 +9668,216 @@ def _attach_staged_artifacts_to_run(
         storage_path = str(staged_artifact["storage_path"])
         if _find_artifact_manifest_entry(manifest, str(staged_artifact.get("id")), storage_path):
             continue
-        tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+        # Scheduled attachments are tagged before the run-creation transaction takes its locks.
+        if run.scheduled_at is None:
+            tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
         manifest.append(dict(staged_artifact))
     _save_artifact_manifest(run, manifest)
-    get_tasks_cache().delete_many(
-        [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
-    )
+    cache_keys = [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
+    if run.scheduled_at is not None:
+        transaction.on_commit(lambda: get_tasks_cache().delete_many(cache_keys), robust=True)
+    else:
+        get_tasks_cache().delete_many(cache_keys)
+
+
+REPORT_WARM_RUN_NOT_ACTIVATED = "This sandbox is waiting for the report's Ask AI question. Send it from the report."
+REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED = (
+    "Couldn't tell which GitHub repository this report is about, so there is nowhere to open a PR. "
+    "Name the repository in the instructions for the PostHog agent (for example, owner/repo) and try again."
+)
+
+
+ACTIVE_SESSION_CAP_CODE = "active_session_cap"
+
+
+class ActiveSessionCapRefused(Exception):
+    code = ACTIVE_SESSION_CAP_CODE
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
+class WarmRunActivationUnavailable(Exception):
+    code = "warm_run_activation_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        self.retry_token: str | None = None
+        super().__init__("Couldn't start this run yet. Please try again.")
+
+
+def _warm_retry_message_id(token: str | None, run: TaskRun) -> str | None:
+    if token is None:
+        return None
+    try:
+        run_id, workflow_id, message_id = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+            token, max_age=60
+        )
+    except (signing.BadSignature, ValueError) as error:
+        raise WarmRunActivationUnavailable("invalid_retry") from error
+    if run_id != str(run.id) or workflow_id != run.workflow_id:
+        raise WarmRunActivationUnavailable("target_unavailable")
+    return str(message_id)
+
+
+class WarmPermissionModeUnavailable(Exception):
+    pass
+
+
+class WarmRunClaimedByOtherSubmission(Exception):
+    pass
+
+
+def _apply_warm_permission_mode(run: TaskRun, mode: str) -> None:
+    try:
+        actor = run.task.created_by
+        if actor is None:
+            raise WarmPermissionModeUnavailable()
+        auth_token = create_sandbox_connection_token(run.id, actor.id, get_actor_distinct_id(actor))
+        response = send_set_config_option(run, "mode", mode, auth_token=auth_token)
+        result = response.data.get("result") if response.data else None
+        options = result.get("configOptions") if isinstance(result, dict) else None
+        acknowledged = (
+            response.success
+            and isinstance(options, list)
+            and any(
+                isinstance(option, dict) and option.get("id") == "mode" and option.get("currentValue") == mode
+                for option in options
+            )
+        )
+        if not acknowledged:
+            raise WarmPermissionModeUnavailable()
+        TaskRun.update_state_atomic(run.id, updates={"initial_permission_mode": mode})
+    except Exception as error:
+        TaskRun.update_state_atomic(
+            run.id,
+            updates={"warm_permission_mode_failed": True},
+            remove_keys=["warm_activation_started", "warm_activation_message_id"],
+        )
+        raise WarmPermissionModeUnavailable() from error
+
+
+def _deliver_warm_run_message(
+    run: TaskRun,
+    *,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
+) -> None:
+    from temporalio.service import RPCError, RPCStatusCode
+
+    started_at = time.monotonic()
+    workflow_id = run.workflow_id
+    frontend_retry = message_id is not None
+    message_id = message_id or str(uuid4())
+    eligible_runs = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        task_id=run.task_id,
+        task__deleted=False,
+        state__await_user_message=True,
+    ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+
+    try:
+        with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=run.team_id)
+            current_run = eligible_runs.select_for_update(of=("self",)).first()
+            claimed_run = current_run or TaskRun.objects.filter(id=run.id, team_id=run.team_id).first()
+            if claimed_run is not None and _warm_run_claimed_by_other_submission(claimed_run, submission_id):
+                raise WarmRunClaimedByOtherSubmission()
+            if (
+                current_run is None
+                or current_run.workflow_id != workflow_id
+                or (current_run.state or {}).get("cancel_requested_at")
+                or (current_run.state or {}).get("warm_permission_mode_failed")
+                or (
+                    (current_run.state or {}).get("warm_activation_started")
+                    and (not frontend_retry or current_run.state.get("warm_activation_message_id") != message_id)
+                )
+            ):
+                raise WarmRunActivationUnavailable("target_unavailable")
+            try:
+                task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+            except TaskRunAlreadyLiveError as error:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
+            # Claim before signaling so a different composer's release cannot cancel delivery in flight.
+            current_run.state["warm_activation_started"] = True
+            current_run.state["warm_activation_message_id"] = message_id
+            if submission_id is not None:
+                current_run.state["warm_activation_submission_id"] = submission_id
+            current_run.save(update_fields=["state", "updated_at"])
+        if (
+            initial_permission_mode is not None
+            and current_run.state.get("initial_permission_mode") != initial_permission_mode
+        ):
+            _apply_warm_permission_mode(current_run, initial_permission_mode)
+        try:
+            delivered = signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                run.team_id,
+                content=message,
+                artifact_ids=artifact_ids,
+                message_id=message_id,
+                workflow_id=workflow_id,
+                rpc_timeout=timedelta(seconds=10),
+            )
+        except TaskRunAlreadyLiveError as error:
+            raise WarmRunActivationUnavailable("target_unavailable") from error
+        except RPCError as error:
+            # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            current_run = eligible_runs.first()
+            if current_run is None or current_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
+            unavailable = WarmRunActivationUnavailable("starting")
+            unavailable.retry_token = signing.TimestampSigner(salt="warm-run-activation").sign_object(
+                [str(run.id), workflow_id, message_id]
+            )
+            raise unavailable from error
+        if delivered is not True:
+            raise WarmRunActivationUnavailable("delivery_failed")
+
+        with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id)
+            activated_run = eligible_runs.select_for_update(of=("self",)).first()
+            if activated_run is None or activated_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable")
+            activated_run.state.pop("await_user_message", None)
+            activated_run.state["warm_activated"] = True
+            activated_run.save(update_fields=["state", "updated_at"])
+            task.observe_run_started_beside_live_runs(activated_run)
+    except WarmRunActivationUnavailable as error:
+        log = logger.info if error.retry_token else logger.warning
+        log(
+            "task_warm_activation_unavailable",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "reason": error.reason,
+                "frontend_retry": frontend_retry,
+            },
+        )
+        raise
+    if frontend_retry:
+        logger.info(
+            "task_warm_activation_recovered",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "frontend_retry": frontend_retry,
+            },
+        )
 
 
 def _activate_warm_run(
@@ -6259,10 +9886,14 @@ def _activate_warm_run(
     team_id: int,
     *,
     message: str | None,
+    branch: str | None,
     artifact_ids: list[str],
     description: str | None = None,
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
+    retry_token: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -6279,11 +9910,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
-    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
-    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
-    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
-    activation_state_updates: dict[str, object] = {"warm_activated": True}
+    activation_state_updates: dict[str, object] = {"pr_base_branch": branch}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6295,8 +9922,14 @@ def _activate_warm_run(
         updates=activation_state_updates,
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
-    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
-    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    _deliver_warm_run_message(
+        run,
+        message=message,
+        artifact_ids=artifact_ids,
+        message_id=_warm_retry_message_id(retry_token, run),
+        initial_permission_mode=initial_permission_mode,
+        submission_id=submission_id,
+    )
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
     # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
@@ -6305,10 +9938,73 @@ def _activate_warm_run(
         observe_prewarmed_activated(run)
 
 
+def _team_github_integration_or_none(team_id: int, integration_id: int) -> IntegrationRecord | None:
+    try:
+        return IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return None
+
+
+def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
+    if not code_access_allowed:
+        return None
+    from products.signals.backend.facade.github_optional import (
+        github_optional_pilot_enabled,  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+    )
+
+    if github_optional_pilot_enabled(team.id):
+        return readonly_github_integration_id(team.id)
+    integration = IntegrationManager.github.oauth.find(team.id)
+    return integration.id if integration is not None else None
+
+
+def _reserve_report_warm_activation(
+    team: Team, task: Task, *, relationship: str | None, description: str | None = None
+) -> str:
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        enforce_report_task_cap,
+        is_pull_request_run_request,
+        record_report_task,
+    )
+
+    report_id = str(task.signal_report_source_id)
+    if is_pull_request_run_request(description):
+        enforce_self_driving_free_trial(team, report_id=report_id)
+    with transaction.atomic():
+        enforce_report_task_cap(
+            team_id=task.team_id,
+            report_id=report_id,
+            relationship=relationship,
+            description=description,
+            created_by_id=task.created_by_id,
+        )
+        return record_report_task(
+            team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
+        )
+
+
+def _is_unlinked_report_warm_task(task: Task) -> bool:
+    if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or not task.signal_report_source_id:
+        return False
+    if not task.runs.filter(team_id=task.team_id, state__has_key="prewarmed").exists():
+        return False
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        report_task_ids,
+    )
+
+    return str(task.id) not in report_task_ids(team_id=task.team_id, report_id=str(task.signal_report_source_id))
+
+
+def task_run_awaits_report_activation(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and _is_unlinked_report_warm_task(run.task)
+
+
 def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
+    profile: TaskProfile,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -6319,16 +10015,16 @@ def warm_task_sandbox(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     client_provenance: TaskClientProvenance | None = None,
-    origin_product: str = Task.OriginProduct.USER_CREATED,
     initial_permission_mode: str | None = None,
+    signal_report_id: str | UUID | None = None,
+    code_access_allowed: bool = False,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a cloud task while the user composes.
 
-    ``origin_product`` is stamped on the draft Task and fixes what the warm can later be reused for: it
-    selects the OAuth app, the warm quota gate (``USER_CREATED`` has no billing gate; ``POSTHOG_AI`` runs
+    ``profile`` is stamped on the draft Task and fixes what the warm can later be reused for: it
+    selects the OAuth app, the warm quota gate (the ``user`` profile has no billing gate; ``posthog_ai`` runs
     the AI-credit check), the warm-pool caps, and PR authorship. None of these can change at activation,
-    so a submit only reuses a warm born under the same origin. Defaults to ``USER_CREATED`` for the
-    Code-app callers that predate the parameter.
+    so a submit only reuses a warm born under the same origin.
 
     Births a draft Task, then ``SandboxWarmer.warm()`` provisions an interactive
     Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
@@ -6342,7 +10038,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6356,6 +10053,8 @@ def warm_task_sandbox(
         SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        PrAuthorshipMode,
+        RunSource,
         RuntimeAdapter,
         get_provider_for_runtime_adapter,
     )
@@ -6363,12 +10062,22 @@ def warm_task_sandbox(
     team = Team.objects.get(id=team_id)
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     repository = normalized_repositories[0] if normalized_repositories else None
+    if signal_report_id is not None:
+        normalized_repositories = []
+        repository = None
+        github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
     github_integration = None
     if github_integration_id is not None:
-        github_integration = Integration.objects.filter(
-            id=github_integration_id, team_id=team_id, kind="github"
-        ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+        try:
+            github_integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
+        except IntegrationNotFound:
+            github_integration = None
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:
@@ -6390,10 +10099,22 @@ def warm_task_sandbox(
         if custom_image is None or not custom_image.is_ready:
             return None
 
+    # Resolve team/user defaults up front so the warm run is provisioned (and later
+    # matched) on the runtime the activating submit will effectively request.
+    warm_selection = _with_ai_run_defaults(
+        {"runtime_adapter": runtime_adapter, "model": model, "reasoning_effort": reasoning_effort},
+        team_id=team_id,
+        acting_user_id=user_id,
+    )
+    runtime_adapter = warm_selection.get("runtime_adapter")
+    model = warm_selection.get("model")
+    reasoning_effort = warm_selection.get("reasoning_effort")
+
     existing = _find_idling_warm_run(
         team_id,
         user_id,
-        origin_product=origin_product,
+        origin_product=profile.origin_product,
+        posthog_mcp_scopes=profile.mcp_scopes,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -6404,6 +10125,7 @@ def warm_task_sandbox(
         sandbox_environment_id=sandbox_environment_id,
         custom_image_id=custom_image_id,
         initial_permission_mode=initial_permission_mode,
+        signal_report_id=signal_report_id,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
@@ -6412,14 +10134,16 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=Task.OriginProduct(origin_product),
+        profile=profile,
         user_id=user_id,
-        repository=repository,
+        repositories=normalized_repositories,
+        signal_report_id=str(signal_report_id) if signal_report_id is not None else None,
         client_provenance=client_provenance,
     )
-    task.repositories = normalized_repositories
-    task.github_integration = github_integration
-    task.save(update_fields=["repositories", "github_integration", "updated_at"])
+    # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
+    # one the caller asked for, because warm reuse matches on the integration id.
+    task.github_integration_id = github_integration.id if github_integration is not None else None
+    task.save(update_fields=["github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
@@ -6431,12 +10155,17 @@ def warm_task_sandbox(
     )
     extra_state: dict = {
         "branch": branch,
+        "pr_base_branch": branch,
         "initial_permission_mode": resolved_permission_mode,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
     if custom_image is not None:
         extra_state["custom_image_id"] = str(custom_image.id)
+    if signal_report_id is not None:
+        extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
+        extra_state["signal_report_id"] = str(signal_report_id)
+        extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
     for key, value in {
         "runtime_adapter": runtime_adapter,
         "provider": provider.value if provider is not None else None,
@@ -6483,6 +10212,7 @@ def warm_task_resume_sandbox(
         WarmSourceChanged,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RunSource,
         get_pr_authorship_mode,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
@@ -6490,7 +10220,7 @@ def warm_task_resume_sandbox(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -6526,6 +10256,8 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
+    if previous_state.run_source == RunSource.AGENT or previous_state.model_access.kind == "own-subscription":
+        return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
     resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
@@ -6584,10 +10316,19 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
+    for protected_key in (
+        "wizard_head_branch",
+        "self_driving_head_branch",
+        "stack_base_branch",
+        "github_read_access",
+        "github_token_scope",
+        "github_access_repositories",
+    ):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
-    extra_state = {key: value for key, value in extra_state.items() if value is not None}
+    if "imported_from" in (previous_run.state or {}):
+        extra_state["resume_from_import_run"] = True
+    extra_state = {key: value for key, value in extra_state.items() if value is not None or key == "pr_base_branch"}
     stable_selection = {
         key: value
         for key, value in extra_state.items()
@@ -6614,7 +10355,15 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+    except (
+        PermissionDenied,
+        QuotaLimitExceeded,
+        Throttled,
+        WarmSourceChanged,
+        TaskOwnershipChangedError,
+        TaskDoneError,
+        TaskRunAlreadyLiveError,
+    ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
@@ -6624,37 +10373,114 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
-def run_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
-) -> contracts.TaskRunResult | None:
-    """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
+def _branches_worked_on(run: TaskRun) -> set[str]:
+    output = run.output if isinstance(run.output, dict) else {}
+    branches = {entry["branch"] for entry in read_head_branches(output)}
+    head_branch = output.get("head_branch")
+    if isinstance(head_branch, str) and head_branch:
+        branches.add(head_branch)
+    if run.branch:
+        branches.add(run.branch)
+    return branches
 
-    Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
-    ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this.
-    """
-    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        enforce_report_implementation_rerun_cap,
+
+def _active_session_cap_refusal(task: Task) -> str | None:
+    from products.tasks.backend.logic.services.warm import (
+        SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
     )
-    from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
+    from products.tasks.backend.metrics import (
+        observe_active_session_cap_hit,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
+
+    scope = SandboxWarmer.active_session_cap_hit(
+        task.origin_product,
+        organization_id=task.team.organization_id,
+        created_by_id=task.created_by_id,
+        signal_report_id=task.signal_report_id,
+        task_id=task.id,
+    )
+    if scope is None:
+        return None
+    observe_active_session_cap_hit(task.origin_product, scope)
+    return SandboxWarmer.active_session_cap_detail(task.origin_product, scope, signal_report_id=task.signal_report_id)
+
+
+def run_task(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    warm_retry_token: str | None = None,
+    pipeline_rerun: bool = False,
+    free_trial_enabled: bool | None = None,
+    only_if_no_runs: bool = False,
+) -> contracts.TaskRunResult | None:
+    """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
+
+    The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
+    With only_if_no_runs, the task lock prevents another first run, after any report admission lock.
+    """
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        enforce_report_implementation_rerun_cap,
+        implementation_access_repositories,
+        is_report_implementation_task,
+    )
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        RUN_ARTIFACT_TTL_DAYS,
+        get_task_run_artifacts_by_id,
+        get_task_staged_artifacts,
+        staged_artifacts_expire_by,
+        tag_task_artifact,
+    )
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
         cache_github_user_token,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    # Another product may need to finish something before this task runs, for example a chat that
+    # is copied into the task a few seconds behind each turn.
+    refusal = task_run_start_refusal(str(task.id), team_id, user_id)
+    if refusal is not None:
+        return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=refusal))
+    if _is_unlinked_report_warm_task(task):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
+        )
+    if not validated_data.get("scheduled_at"):
+        cap_detail = _active_session_cap_refusal(task)
+        if cap_detail is not None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail=cap_detail, code=ACTIVE_SESSION_CAP_CODE)
+            )
     report_id_for_slot_check = (
-        str(task.signal_report_id)
-        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        str(task.signal_report_source_id)
+        if task.signal_report_source_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
+    is_implementation = False
     if report_id_for_slot_check is not None:
+        # Resolve the trial flag outside the transaction: network I/O must not hold the report lock.
+        is_implementation = is_report_implementation_task(
+            team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+        )
+        if is_implementation:
+            enforce_self_driving_free_trial(
+                Team.objects.select_related("organization").get(id=team_id),
+                report_id=report_id_for_slot_check,
+                stage="task_run",
+                enabled=free_trial_enabled,
+                continue_admitted_pipeline=pipeline_rerun,
+            )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
         # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
@@ -6664,6 +10490,8 @@ def run_task(
                 team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
             )
     mode = validated_data.get("mode", "background")
+    run_source = validated_data.get("run_source")
+    scheduled_at = validated_data.get("scheduled_at")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
@@ -6671,12 +10499,14 @@ def run_task(
     is_pi_task = task.runtime == Task.Runtime.PI
     previous_run: TaskRun | None = None
     previous_state = None
+    previous_is_import_run = False
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
             )
+        previous_is_import_run = "imported_from" in (previous_run.state or {})
         if not previous_run.matches_task_ownership(task):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
@@ -6685,6 +10515,17 @@ def run_task(
                 )
             )
         previous_state = parse_run_state(previous_run.state)
+        if previous_state.run_source == RunSource.AGENT:
+            run_source = RunSource.AGENT
+        previous_branch = previous_state.pr_base_branch
+        if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
+                )
+            )
+
+        branch = previous_branch
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
@@ -6699,19 +10540,87 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    warm_run = _idling_warm_run_for_task(task)
+    if not resume_from_run_id or previous_is_import_run:
+        # Fill team/user default AI run preferences before warm matching: a warm run
+        # provisioned under the default triple must still match a submit that pinned
+        # nothing. Resumes instead carry the previous run's selection (below), except from
+        # an import run, which never ran and so pins no selection to carry.
+        validated_data = _with_ai_run_defaults(
+            validated_data,
+            team_id=task.team_id,
+            acting_user_id=user_id if user_id is not None else task.created_by_id,
+            internal=task.internal,
+            runtime=task.runtime,
+        )
+
+    access_state = {
+        **(previous_state.model_dump() if previous_state is not None else {}),
+        **{key: value for key, value in validated_data.items() if value is not None},
+    }
+    try:
+        model_access = resolve_model_access(access_state)
+    except ValueError as error:
+        return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=str(error)))
+    claude_model_access = model_access.access_for("claude") if "claude_model_access" in access_state else None
+    codex_model_access = model_access.access_for("codex") if "codex_model_access" in access_state else None
+
+    if scheduled_at is not None and model_access.kind == "own-subscription":
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="Scheduled runs must use the PostHog gateway.",
+                attr="codex_model_access" if codex_model_access == "own-subscription" else "claude_model_access",
+            )
+        )
+    profile = task.stored_profile
+    source_scopes = mcp_scopes_for_run_source(run_source)
+    default_scopes = profile.mcp_scopes if profile is not None else source_scopes
+    if run_source == RunSource.AGENT and not scopes_not_covered(
+        resolve_scopes(default_scopes), resolve_scopes(source_scopes)
+    ):
+        default_scopes = source_scopes
+    posthog_mcp_scopes = dispatched_run_scopes(task, previous_run.state) if previous_run is not None else default_scopes
+    if (
+        profile is not None
+        and scopes_not_covered(resolve_scopes(profile.mcp_scopes), resolve_scopes(posthog_mcp_scopes))
+    ) or (
+        run_source == RunSource.AGENT
+        and scopes_not_covered(resolve_scopes(source_scopes), resolve_scopes(posthog_mcp_scopes))
+    ):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="The run's MCP scopes exceed the task profile or run source permissions."
+            )
+        )
+    warm_run = (
+        None
+        if pipeline_rerun
+        or scheduled_at is not None
+        or run_source == RunSource.AGENT
+        or validated_data.get("client_platform") == "mobile"
+        else _idling_warm_run_for_task(task, posthog_mcp_scopes)
+    )
+    # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
+    if warm_run is not None and model_access.kind == "own-subscription":
+        warm_run = None
     if warm_run is not None:
+        _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
+        warm_billing_matches = task.origin_product not in {
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT,
+        } or (
+            warm_state.get("mode", "background") == mode
+            and (warm_state.get("billing_product") != "posthog_ai") == task.uses_self_driving_billing(mode)
+        )
         # Both directions. A request that states no resume source must not be handed a successor
         # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
         # a run asked to start fresh would silently inherit it.
         warm_resume_matches = (warm_state.get("resume_from_run_id") or None) == (
             str(resume_from_run_id) if resume_from_run_id else None
         )
-        effective_branch = branch
-        if effective_branch is None and previous_state is not None:
-            effective_branch = previous_state.pr_base_branch
-        if warm_resume_matches and (effective_branch or None) == (warm_run.branch or None):
+        if warm_resume_matches and (branch or None) == (warm_run.branch or None):
             desired_runtime_adapter = validated_data.get("runtime_adapter")
             desired_model = validated_data.get("model")
             desired_context_window = validated_data.get("context_window")
@@ -6755,7 +10664,8 @@ def run_task(
                 "initial_permission_mode"
             ) == state_value(requested_permission_mode)
             if (
-                warm_runtime_matches
+                warm_billing_matches
+                and warm_runtime_matches
                 and warm_permission_matches
                 and _warm_sandbox_selection_is_accessible(
                     team_id=team_id,
@@ -6769,7 +10679,24 @@ def run_task(
                     if pending_user_artifact_ids
                     else ([], [])
                 )
+                if warm_missing_artifact_ids:
+                    # A previous activation attempt may have moved these out of staging before delivery failed.
+                    _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
+                    if (done_error := wake_refusal(task, source="warm_activation")) is not None:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
+                    try:
+                        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=warm_run.id)
+                    except TaskRunAlreadyLiveError as live_error:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="run_in_progress", detail=str(live_error), attr="status"
+                            )
+                        )
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
                             warm_run,
@@ -6782,19 +10709,22 @@ def run_task(
                         task,
                         team_id,
                         message=pending_user_message or (task.description or None),
+                        branch=branch,
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
                         reasoning_effort=validated_data.get("reasoning_effort"),
+                        retry_token=warm_retry_token,
                     )
-                    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+                    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id), run_id=warm_run.id)
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     custom_image_id = validated_data.get("custom_image_id")
     custom_image_id_supplied_by_user = custom_image_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
     auto_publish = validated_data.get("auto_publish")
-    run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
@@ -6809,15 +10739,9 @@ def run_task(
         pr_authorship_mode = PrAuthorshipMode.BOT
 
     runtime_state_fields = {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
         "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
@@ -6826,21 +10750,35 @@ def run_task(
     if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
-    if initial_permission_mode is not None:
-        extra_state = extra_state or {}
-        extra_state["initial_permission_mode"] = initial_permission_mode
-    rtk_enabled = validated_data.get("rtk_enabled")
-    if rtk_enabled is not None:
-        extra_state = extra_state or {}
-        extra_state["rtk_enabled"] = rtk_enabled
+    for key, value in (
+        ("client_platform", validated_data.get("client_platform")),
+        ("initial_permission_mode", initial_permission_mode),
+        ("rtk_enabled", validated_data.get("rtk_enabled")),
+        ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+        ("claude_model_access", claude_model_access),
+        ("codex_model_access", codex_model_access),
+        ("agent_parent_task_id", validated_data.get("agent_parent_task_id")),
+        ("agent_parent_run_id", validated_data.get("agent_parent_run_id")),
+    ):
+        if value is not None:
+            extra_state = extra_state or {}
+            extra_state[key] = value
 
     if resume_from_run_id:
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if not extra_state.get("client_platform") and (previous_run.state or {}).get("client_platform") == "mobile":
+            extra_state["client_platform"] = "mobile"
+        if previous_run.task_summary:
+            extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
+        if previous_run.task_tags:
+            extra_state[PRIOR_RUN_TAGS_STATE_KEY] = previous_run.task_tags
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
+            if previous_is_import_run:
+                extra_state["resume_from_import_run"] = True
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.
@@ -6857,6 +10795,18 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+        # The launch protects the stacked base only while the run is still on that exact branch, so
+        # carrying the marker is safe once the run moved to its own head branch.
+        prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
+        if prev_stack_base_branch:
+            extra_state["stack_base_branch"] = prev_stack_base_branch
+        # The resumed agent still works with the repositories it was told about, so its token must
+        # keep covering them. The key is PATCH-protected, so this copy is the only way it carries.
+        prev_github_access_repositories = (previous_run.state or {}).get("github_access_repositories")
+        if prev_github_access_repositories:
+            extra_state["github_access_repositories"] = prev_github_access_repositories
+        if pipeline_rerun and is_implementation:
+            extra_state["ai_stage"] = "implementation"
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the
@@ -6864,6 +10814,14 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+        if github_token_scope := (previous_run.state or {}).get("github_token_scope"):
+            extra_state["github_token_scope"] = github_token_scope
+
+        # A resumed child run stays a child, so its sandbox still cannot start more runs. The keys
+        # are PATCH-protected, so this server-side copy is the only way they reach a successor run.
+        for lineage_key in ("agent_parent_task_id", "agent_parent_run_id"):
+            if lineage_key not in extra_state and (lineage_value := (previous_run.state or {}).get(lineage_key)):
+                extra_state[lineage_key] = lineage_value
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
@@ -6884,13 +10842,10 @@ def run_task(
         reasoning_effort = runtime_state_fields["reasoning_effort"]
         context_window = runtime_state_fields["context_window"]
         fast_mode = runtime_state_fields["fast_mode"]
-        if branch is None and prev_state.pr_base_branch is not None:
-            branch = prev_state.pr_base_branch
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
 
     run_state_values = {
-        "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
         "auto_publish": auto_publish,
         "run_source": run_source,
@@ -6903,11 +10858,21 @@ def run_task(
         "fast_mode": fast_mode,
     }
     if is_pi_task:
-        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
-            run_state_values.pop(key)
+        run_state_values.pop("runtime_adapter")
+        run_state_values.pop("provider")
+    extra_state = extra_state or {}
+    extra_state["pr_base_branch"] = branch
+    # Auto-start stamps the project's extra repositories at task creation. A task started from the
+    # inbox gets them here, because the key is PATCH-protected and a client cannot send it.
+    if is_implementation and task.repository and "github_access_repositories" not in extra_state:
+        access_repositories = implementation_access_repositories(team_id=team_id, repository=task.repository)
+        if access_repositories:
+            cloned_repositories = [name.lower() for name in (task.repositories or [task.repository])]
+            extra_state["github_access_repositories"] = list(
+                dict.fromkeys([*cloned_repositories, *access_repositories])
+            )
     for key, value in run_state_values.items():
         if value is not None:
-            extra_state = extra_state or {}
             extra_state[key] = value.value if hasattr(value, "value") else value
 
     reasoning_effort_error = get_reasoning_effort_error(
@@ -7015,18 +10980,82 @@ def run_task(
                 )
             )
 
+    if scheduled_at is not None and staged_artifacts_expire_by(staged_artifacts, scheduled_at):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="The attached files expire before this run can start. Choose an earlier time or upload new files.",
+                attr="scheduled_at",
+            )
+        )
+
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
+    if scheduled_at is not None:
+        for staged_artifact in staged_artifacts:
+            tag_task_artifact(
+                str(staged_artifact["storage_path"]),
+                ttl_days=RUN_ARTIFACT_TTL_DAYS,
+                team_id=task.team_id,
+                raise_on_error=True,
+            )
+    extra_state["pending_dispatch"] = {
+        "user_id": user_id,
+        "create_pr": True,
+        "posthog_mcp_scopes": posthog_mcp_scopes,
+    }
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
+
+    trial_admission = prepare_task_trial(
+        team=task.team,
+        origin=task.origin_product,
+        report_id=task.signal_report_source_id,
+        mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+        continue_admitted_pipeline=pipeline_rerun,
+    )
+    if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
+        enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
+    warm_done_mode(task)
     try:
         with transaction.atomic():
-            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+            if only_if_no_runs:
+                if trial_admission is not None:
+                    trial_admission.lock_report(task.signal_report_source_id)
+                Task.objects.select_for_update(of=("self",)).get(id=task.id, team_id=task.team_id)
+                if task.runs.filter(team_id=task.team_id).exists():
+                    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+            task_run = task.create_run(
+                mode=mode,
+                branch=branch,
+                extra_state=extra_state,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
+                _trial_admission=trial_admission,
+            )
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+                )
+            if scheduled_at is not None and pending_user_artifact_ids:
+                _attach_staged_artifacts_to_run(
+                    task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
                 )
     except InvalidTaskOriginError as error:
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
+    except TaskDoneError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -7047,7 +11076,7 @@ def run_task(
             update_fields.append("relayed_mcp_servers")
         task_run.save(update_fields=update_fields)
 
-    if pending_user_artifact_ids:
+    if pending_user_artifact_ids and scheduled_at is None:
         _attach_staged_artifacts_to_run(
             task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
         )
@@ -7055,12 +11084,20 @@ def run_task(
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(task_run.id), github_user_token)
 
+    if scheduled_at is not None:
+        sync_task_status(task.id)
+        task.refresh_from_db(fields=["status", "status_reason", "status_detail"])
+        return contracts.TaskRunResult(
+            task=_task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False),
+            run_id=task_run.id,
+        )
+
     logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
     if is_pi_task:
         initial_message = (
             pending_user_message if resume_from_run_id else pending_user_message or task.description or None
         )
-        _trigger_task_processing_workflow(
+        run_error = _trigger_task_processing_workflow(
             task,
             task_run,
             user_id,
@@ -7069,9 +11106,18 @@ def run_task(
             raise_on_error=False,
         )
     else:
-        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
-    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    try:
+        if run_error is None:
+            task_run.refresh_from_db(fields=["status"])
+            if task_run.status == TaskRun.Status.FAILED:
+                run_error = WORKFLOW_START_FAILED_ERROR
+        task_detail = get_task_detail(task.id, team_id, user_id)
+    except Exception:
+        logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)
+        task_detail = _task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False)
+    return contracts.TaskRunResult(task=task_detail, run_error=run_error, run_id=task_run.id)
 
 
 # --- Task presence beacons ---
@@ -7143,6 +11189,26 @@ def _temporal_workflow_url(workflow_id: str | None) -> str | None:
     return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
 
 
+def _slack_queue_workflow_id(slack_workspace_id: str | None, channel: str, thread_ts: str) -> str | None:
+    """The per-conversation queue workflow (`slack-app-mention-…`) that fronts every
+    per-message mention workflow. A message can stall or be deduped there before any
+    run exists, so the debug view links it at the thread level."""
+    from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id  # noqa: PLC0415
+
+    if not slack_workspace_id:
+        return None
+    return slack_app_mention_queue_workflow_id(slack_workspace_id, channel, thread_ts)
+
+
+def _admin_change_url(instance: Model, *, build_url) -> str:
+    """Django admin change-page URL for a model row, built from the stable admin URL
+    layout instead of `reverse` — the admin URLconf is only mounted when
+    ``ADMIN_PORTAL_ENABLED``, and this endpoint only serves PostHog Cloud US, where the
+    portal is always on."""
+    meta = instance._meta
+    return build_url(f"/admin/{meta.app_label}/{meta.model_name}/{instance.pk}/change/")
+
+
 def _slack_repo_research_dto(
     team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
 ) -> contracts.SlackThreadContextRepoResearchDTO | None:
@@ -7206,14 +11272,23 @@ def resolve_slack_thread_context(
         .first()
     )
     if mapping is None:
+        # No run may exist because the message is still stuck (or was deduped) in the
+        # per-conversation queue workflow, so derive its handle anyway. Only possible
+        # when the team maps to a single Slack workspace — with several, the guess
+        # could point at another workspace's workflow.
+        workspace_ids = list({row.integration_id for row in IntegrationManager.slack.oauth.list(team_id)})
+        workspace_id = workspace_ids[0] if len(workspace_ids) == 1 else None
+        queue_workflow_id = _slack_queue_workflow_id(workspace_id, channel, thread_ts)
         return contracts.SlackThreadContextResult(
             outcome="no_mapping",
             no_mapping_thread=contracts.SlackThreadContextThreadDTO(
                 url=url,
                 channel=channel,
                 thread_ts=thread_ts,
-                slack_workspace_id=None,
+                slack_workspace_id=workspace_id,
                 mentioning_slack_user_id=None,
+                queue_workflow_id=queue_workflow_id,
+                queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
             ),
         )
 
@@ -7258,9 +11333,11 @@ def resolve_slack_thread_context(
                 repo_research=_slack_repo_research_dto(
                     task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
                 ),
+                admin_url=_admin_change_url(run, build_url=build_url),
             )
         )
 
+    queue_workflow_id = _slack_queue_workflow_id(mapping.slack_workspace_id, channel, thread_ts)
     context = contracts.SlackThreadContextDTO(
         thread=contracts.SlackThreadContextThreadDTO(
             url=url,
@@ -7268,6 +11345,9 @@ def resolve_slack_thread_context(
             thread_ts=thread_ts,
             slack_workspace_id=mapping.slack_workspace_id,
             mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+            queue_workflow_id=queue_workflow_id,
+            queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
+            mapping_admin_url=_admin_change_url(mapping, build_url=build_url),
         ),
         task=contracts.SlackThreadContextTaskDTO(
             id=str(task.id),
@@ -7277,6 +11357,7 @@ def resolve_slack_thread_context(
             origin_product=task.origin_product,
             created_at=task.created_at,
             url=task_url,
+            admin_url=_admin_change_url(task, build_url=build_url),
         ),
         runs=run_dtos,
     )
@@ -7359,6 +11440,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         system_role=channel.system_role,
         github_integration=channel.github_integration_id,
         repositories=channel.repositories,
+        auto_archive_after_days=channel.auto_archive_after_days,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
@@ -7508,10 +11590,11 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """Every space the requester can see, by name. ``starred`` reflects the requester's
-    stars. Creates nothing, which is what lets a caller gate on a space existing."""
     channels = list(
-        _team_channels(team_id).select_related("created_by").filter(Channel.visible_to_q(user_id)).order_by("name")
+        _team_channels(team_id)
+        .select_related("created_by")
+        .filter(Channel.visible_to_q(user_id))
+        .order_by("name", "id")
     )
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
@@ -7519,6 +11602,52 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         else set()
     )
     return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
+
+
+def list_channel_contributors(team_id: int, user_id: int | None) -> list[contracts.ChannelContributorsDTO]:
+    """The people who own a task or a canvas in each channel the requester can see.
+
+    Archived tasks count, because their owners still worked in the channel. Deleted tasks
+    and canvases do not. A channel with no owner has no entry."""
+    channel_ids = list(_team_channels(team_id).filter(Channel.visible_to_q(user_id)).values_list("id", flat=True))
+    if not channel_ids:
+        return []
+    task_rows = (
+        Task.objects.filter(
+            task_visibility_q(user_id, team_id),
+            team_id=team_id,
+            channel_id__in=channel_ids,
+            deleted=False,
+            internal=False,
+            created_by_id__isnull=False,
+        )
+        .values("channel_id", "created_by_id")
+        .annotate(last_active=Max(Coalesce("last_activity_at", "created_at")))
+    )
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    owner_rows = [(row["channel_id"], row["created_by_id"], row["last_active"]) for row in task_rows]
+    owner_rows.extend(
+        (row.channel_id, row.created_by_id, row.last_active)
+        for row in canvas_access.canvas_owner_activity(team_id=team_id, channel_ids=channel_ids)
+    )
+    last_active: dict[UUID, dict[int, datetime]] = {}
+    for channel_id, created_by_id, active_at in owner_rows:
+        per_channel = last_active.setdefault(channel_id, {})
+        previous = per_channel.get(created_by_id)
+        if previous is None or active_at > previous:
+            per_channel[created_by_id] = active_at
+    user_ids = {owner_id for owners in last_active.values() for owner_id in owners}
+    users = {user.id: user for user in User.objects.filter(id__in=user_ids)}
+    contributors: list[contracts.ChannelContributorsDTO] = []
+    for channel_id, owners in last_active.items():
+        ranked = sorted(owners.items(), key=lambda owner: (-owner[1].timestamp(), owner[0]))
+        people = [info for owner_id, _ in ranked if (info := _user_basic_info(users.get(owner_id))) is not None]
+        if people:
+            contributors.append(contracts.ChannelContributorsDTO(channel=channel_id, people=people))
+    return contributors
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
@@ -7582,70 +11711,178 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool)
     return _channel_to_dto(channel, starred=starred)
 
 
+def _channel_member_infos(channel: Channel, team_id: int) -> list[contracts.TaskUserBasicInfo]:
+    members = (
+        ChannelMembership.objects.for_team(team_id)
+        .filter(channel_id=channel.id)
+        .select_related("user")
+        .order_by("created_at")
+    )
+    return [info for member in members if (info := _user_basic_info(member.user)) is not None]
+
+
+def create_private_channel(
+    team_id: int, user_id: int, *, name: str, member_ids: list[int], star: bool
+) -> contracts.ChannelDTO | None:
+    normalized = normalize_channel_name(name)
+    if not normalized or is_reserved_channel_name(normalized):
+        return None
+    team = Team.objects.get(id=team_id)
+    accessible = set(team.all_users_with_access().filter(id__in=member_ids).values_list("id", flat=True))
+    target_ids = {user_id, *accessible}
+    with transaction.atomic():
+        channel = Channel.objects.for_team(team_id).create(
+            team_id=team_id,
+            name=normalized,
+            channel_type=Channel.ChannelType.PRIVATE,
+            created_by_id=user_id,
+        )
+        for member_id in target_ids:
+            ChannelMembership.objects.for_team(team_id).create(
+                team_id=team_id, channel_id=channel.id, user_id=member_id
+            )
+    _emit_channel_created(channel, user_id)
+    starred = False
+    if star:
+        _set_channel_star(channel.id, team_id, user_id, starred=True)
+        starred = True
+    return _channel_to_dto(channel, starred=starred)
+
+
+def list_channel_members(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.TaskUserBasicInfo] | None:
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    return _channel_member_infos(channel, team_id)
+
+
+def _reset_channel_memberships(channel: Channel, team_id: int, user_id: int | None) -> None:
+    memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
+    memberships.delete()
+    if channel.channel_type != Channel.ChannelType.PRIVATE:
+        return
+    seed_ids = {member_id for member_id in (channel.created_by_id, user_id) if member_id is not None}
+    for member_id in seed_ids:
+        ChannelMembership.objects.for_team(team_id).create(team_id=team_id, channel_id=channel.id, user_id=member_id)
+
+
+def set_channel_members(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, member_ids: list[int]
+) -> list[contracts.TaskUserBasicInfo] | str:
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return "not_found"
+        if channel.channel_type != Channel.ChannelType.PRIVATE:
+            return "not_private"
+
+        submitted = {*member_ids}
+        accessible = set(channel.team.all_users_with_access().filter(id__in=submitted).values_list("id", flat=True))
+        if accessible != submitted:
+            return "invalid_member"
+        target_ids = set(submitted)
+        if channel.created_by_id is not None:
+            target_ids.add(channel.created_by_id)
+        memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
+        existing = set(memberships.values_list("user_id", flat=True))
+        for member_id in target_ids - existing:
+            ChannelMembership.objects.for_team(team_id).create(
+                team_id=team_id, channel_id=channel.id, user_id=member_id
+            )
+        to_remove = existing - target_ids
+        if to_remove:
+            memberships.filter(user_id__in=to_remove).delete()
+    return _channel_member_infos(channel, team_id)
+
+
 def update_channel(
     channel_id: str | UUID,
     team_id: int,
     user_id: int | None,
     *,
+    can_manage_shared_auto_archive: bool,
     name: str | None = None,
-    github_integration: Integration | None = None,
+    github_integration: IntegrationRecord | None = None,
     repositories: list[str] | None = None,
+    auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
+    channel_type: str | None = None,
 ) -> contracts.ChannelDTO | str:
-    """Update a visible channel."""
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
-    if channel is None:
-        return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
-        if channel.created_by_id != user_id:
-            return "not_found"
-        if name is not None:
-            return "personal"
-    if name is not None and _is_general_channel(channel):
-        return "general"
-    update_fields: list[str] = []
-    if name is not None:
-        normalized = normalize_channel_name(name)
-        if not normalized:
-            return "invalid_name"
-        channel.name = normalized
-        update_fields.append("name")
-    if repositories is not None:
-        channel.repositories = repositories
-        channel.github_integration = github_integration if repositories else None
-        update_fields.extend(["repositories", "github_integration"])
-    if not update_fields:
-        return _channel_to_dto(channel)
     try:
-        channel.save(update_fields=[*update_fields, "updated_at"])
+        with transaction.atomic():
+            channel = _locked_visible_channel(channel_id, team_id, user_id)
+            if channel is None:
+                return "not_found"
+            if channel.channel_type == Channel.ChannelType.PERSONAL:
+                if channel.created_by_id != user_id:
+                    return "not_found"
+                if name is not None or channel_type is not None:
+                    return "personal"
+            elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+                return "auto_archive_forbidden"
+            if (name is not None or channel_type is not None) and _is_general_channel(channel):
+                return "general"
+            update_fields: list[str] = []
+            previous_repositories = list(channel.repositories or [])
+            previous_integration_id = channel.github_integration_id
+            if channel_type is not None and channel_type != channel.channel_type:
+                channel.channel_type = channel_type
+                update_fields.append("channel_type")
+                _reset_channel_memberships(channel, team_id, user_id)
+            if name is not None:
+                normalized = normalize_channel_name(name)
+                if not normalized:
+                    return "invalid_name"
+                channel.name = normalized
+                update_fields.append("name")
+            if repositories is not None:
+                channel.repositories = repositories
+                channel.github_integration_id = (
+                    github_integration.id if repositories and github_integration is not None else None
+                )
+                update_fields.extend(["repositories", "github_integration"])
+            if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+                channel.auto_archive_after_days = auto_archive_after_days
+                update_fields.append("auto_archive_after_days")
+            if not update_fields:
+                return _channel_to_dto(channel)
+            channel.save(update_fields=[*update_fields, "updated_at"])
     except IntegrityError:
         return "name_taken"
+    if repositories is not None:
+        capture_repository_config_changed(
+            team=channel.team,
+            user_id=user_id,
+            subject="space",
+            trigger="space_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=channel.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=channel.github_integration_id,
+            channel_id=str(channel.id),
+        )
     return _channel_to_dto(channel)
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel. Archived tasks do not count as content."""
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
-    if channel is None:
-        return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
-        return "personal" if channel.created_by_id == user_id else "not_found"
-    if _is_general_channel(channel):
-        return "general"
+    from products.canvas.backend.facade import (
+        access as canvas_facade,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
     with transaction.atomic():
-        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
-        # its channel: unlocked, a task can land after the check and be orphaned in a channel
-        # this call goes on to delete.
-        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return "not_found"
-        if (
-            channel.tasks.filter(deleted=False, archived=False).exists()
-            or channel.canvases.filter(deleted=False).exists()
+        if channel.channel_type == Channel.ChannelType.PERSONAL:
+            return "personal" if channel.created_by_id == user_id else "not_found"
+        if _is_general_channel(channel):
+            return "general"
+        if channel.tasks.filter(deleted=False, archived=False).exists() or canvas_facade.channel_has_canvases(
+            team_id=team_id, channel_id=channel.id
         ):
             return "not_empty"
-        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
-        # no lock on the channel and can happen after the check above. Task visibility joins
-        # through the channel, so a task left pointing at a deleted one leaves every list.
+
         channel.tasks.filter(deleted=False).update(channel=None)
         channel.deleted = True
         channel.save(update_fields=["deleted", "updated_at"])
@@ -7683,18 +11920,29 @@ def visible_tasks_q(user_id: int | None, *, relation: Literal["", "task"] = "") 
 
 def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
     """Whether ``channel_id`` is a live channel in this team that the user may see."""
-    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
+    return (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).exists()
+    )
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
-    """A channel the requester may read: any live public channel on the team, or their
-    own personal channel. ``None`` when it's missing or someone else's personal channel."""
     return (
         _team_channels(team_id)
         .select_related("created_by")
         .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
         .first()
     )
+
+
+def _locked_visible_channel(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, no_key: bool = False
+) -> Channel | None:
+    channel = (
+        Channel.objects.for_team(team_id).select_for_update(no_key=no_key).filter(id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        return None
+    return _visible_channel(channel_id, team_id, user_id)
 
 
 def list_channel_feed_messages(
@@ -7723,33 +11971,27 @@ def create_channel_feed_message(
     payload: dict,
     created_at: datetime | None = None,
 ) -> contracts.ChannelFeedMessageDTO | None | str:
-    """Post an announcement into a channel's feed as the requester. ``None`` when the
-    channel isn't visible; ``"full"`` when the channel's feed is at capacity. The row is
-    marked human-authored — ``system``/``agent`` kinds are reserved for server-side
-    writers, so a client can't forge rows other clients render as trusted. ``author``
-    records the acting user so the client can render "Adam …". ``created_at`` lets a
-    client order a burst of announcements deterministically (else the server stamps
-    ``now``)."""
-    if _visible_channel(channel_id, team_id, user_id) is None:
-        return None
-    if (
-        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
-        >= CHANNEL_FEED_MAX_MESSAGES
-    ):
-        return "full"
-    fields: dict = {
-        "team_id": team_id,
-        "channel_id": channel_id,
-        "author_id": user_id,
-        "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
-        "event": event,
-        "payload": payload or {},
-    }
-    if created_at is not None:
-        fields["created_at"] = created_at
-    message = ChannelFeedMessage.objects.create(**fields)
-    # Fresh row: author lazy-loads once for the DTO.
-    return _channel_feed_message_to_dto(message)
+    with transaction.atomic():
+        if _locked_visible_channel(channel_id, team_id, user_id) is None:
+            return None
+        if (
+            ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
+            >= CHANNEL_FEED_MAX_MESSAGES
+        ):
+            return "full"
+        fields: dict = {
+            "team_id": team_id,
+            "channel_id": channel_id,
+            "author_id": user_id,
+            "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
+            "event": event,
+            "payload": payload or {},
+        }
+        if created_at is not None:
+            fields["created_at"] = created_at
+        message = ChannelFeedMessage.objects.create(**fields)
+
+        return _channel_feed_message_to_dto(message)
 
 
 def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | None:
@@ -7865,41 +12107,55 @@ def list_channel_instruction_versions(
     return [_instructions_to_dto(row) for row in versions]
 
 
-def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
-    task = Task.objects.filter(id=task_id, team_id=team_id).only("origin_product").first()
-    if task is None:
-        return False
-    if task.origin_product != Task.OriginProduct.LOOP:
-        return True
+def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int) -> bool:
+    # Legacy loop runs could only publish to the channel their loop targeted, and that config is gone.
+    return Task.objects.filter(id=task_id, team_id=team_id).exclude(origin_product=Task.OriginProduct.LOOP).exists()
 
-    run_state = (
-        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
-        .order_by("-created_at")
-        .values_list("state", flat=True)
+
+def mcp_tool_allowlist_for_task(task_id: str | UUID) -> list[str] | None:
+    """The PostHog MCP tools a run picked at dispatch, or None when the run is not narrowed.
+
+    Scoped by task rather than by team, because the caller's authority here is a run token
+    minted for exactly this task. A malformed snapshot reads as an empty list, so callers fail
+    closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product", "state").first()
+    return task.mcp_tool_allowlist if task is not None else None
+
+
+def capture_context_wiki_changed(
+    organization_id: str | UUID,
+    team_id: int,
+    channel_id: str | UUID,
+    user_id: int | None,
+    *,
+    actor_type: Literal["user_or_api", "task_agent"],
+    is_first_version: bool,
+    content_bytes: int,
+    base_version_provided: bool,
+) -> bool:
+    channel = (
+        Channel.objects.unscoped()
+        .select_related("team")
+        .filter(id=channel_id, team_id=team_id, team__organization_id=organization_id)
         .first()
     )
-    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
-    outputs = context_target.get("outputs") or {}
-    return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
-
-
-def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
-    """The channel a loop run was configured to keep current, or None.
-
-    Scoped by task rather than by team, because the caller's authority here is a
-    run token minted for exactly this task. Returns None for anything that is
-    not a loop run configured to update its context, so callers fail closed.
-    """
-    task = Task.objects.filter(id=task_id).only("id", "origin_product").first()
-    if task is None or task.origin_product != Task.OriginProduct.LOOP:
-        return None
-
-    run_state = TaskRun.objects.filter(task_id=task.id).order_by("-created_at").values_list("state", flat=True).first()
-    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
-    if not (context_target.get("outputs") or {}).get("update_context"):
-        return None
-    channel_id = context_target.get("channel_id")
-    return str(channel_id) if channel_id else None
+    if channel is None:
+        return False
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source="user" if actor_type == "user_or_api" else "agent",
+        previous_version=None,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
+        storage="context_wiki",
+        actor_type=actor_type,
+        is_first_version=is_first_version,
+    )
+    return True
 
 
 def publish_channel_instructions(
@@ -7909,20 +12165,14 @@ def publish_channel_instructions(
     *,
     content: str,
     base_version: int | None = None,
+    source: Literal["user", "agent"] = "user",
 ) -> contracts.ChannelInstructionsDTO | None:
-    """Publish a new instructions version, superseding the current latest.
-
-    ``base_version`` guards against lost updates: when the current latest no
-    longer matches, ``ChannelInstructionsVersionConflictError`` is raised.
-    ``None`` when the channel isn't visible. Publishing clears the channel's
-    in-progress context-generation marker.
-    """
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return None
-    if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
-        raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
     with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
+        if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
+            raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
         current_latest = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False, is_latest=True)
@@ -7930,6 +12180,7 @@ def publish_channel_instructions(
             .first()
         )
         current_version = current_latest.version if current_latest is not None else 0
+        previous_content_bytes = len(current_latest.content.encode("utf-8")) if current_latest is not None else None
         if base_version is not None and base_version != current_version:
             raise ChannelInstructionsVersionConflictError(current_version=current_version)
         if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
@@ -7937,11 +12188,6 @@ def publish_channel_instructions(
         if current_latest is not None:
             ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
         try:
-            # Nested savepoint: a lost-update race (the select_for_update above
-            # locks no row when none exists yet, and a concurrent delete clears
-            # is_latest without adding a lockable row) makes the insert collide
-            # with the (channel, version) uniqueness. Rolling back to the
-            # savepoint keeps this transaction usable so we can read the winner.
             with transaction.atomic():
                 published = ChannelInstructions.objects.create(
                     team_id=team_id,
@@ -7952,31 +12198,59 @@ def publish_channel_instructions(
                     created_by_id=user_id,
                 )
         except IntegrityError:
-            # Surface the race as the conflict the view maps to 409, not a 500.
             latest = (
                 ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
                 .order_by("-version", "-created_at", "-id")
                 .first()
             )
             raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
-        # Publishing produced a result, so drop the in-progress generation marker.
+
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source=source,
+        previous_version=current_version,
+        new_version=published.version,
+        content_bytes=len(content.encode("utf-8")),
+        previous_content_bytes=previous_content_bytes,
+        base_version_provided=base_version is not None,
+    )
     return _instructions_to_dto(published)
 
 
-def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
-    """Soft-delete every instructions version. Returns the count, or ``None``
-    when the channel isn't visible."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return None
+def delete_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, source: Literal["user", "agent"] = "user"
+) -> int | None:
     with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
+        previous_version = (
+            ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+            .order_by("-version")
+            .values_list("version", flat=True)
+            .first()
+            or 0
+        )
         count = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False)
             .update(deleted=True, is_latest=False)
         )
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    if count:
+        capture_space_context_changed(
+            team=channel.team,
+            user_id=user_id,
+            channel_id=str(channel.id),
+            action="cleared",
+            source=source,
+            previous_version=previous_version,
+            versions_deleted=count,
+        )
     return count
 
 
@@ -7994,25 +12268,120 @@ def get_channel_context_generation(
 def set_channel_context_generation(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, task_id: str | UUID | None
 ) -> str | None | Literal["not_found", "invalid_task"]:
-    """Set or clear the task associated with the channel's CONTEXT.md generation."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return "not_found"
-    if task_id is not None and not task_exists(task_id, team_id):
-        return "invalid_task"
-    ChannelContextGeneration.objects.update_or_create(
-        channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
-    )
-    return str(task_id) if task_id else None
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return "not_found"
+        if task_id is not None and not task_exists(task_id, team_id):
+            return "invalid_task"
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
+        )
+        return str(task_id) if task_id else None
+
+
+def start_space_setup(
+    channel_id: str | UUID,
+    team: Team,
+    user_id: int,
+    *,
+    request: contracts.SpaceSetupRequest,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.SpaceSetupStartedDTO | None:
+    """Start the one task that sets a space up for a goal or a feature.
+
+    The task runs unattended in the channel and publishes the context page itself, so it
+    takes over the channel's context generation marker the same way a CONTEXT.md
+    generation task does. ``None`` when the channel is not visible to the user.
+    """
+    if _visible_channel(channel_id, team.id, user_id) is None:
+        return None
+    if request.kind == "goal" and not cdp_facade.is_hog_function_template_available(
+        "template-posthog-create-task", team
+    ):
+        raise SpaceSetupUnavailableError(
+            "Goal setup is not available because the Create AI task workflow action is unavailable. "
+            "Ask an administrator to sync workflow templates, then retry setup."
+        )
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team.id, user_id)
+        if channel is None:
+            return None
+        active_setup = (
+            Task.objects.filter(team_id=team.id, channel_id=channel.id, origin_product=Task.OriginProduct.SPACE_SETUP)
+            .annotate(
+                setup_run_status=Subquery(
+                    TaskRun.objects.filter(team_id=team.id, task_id=OuterRef("pk"))
+                    .order_by("-created_at", "-id")
+                    .values("status")[:1]
+                )
+            )
+            .filter(
+                setup_run_status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
+            )
+            .exists()
+        )
+        if active_setup:
+            raise contracts.SpaceSetupInProgressError("Space setup is already running. Open its task to see progress.")
+        repository = request.repository or (channel.repositories[0] if channel.repositories else None)
+        request = replace(request, repository=repository)
+        try:
+            task = Task.create_and_run(
+                team=team,
+                title=space_setup_task_title(channel.name, request),
+                description=build_space_setup_prompt(
+                    team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
+                ),
+                profile=SPACE_SETUP,
+                user_id=user_id,
+                channel=channel,
+                repository=repository,
+                options=TaskRunOptions(
+                    adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+                    model=SPACE_SETUP_MODEL,
+                    reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+                    mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+                    permission_mode="auto",
+                ),
+                create_pr=False,
+                client_provenance=client_provenance,
+            )
+        except ValueError as e:
+            raise SpaceSetupUnavailableError(
+                f"Goal setup could not start: {e}. Connect the GitHub integration that owns the repository, then retry setup."
+            ) from e
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team.id, "task_id": task.id}
+        )
+        _emit_space_setup_started(channel, user_id, request=request, task_id=task.id)
+        return contracts.SpaceSetupStartedDTO(task_id=task.id)
+
+
+def _emit_space_setup_started(
+    channel: Channel, user_id: int, *, request: contracts.SpaceSetupRequest, task_id: UUID
+) -> None:
+    subject = request.goal.statement if request.goal is not None else request.feature.name if request.feature else ""
+    try:
+        with transaction.atomic():
+            ChannelFeedMessage.objects.create(
+                team_id=channel.team_id,
+                channel_id=channel.id,
+                author_id=user_id,
+                author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+                event=SPACE_SETUP_FEED_EVENT,
+                payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
+            )
+    except Exception:
+        logger.exception("Failed to emit space_setup_started feed message", extra={"channel_id": str(channel.id)})
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:
-    """Star or unstar a channel for the requesting user. False when the channel isn't visible."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return False
-    _set_channel_star(channel.id, team_id, user_id, starred=starred)
-    return True
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return False
+        _set_channel_star(channel.id, team_id, user_id, starred=starred)
+        return True
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
@@ -8181,6 +12550,7 @@ def list_task_comments(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
     limit: int,
@@ -8192,6 +12562,7 @@ def list_task_comments(
         return list_comments(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             artifact_id=artifact_id,
             include_resolved=include_resolved,
             limit=limit,
@@ -8201,10 +12572,69 @@ def list_task_comments(
         raise ValueError("Invalid task comment cursor") from None
 
 
+def list_canvas_comments(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    from products.tasks.backend.logic.services.task_comments import (
+        InvalidTaskCommentCursor,
+        list_canvas_comments as list_comments_for_canvas,
+    )
+
+    try:
+        return list_comments_for_canvas(
+            team_id=team_id,
+            canvas_id=canvas_id,
+            canvas_name=canvas_name,
+            include_resolved=include_resolved,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid canvas comment cursor") from None
+
+
+def retrieve_canvas_comment(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
+) -> contracts.TaskCommentDetailDTO | None:
+    from products.tasks.backend.logic.services.task_comments import (
+        InvalidTaskCommentCursor,
+        retrieve_canvas_comment as retrieve_comment_for_canvas,
+    )
+
+    try:
+        return retrieve_comment_for_canvas(
+            team_id=team_id,
+            canvas_id=canvas_id,
+            canvas_name=canvas_name,
+            comment_id=comment_id,
+            limit=limit,
+            cursor=cursor,
+            content_comment_id=content_comment_id,
+            content_offset=content_offset,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid canvas comment cursor") from None
+
+
 def retrieve_task_comment(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
@@ -8217,6 +12647,7 @@ def retrieve_task_comment(
         return retrieve_comment(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             comment_id=comment_id,
             limit=limit,
             cursor=cursor,
@@ -8237,10 +12668,11 @@ def list_mentions(
         team_id=team_id,
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
-        task__in=_visible_task_qs(team_id, user_id),
+        task__in=_visible_task_qs(team_id, user_id, for_list=True),
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
+    qs = qs.exclude(Task.scout_experiment_q(relation="task"))
     if since is not None:
         qs = qs.filter(created_at__gt=since)
     mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
@@ -8317,7 +12749,7 @@ ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
 
 def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     return (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False)
         .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
     )
@@ -8333,10 +12765,79 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
-def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
+def _visible_activity_canvas_ids(team_id: int, user_id: int) -> set[str]:
+    """Ids of the visible canvases among those the requester's comment activity names."""
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    # Only the canvases in the requester's own feed are candidates, so the lookup
+    # stays bounded by their activity and not by every canvas in the team.
+    item_ids = (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False, comment__scope__in=CANVAS_COMMENT_SCOPES)
+        .values_list("comment__item_id", flat=True)
+        .distinct()
+    )
+    return canvas_access.live_visible_canvas_ids(team_id, user_id, [item_id for item_id in item_ids if item_id])
+
+
+def _comment_activity_qs(
+    team_id: int, user_id: int, visible_canvas_ids: set[str] | None = None
+) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    if visible_canvas_ids is None:
+        visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(
+            Q(comment__scope__in=CANVAS_COMMENT_SCOPES, comment__item_id__in=visible_canvas_ids)
+            | (~Q(comment__scope__in=CANVAS_COMMENT_SCOPES) & Q(task__in=visible_tasks))
+        )
+    )
+
+
+def _visible_canvases_by_id(
+    team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
+) -> dict[str, "CanvasSummary"]:
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    canvas_ids: list[UUID] = []
+    for row in comment_rows:
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES:
+            continue
+        try:
+            canvas_ids.append(UUID(row.comment.item_id))
+        except ValueError:
+            continue
+    return canvas_access.visible_canvas_summaries(team_id=team_id, user_id=user_id, canvas_ids=canvas_ids)
+
+
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
+def _activity_task_details(
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, "CanvasSummary"]
+) -> _ActivityTaskDetails:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope in CANVAS_COMMENT_SCOPES and row.comment.item_id:
+        canvas = canvases_by_id.get(row.comment.item_id)
+        if canvas is not None:
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel_name
+            )
+    if row.task is None:
+        return _ActivityTaskDetails(title="", channel_id=None, channel_name=None)
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
     )
 
 
@@ -8344,9 +12845,13 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
+    return _count_unread_activity(team_id, user_id, _visible_activity_canvas_ids(team_id, user_id))
+
+
+def _count_unread_activity(team_id: int, user_id: int, visible_canvas_ids: set[str]) -> int:
     return (
         _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id, visible_canvas_ids).filter(read_at__isnull=True).count()
     )
 
 
@@ -8366,14 +12871,21 @@ def list_task_activity(
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
     task_qs = _task_activity_qs(team_id, user_id)
-    comment_qs = _comment_activity_qs(team_id, user_id)
+    visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
+    comment_qs = _comment_activity_qs(team_id, user_id, visible_canvas_ids)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
+    comment_rows = list(
+        comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[: limit + 1]
+    )
+    canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
+    comment_rows = [
+        row
+        for row in comment_rows
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -8390,9 +12902,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -8412,8 +12924,9 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
-        unread_count=count_unread_task_activity(team_id, user_id),
+        unread_count=_count_unread_activity(team_id, user_id, visible_canvas_ids),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )
@@ -8426,7 +12939,7 @@ def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
 def mark_task_activity_read(
     team_id: int,
     user_id: int | None,
-    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+    activities: Sequence[tuple[UUID | None, datetime, UUID | None]],
 ) -> int:
     """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
@@ -8436,7 +12949,7 @@ def mark_task_activity_read(
     for task_id, seen_before, comment_activity_id in activities:
         if comment_activity_id:
             comment_activity_ids.append(comment_activity_id)
-        else:
+        elif task_id:
             activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
     task_rows = 0
     if activity_versions:
@@ -8505,7 +13018,12 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        try:
+            signal_result = signal_task_run_user_message(
+                run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+            )
+        except (TaskDoneError, TaskRunAlreadyLiveError):
+            return "no_run", None
         if not signal_result:
             return "signal_failed", None
 
@@ -8921,14 +13439,41 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done`` /
+    ``run_in_progress``.
     """
+    from products.signals.backend.facade.self_driving import (
+        self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
+    )
+    from products.signals.backend.facade.trial import (
+        prepare_task_trial,  # noqa: PLC0415 -- Signals depends on the Tasks facade
+    )
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
+    admission_task = Task.objects.select_related("team").filter(id=task_id, team_id=team_id).first()
+    if admission_task is None:
+        return "not_found"
+    if acting_user_id is None or admission_task.created_by_id != acting_user_id:
+        return "forbidden"
+    warm_done_mode(admission_task)
+    trial_admission = prepare_task_trial(
+        team=admission_task.team,
+        origin=admission_task.origin_product,
+        report_id=admission_task.signal_report_source_id,
+        mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
+    )
+    quota_gate = (
+        self_driving_quota_gate(admission_task.team)
+        if trial_admission is None and admission_task.uses_self_driving_billing("background")
+        else None
+    )
+
     with transaction.atomic():
+        if trial_admission is not None:
+            trial_admission.lock_report(admission_task.signal_report_source_id)
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
         task = (
             Task.objects.select_for_update(of=("self",))
@@ -8942,6 +13487,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "forbidden"
         if reason := get_compute_quota_denial_reason(task):
             return _canvas_fix_denial_outcome(reason)
+        if wake_refusal(task, source="canvas_fix") is not None:
+            return "task_done"
         run = task.latest_run
         if run is not None and not run.is_terminal:
             try:
@@ -8951,6 +13498,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                     return "signaled"
             except ComputeBillingLimitError as error:
                 return _canvas_fix_denial_outcome(error.reason)
+            except TaskRunAlreadyLiveError:
+                return "run_in_progress"
             if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
                 # A queued, prompt-seeded run whose workflow hasn't registered yet
                 # is a fix run a just-committed request dispatched (creation is
@@ -8958,7 +13507,25 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+            if (
+                run.environment == TaskRun.Environment.CLOUD
+                and run.status == TaskRun.Status.IN_PROGRESS
+                and not (run.state or {}).get("cancel_requested_at")
+            ):
+                _fail_run_whose_workflow_is_gone(run)
+        if quota_gate is not None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="canvas_fix",
+                gate=quota_gate,
+            )
+        try:
+            task_run = task.create_run(
+                mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+            )
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress"
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
@@ -9082,3 +13649,152 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
+
+
+def accept_github_pull_request(delivery: WebhookDelivery) -> None:
+    """The PR backstop that records a pull request the agent output never reported."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_event  # noqa: PLC0415
+
+    handle_pull_request_event(dict(delivery.payload))
+
+
+def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
+    """A review on a PR a task opened, which can resume the run that is waiting on it."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+
+    handle_pull_request_review_event(dict(delivery.payload))
+
+
+def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
+
+
+def record_task_client(
+    *, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None
+) -> datetime | None:
+    if client is None:
+        return None
+    recorded_at = django_timezone.now()
+    try:
+        Task.objects.filter(id=task_id, team_id=team_id).update(last_client=client, last_client_at=recorded_at)
+    except Exception:
+        logger.warning("Failed to record the last client for task %s", task_id, exc_info=True)
+        return None
+    return recorded_at
+
+
+def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:
+    from products.tasks.backend.mobile_push import (
+        record_mobile_pickup,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    if user_id is None:
+        return
+
+    try:
+        record_mobile_pickup(task_id=task_id, team_id=team_id, user_id=user_id)
+    except Exception:
+        logger.exception(
+            "mobile_push.pickup_failed", extra={"task_id": task_id, "team_id": team_id, "user_id": user_id}
+        )
+
+
+def task_mobile_push_taken_over(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return task is not None and user_id in mobile_push_user_ids(task)
+
+
+def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        task_mobile_push_eligible,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+        .filter(task_visibility_q(user_id))
+        .select_related("team")
+        .first()
+    )
+    if task is None or not task_mobile_push_eligible(task, user_id):
+        return False
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    return user is not None and UserAccessControl(user=user, team=task.team).check_access_level_for_resource(
+        "task", "viewer"
+    )
+
+
+def task_mobile_push_user_ids(*, task_id: str, team_id: int) -> set[int]:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return mobile_push_user_ids(task) if task is not None else set()
+
+
+def task_mobile_push_suppressed_token_ids(*, user_id: int, task_id: str, team_id: int) -> list[str]:
+    from products.tasks.backend.mobile_push import (
+        suppressed_push_token_ids_for_task,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return suppressed_push_token_ids_for_task(user_id=user_id, task_id=task_id, team_id=team_id)
+
+
+def enqueue_task_mobile_pr_outcome(
+    *, task_id: str, team_id: int, user_id: int, pr_url: str, kind: str, enqueue: Callable[[], None]
+) -> bool:
+    from products.tasks.backend.mobile_push import (
+        enqueue_mobile_pr_outcome,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return enqueue_mobile_pr_outcome(
+        task_id=task_id, team_id=team_id, user_id=user_id, pr_url=pr_url, kind=kind, enqueue=enqueue
+    )
+
+
+def claim_mobile_push_cooldown(key: str, *, timeout_seconds: int) -> bool:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    return bool(get_tasks_cache().add(key, True, timeout=timeout_seconds))
+
+
+def release_mobile_push_cooldown(key: str) -> None:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    get_tasks_cache().delete(key)
+
+
+def get_agent_egress_registration(
+    *, team_id: int, run_id: UUID, execution_id: UUID, region: str
+) -> contracts.AgentEgressRegistrationDTO | None:
+    registration = AgentEgressRegistry(region=region).lookup(team_id=team_id, run_id=run_id, execution_id=execution_id)
+    if registration is None:
+        return None
+    return contracts.AgentEgressRegistrationDTO(
+        run_id=registration.task_run_id,
+        team_id=registration.team_id,
+        execution_id=registration.execution_id,
+        actor_id=registration.actor_id,
+        actor_epoch=registration.actor_epoch,
+        relay_key_sha256=registration.relay_key_sha256,
+        authority=registration.authority,
+        region=registration.region,
+        lease_expires_at=registration.lease_expires_at,
+        revoked=registration.revoked,
+    )

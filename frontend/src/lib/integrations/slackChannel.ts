@@ -7,6 +7,17 @@ export function slackChannelId(channelValue: string): string {
     return channelValue.split('|')[0]
 }
 
+// Member ids start with U, or W for an Enterprise Grid member. Channel ids start with C, G, or D.
+const SLACK_MEMBER_ID_PATTERN = /^[UW][A-Z0-9]{4,}$/
+
+/**
+ * `chat.postMessage` opens the direct message when handed a member id, so a member target and a
+ * channel target share this format. Mirrors the backend `is_slack_member_target`.
+ */
+export function isSlackMemberTarget(value: string): boolean {
+    return SLACK_MEMBER_ID_PATTERN.test(slackChannelId(value))
+}
+
 /**
  * The friendly name half (`#channel-name`) of a `${channelId}|#${channelName}` picker value, for
  * display. Falls back to the raw value when no name is encoded (e.g. a bare channel id). Mirrors
@@ -18,6 +29,11 @@ export function slackChannelDisplayName(channelValue: string): string {
         return channelValue
     }
     return channelValue.slice(pipe + 1).trim() || channelValue
+}
+
+/** The bare channel name (no `#`) of a `${channelId}|#${channelName}` picker value, or nothing for a bare id. */
+export function slackChannelName(channelValue: string): string | undefined {
+    return channelValue.includes('|') ? slackChannelDisplayName(channelValue).replace(/^#/, '') : undefined
 }
 
 function storageKey(integrationId: number): string | null {

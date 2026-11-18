@@ -1,6 +1,7 @@
 import typing
 from abc import ABC
 from datetime import datetime
+from functools import cached_property
 from typing import Union, cast
 
 from posthog.schema import EndpointsUsageOverviewQuery, EndpointsUsageTableQuery, EndpointsUsageTrendsQuery
@@ -9,7 +10,6 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 EndpointsUsageQueryNode = Union[
     EndpointsUsageOverviewQuery,

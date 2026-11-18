@@ -5,6 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
+    PersonDistinctIdMapping,
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
@@ -166,6 +167,13 @@ export class PersonHogPersonRepository implements PersonRepository {
         }
     }
 
+    fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        // The personhog identity service produces the ClickHouse mapping messages
+        // itself, so mapping re-emission has nothing to heal on this backend.
+        // Returning no rows disables it without failing the merge.
+        return Promise.resolve([])
+    }
+
     // All write operations delegate directly to Postgres
 
     createPerson(
@@ -202,13 +210,29 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.updatePerson(person, update, tag)
     }
 
+    handleOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
+        return this.postgres.handleOversizedPersonProperties(person, update)
+    }
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]> {
         return this.postgres.updatePersonAssertVersion(personUpdate)
     }
 
-    updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    > {
         return this.postgres.updatePersonsBatch(personUpdates)
     }
 

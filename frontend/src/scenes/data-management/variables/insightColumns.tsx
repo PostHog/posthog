@@ -4,9 +4,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
-export const VARIABLE_INSIGHT_COLUMNS: LemonTableColumns<QueryBasedInsightModel> = [
+export const VARIABLE_INSIGHT_COLUMNS: LemonTableColumns<InsightModel> = [
     {
         title: 'Name',
         dataIndex: 'name',

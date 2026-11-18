@@ -1,6 +1,6 @@
-import { CommentComposer } from 'scenes/comments/CommentComposer'
-import { CommentsList } from 'scenes/comments/CommentsList'
-import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
+import { CommentComposer } from 'lib/components/Comments/CommentComposer'
+import { CommentsList } from 'lib/components/Comments/CommentsList'
+import { CommentsLogicProps } from 'lib/components/Comments/commentsLogic'
 
 import { ActivityScope } from '~/types'
 

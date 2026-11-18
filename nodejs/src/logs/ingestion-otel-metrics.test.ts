@@ -8,6 +8,8 @@ import {
 } from '@opentelemetry/sdk-metrics'
 
 import {
+    recordInternalLogs,
+    recordJsonEnrichmentSkipped,
     recordLogMessageDlq,
     recordLogMessageDropped,
     recordLogProcessingDuration,
@@ -52,6 +54,13 @@ describe('ingestion-otel-metrics', () => {
 
     it.each([
         [
+            'recordJsonEnrichmentSkipped',
+            'logs_ingestion_json_enrichment_skipped_total',
+            () => recordJsonEnrichmentSkipped('output_size', 'selected_attribute'),
+            { reason: 'output_size', source: 'selected_attribute' },
+            1,
+        ],
+        [
             'recordLogsReceived bytes',
             'logs_ingestion_bytes_received_total',
             () => recordLogsReceived(3072, 15),
@@ -80,6 +89,20 @@ describe('ingestion-otel-metrics', () => {
             () => recordLogsDropped(42, 2048, 10),
             { team_id: '42' },
             10,
+        ],
+        [
+            'recordInternalLogs bytes',
+            'logs_ingestion_internal_bytes_total',
+            () => recordInternalLogs(2, 4096, 20),
+            { team_id: '2' },
+            4096,
+        ],
+        [
+            'recordInternalLogs records',
+            'logs_ingestion_internal_records_total',
+            () => recordInternalLogs(2, 4096, 20),
+            { team_id: '2' },
+            20,
         ],
         [
             'recordLogMessageDropped',
@@ -135,6 +158,7 @@ describe('ingestion-otel-metrics', () => {
                 recordLogProcessingDuration(0.02, {
                     json_parse_enabled: 'true',
                     pii_scrub_enabled: 'false',
+                    attribute_extraction_enabled: 'false',
                     compression_codec: 'snappy',
                 }),
         ],
@@ -161,7 +185,12 @@ describe('ingestion-otel-metrics', () => {
     )
 
     it('records processing duration with the prom bucket ladder and pipeline attributes', async () => {
-        const attributes = { json_parse_enabled: 'true', pii_scrub_enabled: 'false', compression_codec: 'snappy' }
+        const attributes = {
+            json_parse_enabled: 'true',
+            pii_scrub_enabled: 'false',
+            attribute_extraction_enabled: 'true',
+            compression_codec: 'snappy',
+        }
         recordLogProcessingDuration(0.02, attributes)
 
         await reader.forceFlush()

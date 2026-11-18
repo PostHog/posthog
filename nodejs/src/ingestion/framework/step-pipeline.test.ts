@@ -1,9 +1,12 @@
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 
-import { createContext, createOkContext } from './helpers'
-import { isOkResult, ok } from './results'
+import { BatchBudget } from './batch-budget'
+import { createContext, createKafkaDebugContext, createOkContext } from './helpers'
+import { batchBudgetCheckpointCounter } from './metrics'
+import { getBudgetCheckpoints } from './metrics.test-utils'
+import { isOkResult, isTimeoutResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
@@ -38,16 +41,26 @@ describe('StepPipeline', () => {
         })
 
         it('should handle step errors and log the debug context', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+            const headers: MessageHeader[] = [
+                { token: Buffer.from('phc_token') },
+                { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                { event: '$pageview' },
+                { distinct_id: 'person@example.com' },
+                { session_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' },
+            ]
+            const message: Message = {
+                value: Buffer.from('test'),
+                topic: 'test',
+                partition: 0,
+                offset: 1,
+                headers,
+            } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
             const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
-            const input = createOkContext(
-                { data: 'test' },
-                { message, debugContext: { topic: 'test', partition: 0, offset: 1 } }
-            )
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
 
             await expect(pipeline.process(input)).rejects.toThrow('Step failed')
             expect(logger.error).toHaveBeenCalledWith(
@@ -55,9 +68,82 @@ describe('StepPipeline', () => {
                 expect.stringContaining('threw'),
                 expect.objectContaining({
                     error: 'Step failed',
-                    debugContext: { topic: 'test', partition: 0, offset: 1 },
+                    debugContext: expect.objectContaining({
+                        topic: 'test',
+                        partition: 0,
+                        offset: 1,
+                        headers: {
+                            token: 'phc_token',
+                            uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+                            event: '$pageview',
+                        },
+                    }),
                 })
             )
+            const logged = (logger.error as jest.Mock).mock.calls.at(-1)?.[2].debugContext.headers
+            expect(logged).not.toHaveProperty('distinct_id')
+            expect(logged).not.toHaveProperty('session_id')
+        })
+
+        it('should log no headers when the message has none', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockRejectedValue(new Error('Step failed'))
+            const previous = new StartPipeline<{ data: string }, unknown>()
+
+            const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
+
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            const call = (logger.error as jest.Mock).mock.calls.at(-1)
+            expect(call?.[2].debugContext.headers).toBeUndefined()
+        })
+    })
+
+    describe('budget checkpoint', () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            batchBudgetCheckpointCounter.reset()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        function buildChain(calls: string[]) {
+            function firstStep(value: { value: number }) {
+                calls.push('firstStep')
+                // Stands in for the step taking longer than the batch had left.
+                jest.advanceTimersByTime(1000)
+                return Promise.resolve(ok(value))
+            }
+            function secondStep(value: { value: number }) {
+                calls.push('secondStep')
+                return Promise.resolve(ok(value))
+            }
+            function thirdStep(value: { value: number }) {
+                calls.push('thirdStep')
+                return Promise.resolve(ok(value))
+            }
+
+            return new StepPipeline(firstStep, new StartPipeline<{ value: number }, unknown>())
+                .pipe(secondStep)
+                .pipe(thirdStep)
+        }
+
+        it('times the element out at the next step and skips the rest of the chain', async () => {
+            const budget = BatchBudget.softDeadline(Date.now() + 1000)
+            const calls: string[] = []
+
+            const result = await buildChain(calls).process(createOkContext({ value: 1 }, { message, budget }))
+
+            expect(calls).toEqual(['firstStep'])
+            expect(isTimeoutResult(result.result)).toBe(true)
+            expect((result.result as { reason: string }).reason).toBe('budget exceeded before secondStep')
+            expect(result.context.lastStep).toBe('firstStep')
+            expect(await getBudgetCheckpoints('step', 'secondStep')).toBe(1)
         })
     })
 

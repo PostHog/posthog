@@ -49,20 +49,7 @@ describe("pendingTaskPromptStore", () => {
     expect(pendingTaskPromptStoreApi.get("k1")).toBeUndefined();
   });
 
-  it("flags an existing entry interrupted so the pending view can recover it", () => {
-    pendingTaskPromptStoreApi.set("k1", { promptText: "hi", attachments: [] });
-    pendingTaskPromptStoreApi.markInterrupted("k1", "offline");
-    expect(pendingTaskPromptStoreApi.get("k1")?.interruptReason).toBe(
-      "offline",
-    );
-  });
-
-  it("never resurrects a discarded prompt when marking a missing key", () => {
-    pendingTaskPromptStoreApi.markInterrupted("gone", "failed");
-    expect(pendingTaskPromptStoreApi.get("gone")).toBeUndefined();
-  });
-
-  it("returns every surviving entry newest-first for recovery", () => {
+  it("recovers unsent prompts newest-first while keeping submitted prompts available for chat", () => {
     pendingTaskPromptStoreApi.set("old", {
       promptText: "old",
       attachments: [],
@@ -75,10 +62,12 @@ describe("pendingTaskPromptStore", () => {
       promptText: "new",
       attachments: [],
     });
+    pendingTaskPromptStoreApi.markSubmitted("mid");
 
-    const recovered = pendingTaskPromptStoreApi.getAllNewestFirst();
+    const recovered = pendingTaskPromptStoreApi.getRecoverableNewestFirst();
 
-    expect(recovered.map((r) => r.key)).toEqual(["new", "mid", "old"]);
+    expect(recovered.map((r) => r.key)).toEqual(["new", "old"]);
+    expect(pendingTaskPromptStoreApi.get("mid")?.promptText).toBe("mid");
   });
 
   it("caps stored prompts to the newest, dropping the oldest", () => {
@@ -89,7 +78,7 @@ describe("pendingTaskPromptStore", () => {
       });
     }
 
-    const recovered = pendingTaskPromptStoreApi.getAllNewestFirst();
+    const recovered = pendingTaskPromptStoreApi.getRecoverableNewestFirst();
 
     expect(recovered).toHaveLength(20);
     expect(pendingTaskPromptStoreApi.get("k0")).toBeUndefined();

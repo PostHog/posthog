@@ -29,5 +29,3 @@ const FREEFORM_TEMPLATE: CanvasTemplateSummary = {
 };
 
 export const BUILT_IN_TEMPLATES: CanvasTemplateSummary[] = [FREEFORM_TEMPLATE];
-
-export const DEFAULT_TEMPLATE_ID = FREEFORM_TEMPLATE_ID;

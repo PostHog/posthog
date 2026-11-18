@@ -16,6 +16,11 @@ const meta: Meta<ActivityLogProps> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
     decorators: [
+        (Story) => (
+            <div className="w-[calc(100vw-2rem)]">
+                <Story />
+            </div>
+        ),
         mswDecorator({
             get: {
                 // TODO: setting available featues should be a decorator to make this easy

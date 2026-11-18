@@ -2,26 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    EarlyAccessFeatureCreateBody,
-    EarlyAccessFeatureDestroyParams,
-    EarlyAccessFeatureListQueryParams,
-    EarlyAccessFeaturePartialUpdateBody,
-    EarlyAccessFeaturePartialUpdateParams,
-    EarlyAccessFeatureRetrieveParams,
-} from '@/generated/early_access_features/api'
+import * as orvalSchemas from '@/generated/early_access_features/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const EarlyAccessFeatureCreateSchema = EarlyAccessFeatureCreateBody.omit({ _create_in_folder: true })
+const EarlyAccessFeatureCreateSchema = () => {
+    const EarlyAccessFeatureCreateBody = orvalSchemas.EarlyAccessFeatureCreateBody()
+    return EarlyAccessFeatureCreateBody.omit({ _create_in_folder: true })
+}
 
 const earlyAccessFeatureCreate = (): ToolBase<
-    typeof EarlyAccessFeatureCreateSchema,
+    ReturnType<typeof EarlyAccessFeatureCreateSchema>,
     WithPostHogUrl<Schemas.EarlyAccessFeatureSerializerCreateOnly>
 > => ({
     name: 'early-access-feature-create',
-    schema: EarlyAccessFeatureCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureCreateSchema>) => {
+    schema: EarlyAccessFeatureCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EarlyAccessFeatureCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -35,6 +31,9 @@ const earlyAccessFeatureCreate = (): ToolBase<
         }
         if (params.documentation_url !== undefined) {
             body['documentation_url'] = params.documentation_url
+        }
+        if (params.image_url !== undefined) {
+            body['image_url'] = params.image_url
         }
         if (params.payload !== undefined) {
             body['payload'] = params.payload
@@ -51,12 +50,15 @@ const earlyAccessFeatureCreate = (): ToolBase<
     },
 })
 
-const EarlyAccessFeatureDestroySchema = EarlyAccessFeatureDestroyParams.omit({ project_id: true })
+const EarlyAccessFeatureDestroySchema = () => {
+    const EarlyAccessFeatureDestroyParams = orvalSchemas.EarlyAccessFeatureDestroyParams()
+    return EarlyAccessFeatureDestroyParams.omit({ project_id: true })
+}
 
-const earlyAccessFeatureDestroy = (): ToolBase<typeof EarlyAccessFeatureDestroySchema, unknown> => ({
+const earlyAccessFeatureDestroy = (): ToolBase<ReturnType<typeof EarlyAccessFeatureDestroySchema>, unknown> => ({
     name: 'early-access-feature-destroy',
-    schema: EarlyAccessFeatureDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureDestroySchema>) => {
+    schema: EarlyAccessFeatureDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EarlyAccessFeatureDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -66,39 +68,50 @@ const earlyAccessFeatureDestroy = (): ToolBase<typeof EarlyAccessFeatureDestroyS
     },
 })
 
-const EarlyAccessFeatureListSchema = EarlyAccessFeatureListQueryParams
+const EarlyAccessFeatureListSchema = () => {
+    const EarlyAccessFeatureListQueryParams = orvalSchemas.EarlyAccessFeatureListQueryParams()
+    return EarlyAccessFeatureListQueryParams
+}
 
 const earlyAccessFeatureList = (): ToolBase<
-    typeof EarlyAccessFeatureListSchema,
+    ReturnType<typeof EarlyAccessFeatureListSchema>,
     WithPostHogUrl<Schemas.PaginatedEarlyAccessFeatureList>
 > => ({
     name: 'early-access-feature-list',
-    schema: EarlyAccessFeatureListSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureListSchema>) => {
+    schema: EarlyAccessFeatureListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EarlyAccessFeatureListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEarlyAccessFeatureList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             query: {
+                created_by_id: params.created_by_id,
+                ids: params.ids,
                 limit: params.limit,
                 offset: params.offset,
+                order: params.order,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/early_access_features')
     },
 })
 
-const EarlyAccessFeaturePartialUpdateSchema = EarlyAccessFeaturePartialUpdateParams.omit({ project_id: true }).extend(
-    EarlyAccessFeaturePartialUpdateBody.shape
-)
+const EarlyAccessFeaturePartialUpdateSchema = () => {
+    const EarlyAccessFeaturePartialUpdateBody = orvalSchemas.EarlyAccessFeaturePartialUpdateBody()
+    const EarlyAccessFeaturePartialUpdateParams = orvalSchemas.EarlyAccessFeaturePartialUpdateParams()
+    return EarlyAccessFeaturePartialUpdateParams.omit({ project_id: true }).extend(
+        EarlyAccessFeaturePartialUpdateBody.shape
+    )
+}
 
 const earlyAccessFeaturePartialUpdate = (): ToolBase<
-    typeof EarlyAccessFeaturePartialUpdateSchema,
+    ReturnType<typeof EarlyAccessFeaturePartialUpdateSchema>,
     WithPostHogUrl<Schemas.EarlyAccessFeature>
 > => ({
     name: 'early-access-feature-partial-update',
-    schema: EarlyAccessFeaturePartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeaturePartialUpdateSchema>) => {
+    schema: EarlyAccessFeaturePartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EarlyAccessFeaturePartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -113,6 +126,9 @@ const earlyAccessFeaturePartialUpdate = (): ToolBase<
         if (params.documentation_url !== undefined) {
             body['documentation_url'] = params.documentation_url
         }
+        if (params.image_url !== undefined) {
+            body['image_url'] = params.image_url
+        }
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
@@ -122,15 +138,18 @@ const earlyAccessFeaturePartialUpdate = (): ToolBase<
     },
 })
 
-const EarlyAccessFeatureRetrieveSchema = EarlyAccessFeatureRetrieveParams.omit({ project_id: true })
+const EarlyAccessFeatureRetrieveSchema = () => {
+    const EarlyAccessFeatureRetrieveParams = orvalSchemas.EarlyAccessFeatureRetrieveParams()
+    return EarlyAccessFeatureRetrieveParams.omit({ project_id: true })
+}
 
 const earlyAccessFeatureRetrieve = (): ToolBase<
-    typeof EarlyAccessFeatureRetrieveSchema,
+    ReturnType<typeof EarlyAccessFeatureRetrieveSchema>,
     WithPostHogUrl<Schemas.EarlyAccessFeature>
 > => ({
     name: 'early-access-feature-retrieve',
-    schema: EarlyAccessFeatureRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureRetrieveSchema>) => {
+    schema: EarlyAccessFeatureRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EarlyAccessFeatureRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'GET',

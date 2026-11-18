@@ -8,6 +8,7 @@ from django.test import override_settings
 import httpx
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.temporal.session_replay.delete_recordings.activities import (
     _parse_session_recording_list_response,
     delete_recordings,
@@ -116,26 +117,12 @@ def _mock_delete_response_client(mock_client_cls):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "internal_secret, jwt_secret, expected_headers",
-    [
-        pytest.param("my-secret-key", "", {"X-Internal-Api-Secret"}, id="legacy_secret_only"),
-        pytest.param("", "signing-key", {"Authorization"}, id="jwt_only"),
-        pytest.param(
-            "my-secret-key",
-            "signing-key",
-            {"X-Internal-Api-Secret", "Authorization"},
-            id="both_during_rollout",
-        ),
-        pytest.param("", "", set(), id="nothing_configured"),
-    ],
-)
-async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expected_headers):
+async def test_delete_recordings_sends_only_the_bearer_token():
     with (
         override_settings(
             RECORDING_API_URL="http://recording-api:8000",
-            INTERNAL_API_SECRET=internal_secret,
-            RECORDING_API_JWT_SECRET=jwt_secret,
+            INTERNAL_API_SECRET="my-secret-key",
+            RECORDING_API_JWT_SECRET="signing-key",
         ),
         patch(
             "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
@@ -147,9 +134,7 @@ async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expec
 
     mock_client_cls.assert_called_once()
     headers = mock_client_cls.call_args.kwargs["headers"]
-    assert set(headers) == expected_headers
-    if "X-Internal-Api-Secret" in expected_headers:
-        assert headers["X-Internal-Api-Secret"] == internal_secret
+    assert set(headers) == {"Authorization"}
 
 
 @pytest.mark.asyncio
@@ -179,8 +164,26 @@ async def test_delete_recordings_raises_when_no_recording_api_url():
     with patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings:
         mock_settings.RECORDING_API_URL = ""
 
-        with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
+        with pytest.raises(RecordingApiConfigurationError, match="RECORDING_API_URL is not configured"):
             await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_raises_when_no_signing_secret_configured():
+    with (
+        override_settings(
+            RECORDING_API_URL="http://recording-api:8000",
+            INTERNAL_API_SECRET="internal",
+            RECORDING_API_JWT_SECRET="",
+        ),
+        patch(
+            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
+        ) as mock_client_cls,
+    ):
+        with pytest.raises(RecordingApiConfigurationError, match="RECORDING_API_JWT_SECRET"):
+            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
+
+    mock_client_cls.assert_not_called()
 
 
 @pytest.mark.asyncio

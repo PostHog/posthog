@@ -1,12 +1,18 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import type { OrganizationType } from '~/types'
+
+import * as generatedApi from 'products/billing/frontend/generated/api'
+import type {
+    BillingAlertConfigurationApi,
+    PaginatedBillingAlertConfigurationListApi,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import {
     CHECK_NOW_CONFIRMATION_DESCRIPTION,
@@ -14,8 +20,6 @@ import {
     mergeUniqueAlerts,
     openBillingAlertCheckNowConfirmation,
 } from './billingAlertsLogic'
-import * as generatedApi from './generated/api'
-import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
 
 const alert = (id: string): BillingAlertConfigurationApi => ({ id }) as BillingAlertConfigurationApi
 const organization = (id: string): OrganizationType =>

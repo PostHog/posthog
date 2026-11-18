@@ -1,48 +1,314 @@
 # Stamphog
 
-Approve-first PR review: an LLM reviewer that runs deterministic gates plus a scoped review over a pull request and, when the policy allows it, posts an actual GitHub **approval** — not just comments. Repos opt in per-repo; everything else stays untouched.
+Stamphog is an approve-first pull request reviewer.
+It runs deterministic gates and a scoped LLM review over a PR and, when the policy allows it, posts a real GitHub approval instead of comments.
+Repositories opt in one at a time, and nothing else is touched.
 
-## The engine
+The review itself is done by the engine in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
+This product decides which PRs are reviewed, runs the engine in a sandbox, and puts the verdict on GitHub.
 
-The review engine lives in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
-A GitHub App delivers webhooks here, and reviews run in an isolated Modal sandbox with per-run minted credentials: `review_local.py` consumes a pre-fetched context, with no GitHub token inside the sandbox.
-`review_pr.py` in the same directory is the manual entrypoint for reviewing a PR from your own checkout, which fetches over the network instead.
+## What a PR author sees
 
-Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`). The workflow dismisses stale approvals _first_, waits out other in-flight reviewer bots, then reviews.
+A repository either reviews every PR or waits for its trigger label, depending on its review mode.
+The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 
-There is one non-webhook entry: **self-driving inbox PRs**. When a self-driving Inbox implementation run opens its (bot-authored, draft) PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade — gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles on ReviewHog's settings (any opted-in reviewer is enough) — and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time. Later pushes re-review through the normal webhook path via a positively identified carve-out (task linkage through the tasks facade, toggle re-checked through `facade/inbox_hooks.py`); every other bot author stays refused at every layer. See AGENTS.md § the self-driving carve-out.
+| Verdict  | Where it lands                             | Trigger label in label mode |
+| -------- | ------------------------------------------ | --------------------------- |
+| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept                        |
+| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| Gated    | A GitHub comment review by `stamphog[bot]` | Removed                     |
 
-## The digest
+Gated means a deterministic gate denied the PR before any review, such as the deny-list or the size ceiling.
+The engine reports it as `REFUSED`; the product stores the run as gated with the verdict `WAIT`, and still removes the trigger label because a human has to take it from here.
 
-On top of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`). Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repo.
+The bot never posts request-changes.
+Approvals are posted as real reviews so they count toward branch protection, once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
+Every other verdict is posted once per run as a comment review on the same surface, so approvals and non-approvals for one head never disagree across two lists.
+A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
+The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-A merge fans out to every audience it belongs to (`backend/logic/audiences.py`): every team owning a file it changed, read back from the ownership the review already resolved, plus a per-repo audience when a repo declares its own channel under `digest:` in `.stamphog/policy.yml`. A team hears about code it owns, not about everywhere its members touched, so a merge nobody owns in a repo that declares nothing reaches nobody — that is an ownership gap, and `hogli owners:unowned` is where it gets fixed. A `PullRequestAudience` row per audience is what the daily run claims, so one channel failing to post never strands the merge for another. A team whose only changed files were written by a generator is not an audience at all: `hogli build:openapi` rewrites a product's generated API types whenever any shared serializer changes anywhere in the repo, so owning one says nothing about whether that team was touched.
+The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
+So the label can be re-applied once the feedback is addressed.
+A verdict that says nothing about the PR keeps the label, and the next push retries.
+A label can request at most one review per PR every 10 minutes.
+A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
+`WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
+Stamphog checks again every two minutes for up to an hour, and reviews the PR again once that check has reported.
+`ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
+A transient failure must not silently drop labels across every queued PR.
 
-Routing is config, and it lives in the repositories rather than in this database (`backend/logic/channel_resolution.py`). Nothing is stored: a run resolves, posts, and records where it went, so changing a declaration moves the next morning's digest. The order is proximity. A `repo:` audience takes the channel that repo declared. A team slug takes the root `owners.yaml` registry of the repo the merge came from, and a repo that carries a registry answers for its own merges completely, including by omission — a registry lists the teams whose derived name is wrong, so a missing slug means the derived name is right. A repo carrying no registry inherits one, which is what lets `charts` route `logs` to `#team-apm` because the monorepo says so. Otherwise the slug name-matches a Slack channel, and the app joins one it was never invited to, so a team's digest starts without anyone wiring it up. Channels shared outside the workspace are skipped, and `notifications: false` on a registry entry is how a team opts out. The registry is asked where _automation_ posts (`notifications`), which falls back to the team's own `slack` channel, so a team that wants bots somewhere quieter says so once and every producer follows.
+Each run is stored as a `ReviewRun` row with its evidence bundle.
+Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).
+Retrieving one run also returns the reviewer's reasoning, the same text stamphog posts on GitHub.
 
-Two repos declaring one team is a scope, not a conflict. Each answers for the merges that came from it, so one audience can resolve to two channels in a run and the digest partitions between them. No merge is posted twice and no declaration is discarded.
+A project member can also ask for a review directly, by creating a review run (`POST code_review/approvals/runs/`, or the `code-review-approvals-runs-create` MCP tool), and then poll the run for its verdict.
+The request replaces the trigger label, so it works in label mode.
+Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
+A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when a pinned attestation vouches for every file in it.
 
-Summaries are written where the diff is. The reviewer emits a one-line `change_summary` alongside its verdict, which is stamped onto the merged PR; the daily run condenses those rather than guessing from PR titles, and for an owning team it also sees which of the changed files are theirs, so a repo-wide sweep that grazed two of them can be dropped as noise. A team that owns exactly one file of a large change is flagged to the summarizer outright, because the file counts alone were not enough to stop a config sweep reaching ten channels. The author's own PR body never reaches the prompt, and a PR stamphog never summarized contributes only its title. The reviewed sentence already says what changed, and carrying the body handed one contributor two thousand characters of a prompt whose empty answer consumes the whole batch. What remains is fenced so it cannot close its own tag and continue as instructions.
+A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
+The switch only makes sense in label mode, and only in a repository where PostHog Review runs automatic reviews when a PR opens or is marked ready.
+The API refuses it in `all` mode, because every PR gets a visible review there already, and a save that sets `review_mode` to `all` turns it off.
+Agents change it, and the other repo settings, with the `code-review-approvals-repositories-update` MCP tool (`PATCH code_review/approvals/repositories/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
+Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
+Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
+A stored verdict that was not posted has an empty `verdict_posted_at`.
+The silent trigger skips the review mode and nothing else, so the same PRs are refused as for a direct request, and so is a head that moved or already has a review.
 
-How many changes a digest carries is decided by the bar and by nothing else. There is no target count and no editorial cap, so a quiet day shows none and a heavy one shows what it earns. The bar is four named rules — `contract`, `assumption`, `decision`, `customer` — and the summarizer has to name the one that admits each merge it keeps. A merge kept without a valid rule is dropped in code rather than trusted, because an unnamed bar gets rationalized away: on a real day of twenty-six connector fixes the same model kept twenty-one of them without the rules and none to two with them. Repair overrides all four. Making a broken integration work is maintenance, and only changing what a working one does is news. The one limit is Slack's own block ceiling, which the deterministic fallback rails far below because that path judges nothing.
+A silent run never answers a visible request: adding the trigger label or asking for a review while a silent run is in flight supersedes it with a normal review.
+A visible request always gets its own run.
+When the latest run of the head already withheld a refusal or an escalation, that run first reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
+If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed in label mode.
+If anything changed, or the check fails, the same run reviews the PR normally.
+A stored WAIT is never reused, and an approval is never posted this way, because a silent approval was already posted.
+The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdict_reused`.
 
-A run consumes every merge it claims, whatever the summarizer decided about it. Handing the leftovers back put the same merges in front of the same prompt every morning, where the same text produced the same answer, so a busy team's batch grew for a week and then aged out unseen. Merges above the per-run claim ceiling are the one exception: they are never claimed, so the next run picks them up.
+## Connect a repository
 
-A digest posts as two messages (`backend/logic/slack_digest.py`). The channel gets one lead: the model's headline when it judged something worth a channel-level sentence, and the scope line ("3 of 11 Stamphog-approved merges") when it did not. The per-change lines go in a thread under that lead, so a team spends one line of its channel and opens the rest by choice. Neither message promises the reader every merge of the day: the thread leads with whose judgment picked its contents, and the footer marks the digest as beta and asks for a reaction or a reply, which is where feedback on the digest itself lands. A failed thread reply never fails the run — the lead is already posted and the run's PRs are consumed on that basis, so treating it as a failure would post the same lead again the next day.
+1. Install the Stamphog GitHub App on your GitHub organization.
+2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST code_review/approvals/repositories/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
+5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
-## Stacked PRs
+The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
+Each member who connects adds the repositories they can reach, and connecting again refreshes the list.
+Repositories removed from the installation on GitHub leave the list on their own.
+A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
 
-A stacked PR targets its parent's branch, not the repo's default branch, and depends on parent code that hasn't merged yet.
-The sandbox clones and checks out the PR head for every review, so the reviewer's Read/Grep/Glob already see the post-stack tree and parent symbols resolve.
-The engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch).
-The diff stays scoped `base...head`.
-When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base (ref and SHA) against the reviewed one before posting.
-Engine details: [`tools/pr-approval-agent/README.md`](../../tools/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `code_review_approval` resource.
+Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
+So an editor can turn reviews back on for a repository a manager paused.
+New repositories start in label-triggered mode, so an editor can turn reviews on without a manager, and widening them to every PR stays a manager decision.
 
-## Configuration
+When a repository is turned on in label-triggered mode, or its trigger label changes, Stamphog creates the label in the GitHub repository, because GitHub only offers existing labels on a PR.
+This is best-effort: if the app may not write labels there, or the label already exists, nothing changes and nothing is reported.
 
-Per-repo settings live on `StamphogRepoConfig` (synced via the GitHub App install flow, managed in the Stamphog scene): review on/off, review mode (auto vs trigger label), digest on/off. Review policy (gates, deny-lists, tiers, ownership) is read from `.stamphog/policy.yml` on the repo's **default branch** — never from the PR head — layered over hosted defaults in [`backend/logic/policy_defaults/`](backend/logic/policy_defaults/).
+## Customize the review for your repository
 
-## Security model, in one paragraph
+Customization is optional.
+A repository with no `.stamphog/` directory reviews under the defaults the engine ships in [`packages/pr-approval-agent/defaults/`](packages/pr-approval-agent/defaults/).
 
-The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets: it gets a per-run OAuth token (scoped to `llm_gateway:read` + the server-mint marker) that only works against the gateway's stamphog route, egress is fenced to an explicit domain allowlist, posted bodies are scrubbed and markdown-image-neutralized, and approvals are governed by a strict supersession protocol so no approval survives events it shouldn't (pushes, re-reviews, repo disable). Details and invariants: [AGENTS.md](AGENTS.md).
+The three `.stamphog/` files are read from the repository's **default branch**, never from the PR head, so a PR cannot rewrite the policy that gates it.
+After the sandbox clones the PR head, the server overwrites the checkout's `.stamphog/` with the default-branch versions.
+A file the repository does not carry is wiped from the checkout as well, so a planted PR-head copy cannot take its place.
+
+`AGENT_APPROVALS.md` is the exception: it sits in arbitrary folders, so the engine reads it from the checkout, which is the PR head.
+That is why its frontmatter is a bounded positive allow-list, and why the `stamphog_policy` deny routes every edit to one to a human reviewer.
+
+| File                 | Required | Default when absent        | How it combines with the default                                                             |
+| -------------------- | -------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `policy.yml`         | No       | The shipped default policy | Merged onto it: mappings merge key by key, a declared list replaces, `extend_<list>` appends |
+| `review-guidance.md` | No       | The shipped default norms  | Replaces the default prose as a whole                                                        |
+| `steering.md`        | No       | Nothing is added           | Appended to the guidance, because no default exists                                          |
+| `AGENT_APPROVALS.md` | No       | No folder overrides        | Read from the PR's own tree, not merged                                                      |
+
+What each file contains, and how per-folder overrides resolve: [the engine's "Policy files" section](packages/pr-approval-agent/README.md#policy-files).
+
+The engine merges a repository's `policy.yml` onto its shipped default, so a repository declares only what it changes:
+
+- A mapping merges key by key. A repository can add one deny category, or change one field of an inherited category, and everything it leaves out stays inherited, including future additions upstream.
+- A list the repository declares replaces the default's list. That is how a repository drops an inherited pattern.
+- An `extend_<name>` key appends to the inherited `<name>` list, for example `extend_paths` under a category's `match` or `extend_path_patterns` under `allow`. Declaring both `<name>` and `extend_<name>`, or extending a list the default does not have, fails the run closed.
+
+A repository that only wants a bigger size gate and one more pattern in a deny category writes this:
+
+```yaml
+size_gate:
+  max_lines: 1500
+  max_files: 60
+deny:
+  infra_cicd:
+    match:
+      extend_paths:
+        - '^deploy/'
+```
+
+A global limit may not exceed the matching ceiling under `overrides`, so a repository that wants to go past the shipped ceilings declares both.
+The engine validates the merged document with its strict loader.
+The `stamphog_policy` self-governance deny can gain patterns but never lose a shipped one: a merged policy without every shipped pattern fails the run closed.
+
+A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
+The repository declared something, so reviewing under pure defaults would be wrong.
+
+### Deny exceptions
+
+A repository can declare narrow exceptions without copying the hosted `deny` section:
+
+```yaml
+deny_exceptions:
+  billing:
+    - keyword: billing
+      path_prefixes: [apps/, argocd/, shared/, state/, charts/]
+      extensions: [.yaml, .yml]
+  infra_cicd:
+    - path_prefixes: [.github/]
+```
+
+The example permits agent review of billing-service deployment YAML and GitHub automation paths.
+The billing exception skips only the `billing` pattern; `payment`, `stripe`, `invoice`, and `pricing` still match.
+New billing patterns and other categories stay inherited because this file does not replace `deny`.
+
+Every rule needs literal directory prefixes relative to the repository root, with a trailing slash.
+The optional `extensions` list restricts the rule to those file suffixes.
+The optional `keyword` must name an existing literal path-capable pattern in that category; omitting it exempts the category within the selected paths.
+All selectors in a rule must match, and multiple rules provide alternative exceptions.
+Path prefixes and extensions match without regard to case.
+
+An exception that lifts a denial sends the PR to `T1-agent`, including YAML-only and test-only changes.
+The reviewer still evaluates actual effects, independent assurance, and unresolved concerns; exceptions do not grant approval.
+Title scrutiny, other categories, prerequisites, and size gates remain active.
+Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
+Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
+
+### Bot authors
+
+A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
+A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
+Every other gate stays, and one more applies.
+An attestation that lists `publisher_files` must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
+A check without `publisher_files` proves nothing for a bot, because its marker does not name the PR it proved.
+That proof is also the PR's independent assurance, because a bot has no reviewer and no owning team.
+Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch.
+Anyone who can post a check run as that App can approve the bot's PRs.
+The list is read from the default branch, like the rest of the policy.
+
+### The `digest:` key
+
+`policy.yml` may also carry a `digest:` section.
+It names a Slack channel that receives all of the repository's merged-PR digests, as one more audience next to the owning teams, so a merge can appear in the repository channel and in a team channel:
+
+```yaml
+digest:
+  channel: '#my-team'
+```
+
+This key belongs to this product, not to the engine, which ignores it.
+It is read from the default branch too, so a PR cannot redirect its own digest.
+
+## Daily digest
+
+A repository with the digest turned on gets a daily Slack summary of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`).
+Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repository.
+A merge fans out to every audience it belongs to, and each audience resolves to a channel in this order:
+
+- A `repo:` audience takes the channel that repository declared under `digest:`.
+- A team slug takes the root `owners.yaml` registry of the repository the merge came from.
+- A repository carrying no registry inherits the first non-empty registry among the team's connected repositories, in repository name order.
+- Otherwise the slug name-matches a Slack channel, and the app joins it.
+- A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
+
+Why the digest works this way: [`docs/digest.md`](docs/digest.md).
+
+## Reviewer routing
+
+Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
+Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A comment names the cut owners and why.
+
+`routing_mode` on the repo config decides when routing runs:
+
+- `off` (the default): never.
+- `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too. Each head routes once, so a draft marked ready right after it opened is not routed twice.
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, a bot the policy does not name, an untrusted author, or label mode without the trigger label and with the clean-review switch off), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+  - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody. The cut step still judges every owner, so the run log shows who full routing would have asked: an owner the model kept is `not_requested`, an owner it cut is `cut` with the reason. The comment names no cuts.
+  - With the clean-review switch on, a head waits for the silent review that a clean PostHog Review run starts. A verdict the silent review withholds from the PR still routes, like a visible one, and the routing comment never names the verdict. A withheld WAIT routes in full, because nothing reviews the head again.
+  - When PostHog Review finds something, fails, or starts no automatic review of the head, it tells stamphog (`facade/tasks.py::queue_routing_after_external_review`). A PR that still waits on that head then routes in full with the `external_review` trigger, unless the live head has a stamphog review or the trigger label. When the author pushed since, before or after the opening event, the live head routes, because a push starts no silent review. A silent review that a gate refuses (author below write, untrusted author, a moved head, and so on) reports the same way. The report can arrive before the opening event saves its waiting record, so a report that finds no record tries again a minute later, like a routing task that finds another task's claim.
+  - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there. A visible WAIT on a head that got only its pinned owners waits there again, because its review dismissed the approval before it ran, and the safety net routes the head in full unless a later verdict does.
+  - Any other outcome (refused, escalate, gated, failed) routes in full.
+  - A verdict for a head that the author pushed past, an approval included, routes the live head in full when the PR waits on either head, or got only the pinned owners of an older head, unless a review of the live head exists or comes for the trigger label. In label mode a push to an unlabeled PR stops no run, and a run that ends on a moved head reports a failure to routing for the same reason.
+  - A push to an unlabeled PR, or a base retarget, retracts the approval and starts no review, so nothing upgrades a pinned-only routing. When stamphog retracts an approval on a PR whose routing requested only the pinned owners, it routes the live head in full with the `approval_retracted` trigger, unless a review of the live head exists or comes for the trigger label. A safety net backs that review in case a later gate refuses it. A push that keeps the approval (see approval retention in `AGENTS.md`) retracts nothing, so it routes nothing.
+  - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved and has not waited again since, it routes the current head in full, even when the head moved since.
+  - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
+  - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
+  - A verdict that lands before the opening event stores its record is dropped the same way, so the opening event checks for a finished review of the head first and routes by it. A ready event on a head that still waits does the same, because a verdict that finished while the PR was a draft routed nothing.
+
+`routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
+
+`routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET code_review/approvals/repositories/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH code_review/approvals/repositories/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
+
+Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
+In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
+Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
+
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+`full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
+Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
+`GET code_review/approvals/pull_requests/` and `code-review-approvals-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
+
+Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
+owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
+Each file also keeps `owners_source`, the ownership file whose `owners` list named the owner for it. An owner that only an additions declaration made a candidate has none, because additions collect from every file on the walk.
+The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
+Read them with `GET code_review/approvals/reviewer_routing/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `code-review-approvals-reviewer-routing-list` MCP tool.
+`outcome` and `reason` match the same owner as `owner`, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+The list leaves out the file lists, because a large pull request gives every owner a long one. `GET code_review/approvals/reviewer_routing/{id}/` and `code-review-approvals-reviewer-routing-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+
+Every routing run (event, verdict or safety net) takes the same steps:
+
+1. A compare-and-swap claim sets `routing` with `claimed_by` (the Celery task id) and `claimed_at`.
+2. The plan (kept and cut owners, the user, team and label requests, the comment body) is saved under the claim, with `planned_at`, before any GitHub write.
+3. The labels and review requests go out, and the record becomes `requested`.
+4. The comment is written or removed, and the record becomes `done`.
+
+A retry of the same task keeps the task id: it reuses a saved plan without a second model call, and after `requested` it only finishes the comment.
+While another task holds a claim on any head, the event and verdict tasks retry a minute later and the safety net returns.
+A claim older than two hours counts as abandoned, so a task that died does not block the PR.
+When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
+`model` is set only when a request reached the gateway.
+The `stamphog_reviewer_routing_completed` event carries `stamphog_routing_wait_ms`, the time from `waiting_since` to the routing, and null when the head never waited.
+
+## How it runs
+
+Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
+The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+The sandbox starts right after the stale-approval sweep and fetches the PR head while the context loads. The checkout starts once the context is stored and runs beside the pre-check and the bot wait. Each step is its own activity, and the workflow does every wait between them. A pre-check verdict posts first, and the workflow then tears down the unused sandbox.
+Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
+The server also reads every `AGENT_APPROVALS.md` that governs a changed file at the PR head, so the pre-check budgets the size gate like the sandbox does.
+When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox review.
+A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox review.
+Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
+A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
+
+Reviews run in an isolated Modal sandbox with per-run minted credentials.
+The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
+
+Every posted verdict emits a `stamphog_review_timings` event with one `stamphog_timing_<step>_ms` property per step: each context read, the bot wait, the pre-check or sandbox steps, the engine's own phases (uv launch, gates, familiarity, LLM, flush), and the verdict post.
+
+**Stacked PRs.** A stacked PR targets its parent's branch and depends on parent code that has not merged yet.
+The sandbox checkout is already the PR head, so the reviewer's Read, Grep and Glob see the post-stack tree and parent symbols resolve.
+The server reads the merge base from GitHub's compare API, and the sandbox fetches that commit next to the head, so the diff stays scoped to the PR's own changes.
+When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push, so no `synchronize` event fires and the normal push-dismiss path is skipped.
+The webhook path therefore retracts the standing approval on a base retarget (`_retract_approvals_on_base_retarget`) and queues a fresh run, and `post_verdict` rechecks the live base ref and SHA against the reviewed ones before posting.
+One limitation stays: a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
+How the engine handles a stacked checkout: [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+
+**Self-driving inbox PRs** are the one non-webhook entry.
+When a self-driving Inbox implementation run opens its bot-authored draft PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade, gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles, and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time.
+Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer unless the policy names it under `bot_authors`.
+See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
+
+## Security model
+
+The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets.
+It gets a per-run `phe_` scoped token from the Go ai-gateway, pinned to `product=aio_stamphog`, capped at $5 and one hour, and revoked when the sandbox is destroyed.
+Egress is fenced to an explicit domain allowlist.
+Posted bodies are scrubbed and markdown-image-neutralized.
+Approvals are governed by a strict supersession protocol, so no approval survives a re-review or a push that changes the PR's diff.
+A push that leaves the PR's own unified diff byte-identical, such as a base merge that touches none of its files, keeps the approval standing.
+Disabling a repository stops new runs and retracts a standing approval on the next head change, not at the moment of disabling.
+Details and invariants: [AGENTS.md](AGENTS.md).
+
+## Where to read more
+
+- [AGENTS.md](AGENTS.md) - the invariants that keep approvals and the sandbox sound.
+- [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md) - the engine: gates, tiers, policy file formats, evidence bundle.
+- [`docs/digest.md`](docs/digest.md) - the digest design note.
+- [`.stamphog/README.md`](../../.stamphog/README.md) - what the PostHog monorepo itself configures.

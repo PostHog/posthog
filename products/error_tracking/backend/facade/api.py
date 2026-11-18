@@ -7,14 +7,26 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 import posthoganalytics
 
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
-from .. import logic, weekly_digest
-from ..logic import external_references, rules
+from products.access_control.backend.facade.api import valid_role_member_user_ids
+
+from .. import logic, weekly_digest, weekly_digest_delivery
+from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
+from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic.issue_tags import (
+    enabled as issue_tag_enabled,
+    reader as issue_tag_reader,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -25,6 +37,7 @@ from ..remote_config import build_error_tracking_config as build_error_tracking_
 from . import contracts
 from .contracts import (
     CrashFreeSummary as CrashFreeSummary,
+    DocumentEmbeddingTable as DocumentEmbeddingTable,
     ExceptionSummary as ExceptionSummary,
 )
 
@@ -33,6 +46,7 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -47,8 +61,7 @@ def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | Non
     return contracts.ErrorTrackingIssueAssignee(id=assignee_id, type=assignee_type)
 
 
-def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReference:
-    integration = reference.integration
+def _to_external_reference(reference, integration: IntegrationRecord) -> contracts.ErrorTrackingExternalReference:
     return contracts.ErrorTrackingExternalReference(
         id=reference.id,
         integration=contracts.ErrorTrackingExternalReferenceIntegration(
@@ -56,8 +69,22 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             kind=integration.kind,
             display_name=integration.display_name,
         ),
-        external_url=external_references.build_external_issue_url(reference),
+        external_url=external_references.build_external_issue_url(reference, integration),
+        external_id=external_references.external_issue_id(reference, integration),
+        title=external_references.external_issue_title(reference),
     )
+
+
+def _to_external_references(team_id: int, references) -> list[contracts.ErrorTrackingExternalReference]:
+    references = list(references)
+    if not references:
+        return []
+    integrations = external_references.get_reference_integrations(team_id, references)
+    return [
+        _to_external_reference(reference, integrations[reference.integration_id])
+        for reference in references
+        if reference.integration_id in integrations
+    ]
 
 
 def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
@@ -89,7 +116,14 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
-def _to_issue(issue) -> contracts.ErrorTrackingIssue:
+def _to_issue(
+    issue,
+    integrations: dict[int, IntegrationRecord] | None = None,
+    tags: list[contracts.ErrorTrackingIssueTag] | None = None,
+) -> contracts.ErrorTrackingIssue:
+    references = list(issue.external_issues.all())
+    if integrations is None:
+        integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
@@ -98,15 +132,20 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
-        external_issues=[_to_external_reference(reference) for reference in issue.external_issues.all()],
+        external_issues=[
+            _to_external_reference(reference, integrations[reference.integration_id])
+            for reference in references
+            if reference.integration_id in integrations
+        ],
         cohort=_to_issue_cohort(issue),
+        tags=tags,
     )
 
 
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+        role_member_user_ids = valid_role_member_user_ids(role_id=assignment.role_id)
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
@@ -125,14 +164,26 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
     )
 
 
-def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
-    issues = logic.list_issues(team_id)
+def list_issues(team_id: int, limit: int = logic.MAX_LISTED_ISSUES) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues(team_id, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
 
 
 def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
+
+
+def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
+    """Active issues seen in the last `days` days with their user, session and daily occurrence counts.
+
+    Ordered by first seen, newest first. Runs one ClickHouse query.
+    """
+    from ..logic.issue_impact import (  # noqa: PLC0415 - keeps the HogQL query runners off the django.setup() path
+        list_active_issue_impact as _list_active_issue_impact,
+    )
+
+    return _list_active_issue_impact(team_id=team_id, days=days, limit=limit)
 
 
 def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
@@ -148,22 +199,36 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
-def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
+def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None) -> contracts.ErrorTrackingIssue:
+    """The issue, with the tags that `with_tags_for` can see when it is given."""
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    return _to_issue(issue)
+    definitions = (
+        issue_tag_enabled.enabled_issue_tag_definitions(team_id, with_tags_for) if with_tags_for is not None else ()
+    )
+    if not definitions:
+        return _to_issue(issue)
+    tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
+    return _to_issue(issue, tags=tags)
 
 
-def list_issues_detailed(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_issue(issue) for issue in rows], total
+def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
+    return [
+        contracts.ErrorTrackingIssueTagDefinition(
+            key=definition.key, label=definition.label, description=definition.description
+        )
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
+    ]
+
+
+def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
+    issues_page = select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page)
+    references = [reference for issue in issues_page.results for reference in issue.external_issues.all()]
+    integrations = external_references.get_reference_integrations(team_id, references) if references else {}
+    return issues_page.map(lambda issue: _to_issue(issue, integrations))
 
 
 def issue_exists(team_id: int) -> bool:
@@ -184,6 +249,8 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
         description=issue.description,
         status=issue.status,
         severity=issue.severity,
+        created_at=issue.created_at,
+        first_seen=getattr(issue, "first_seen", None),
     )
 
 
@@ -191,21 +258,28 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
     return resolve_fingerprints_for_issues(team_id=team_id, issue_ids=issue_ids)
 
 
-def _to_settings(settings) -> contracts.ErrorTrackingSettings:
+def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
+        adaptive_ingestion_enabled=settings.adaptive_ingestion_enabled,
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ingestion_enabled=ingestion_enabled,
     )
 
 
 def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
-    return _to_settings(logic.get_or_create_settings(team_id))
+    return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
-    return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
+    ingestion_enabled = fields.get("ingestion_enabled")
+    with transaction.atomic():
+        if isinstance(ingestion_enabled, bool):
+            logic.set_exception_ingestion_enabled(team_id, ingestion_enabled)
+        settings = logic.update_settings(team_id=team_id, fields=fields)
+    return _to_settings(settings, logic.is_exception_ingestion_enabled(team_id))
 
 
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:
@@ -242,16 +316,20 @@ def list_spike_events(
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
-    limit: int | None = None,
-    offset: int = 0,
-    include_total_count: bool = True,
-) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
+    page: PageRequest,
+) -> Page[contracts.ErrorTrackingSpikeEvent]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count() if include_total_count else 0
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_spike_event(event) for event in rows], total
+    return select_page(qs, page).map(_to_spike_event)
+
+
+def list_latest_spike_events(
+    *, team_id: int, date_from: str, date_to: str, limit: int
+) -> list[contracts.ErrorTrackingSpikeEvent]:
+    """Return at most `limit` spike events of a time window, newest first, without a total count."""
+    qs = logic.list_spike_events(team_id=team_id, date_from=date_from, date_to=date_to)
+    return [_to_spike_event(event) for event in qs[:limit]]
 
 
 def _to_release(release) -> contracts.ErrorTrackingRelease:
@@ -281,13 +359,10 @@ def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
     )
 
 
-def list_stack_frames(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingStackFrame], int]:
-    qs = logic.stack_frame_queryset(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_stack_frame(frame) for frame in rows], total
+def list_stack_frames(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingStackFrame]:
+    # Order by created_at so et_frame_team_created_at_idx serves the page. No (team_id, id) index exists.
+    queryset = logic.stack_frame_queryset(team_id).order_by("created_at")
+    return select_page(queryset, page).map(_to_stack_frame)
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
@@ -301,13 +376,15 @@ def batch_get_stack_frames(
     return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
 
 
-def list_releases(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingRelease], int]:
-    qs = logic.list_releases(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_release(release) for release in rows], total
+def list_releases(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingRelease]:
+    return select_page(logic.list_releases(team_id), page).map(_to_release)
+
+
+def list_releases_created_between(
+    team_id: int, *, start: datetime, end: datetime, limit: int
+) -> list[contracts.ErrorTrackingRelease]:
+    rows = logic.list_releases(team_id).filter(created_at__gte=start, created_at__lte=end)[:limit]
+    return [_to_release(release) for release in rows]
 
 
 def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:
@@ -553,6 +630,25 @@ def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return rules.get_client_safe_suppression_rules(team_id)
 
 
+def _to_built_in_filter(state: built_in_filters.BuiltInFilterState) -> contracts.ErrorTrackingBuiltInFilter:
+    return contracts.ErrorTrackingBuiltInFilter(
+        key=state.definition.key,
+        name=state.definition.name,
+        description=state.definition.description,
+        evaluation=contracts.BuiltInFilterEvaluation(built_in_filters.built_in_filter_evaluation(state.definition)),
+        enabled=state.enabled,
+        disabled_reason=state.disabled_reason,
+    )
+
+
+def list_built_in_filters(team_id: int) -> list[contracts.ErrorTrackingBuiltInFilter]:
+    return [_to_built_in_filter(state) for state in built_in_filters.list_built_in_filters(team_id)]
+
+
+def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> contracts.ErrorTrackingBuiltInFilter:
+    return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
+
+
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
     return contracts.ErrorTrackingBypassRule(
         id=rule.id,
@@ -597,9 +693,10 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
 
-def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
-    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
-    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+def list_fingerprints(
+    team_id: int, *, issue_id: UUID | None = None, page: PageRequest
+) -> Page[contracts.ErrorTrackingFingerprint]:
+    return select_page(logic.list_fingerprints(team_id=team_id, issue_id=issue_id), page).map(_to_fingerprint)
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
@@ -628,15 +725,14 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
-    references = external_references.list_external_references(team_id=team_id)
-    return [_to_external_reference(reference) for reference in references]
+    return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
     reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:
         return None
-    return _to_external_reference(reference)
+    return next(iter(_to_external_references(team_id, [reference])), None)
 
 
 def create_external_reference(
@@ -647,6 +743,7 @@ def create_external_reference(
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
+    analytics_props: AnalyticsProps | None = None,
 ) -> contracts.ErrorTrackingExternalReference:
     reference, created = external_references.create_external_reference(
         team_id=team_id,
@@ -656,6 +753,8 @@ def create_external_reference(
         external_context=external_context,
     )
 
+    integration = IntegrationManager.any.get(team_id, reference.integration_id)
+
     # Idempotent re-links return an existing reference; counting those would inflate the metric.
     if created:
         posthoganalytics.capture(
@@ -663,14 +762,15 @@ def create_external_reference(
             distinct_id=distinct_id,
             groups=groups(reference.issue.team.organization, reference.issue.team),
             properties={
+                **(analytics_props or {}),
                 "issue_id": reference.issue_id,
-                "integration_kind": reference.integration.kind,
+                "integration_kind": integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.
                 "linked_existing": external_context is not None,
             },
         )
 
-    return _to_external_reference(reference)
+    return _to_external_reference(reference, integration)
 
 
 def search_external_issues(
@@ -690,6 +790,16 @@ def search_external_issues(
 
 def is_supported_external_issue_provider(kind: str) -> bool:
     return external_references.is_supported_external_issue_provider(kind=kind)
+
+
+def prepare_github_external_reference_jobs(
+    event_type: str, payload: dict[str, Any]
+) -> list[contracts.GitHubExternalReferenceJob]:
+    return github_external_references.prepare_jobs(event_type, payload)
+
+
+def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
+    return github_external_references.link_reference(job)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
@@ -768,8 +878,27 @@ def build_team_digest_data(team: Any) -> dict[str, Any] | None:
 
 
 def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
-    return weekly_digest.build_team_section_payload(data)
+    return weekly_digest_delivery.build_team_section_payload(data)
 
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
-    weekly_digest.send_digest_to_workflow(digest, distinct_id)
+    weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
+
+
+def document_embedding_tables() -> list[DocumentEmbeddingTable]:
+    """Every per-model embeddings table.
+
+    Other products embed their documents into these tables too, so a sweep that removes a
+    product's rows needs the full list rather than the one model it writes with.
+    """
+    return [
+        DocumentEmbeddingTable(
+            sharded_table=table.sharded_table_name(), distributed_table=table.distributed_table_name()
+        )
+        for table in EMBEDDING_TABLES
+    ]
+
+
+def document_embeddings_buffer_table() -> str:
+    """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
+    return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE

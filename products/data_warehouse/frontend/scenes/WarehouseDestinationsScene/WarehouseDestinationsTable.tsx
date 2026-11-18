@@ -1,0 +1,167 @@
+import type { ReactNode } from 'react'
+
+import { IconNotification, IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { urls } from 'scenes/urls'
+
+import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
+import { DestinationIcon, destinationTypeLabel } from '../../shared/components/DestinationIcon'
+import { DESTINATION_STATUS_TAGS } from '../../shared/components/destinationStatus'
+import { destinationTarget } from '../../shared/components/destinationTarget'
+import { SyncedSources } from './SyncedSources'
+
+const MANAGED_REASON = 'The PostHog warehouse is managed for you'
+
+export interface WarehouseDestinationsTableProps {
+    destinations: ExternalDataDestinationApi[]
+    loading: boolean
+    onEdit: (destination: ExternalDataDestinationApi) => void
+    onDelete: (destination: ExternalDataDestinationApi) => void
+    /** Starts a new alert that watches the destination. Unset hides the action. */
+    onCreateAlert?: (destination: ExternalDataDestinationApi) => void
+    /** The destination currently being deleted, so its row cannot fire a second request. */
+    deletingId?: string | null
+    /** Rendered when the list has loaded and holds nothing. */
+    emptyState?: ReactNode
+}
+
+export function WarehouseDestinationsTable({
+    destinations,
+    loading,
+    onEdit,
+    onDelete,
+    onCreateAlert,
+    deletingId,
+    emptyState,
+}: WarehouseDestinationsTableProps): JSX.Element {
+    const columns: LemonTableColumn<ExternalDataDestinationApi, any>[] = [
+        {
+            title: '',
+            key: 'icon',
+            width: 0,
+            render: (_, destination) => <DestinationIcon type={destination.type} />,
+        },
+        {
+            title: 'Name',
+            key: 'name',
+            sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
+            render: (_, destination) => (
+                <div className="flex flex-col items-start">
+                    {/* The managed warehouse has no delivery health of its own, so its name stays text. */}
+                    {destination.is_posthog_warehouse ? (
+                        <span className="font-semibold">{destination.name}</span>
+                    ) : (
+                        <Link
+                            className="font-semibold"
+                            to={urls.warehouseDestination(destination.id)}
+                            data-attr="warehouse-destination-scene-open"
+                        >
+                            {destination.name}
+                        </Link>
+                    )}
+                    {destinationTarget(destination) ? (
+                        <span className="text-muted text-xs">{destinationTarget(destination)}</span>
+                    ) : null}
+                </div>
+            ),
+        },
+        {
+            title: 'Type',
+            key: 'type',
+            render: (_, destination) => (
+                <LemonTag type={destination.is_posthog_warehouse ? 'highlight' : 'default'}>
+                    {destinationTypeLabel(destination.type)}
+                </LemonTag>
+            ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, destination) => {
+                // The PostHog warehouse is written by the sync itself, so it has no delivery health of its own.
+                if (destination.is_posthog_warehouse) {
+                    return null
+                }
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
+                return (
+                    <div className="flex flex-col items-start gap-1 max-w-80">
+                        <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                        {destination.status !== 'healthy' && destination.latest_error ? (
+                            <span className="text-muted text-xs">{destination.latest_error}</span>
+                        ) : null}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Synced by',
+            key: 'synced_sources',
+            render: (_, destination) => <SyncedSources destination={destination} />,
+        },
+        updatedAtColumn() as LemonTableColumn<ExternalDataDestinationApi, any>,
+        {
+            title: '',
+            key: 'actions',
+            width: 0,
+            render: (_, destination) => {
+                const managedReason = destination.is_posthog_warehouse ? MANAGED_REASON : undefined
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    icon={<IconPencil />}
+                                    onClick={() => onEdit(destination)}
+                                    data-attr="warehouse-destination-scene-edit"
+                                    disabledReason={managedReason}
+                                >
+                                    Edit
+                                </LemonButton>
+                                {onCreateAlert ? (
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconNotification />}
+                                        onClick={() => onCreateAlert(destination)}
+                                        data-attr="warehouse-destination-scene-create-alert"
+                                        disabledReason={managedReason}
+                                    >
+                                        Create alert
+                                    </LemonButton>
+                                ) : null}
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => onDelete(destination)}
+                                    data-attr="warehouse-destination-scene-delete"
+                                    disabledReason={
+                                        managedReason ??
+                                        (deletingId === destination.id ? 'Deleting this destination' : undefined)
+                                    }
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
+    return (
+        <LemonTable
+            dataSource={destinations}
+            loading={loading}
+            rowKey={(destination) => destination.id}
+            columns={columns}
+            nouns={['destination', 'destinations']}
+            emptyState={emptyState}
+        />
+    )
+}

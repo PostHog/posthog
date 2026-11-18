@@ -1,26 +1,21 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
-// Items are computed in InsightMeta (always mounted) and passed down to avoid mounting
-// useInsightDisplayOptions lazily inside the More popover overlay, which triggers kea logic
-// mounts that cascade and close the popover before the user can interact with it.
-export function DashboardInsightDisplayOptions({ items }: { items: LemonMenuItems }): JSX.Element | null {
-    if (items.length === 0) {
-        return null
-    }
+import { InsightDisplayOptionsPanel } from 'products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel'
 
+export function DashboardInsightDisplayOptions({
+    visualizationItems,
+    tabs,
+}: {
+    visualizationItems: LemonMenuItems
+    tabs: DisplayOptionTab[]
+}): JSX.Element {
     return (
         <>
-            <LemonDivider />
-            <LemonMenu
-                items={items}
-                closeOnClickInside={false}
-                placement="right-start"
-                fallbackPlacements={['left-start']}
-            >
-                <LemonButton fullWidth>Display options</LemonButton>
-            </LemonMenu>
+            {visualizationItems.length > 0 && <LemonMenuOverlay items={visualizationItems} />}
+            {visualizationItems.length > 0 && tabs.length > 0 && <LemonDivider />}
+            <InsightDisplayOptionsPanel tabs={tabs} />
         </>
     )
 }

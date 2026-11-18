@@ -7,22 +7,23 @@ import posthog from 'posthog-js'
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
-import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import type { RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../../queries/schema/schema-general'
 import type { LoadedScene } from '../sceneTypes'
 import type { ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import {
-    InsightWithQuery,
     MaxActionContext,
     MaxContextInput,
     MaxContextItem,
@@ -51,14 +52,14 @@ import {
 // Type definitions for better reusability
 export type TaxonomicItem =
     | DashboardType
-    | QueryBasedInsightModel
+    | InsightModel
     | EventDefinition
     | ActionType
     | NotebookListItemType
     | MaxContextTaxonomicFilterOption
 
-export type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
-export type InsightItemInfo = { id: InsightShortId; preloaded: QueryBasedInsightModel | null }
+export type DashboardItemInfo = { id: number; preloaded: DashboardType | null }
+export type InsightItemInfo = { id: InsightShortId; preloaded: InsightModel | null }
 
 type EntityWithIdAndType = { id: string | number; type: string }
 
@@ -67,6 +68,15 @@ const addOrUpdateEntity = <TContext extends EntityWithIdAndType>(state: TContext
 
 const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], id: string | number): TContext[] =>
     state.filter((item) => item.id !== id)
+
+const PICKER_GROUP_CONTEXT_TYPES: Partial<Record<TaxonomicFilterGroupType, MaxContextType>> = {
+    [TaxonomicFilterGroupType.Events]: MaxContextType.EVENT,
+    [TaxonomicFilterGroupType.Actions]: MaxContextType.ACTION,
+    [TaxonomicFilterGroupType.Insights]: MaxContextType.INSIGHT,
+    [TaxonomicFilterGroupType.Dashboards]: MaxContextType.DASHBOARD,
+    [TaxonomicFilterGroupType.Notebooks]: MaxContextType.NOTEBOOK,
+    [TaxonomicFilterGroupType.ErrorTrackingIssues]: MaxContextType.ERROR_TRACKING_ISSUE,
+}
 
 // A throw while building scene context blanks out ALL of PostHog AI's auto-collected context
 // (e.g. PostHog AI reporting it has no dashboard and falling back to search). The selector that
@@ -149,8 +159,8 @@ export interface maxContextLogicActions {
     addOrUpdateContextAction: (data: ActionType) => {
         data: ActionType
     }
-    addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => {
-        data: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+    addOrUpdateContextDashboard: (data: DashboardType) => {
+        data: DashboardType
     }
     addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => {
         data: {
@@ -177,11 +187,11 @@ export interface maxContextLogicActions {
         data: EventDefinition
     }
     addOrUpdateContextInsight: (
-        data: InsightWithQuery,
+        data: Partial<InsightModel>,
         filtersOverride?: DashboardFilter,
         variablesOverride?: Record<string, HogQLVariable>
     ) => {
-        data: InsightWithQuery
+        data: Partial<InsightModel<Node<Record<string, any>>>>
         filtersOverride: DashboardFilter | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
     }
@@ -211,6 +221,9 @@ export interface maxContextLogicActions {
         data: InsightItemInfo
         filtersOverride: DashboardFilter | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
+    }
+    openContextPicker: () => {
+        value: true
     }
     removeContextAction: (id: number | string) => {
         id: number | string
@@ -292,11 +305,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
     })),
     actions({
         addOrUpdateContextInsight: (
-            data: InsightWithQuery,
+            data: Partial<InsightModel>,
             filtersOverride?: DashboardFilter,
             variablesOverride?: Record<string, HogQLVariable>
         ) => ({ data, filtersOverride, variablesOverride }),
-        addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
+        addOrUpdateContextDashboard: (data: DashboardType) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
         addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => ({ data }),
@@ -321,6 +334,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             filtersOverride?: DashboardFilter,
             variablesOverride?: Record<string, HogQLVariable>
         ) => ({ data, filtersOverride, variablesOverride }),
+        openContextPicker: true,
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
@@ -356,10 +370,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextDashboards: [
             [] as MaxDashboardContext[],
             {
-                addOrUpdateContextDashboard: (
-                    state: MaxDashboardContext[],
-                    { data }: { data: DashboardType<QueryBasedInsightModel> }
-                ) => addOrUpdateEntity(state, dashboardToMaxContext(data)),
+                addOrUpdateContextDashboard: (state: MaxDashboardContext[], { data }: { data: DashboardType }) =>
+                    addOrUpdateEntity(state, dashboardToMaxContext(data)),
                 removeContextDashboard: (state: MaxDashboardContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
@@ -431,7 +443,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values }) => ({
+        openContextPicker: () => {
+            posthog.capture('max context picker opened', {
+                has_page_context: values.contextOptions.length > 0,
+            })
+            dashboardsModel.mount()
+            dashboardsModel.actions.loadDashboardsIfNeeded()
+        },
         locationChanged: () => {
             // Don't reset context if the only change is the side panel opening/closing
             const currentLocation = router.values.location
@@ -491,6 +510,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
             let dashboard = data.preloaded
 
             if (!dashboard || !dashboard.tiles) {
+                const dashboardModule = await import('scenes/dashboard/dashboardLogic').catch((error) => {
+                    posthog.captureException(error, { feature: 'max_context_dashboard' })
+                    lemonToast.error('Could not load the dashboard. Try again.')
+                    return null
+                })
+                if (!dashboardModule) {
+                    return
+                }
+                const { DashboardLoadAction, dashboardLogic } = dashboardModule
                 const dashboardLogicInstance = dashboardLogic.build({ id: data.id })
                 dashboardLogicInstance.mount()
 
@@ -540,7 +568,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         await breakpoint(50)
                     }
 
-                    insight = insightLogicInstance.values.insight as QueryBasedInsightModel
+                    insight = insightLogicInstance.values.insight as InsightModel
                 } finally {
                     insightLogicInstance.unmount()
                 }
@@ -557,6 +585,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
             groupType: TaxonomicFilterGroupType
             item: TaxonomicItem
         }) => {
+            posthog.capture('max context added', {
+                group_type: groupType,
+                context_type:
+                    groupType === TaxonomicFilterGroupType.MaxAIContext
+                        ? (item as MaxContextTaxonomicFilterOption).type
+                        : PICKER_GROUP_CONTEXT_TYPES[groupType],
+                from_page_tab: groupType === TaxonomicFilterGroupType.MaxAIContext,
+            })
             try {
                 if (groupType === TaxonomicFilterGroupType.Events) {
                     actions.addOrUpdateContextEvent(item as EventDefinition)
@@ -616,12 +652,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         return {
                             type: MaxContextType.DASHBOARD,
                             id: dashboard.id,
-                            preloaded: dashboard as DashboardType<QueryBasedInsightModel>,
+                            preloaded: dashboard as DashboardType,
                         }
                     }
 
                     if (groupType === TaxonomicFilterGroupType.Insights) {
-                        const insight = item as QueryBasedInsightModel
+                        const insight = item as InsightModel
                         return {
                             type: MaxContextType.INSIGHT,
                             id: insight.short_id,
@@ -640,7 +676,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (itemInfo.type === MaxContextType.DASHBOARD) {
                     actions.loadAndProcessDashboard({
                         id: itemInfo.id as number,
-                        preloaded: itemInfo.preloaded as DashboardType<QueryBasedInsightModel> | null,
+                        preloaded: itemInfo.preloaded as DashboardType | null,
                     })
                 }
 
@@ -661,7 +697,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     actions.loadAndProcessInsight(
                         {
                             id: itemInfo.id as InsightShortId,
-                            preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
+                            preloaded: itemInfo.preloaded as InsightModel | null,
                         },
                         filtersOverride,
                         variablesOverride

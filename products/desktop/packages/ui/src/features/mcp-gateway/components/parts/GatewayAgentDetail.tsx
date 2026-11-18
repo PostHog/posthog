@@ -24,15 +24,8 @@ import { useAgentRecentCalls } from "@posthog/ui/features/mcp-gateway/hooks/useG
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
-import {
-  Badge,
-  Button,
-  Flex,
-  Separator,
-  Spinner,
-  Switch,
-  Text,
-} from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Badge, Button, Flex, Separator, Switch, Text } from "@radix-ui/themes";
 import { useState } from "react";
 
 const DECISION_COLORS: Record<
@@ -68,15 +61,15 @@ export function GatewayAgentDetail({
     return (
       <Flex direction="column" gap="4">
         <BackButton onNavigate={onNavigate} />
-        <Flex align="center" justify="center" py="6">
-          {serviceAccounts.accountsLoading ? (
-            <Spinner size="2" />
-          ) : (
+        {serviceAccounts.accountsLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
             <Text color="gray" className="text-sm">
               Agent not found.
             </Text>
-          )}
-        </Flex>
+          </div>
+        )}
       </Flex>
     );
   }
@@ -243,9 +236,7 @@ export function GatewayAgentDetail({
           </Text>
         </div>
         {eventsLoading && events.length === 0 ? (
-          <Flex align="center" justify="center" py="4">
-            <Spinner size="1" />
-          </Flex>
+          <LoadingState className="py-4" />
         ) : events.length === 0 ? (
           <Text color="gray" className="block px-3 py-3 text-[13px] italic">
             No tool calls from this agent yet.

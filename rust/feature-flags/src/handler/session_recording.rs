@@ -6,11 +6,12 @@ use axum::http::HeaderMap;
 use regex;
 use serde_json::{json, Value};
 
-const AUTHORIZED_MOBILE_CLIENTS: &[&str] = &[
+const AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS: &[&str] = &[
     "posthog-android",
     "posthog-ios",
     "posthog-react-native",
     "posthog-flutter",
+    "posthog-unity",
 ];
 
 // Hard-coded values set for the session recording beta, still haven't come up with more sensible
@@ -189,7 +190,7 @@ fn parse_domain(url: Option<&str>) -> Option<String> {
 ///
 /// Returns true if:
 /// - Origin or Referer hostname matches one of the allowed domains (supports wildcards)
-/// - User-Agent indicates an authorized mobile client (android, ios, react-native, flutter)
+/// - User-Agent indicates an authorized mobile or desktop client
 pub fn on_permitted_domain(recording_domains: &[String], headers: &HeaderMap) -> bool {
     let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
@@ -203,10 +204,13 @@ pub fn on_permitted_domain(recording_domains: &[String], headers: &HeaderMap) ->
         hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
             || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
 
-    let is_authorized_mobile_client =
-        user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
+    let is_authorized_mobile_or_desktop_client = user_agent.is_some_and(|ua| {
+        AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS
+            .iter()
+            .any(|&kw| ua.contains(kw))
+    });
 
-    is_authorized_web_client || is_authorized_mobile_client
+    is_authorized_web_client || is_authorized_mobile_or_desktop_client
 }
 
 #[cfg(test)]
@@ -323,6 +327,17 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
         assert!(!on_permitted_domain(&recording_domains, &headers));
+    }
+
+    #[test]
+    fn test_on_permitted_domain_with_unity_user_agent() {
+        use axum::http::HeaderMap;
+
+        let recording_domains = vec!["https://web-only.com".to_string()];
+        let mut headers = HeaderMap::new();
+        headers.insert("User-Agent", "posthog-unity/1.0.0".parse().unwrap());
+
+        assert!(on_permitted_domain(&recording_domains, &headers));
     }
 
     #[test]

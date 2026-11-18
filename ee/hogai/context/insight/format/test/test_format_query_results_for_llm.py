@@ -32,6 +32,15 @@ def _mock_team() -> MagicMock:
 
 
 class TestFormatQueryResultsForLlm(TestCase):
+    def test_shared_sql_formatter_keeps_large_mcp_output(self) -> None:
+        value = "example text " * 6000
+        result = format_query_results_for_llm(
+            DataVisualizationNode(source=HogQLQuery(query="SELECT example FROM example_table")),
+            {"columns": ["example"], "results": [[value]]},
+            _mock_team(),
+        )
+        self.assertEqual(result, "example\n" + value)
+
     @parameterized.expand(
         [
             (
@@ -72,7 +81,7 @@ class TestFormatQueryResultsForLlm(TestCase):
                             "labels": ["20-Jan"],
                             "label": "new",
                             "status": "new",
-                            "action": {},
+                            "order": 0,
                         },
                         {
                             "data": [-5.0],
@@ -80,7 +89,7 @@ class TestFormatQueryResultsForLlm(TestCase):
                             "labels": ["20-Jan"],
                             "label": "dormant",
                             "status": "dormant",
-                            "action": {},
+                            "order": 0,
                         },
                     ],
                 },
@@ -97,7 +106,7 @@ class TestFormatQueryResultsForLlm(TestCase):
                             "days": [1, 2],
                             "labels": ["1 day", "2 days"],
                             "label": "$pageview",
-                            "action": {"custom_name": None},
+                            "order": 0,
                         },
                     ],
                 },

@@ -12,14 +12,29 @@ logger = logging.getLogger(__name__)
 
 # Where a paginator writes its pagination fields. "query" (default) mutates request.params;
 # "json" mutates the POST body — for APIs that carry page/cursor/limit inside the JSON payload.
+# A dotted "json" name is a path into nested objects, e.g. "variables.offset" for GraphQL.
 ParamLocation = Literal["query", "json"]
+PARAM_LOCATIONS: frozenset[str] = frozenset({"query", "json"})
+
+
+def set_json_param(body: dict[str, Any], name: str, value: Any) -> None:
+    *parents, leaf = name.split(".")
+    target = body
+    for key in parents:
+        child = target.get(key)
+        if child is None:
+            child = target[key] = {}
+        elif not isinstance(child, dict):
+            raise ValueError(f"Can't set JSON body param {name!r}: {key!r} is not an object")
+        target = child
+    target[leaf] = value
 
 
 def _inject_param(request: Request, location: ParamLocation, name: str, value: Any) -> None:
     if location == "json":
         if request.json is None:
             request.json = {}
-        request.json[name] = value
+        set_json_param(request.json, name, value)
     else:
         if request.params is None:
             request.params = {}
@@ -188,12 +203,15 @@ class JSONResponseCursorPaginator(BasePaginator):
         cursor_path: TJsonPath = "cursors.next",
         cursor_param: str = "cursor",
         param_location: ParamLocation = "query",
+        raise_on_repeated_cursor: bool = False,
     ) -> None:
         super().__init__()
         self.cursor_path = cursor_path
         self.cursor_param = cursor_param
         self.param_location = param_location
+        self.raise_on_repeated_cursor = raise_on_repeated_cursor
         self._cursor_value: Optional[str] = None
+        self._previous_cursor_value: Optional[str] = None
 
     def init_request(self, request: Request) -> None:
         # Apply a seeded resume cursor to the first request.
@@ -205,11 +223,17 @@ class JSONResponseCursorPaginator(BasePaginator):
             values = find_values(self.cursor_path, response.json())
         except Exception:
             values = []
-        if values and values[0]:
-            self._cursor_value = values[0]
-            self._has_next_page = True
-        else:
+        if not values or not values[0]:
             self._has_next_page = False
+            return
+
+        next_cursor = values[0]
+        if self.raise_on_repeated_cursor and next_cursor == self._previous_cursor_value:
+            raise ValueError("Cursor pagination is not advancing (repeated cursor)")
+
+        self._previous_cursor_value = next_cursor
+        self._cursor_value = next_cursor
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         if self._cursor_value is not None:
@@ -222,6 +246,8 @@ class JSONResponseCursorPaginator(BasePaginator):
         cursor = state.get("cursor")
         if cursor is not None:
             self._cursor_value = cursor
+            # A resumed response that returns the cursor used to request it is not advancing.
+            self._previous_cursor_value = cursor
             self._has_next_page = True
 
     def __str__(self) -> str:

@@ -88,3 +88,20 @@ fn is_yaml(p: &Path) -> bool {
         .map(|x| x == "yaml" || x == "yml")
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_embedded_collector_parses() {
+        let mut names = Vec::new();
+        for f in EMBEDDED.files().filter(|f| is_yaml(f.path())) {
+            let raw = f.contents_utf8().expect("utf8");
+            let c = declarative::SqlCollector::from_str(raw, &f.path().display().to_string())
+                .unwrap_or_else(|e| panic!("{}: {e:#}", f.path().display()));
+            names.push(c.name().to_string());
+        }
+        assert!(names.contains(&"backend_cpu".to_string()));
+    }
+}

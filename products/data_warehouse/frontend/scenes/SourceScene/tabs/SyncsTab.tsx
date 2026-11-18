@@ -5,14 +5,17 @@ import { useEffect } from 'react'
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
+import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
+
+import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
+import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
+import { JobLogsViewer } from 'products/data_warehouse/frontend/shared/components/JobLogsViewer'
+import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -31,15 +34,22 @@ interface SyncsTabProps {
     lockedSchema?: string
 }
 
-const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
-
 export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     const logic = sourceSettingsLogic({ id, availableSources: {} })
-    const { timezone } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
     const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
-    const showDebugLogs = user?.is_staff || user?.is_impersonated
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { loadDestinations } = useActions(destinationLookupLogic)
+    const { destinationsById, destinationsLoading } = useValues(destinationLookupLogic)
+    // Without the flag every run goes to the warehouse alone, so a column of identical logos
+    // would be noise.
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+
+    useEffect(() => {
+        if (showDestinations) {
+            loadDestinations()
+        }
+    }, [showDestinations, loadDestinations])
 
     // Lock to a single schema when asked, otherwise apply a `?schema=<name>` deep link once on
     // mount so links from the schemas list and the schema configuration page land here filtered.
@@ -163,11 +173,36 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                         },
                     },
                     {
-                        title: 'Rows synced',
+                        title: 'Row count',
+                        tooltip:
+                            'Rows read from the source. A run reads them once however many destinations it writes to.',
                         render: (_, job) => {
                             return job.rows_synced.toLocaleString()
                         },
                     },
+                    ...(showDestinations
+                        ? [
+                              {
+                                  title: 'Destinations',
+                                  render: (_: any, job: ExternalDataJob) => (
+                                      <JobDestinations
+                                          destinationIds={job.destination_ids ?? []}
+                                          destinationsById={destinationsById}
+                                          loading={destinationsLoading}
+                                          failedDestinationId={
+                                              job.status === ExternalDataJobStatus.Failed && job.latest_error
+                                                  ? failedDestinationFor(
+                                                        job.latest_error,
+                                                        job.destination_ids ?? [],
+                                                        destinationsById
+                                                    )?.id
+                                                  : undefined
+                                          }
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Synced at',
                         render: (_, job) => {
@@ -180,26 +215,12 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                         ? {
                               expandedRowRender: (job) => (
                                   <div className="p-4">
-                                      <LogsViewer
-                                          logicKey={`external_data_jobs:${job.id}`}
-                                          sourceType="external_data_jobs"
-                                          sourceId={job.schema.id}
-                                          groupByInstanceId={false}
-                                          hideDateFilter={true}
-                                          hideLevelsFilter={true}
-                                          hideInstanceIdColumn={true}
-                                          defaultFilters={{
-                                              instanceId: job.workflow_run_id,
-                                              dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                  'YYYY-MM-DD HH:mm:ss'
-                                              ),
-                                              dateTo: job.finished_at
-                                                  ? dayjsUtcToTimezone(job.finished_at, timezone)
-                                                        .add(1, 'hour')
-                                                        .format('YYYY-MM-DD HH:mm:ss')
-                                                  : undefined,
-                                              levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
-                                          }}
+                                      <JobLogsViewer
+                                          jobId={job.id}
+                                          schemaId={job.schema.id}
+                                          workflowRunId={job.workflow_run_id}
+                                          createdAt={job.created_at}
+                                          finishedAt={job.finished_at}
                                       />
                                   </div>
                               ),

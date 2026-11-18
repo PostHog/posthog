@@ -77,7 +77,7 @@ def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProduceResult:
     """
     A Future-like wrapper for confluent-kafka delivery results.
@@ -94,6 +94,9 @@ class ProduceResult:
         self._error = error
         self._message = message
         self._event.set()
+
+    def done(self) -> bool:
+        return self._event.is_set()
 
     def get(self, timeout: Optional[float] = None) -> Optional[Message]:
         """
@@ -172,7 +175,6 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "linger_ms": "linger.ms",
     "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
     "buffer_memory": "queue.buffering.max.kbytes",
-    "max_block_ms": "queue.buffering.max.ms",
     "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
     "queue_buffering_max_messages": "queue.buffering.max.messages",
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
@@ -363,6 +365,10 @@ class _KafkaProducer:
 
         return result
 
+    def poll(self, timeout: float) -> int:
+        """Run the delivery callbacks that are ready, waiting up to `timeout` seconds for one."""
+        return self.producer.poll(timeout)
+
     def flush(self, timeout: Optional[float] = None) -> int:
         # confluent's flush() returns the count still undelivered (0 once acked);
         # surface it so callers can detect a partial flush. It rejects a None
@@ -476,11 +482,28 @@ class ClickhouseProducer:
     can target the cluster mapped in TOPIC_ROUTING.
     """
 
-    def produce(self, sql: str, topic: str, data: dict[str, Any]):
+    def produce(self, sql: str, topic: str, data: dict[str, Any]) -> ProduceResult:
         if settings.TEST:
             sync_execute(sql, data)
-            return
+            result = ProduceResult(topic=topic)
+            result.set_result(None, None)
+            return result
         # Lazy import: routing imports from this module.
         from posthog.kafka_client.routing import get_producer
 
-        get_producer(topic=topic).produce(topic=topic, data=data)
+        return get_producer(topic=topic).produce(topic=topic, data=data)
+
+    def wait_for_delivery(self, results: list[ProduceResult], timeout: float) -> None:
+        """Raise `TimeoutError` or `KafkaException` unless Kafka acknowledges every result within `timeout` seconds."""
+        if not settings.TEST:
+            from posthog.kafka_client.routing import get_producer
+
+            # The producer runs delivery callbacks only while something polls it. Poll instead of flush,
+            # because a flush also waits for every other message on the shared producer.
+            producers = {result.topic: get_producer(topic=result.topic) for result in results}.values()
+            deadline = time.monotonic() + timeout
+            while not all(result.done() for result in results) and (remaining := deadline - time.monotonic()) > 0:
+                for producer in producers:
+                    producer.poll(min(remaining, 0.1))
+        for result in results:
+            result.get(timeout=0)

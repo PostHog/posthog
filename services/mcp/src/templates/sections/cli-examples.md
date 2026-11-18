@@ -2,7 +2,7 @@
 
 <example>
 User: How many weekly active users do we have?
-Assistant: I need to find the right query tool and data schema tool.
+{metric_example_steps}
 [Runs posthog:exec({ "command": "search query-trends" }) and posthog:exec({ "command": "search read-data" }) in parallel]
 Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]

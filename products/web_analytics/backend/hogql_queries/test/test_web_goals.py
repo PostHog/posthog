@@ -1,6 +1,6 @@
 from typing import Optional
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -27,7 +27,7 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.utils import uuid7
 from posthog.test.persons import add_cohort_members
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, delete_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
@@ -38,7 +38,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     EVENT_TIMESTAMP = "2024-12-01"
 
     def _create_person(self):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             distinct_id = self._uuid()
             session_id = self._uuid()
             p = _create_person(
@@ -59,7 +59,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return p, session_id
 
     def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -73,7 +73,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _click_pay(self, person: Person, session_id: Optional[str] = None):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             _create_event(
                 team=self.team,
                 event="$autocapture",
@@ -84,8 +84,8 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _create_actions(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
-            a0 = Action.objects.create(
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            a0 = create_action(
                 team=self.team,
                 name="Clicked Pay",
                 steps_json=[
@@ -97,7 +97,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 last_calculated_at=self.EVENT_TIMESTAMP,  # oldest
             )
-            a1 = Action.objects.create(
+            a1 = create_action(
                 team=self.team,
                 name="Contacted Sales",
                 steps_json=[
@@ -110,7 +110,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 pinned_at=self.QUERY_TIMESTAMP,
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
-            a2 = Action.objects.create(
+            a2 = create_action(
                 team=self.team,
                 name="Visited Web Analytics",
                 steps_json=[
@@ -135,7 +135,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
             query = WebGoalsQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -149,7 +149,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return runner.calculate()
 
     def _uuid(self):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             return str(uuid7())
 
     def test_no_crash_when_no_data_or_actions(self):
@@ -262,7 +262,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         p2, s2 = self._create_person()
         self._visit_web_analytics(p1, s1)
         self._click_pay(p2, s2)
-        actions[0].delete()
+        delete_action(actions[0])
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [
             ["Contacted Sales", (0, 0), (0, 0), (0, 0)],
@@ -272,7 +272,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_aggregate_function_in_where_error(self):
         """Test cohort with multiple actions that produced the aggregate function in WHERE clause error:
         Aggregate function any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id))AS person_id is found in WHERE in query."""
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             cohort = Cohort.objects.create(
                 team=self.team,
                 filters={
@@ -292,8 +292,8 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Create multiple actions to generate complex query
-        with freeze_time(self.QUERY_TIMESTAMP):
-            Action.objects.create(
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            create_action(
                 team=self.team,
                 name="Test Action 1",
                 steps_json=[
@@ -314,7 +314,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 2",
                 steps_json=[
@@ -327,7 +327,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 3",
                 steps_json=[
@@ -341,7 +341,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 4",
                 steps_json=[
@@ -356,7 +356,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=self.QUERY_TIMESTAMP,
             )
 
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Test Action 5",
                 steps_json=[
@@ -372,7 +372,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Create persons with distinct_id overrides to trigger the error
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             # Create persons with different distinct_ids but insert overrides that create conflicts
             distinct_id_1 = self._uuid()
             distinct_id_2 = self._uuid()

@@ -1760,6 +1760,26 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self._validate_query_structure(query, "RedditAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("GoogleAds", GoogleAdsAdapter, GoogleAdsConfig, "metrics_cost_micros"),
+            ("RedditAds", RedditAdsAdapter, RedditAdsConfig, "spend"),
+            ("SnapchatAds", SnapchatAdsAdapter, SnapchatAdsConfig, "spend"),
+        ]
+    )
+    def test_micros_cost_is_cast_before_the_division(self, source_type, adapter_class, config_class, cost_column):
+        config = config_class(
+            campaign_table=self._create_mock_table("micros_campaign", source_type),
+            stats_table=self._create_mock_table("micros_stats", source_type),
+            source_type=source_type,
+            source_id=f"{source_type}_micros",
+        )
+
+        query = adapter_class(config=config, context=self.context).build_query()
+
+        assert query is not None
+        assert f"divide(toFloat(micros_stats.{cost_column}), 1000000)" in query.to_hogql()
+
     def test_meta_ads_query_generation(self):
         campaign_table = self._create_mock_table("meta_campaigns", "MetaAds")
         stats_table = self._create_mock_table("meta_campaign_stats", "MetaAds")

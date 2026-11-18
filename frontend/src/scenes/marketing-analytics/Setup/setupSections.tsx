@@ -9,6 +9,8 @@ import { ExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marke
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { DetectedSources } from 'products/marketing_analytics/frontend/dashboard/DetectedSources'
+
 import { SECTION_LABEL } from './sectionRouting'
 import { SuggestedActions } from './SuggestedActions'
 
@@ -36,6 +38,7 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
         content: (
             <>
                 <LegacyOAuthReconnectBanner />
+                <DetectedSources showRescan={false} />
                 <ExternalDataSourceConfiguration />
             </>
         ),

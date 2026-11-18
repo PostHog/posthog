@@ -1,12 +1,15 @@
 import re
-from typing import NamedTuple
+from functools import cache
+from typing import Any, NamedTuple
 
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
+    DataWarehouseNode,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
@@ -20,12 +23,20 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +57,22 @@ def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
         return False
 
 
+REPLAY_PERSON_PROPERTY_CHECK_FLAG = "replay-list-person-property-check"
+
+
+def is_person_property_check_enabled(team: Team) -> bool:
+    """Gate for the post-selection person-property check on the recordings list.
+
+    When on, sessions whose person matches the positive form of a negative person-property
+    filter are dropped from the fetched page. This closes the PoE-mode gap where a session
+    with no events can never enter the events-based negative blocklist.
+    """
+    try:
+        return bool(posthoganalytics.feature_enabled(REPLAY_PERSON_PROPERTY_CHECK_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
+
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
     PropertyOperator.IS_NOT,
@@ -53,6 +80,7 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.NOT_ICONTAINS,
     PropertyOperator.NOT_STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
     # PropertyOperator.NOT_BETWEEN, # in the schema but not used anywhere
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
@@ -66,13 +94,63 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
 }
+
+
+@cache
+def _event_only_fields() -> frozenset[str]:
+    # The `$virt_*` fields are added to the events table when the database is built, so the class lacks them.
+    event_fields = {*EventsTable().fields, *EVENTS_AVOID_ASTERISK_FIELDS}
+    return frozenset(event_fields - set(RawSessionReplayEventsTable().fields))
+
+
+class _FieldRoots(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.roots: set[str] = set()
+        self._lambda_args: list[str] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and str(node.chain[0]) not in self._lambda_args:
+            self.roots.add(str(node.chain[0]))
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_args.extend(node.args)
+        super().visit_lambda(node)
+        del self._lambda_args[-len(node.args) :]
+
+    # A subquery's fields resolve against its own tables, not the table the filter runs on.
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return
+
+
+def _hogql_reads_event_only_fields(expression: str) -> bool:
+    try:
+        parsed = parse_expr(expression)
+    except BaseHogQLError:
+        return False
+    collector = _FieldRoots()
+    collector.visit(parsed)
+    return not collector.roots.isdisjoint(_event_only_fields())
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    # Element filters read `elements_chain_*` columns, which exist only on the events table.
+    # A HogQL filter on a column only events carry, such as `event` or `$group_0`, cannot run against replay.
+    return (
+        p_type == "event"
+        or p_type == "element"
+        or (
+            p_type == "hogql"
+            and (bool(re.search(r"(?<!person\.)properties\.", p_key)) or _hogql_reads_event_only_fields(p_key))
+        )
+    )
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:
@@ -89,6 +167,18 @@ def is_group_property(p: AnyPropertyFilter) -> bool:
 def is_cohort_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return bool(p_type and "cohort" in p_type)
+
+
+def is_negative_prop(prop: AnyPropertyFilter) -> bool:
+    if not hasattr(prop, "operator"):
+        return False
+    if prop.operator in NEGATIVE_OPERATORS:
+        return True
+    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
+    # (it has different semantics there), but for cohort filters it IS the negative form.
+    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
+        return True
+    return False
 
 
 def is_session_property(p: AnyPropertyFilter) -> bool:
@@ -167,10 +257,46 @@ def poe_is_active(team: Team) -> bool:
     return team.person_on_events_mode is not None and team.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
 
-def _entity_to_expr(entity: EventsNode | ActionsNode) -> ast.Expr:
+def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
+    entity_id = raw_entity.get("id")
+    entity_type = raw_entity.get("type")
+    custom_name = raw_entity.get("custom_name")
+    if custom_name is not None:
+        custom_name = str(custom_name).strip() or None
+    # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
+    # the node and are left out.
+    shared: dict[str, Any] = {
+        "name": raw_entity.get("name"),
+        "custom_name": custom_name,
+        "properties": clean_entity_properties(raw_entity.get("properties")),
+    }
+
+    if entity_type == TREND_FILTER_TYPE_ACTIONS:
+        return ActionsNode(id=entity_id, **shared)
+    if entity_type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
+        return DataWarehouseNode(
+            id=entity_id,
+            id_field=raw_entity.get("id_field"),
+            distinct_id_field=raw_entity.get("distinct_id_field"),
+            timestamp_field=raw_entity.get("timestamp_field"),
+            table_name=raw_entity.get("table_name"),
+            **shared,
+        )
+    if entity_type != TREND_FILTER_TYPE_EVENTS:
+        raise ValueError(f"Unsupported entity type: {entity_type}")
+    # _entity_to_expr matches events on the node name, so an unnamed event entity takes its event as the name.
+    shared["name"] = shared["name"] or ("All events" if entity_id is None else str(entity_id))
+    return EventsNode(event=entity_id, **shared)
+
+
+def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     # KLUDGE: we should be able to use NodeKind.ActionsNode here but mypy :shrug:
     if entity.kind == "ActionsNode":
-        action = Action.objects.get(pk=entity.id)
+        # Scoped to the project, not the team, because environments in a project share actions.
+        try:
+            action = get_action(action_id=entity.id, project_id=team.project_id)
+        except ActionNotFound:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
         return action_to_expr(action)
     else:
         if entity.event is None:

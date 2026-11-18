@@ -107,6 +107,7 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         )
 
     @extend_schema(exclude=True)
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="git-upload-pack")
     def marketplace_upload_pack(self, request: Request, **kwargs: Any) -> HttpResponse:
         # GitProtocolParser consumed the stream into request.data (a latin-1 str), so request.body

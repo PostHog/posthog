@@ -151,7 +151,7 @@ describe('Cardinality Guarantee', () => {
 
 describe('OK Filtering', () => {
     /**
-     * Chunk steps only receive OK items. Non-OK items (DLQ, DROP, REDIRECT)
+     * Chunk steps only receive OK items. Non-OK items (DLQ, DROP, REDIRECT, TIMEOUT)
      * are automatically filtered out and preserved in the output.
      */
     it('chunk steps receive only OK items from previous steps', async () => {

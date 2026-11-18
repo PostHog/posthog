@@ -1,6 +1,6 @@
 import type { UsageBucket, UsageOutput } from "../usage/schemas";
 
-export const CODE_INCLUDED_USAGE_USD = 20;
+const CODE_INCLUDED_USAGE_USD = 20;
 
 /** Confirmed free tier only — an absent `code_usage_subscribed` is unknown, never free. */
 export function isCodeUsageFreeTier(
@@ -33,7 +33,12 @@ export type CodeUsageMeter =
       limitUsd: number;
       percent: number;
       exceeded: boolean;
-      resetAt: string;
+      /**
+       * End of the billing period the dollars cover, or null when billing has
+       * not reported one. The valve bucket's reset is a different window, so it
+       * is not a stand-in here.
+       */
+      periodEndsAt: string | null;
       breakdown: CodeUsageBreakdown | null;
     }
   | { kind: "bucket"; bucket: UsageBucket }
@@ -59,7 +64,7 @@ export function codeUsageMeter(
       limitUsd,
       percent: Math.min(100, Math.round((usedUsd / limitUsd) * 100)),
       exceeded: usage.ai_credits?.exhausted === true,
-      resetAt: usage.billing_period_end ?? usage.sustained.reset_at,
+      periodEndsAt: usage.billing_period_end ?? null,
       breakdown:
         spendLimitUsd != null
           ? { includedUsd: CODE_INCLUDED_USAGE_USD, spendLimitUsd }
@@ -70,6 +75,39 @@ export function codeUsageMeter(
     return { kind: "bucket", bucket: usage.sustained };
   }
   return { kind: "hidden" };
+}
+
+/**
+ * The window the meter's number covers. Org dollars are a billing-period total,
+ * while the valve bucket counts a fixed 30 days, and the two rarely line up.
+ */
+export function codeUsageWindowSuffix(meter: CodeUsageMeter): string {
+  return meter.kind === "bucket" ? "this 30-day window" : "this billing period";
+}
+
+/** The meter's heading: what the number is, over the window it covers. */
+export function codeUsageWindowLabel(
+  meter: CodeUsageMeter,
+  freeTier: boolean,
+): string {
+  return `${freeTier ? "Free usage" : "Usage"} ${codeUsageWindowSuffix(meter)}`;
+}
+
+/** When the meter's window restarts, phrased for the window it belongs to. */
+export function codeUsageResetLabel(
+  meter: CodeUsageMeter,
+  options: { now?: number } = {},
+): string {
+  if (meter.kind === "bucket") {
+    return formatResetTime(meter.bucket.reset_at, options);
+  }
+  if (meter.kind === "dollars" && meter.periodEndsAt) {
+    return formatResetTime(meter.periodEndsAt, {
+      ...options,
+      label: "Billing period ends",
+    });
+  }
+  return "Resets when your billing period ends";
 }
 
 export function formatUsdAmount(amount: number): string {

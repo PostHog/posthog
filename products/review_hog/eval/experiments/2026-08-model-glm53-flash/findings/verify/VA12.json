@@ -1,0 +1,6 @@
+{
+    "id": "VA12",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. facade/api.py:508-509 returns None when task.internal. The only production creation path for self-driving implementation tasks is signals auto_start.py:261, which sets internal=True ('Internal so the run stays out of the default task list'); create_and_run_task (facade/api.py:881,903) forwards it verbatim and nothing ever flips it. PR 75215 did not touch auto_start.py. Caller stamphog/backend/tasks/tasks.py:191 depends on this lookup to arm the re-review carve-out, so every real self-driving PR resolves to no carve-out and later webhooks fall through to the ordinary bot-refusal path. The PR's own tests (tasks/backend/tests/test_webhooks.py:1245-1256) create qualifying tasks with internal=False, an assumption production violates."
+}

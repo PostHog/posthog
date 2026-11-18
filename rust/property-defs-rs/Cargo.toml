@@ -30,12 +30,13 @@ anyhow = { workspace = true }
 personhog-proto = { path = "../personhog-proto" }
 tonic = { workspace = true }
 thiserror.workspace = true
+aho-corasick.workspace = true
 regex.workspace = true
 
 [dev-dependencies]
 tokio-stream = { version = "0.1", features = ["net"] }
 metrics-util = { workspace = true }
-rstest = "0.26"
+rstest = "0.28"
 # Drives common_kafka's MockCluster in tests/producer_loop.rs, so the producer loop can be
 # exercised end to end without a broker.
 rdkafka = { workspace = true }

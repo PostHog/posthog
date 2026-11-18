@@ -121,6 +121,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
             [] as UserType[],
             {
                 loadAllUsers: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersList() from '~/generated/core/api' instead.
                     return (await api.get('api/users')).results ?? []
                 },
                 addStaffUsers: async () => {
@@ -128,6 +129,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
                     actions.setStaffUsersToBeAdded([])
                     const newStaffUsers = await Promise.all(
                         staffUsersToBeAdded.map(
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                             async (userUuid) => await api.update<UserType>(`api/users/${userUuid}`, { is_staff: true })
                         )
                     )
@@ -139,6 +141,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
                     return updatedAllUsers
                 },
                 deleteStaffUser: async ({ userUuid }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                     await api.update<UserType>(`api/users/${userUuid}`, { is_staff: false })
                     if (values.user?.uuid === userUuid) {
                         actions.loadUser() // Loads the main user object to properly reflect staff user changes

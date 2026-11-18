@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -23,7 +23,7 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.bas
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_frequentist_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
@@ -109,7 +109,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         return cast(ExperimentQueryResponse, ExperimentQueryRunner(query=query, team=self.team).calculate())
 
-    @freeze_time("2020-01-03T12:00:00Z")
+    @time_machine.travel("2020-01-03T12:00:00Z", tick=False)
     def test_sequential_testing_widens_ci_versus_fixed_horizon(self) -> None:
         # Run identical data through fixed-horizon then sequential frequentist; verify
         # the sequential CI is strictly wider end-to-end through the query runner.

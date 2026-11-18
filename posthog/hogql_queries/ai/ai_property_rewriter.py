@@ -5,68 +5,8 @@ Follows the `ExprTransformer` / `CloningVisitor` pattern from
 """
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN
 from posthog.hogql.visitor import CloningVisitor
-
-# Mapping from AI property names to their dedicated ai_events column names.
-# Properties not in this mapping remain as JSONExtract on the `properties` column.
-AI_PROPERTY_TO_COLUMN: dict[str, str] = {
-    # Trace structure
-    "$ai_trace_id": "trace_id",
-    "$ai_session_id": "session_id",
-    "$ai_parent_id": "parent_id",
-    "$ai_span_id": "span_id",
-    "$ai_span_type": "span_type",
-    "$ai_generation_id": "generation_id",
-    "$ai_experiment_id": "experiment_id",
-    # Names
-    "$ai_span_name": "span_name",
-    "$ai_trace_name": "trace_name",
-    "$ai_prompt_name": "prompt_name",
-    # Model info
-    "$ai_model": "model",
-    "$ai_provider": "provider",
-    "$ai_framework": "framework",
-    # Token counts
-    "$ai_total_tokens": "total_tokens",
-    "$ai_input_tokens": "input_tokens",
-    "$ai_output_tokens": "output_tokens",
-    "$ai_text_input_tokens": "text_input_tokens",
-    "$ai_text_output_tokens": "text_output_tokens",
-    "$ai_image_input_tokens": "image_input_tokens",
-    "$ai_image_output_tokens": "image_output_tokens",
-    "$ai_audio_input_tokens": "audio_input_tokens",
-    "$ai_audio_output_tokens": "audio_output_tokens",
-    "$ai_video_input_tokens": "video_input_tokens",
-    "$ai_video_output_tokens": "video_output_tokens",
-    "$ai_reasoning_tokens": "reasoning_tokens",
-    "$ai_cache_read_input_tokens": "cache_read_input_tokens",
-    "$ai_cache_creation_input_tokens": "cache_creation_input_tokens",
-    "$ai_web_search_count": "web_search_count",
-    # Costs
-    "$ai_input_cost_usd": "input_cost_usd",
-    "$ai_output_cost_usd": "output_cost_usd",
-    "$ai_total_cost_usd": "total_cost_usd",
-    "$ai_request_cost_usd": "request_cost_usd",
-    "$ai_web_search_cost_usd": "web_search_cost_usd",
-    "$ai_audio_cost_usd": "audio_cost_usd",
-    "$ai_image_cost_usd": "image_cost_usd",
-    "$ai_video_cost_usd": "video_cost_usd",
-    # Timing
-    "$ai_latency": "latency",
-    "$ai_time_to_first_token": "time_to_first_token",
-    # Errors
-    "$ai_is_error": "is_error",
-    "$ai_error": "error",
-    "$ai_error_type": "error_type",
-    "$ai_error_normalized": "error_normalized",
-    # Heavy columns
-    "$ai_input": "input",
-    "$ai_output": "output",
-    "$ai_output_choices": "output_choices",
-    "$ai_input_state": "input_state",
-    "$ai_output_state": "output_state",
-    "$ai_tools": "tools",
-}
 
 _BOOLEAN_PROPERTIES: frozenset[str] = frozenset({"$ai_is_error"})
 

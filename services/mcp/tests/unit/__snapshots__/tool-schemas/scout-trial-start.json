@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "baseline_variant_id": {
+            "description": "Variant used as the comparison baseline.",
+            "type": "string"
+        },
+        "comparison_id": {
+            "description": "Stable comparison ID. Reuse for an exact request retry.",
+            "type": "string"
+        },
+        "expected_skill_version": {
+            "description": "Source version shown in the editor. Refuse a new trial if the instructions changed since setup.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        },
+        "note": {
+            "description": "Steering instructions shared by every run in this trial, matching the trial UI's \"Instructions for every run\" field. Up to 1000 characters. Does not edit the saved scout's instructions.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "variants": {
+            "description": "Up to 20 variants, each with up to 20 scout runs.",
+            "items": {
+                "properties": {
+                    "id": {
+                        "description": "Stable variant identity within this comparison.",
+                        "type": "string"
+                    },
+                    "label": {
+                        "description": "Variant name shown in the report.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "launch_ids": {
+                        "description": "Stable run IDs for this variant's repeats.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "maxItems": 20,
+                        "minItems": 1,
+                        "type": "array"
+                    },
+                    "model": {
+                        "description": "Scout model to run.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "reasoning_effort": {
+                        "description": "Reasoning effort supported by this model.",
+                        "maxLength": 20,
+                        "type": "string"
+                    },
+                    "skill_body": {
+                        "description": "Replacement scout instructions. Omit to use the saved source instructions.",
+                        "maxLength": 100000,
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "label", "launch_ids", "model", "reasoning_effort"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id", "comparison_id", "baseline_variant_id", "variants"],
+    "type": "object"
+}

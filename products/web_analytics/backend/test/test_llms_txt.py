@@ -56,9 +56,19 @@ def _session(response: Mock) -> Mock:
     return session
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
-def test_fetch_llms_txt_revalidates_redirect_targets(pinned_session_mock: Mock) -> None:
-    redirect = _response(status_code=302, headers={"Location": "/llms-full.txt"})
+@pytest.mark.parametrize(
+    "redirect_headers",
+    [
+        {"Location": "/llms-full.txt"},
+        {"Location": "/llms-full.txt", "Content-Encoding": "gzip"},
+        {"Location": "/llms-full.txt", "Content-Length": str(LLMS_TXT_MAX_BYTES + 1)},
+    ],
+)
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
+def test_fetch_llms_txt_revalidates_redirect_targets(
+    pinned_session_mock: Mock, redirect_headers: dict[str, str]
+) -> None:
+    redirect = _response(status_code=302, headers=redirect_headers)
     success = _response(chunks=[b"# Example\n", b"- https://example.com/docs"])
     pinned_session_mock.side_effect = [nullcontext(_session(redirect)), nullcontext(_session(success))]
 
@@ -72,7 +82,7 @@ def test_fetch_llms_txt_revalidates_redirect_targets(pinned_session_mock: Mock) 
     ]
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
 def test_fetch_llms_txt_stops_streams_over_the_size_limit(pinned_session_mock: Mock) -> None:
     response = _response(chunks=[b"x" * LLMS_TXT_MAX_BYTES, b"x"])
     pinned_session_mock.return_value = nullcontext(_session(response))
@@ -81,16 +91,36 @@ def test_fetch_llms_txt_stops_streams_over_the_size_limit(pinned_session_mock: M
         fetch_llms_txt("https://example.com/llms.txt")
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
-def test_fetch_llms_txt_rejects_html_responses(pinned_session_mock: Mock) -> None:
-    response = _response(headers={"Content-Type": "text/html"}, chunks=[b"<html>Not found</html>"])
+@pytest.mark.parametrize(
+    ("status_code", "headers", "expected_message"),
+    [
+        (200, {"Content-Type": "text/html"}, "HTML page"),
+        (200, {"content-type": "text/html; charset=utf-8"}, "HTML page"),
+        (200, {"Content-type": "application/xhtml+xml"}, "HTML page"),
+        (404, {"Content-Type": "text/plain"}, "HTTP 404"),
+        (500, {"Content-Type": "text/plain"}, "HTTP 500"),
+    ],
+)
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
+def test_fetch_llms_txt_rejects_a_response_without_reading_its_body(
+    pinned_session_mock: Mock, status_code: int, headers: dict[str, str], expected_message: str
+) -> None:
+    reads: list[int] = []
+    response = _response(
+        status_code=status_code,
+        headers=headers,
+        chunks=[b"x" * LLMS_TXT_MAX_BYTES],
+        on_read=lambda: reads.append(1),
+    )
     pinned_session_mock.return_value = nullcontext(_session(response))
 
-    with pytest.raises(LlmsTxtFetchError, match="HTML page"):
+    with pytest.raises(LlmsTxtFetchError, match=expected_message):
         fetch_llms_txt("https://example.com/llms.txt")
 
+    assert reads == []
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
+
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
 def test_fetch_llms_txt_reports_ssrf_blocked_targets_as_a_user_error(pinned_session_mock: Mock) -> None:
     pinned_session_mock.side_effect = SSRFBlockedError("Private IP address not allowed")
 
@@ -98,7 +128,7 @@ def test_fetch_llms_txt_reports_ssrf_blocked_targets_as_a_user_error(pinned_sess
         fetch_llms_txt("https://internal.example/llms.txt")
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
 def test_fetch_llms_txt_gives_up_once_the_redirect_limit_is_reached(pinned_session_mock: Mock) -> None:
     redirect = _response(status_code=302, headers={"Location": "/next"})
     pinned_session_mock.side_effect = [nullcontext(_session(redirect)) for _ in range(LLMS_TXT_MAX_REDIRECTS + 1)]
@@ -109,20 +139,23 @@ def test_fetch_llms_txt_gives_up_once_the_redirect_limit_is_reached(pinned_sessi
     assert pinned_session_mock.call_count == LLMS_TXT_MAX_REDIRECTS + 1
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
 def test_fetch_llms_txt_gives_up_on_a_host_that_trickles_bytes(pinned_session_mock: Mock) -> None:
     clock = _Clock()
     response = _response(chunks=list(repeat(b"x", 10_000)), on_read=lambda: clock.advance(1.0))
     pinned_session_mock.return_value = nullcontext(_session(response))
 
-    with patch("products.web_analytics.backend.llms_txt.time.monotonic", clock):
+    with (
+        patch("products.web_analytics.backend.llms_txt.time.monotonic", clock),
+        patch("products.web_analytics.backend.public_url_fetch.time.monotonic", clock),
+    ):
         with pytest.raises(LlmsTxtFetchError, match="took too long"):
             fetch_llms_txt("https://example.com/llms.txt")
 
     assert clock.now <= LLMS_TXT_TOTAL_BUDGET_SECONDS + 1.0
 
 
-@patch("products.web_analytics.backend.llms_txt.pinned_session")
+@patch("products.web_analytics.backend.public_url_fetch.pinned_session")
 def test_fetch_llms_txt_rejects_a_body_the_host_compressed_anyway(pinned_session_mock: Mock) -> None:
     response = _response(
         headers={"Content-Type": "text/plain", "Content-Encoding": "gzip"},

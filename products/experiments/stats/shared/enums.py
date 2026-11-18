@@ -12,9 +12,3 @@ class DifferenceType(Enum):
 
     RELATIVE = "relative"
     ABSOLUTE = "absolute"
-
-
-class TestType(Enum):
-    """Available test types."""
-
-    TWO_SIDED = "two_sided"

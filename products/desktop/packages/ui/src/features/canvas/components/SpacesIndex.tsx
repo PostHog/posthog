@@ -1,59 +1,170 @@
-import { PlusIcon, StarIcon } from "@phosphor-icons/react";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { MagnifyingGlassIcon, PlusIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
-  Card,
-  CardContent,
+  cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
   Skeleton,
   Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
+import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useSpaceOverview } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { track } from "@posthog/ui/shell/analytics";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-function SpaceCard({ channel }: { channel: Channel }) {
+function StarToggle({ channel }: { channel: Channel }) {
+  const { isStarred, toggleStar } = useChannelStarToggle(channel);
+  const label = isStarred ? "Unstar space" : "Star space";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={label}
+            className={cn(
+              "shrink-0",
+              isStarred
+                ? "text-warning"
+                : "text-muted-foreground/40 group-hover/space:text-muted-foreground",
+            )}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                action_type: isStarred ? "unstar" : "star",
+                surface: "spaces_index",
+                channel_id: channel.id,
+              });
+              toggleStar();
+            }}
+          >
+            <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+const FACES_PER_ROW = 3;
+
+const PEOPLE_PER_SPACE = 12;
+
+function SpaceRow({ channel }: { channel: Channel }) {
+  const [ref, inView] = useInView<HTMLAnchorElement>({
+    rootMargin: "300px 0px",
+    once: true,
+  });
+  const { people } = useSpaceOverview(channel.id, null, PEOPLE_PER_SPACE, {
+    enabled: inView,
+  });
   const personal = channel.channelType === "personal";
+  const repositories = channel.repositories.join(", ");
 
   return (
     <Link
+      ref={ref}
       to="/spaces/$channelId"
       params={{ channelId: channel.id }}
-      className="no-underline"
+      className="group/space flex h-8 items-center gap-3 rounded-(--radius-2) pr-1 pl-2 no-underline transition-colors hover:bg-fill-hover"
     >
-      <Card className="h-full transition-colors hover:bg-fill-hover">
-        <CardContent className="flex flex-col gap-2 p-4">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {channelGlyph(channel.name, { size: 14, personal })}
-            <Text weight="semibold" className="truncate">
-              {channelDisplayLabel(channel.name, channel.channelType)}
-            </Text>
-            {channel.starred && (
-              <StarIcon
-                size={12}
-                weight="fill"
-                className="shrink-0 text-warning"
+      {channelGlyph(channel.name, {
+        size: 13,
+        personal,
+        private: channel.channelType === "private",
+      })}
+
+      <Text size="sm" weight="medium" className="min-w-0 shrink-0 truncate">
+        {channel.name}
+      </Text>
+      <Text size="xxs" variant="muted" className="min-w-0 flex-1 truncate">
+        {repositories}
+      </Text>
+      {people.length > 0 && (
+        <span className="flex shrink-0 items-center gap-1">
+          <PresenceAvatars
+            people={people.slice(0, FACES_PER_ROW)}
+            className="shrink-0"
+          />
+          {people.length > FACES_PER_ROW && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    +{people.length - FACES_PER_ROW}
+                  </span>
+                }
               />
-            )}
-          </div>
-          <Text size="sm" variant="muted" className="truncate">
-            {channel.repositories.length > 0
-              ? channel.repositories.join(", ")
-              : "No repositories wired up"}
-          </Text>
-        </CardContent>
-      </Card>
+              <TooltipContent side="top">
+                {people
+                  .slice(FACES_PER_ROW)
+                  .map((person) => userDisplayName(person))
+                  .join(", ")}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </span>
+      )}
+      {personal ? <div className="size-6" /> : <StarToggle channel={channel} />}
     </Link>
+  );
+}
+
+function SpaceList({ channels }: { channels: Channel[] }) {
+  return (
+    <div className="flex flex-col gap-px">
+      {channels.map((channel) => (
+        <SpaceRow key={channel.id} channel={channel} />
+      ))}
+    </div>
+  );
+}
+
+function SectionLabel({
+  children,
+  count,
+}: {
+  children: string;
+  count: number;
+}) {
+  return (
+    <div className="mb-1 flex items-baseline gap-2 px-2">
+      <Text
+        size="xxs"
+        weight="semibold"
+        className="text-foreground/70 uppercase tracking-wider"
+      >
+        {children}
+      </Text>
+      <Text size="xxs" variant="muted">
+        {count}
+      </Text>
+    </div>
   );
 }
 
@@ -66,45 +177,109 @@ function SpaceCard({ channel }: { channel: Channel }) {
 export function SpacesIndex() {
   const { channels, isLoading } = useChannels();
   const [createOpen, setCreateOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  return (
-    <div className="h-full overflow-auto bg-gray-1">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <Text size="lg" weight="semibold">
-            Spaces
-          </Text>
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+  const needle = query.trim().toLowerCase();
+  const { starred, rest } = useMemo(() => {
+    const shown = needle
+      ? channels.filter((c) => c.name.toLowerCase().includes(needle))
+      : channels;
+    const personal = shown.filter((c) => c.channelType === "personal");
+    return {
+      starred: [
+        ...personal,
+        ...shown.filter((c) => c.starred && c.channelType !== "personal"),
+      ],
+      rest: shown.filter((c) => !c.starred && c.channelType !== "personal"),
+    };
+  }, [channels, needle]);
+  const noMatches = starred.length === 0 && rest.length === 0;
+
+  useSetHeaderContent(
+    useMemo(
+      () => (
+        <>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 text-muted-foreground">
+              <SpacesIcon size={14} />
+            </span>
+            <span className="min-w-0 truncate font-medium text-[13px]">
+              Spaces
+            </span>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setCreateOpen(true)}
+          >
             <PlusIcon size={14} />
             New space…
           </Button>
-        </div>
+        </>
+      ),
+      [],
+    ),
+  );
 
-        {isLoading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-[86px] w-full" />
-            ))}
-          </div>
-        ) : channels.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <SpacesIcon size={20} />
-              </EmptyMedia>
-              <EmptyTitle>No spaces yet</EmptyTitle>
-              <EmptyDescription>
-                A space gets its own sessions, canvases, and context.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {channels.map((channel) => (
-              <SpaceCard key={channel.id} channel={channel} />
-            ))}
-          </div>
-        )}
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-gray-1">
+      <div className="scroll-mask-4 min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto w-full max-w-5xl px-6 py-5">
+          <InputGroup className="mb-5 max-w-xs">
+            <InputGroupAddon>
+              <MagnifyingGlassIcon size={14} aria-hidden />
+            </InputGroupAddon>
+            <InputGroupInput
+              value={query}
+              placeholder="Search spaces…"
+              aria-label="Search spaces"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </InputGroup>
+
+          {isLoading ? (
+            <div className="flex flex-col gap-px">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-8 w-full" />
+              ))}
+            </div>
+          ) : channels.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <SpacesIcon size={20} />
+                </EmptyMedia>
+                <EmptyTitle>No spaces yet</EmptyTitle>
+                <EmptyDescription>
+                  A space gets its own sessions, canvases, and context.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : noMatches ? (
+            <Text size="sm" variant="muted">
+              No space by that name.
+            </Text>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {starred.length > 0 && (
+                <div>
+                  <SectionLabel count={starred.length}>Starred</SectionLabel>
+                  <SpaceList channels={starred} />
+                </div>
+              )}
+              {rest.length > 0 && (
+                <div>
+                  {starred.length > 0 && (
+                    <SectionLabel count={rest.length}>
+                      Everything else
+                    </SectionLabel>
+                  )}
+                  <SpaceList channels={rest} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
     </div>

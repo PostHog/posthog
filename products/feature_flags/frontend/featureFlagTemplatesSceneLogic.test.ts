@@ -79,7 +79,7 @@ describe('featureFlagTemplatesSceneLogic', () => {
                 logic.actions.selectTemplate('remote-config')
 
                 await expectLogic(logic).toMatchValues({ selectedTemplate: null })
-                expect(router.values.location.pathname).toContain('/feature_flags/new')
+                expect(router.values.location.pathname).toContain('/feature-flags/new')
                 expect(router.values.searchParams.type).toBe('remote_config')
                 expect(router.values.searchParams.template).toBeUndefined()
             }

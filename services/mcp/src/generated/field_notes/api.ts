@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesListParams = /* @__PURE__ */ zod.object({
+export const FieldNotesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,7 +20,7 @@ export const FieldNotesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
+export const FieldNotesListQueryParams = () => zod.object({
     field_note_status: zod
         .enum(['acknowledged', 'dismissed', 'pending', 'resolved'])
         .optional()
@@ -34,7 +34,7 @@ export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
+export const FieldNotesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this field note.'),
     project_id: zod
         .string()
@@ -47,7 +47,7 @@ export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const FieldNotesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this field note.'),
     project_id: zod
         .string()
@@ -72,7 +72,7 @@ export const fieldNotesPartialUpdateBodyElementChainMax = 20000
 
 export const fieldNotesPartialUpdateBodyScreenshotUrlMax = 2048
 
-export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const FieldNotesPartialUpdateBody = () => zod.object({
     comment: zod
         .string()
         .max(fieldNotesPartialUpdateBodyCommentMax)

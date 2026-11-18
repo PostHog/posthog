@@ -1,6 +1,5 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { FacetOption } from './Facet'
 import {
     FACETS as CONFIGURED_FACETS,
     FacetConfig,
@@ -8,81 +7,12 @@ import {
     buildCustomFacet,
     customFacetIdentity,
     facetScopeSignature,
-    filterFacetsByName,
-    mergeSelectedIntoOptions,
+    presenceProbeKeys,
+    presenceProbeWindow,
     resolveFacets,
 } from './facets'
 
-const facet = (key: string, title: string, group: string): FacetConfig => ({
-    key,
-    title,
-    group,
-    kind: 'dynamic',
-    source: { type: 'resourceAttribute', key },
-})
-
-const FACETS: FacetConfig[] = [
-    facet('level', 'Level', 'Standard'),
-    facet('service', 'Service', 'Standard'),
-    facet('namespace', 'Namespace', 'Kubernetes'),
-    facet('pod', 'Pod', 'Kubernetes'),
-    facet('host', 'Host', 'Infrastructure'),
-]
-
 describe('facets', () => {
-    describe('filterFacetsByName', () => {
-        it.each([
-            ['blank query returns all', '', ['level', 'service', 'namespace', 'pod', 'host']],
-            ['whitespace-only returns all', '   ', ['level', 'service', 'namespace', 'pod', 'host']],
-            ['matches a field title', 'namespace', ['namespace']],
-            ['title match is case-insensitive', 'NAMESPACE', ['namespace']],
-            ['partial title match', 'serv', ['service']],
-            ['matches a whole group by name', 'kubernetes', ['namespace', 'pod']],
-            ['group match is case-insensitive', 'INFRA', ['host']],
-            ['no match returns empty', 'zzz', []],
-        ])('%s', (_, query, expectedKeys) => {
-            expect(filterFacetsByName(FACETS, query).map((f) => f.key)).toEqual(expectedKeys)
-        })
-    })
-
-    describe('mergeSelectedIntoOptions', () => {
-        const fetched: FacetOption[] = [
-            { value: 'api', label: 'api', count: 10 },
-            { value: 'worker', label: 'worker', count: 5 },
-        ]
-
-        it.each<[string, string[], string | undefined, string[]]>([
-            ['no selected values leaves fetched unchanged', [], undefined, ['api', 'worker']],
-            ['selected value already fetched is not duplicated', ['api'], undefined, ['api', 'worker']],
-            ['missing selected value is prepended', ['batch-exports'], undefined, ['batch-exports', 'api', 'worker']],
-            ['multiple missing values keep selection order', ['b', 'a'], undefined, ['b', 'a', 'api', 'worker']],
-            // A value hand-edited into both polarities reaches here twice (included ++ excluded).
-            [
-                'a value repeated across polarities is not duplicated',
-                ['dup', 'dup'],
-                undefined,
-                ['dup', 'api', 'worker'],
-            ],
-            ['missing selected value not matching the search is omitted', ['batch-exports'], 'api', ['api', 'worker']],
-            [
-                'search match is a case-insensitive substring',
-                ['Batch-Exports'],
-                'batch',
-                ['Batch-Exports', 'api', 'worker'],
-            ],
-        ])('%s', (_, selected, search, expectedValues) => {
-            expect(mergeSelectedIntoOptions(fetched, selected, search).map((o) => o.value)).toEqual(expectedValues)
-        })
-
-        it('injects missing selected values with a zero count', () => {
-            expect(mergeSelectedIntoOptions(fetched, ['batch-exports'], undefined)[0]).toEqual({
-                value: 'batch-exports',
-                label: 'batch-exports',
-                count: 0,
-            })
-        })
-    })
-
     describe('facetScopeSignature', () => {
         const configured = (key: string): FacetConfig => CONFIGURED_FACETS.find((f) => f.key === key)!
         const LEVEL = configured('level')
@@ -311,6 +241,45 @@ describe('facets', () => {
             // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
             const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
             expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('presenceProbeKeys', () => {
+        it('asks about every curated resource key and alias, once each', () => {
+            expect(presenceProbeKeys(CONFIGURED_FACETS)).toEqual([
+                'deployment.environment.name',
+                'deployment.environment',
+                'env',
+                'k8s.namespace.name',
+                'k8s.deployment.name',
+                'k8s.pod.name',
+                'k8s.node.name',
+                'host.name',
+            ])
+        })
+
+        // Each key in the probe must keep its facet when resolveFacets receives it.
+        it.each(presenceProbeKeys(CONFIGURED_FACETS))('a reported %s keeps a resource facet on it', (key) => {
+            const resolved = resolveFacets(CONFIGURED_FACETS, [key])
+            expect(resolved.some((f) => f.source.type === 'resourceAttribute' && f.source.key === key)).toBe(true)
+        })
+    })
+
+    describe('presenceProbeWindow', () => {
+        it.each<
+            [string, { date_from?: string | null; date_to?: string | null }, ReturnType<typeof presenceProbeWindow>]
+        >([
+            ['no selection uses the default window', {}, null],
+            ['a recent relative selection uses the default window', { date_from: '-1h' }, null],
+            ['a recent absolute selection uses the default window', { date_from: new Date().toISOString() }, null],
+            ['an older relative selection is probed as-is', { date_from: '-30d' }, { date_from: '-30d' }],
+            [
+                'an older absolute selection keeps its end',
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+            ],
+        ])('%s', (_, range, expected) => {
+            expect(presenceProbeWindow(range)).toEqual(expected)
         })
     })
 

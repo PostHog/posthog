@@ -5,11 +5,17 @@ mcp_analytics is tach-isolated to expose only `backend.facade.*`, so core's
 `backend.hogql_queries` directly.
 """
 
+from products.mcp_analytics.backend.hogql_queries.dashboard_query import MCPDashboardQueryRunner
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallBreakdownQueryRunner,
     MCPToolCallsAndErrorsQueryRunner,
 )
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
+from products.mcp_analytics.backend.hogql_queries.model_breakdown import MCPModelBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown import (
+    MCPProtocolVersionBreakdownQueryRunner,
+)
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
@@ -29,7 +35,10 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
 )
 
 __all__ = [
+    "MCPDashboardQueryRunner",
     "MCPHarnessBreakdownQueryRunner",
+    "MCPModelBreakdownQueryRunner",
+    "MCPProtocolVersionBreakdownQueryRunner",
     "MCPToolCallBreakdownQueryRunner",
     "MCPToolCallsAndErrorsQueryRunner",
     "MCPToolCategoriesQueryRunner",
@@ -45,4 +54,5 @@ __all__ = [
     "MCPToolSampleIntentsQueryRunner",
     "MCPToolStatsQueryRunner",
     "MCPToolTopUsersQueryRunner",
+    "MCPMissingCapabilitiesQueryRunner",
 ]

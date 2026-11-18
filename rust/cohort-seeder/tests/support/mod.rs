@@ -13,9 +13,11 @@
 
 use std::future::Future;
 use std::str::FromStr;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use cohort_seeder::domain::RunId;
+use chrono::{DateTime, Utc};
+use cohort_seeder::domain::{DayIdx, DaySchedule, PlannedDay, RunId, UtcMillis};
 use cohort_seeder::store::chunks::{ChunkStoreError, PlanOutcome};
 use cohort_seeder::store::completion::CompletionStoreError;
 use serde_json::{json, Value};
@@ -24,9 +26,9 @@ use sqlx::types::Json;
 use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
-/// The `cohort_backfill_*` DDL (plus a schema-local `posthog_cohort` projection), pinned to Django
-/// migration 0009, applied fresh into each test schema.
-pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0009.sql");
+/// The `cohort_backfill_*` and `cohort_realtime_team_access` DDL (plus a schema-local
+/// `posthog_cohort` projection), pinned to Django migration 0017, applied fresh into each test schema.
+pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0017.sql");
 /// A live cohort condition hash used by the superseded-load fixtures.
 pub const ACTIVE_HASH: &str = "active0000000000";
 /// A superseded cohort condition hash used by the superseded-load fixtures.
@@ -172,6 +174,27 @@ pub async fn insert_cohort(
     .bind(behavioral_hash)
     .bind(person_hash)
     .bind(deleted)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Write a team access row at `level`, granted `granted_ago` before the Postgres clock that the
+/// seeder's team predicate compares `processing_since` against.
+pub async fn insert_access(
+    pool: &PgPool,
+    team_id: i32,
+    level: &str,
+    granted_ago: Duration,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO cohort_realtime_team_access \
+             (team_id, level, purpose, save_triggers_backfill, processing_since, changed_at) \
+         VALUES ($1, $2, 'pilot', false, now() - $3, now())",
+    )
+    .bind(team_id)
+    .bind(level)
+    .bind(granted_ago)
     .execute(pool)
     .await?;
     Ok(())
@@ -354,4 +377,22 @@ pub fn behavioral_filter(hash: &str, event_name: &str) -> Value {
             "bytecode": ["_H", 1, 32, event_name, 32, "event", 1, 1, 11],
         }]}
     })
+}
+
+/// Days before a run's boundary, planned the way the seeder plans them: claimable at once.
+pub fn historical<const N: usize>(days: [DayIdx; N]) -> [PlannedDay; N] {
+    days.map(|day| PlannedDay {
+        day,
+        schedule: DaySchedule::Historical,
+    })
+}
+
+/// A day from the boundary day on, held the way the seeder holds it until the day has ended.
+pub fn trailing(day: DayIdx, claimable_after: DateTime<Utc>) -> PlannedDay {
+    PlannedDay {
+        day,
+        schedule: DaySchedule::Trailing {
+            claimable_after: UtcMillis::new(claimable_after.timestamp_millis()),
+        },
+    }
 }

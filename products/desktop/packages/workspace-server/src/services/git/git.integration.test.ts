@@ -2,7 +2,15 @@ import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { GitService } from "./service";
 
 function run(cmd: string, cwd: string): void {
@@ -24,6 +32,15 @@ async function createTempGitRepo(remoteUrl?: string): Promise<string> {
   return dir;
 }
 
+async function copyTempGitRepo(template: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "git-it-"));
+  await fs.cp(template, dir, {
+    recursive: true,
+    filter: (source) => !source.endsWith("fsmonitor--daemon.ipc"),
+  });
+  return dir;
+}
+
 async function createBareRemote(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "git-bare-"));
   run("git init --bare -b main", dir);
@@ -40,11 +57,16 @@ function commitAll(repoDir: string, message: string): void {
 describe("GitService integration (git-read + git-mutate)", () => {
   let git: GitService;
   let repo: string;
+  let repoTemplate: string;
   const dirs: string[] = [];
+
+  beforeAll(async () => {
+    repoTemplate = await createTempGitRepo();
+  });
 
   beforeEach(async () => {
     git = new GitService();
-    repo = await createTempGitRepo();
+    repo = await copyTempGitRepo(repoTemplate);
     dirs.push(repo);
   });
 
@@ -52,6 +74,10 @@ describe("GitService integration (git-read + git-mutate)", () => {
     await Promise.all(
       dirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })),
     );
+  });
+
+  afterAll(async () => {
+    await fs.rm(repoTemplate, { recursive: true, force: true });
   });
 
   describe("validateRepo", () => {

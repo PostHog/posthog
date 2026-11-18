@@ -1,13 +1,17 @@
 from dataclasses import dataclass
 from functools import cache
-from ipaddress import IPv6Address, collapse_addresses, ip_network
+from ipaddress import IPv4Network, IPv6Address, IPv6Network, collapse_addresses, ip_network
 
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
     AHREFSBOT_NETWORKS,
+    ANTHROPIC_CLAUDE_NETWORKS,
     APPLEBOT_NETWORKS,
     BINGBOT_NETWORKS,
+    COMMON_CRAWL_CCBOT_NETWORKS,
+    DUCKASSISTBOT_NETWORKS,
     GOOGLE_COMMON_CRAWLER_NETWORKS,
     GOOGLE_SPECIAL_CRAWLER_NETWORKS,
+    GOOGLE_USER_TRIGGERED_AGENT_NETWORKS,
     GOOGLE_USER_TRIGGERED_FETCHER_NETWORKS,
     OPENAI_CHATGPT_USER_NETWORKS,
     OPENAI_GPTBOT_NETWORKS,
@@ -46,6 +50,14 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Bot",
         "Google",
         networks=GOOGLE_SPECIAL_CRAWLER_NETWORKS,
+        documentation_url="https://developers.google.com/crawling/docs/verifying-google-crawlers",
+    ),
+    "google-user-triggered-agents": BotIPDefinition(
+        "Google-Agent",
+        "ai_assistant",
+        "AI Agent",
+        "Google",
+        networks=GOOGLE_USER_TRIGGERED_AGENT_NETWORKS,
         documentation_url="https://developers.google.com/crawling/docs/verifying-google-crawlers",
     ),
     "google-user-triggered-fetchers": BotIPDefinition(
@@ -123,6 +135,32 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         networks=AHREFSBOT_NETWORKS,
         documentation_url="https://ahrefs.com/robot",
     ),
+    # Anthropic publishes one list for ClaudeBot, Claude-User and Claude-SearchBot, so the
+    # ranges carry the ClaudeBot label. A user agent that names the bot still wins.
+    "anthropic-claude": BotIPDefinition(
+        "Claude",
+        "ai_crawler",
+        "AI Agent",
+        "Anthropic",
+        networks=ANTHROPIC_CLAUDE_NETWORKS,
+        documentation_url="https://claude.com/crawling/bots.json",
+    ),
+    "common-crawl-ccbot": BotIPDefinition(
+        "Common Crawl",
+        "ai_crawler",
+        "AI Agent",
+        "Common Crawl",
+        networks=COMMON_CRAWL_CCBOT_NETWORKS,
+        documentation_url="https://index.commoncrawl.org/ccbot.json",
+    ),
+    "duckassistbot": BotIPDefinition(
+        "DuckDuckGo AI",
+        "ai_assistant",
+        "AI Agent",
+        "DuckDuckGo",
+        networks=DUCKASSISTBOT_NETWORKS,
+        documentation_url="https://duckduckgo.com/duckassistbot.json",
+    ),
 }
 
 # The query-time matcher normalizes every address to IPv6 (IPv4 maps to ::ffff:a.b.c.d),
@@ -130,7 +168,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
 _IPV4_MAPPED_OFFSET = 96
 
 
-def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
+def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
     groups: dict[int, list[str]] = {}
     for cidr in cidrs:
         network = ip_network(cidr)
@@ -147,13 +185,13 @@ def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, .
 @cache
 def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, tuple[tuple[int, tuple[str, ...]], ...]], ...]:
     """Per-definition (prefixlen, network addresses) groups, for labeled lookups (bot name etc.)."""
-    return tuple((key, _ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
+    return tuple((key, ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
 
 
 @cache
 def merged_bot_ip_prefix_groups() -> tuple[tuple[int, tuple[str, ...]], ...]:
     """(prefixlen, network addresses) groups across all definitions, for the boolean is-bot check."""
     all_networks = [ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks]
-    v4 = collapse_addresses(n for n in all_networks if n.version == 4)
-    v6 = collapse_addresses(n for n in all_networks if n.version == 6)
-    return _ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))
+    v4 = collapse_addresses(n for n in all_networks if isinstance(n, IPv4Network))
+    v6 = collapse_addresses(n for n in all_networks if isinstance(n, IPv6Network))
+    return ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))

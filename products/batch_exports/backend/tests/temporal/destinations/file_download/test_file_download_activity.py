@@ -6,10 +6,13 @@ from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
-from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportInsertInputs,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
     ExportInputs,
     GenerateFileDownloadsInputs,
@@ -17,35 +20,28 @@ from products.batch_exports.backend.temporal.destinations.file_download_batch_ex
     export_to_file_download_bucket_with_temporary_credentials,
     generate_file_downloads,
 )
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    COMPRESSION_EXTENSIONS,
-    FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
-    s3_default_fields,
-)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import s3_default_fields
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials(check=has_valid_credentials),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_credentials(),
-        reason="AWS credentials not set in environment",
-    ),
 ]
 
 
-@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_export_to_file_download_bucket_puts_data_into_s3(
     clickhouse_client,
     activity_environment: ActivityEnvironment,
@@ -54,7 +50,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
     s3_client,
@@ -65,18 +61,14 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     """Test that export_to_file_download_bucket_with_temporary_credentials exports data to S3.
 
     The activity obtains temporary credentials via STS role assumption, constructs
-    S3InsertInputs, and delegates to insert_into_s3_activity_from_stage. We verify
+    S3InsertInputs, and delegates to insert_into_s3_from_stage. We verify
     the data ends up in the expected S3 location and matches what ClickHouse produces.
     """
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
@@ -96,7 +88,6 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
             run_id=run_id,
             backfill_details=None,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             destination_default_fields=s3_default_fields(),
         ),
     )
@@ -108,7 +99,6 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
             stage_folder=stage_result.stage_folder,
             records_total=stage_result.records_total,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             batch_export_id=batch_export_id,
             exclude_events=exclude_events,
             include_events=None,
@@ -143,13 +133,13 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         or result.records_completed == len(persons_to_export_created)
         or result.records_completed
         == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= result.records_completed <= 2)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and 1 <= result.records_completed <= 2)
     )
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, AnyBatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
@@ -167,6 +157,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         file_format=file_format,
         backfill_details=None,
         sort_key=sort_key,
+        legacy_parquet_extension=False,
     )
 
 

@@ -1,6 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.message_assets.sql import (
+
+from products.workflows.backend.facade.clickhouse import (
     DISTRIBUTED_MESSAGE_ASSETS_TABLE_SQL,
     KAFKA_MESSAGE_ASSETS_TABLE_SQL,
     MESSAGE_ASSETS_DATA_TABLE_SQL,

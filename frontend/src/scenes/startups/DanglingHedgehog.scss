@@ -1,0 +1,58 @@
+.DanglingHedgehog {
+    // The column tracks the window rather than the page, so the hedgehog stays in view while the
+    // page scrolls past it.
+    height: calc(100dvh - var(--minimal-navigation-height));
+
+    &__rig {
+        animation: DanglingHedgehog__climb 11s ease-in-out infinite;
+    }
+
+    &__pendulum {
+        // The rope hangs from 32.5% across the canvas, and the top of this box is the overshoot
+        // above the column, which is where an anchor out of view would hold it.
+        transform-origin: 32.5% 0;
+
+        &.is-swinging {
+            animation: DanglingHedgehog__sway 7s ease-in-out infinite;
+        }
+    }
+
+    &__hog {
+        // Only the top edge is a crop: it cuts the rope at the halfway line of the canvas, where
+        // the rope crop above takes over. The other three edges keep room for the swing, so the
+        // coiled rope under the hedgehog stays whole.
+        clip-path: inset(0 -12px -12px -12px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &__rig,
+        &__pendulum.is-swinging {
+            animation: none;
+        }
+    }
+}
+
+@keyframes DanglingHedgehog__climb {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(72px);
+    }
+}
+
+// Only the two ends of the swing are keyframes. The easing curve runs between each pair of
+// keyframes, so a third keyframe at the middle would stop the hedgehog there twice a cycle, which
+// reads as a swing that keeps stalling. A pendulum turns at its ends and is fastest in the middle.
+@keyframes DanglingHedgehog__sway {
+    0%,
+    100% {
+        transform: rotate(-2deg);
+    }
+
+    50% {
+        transform: rotate(2deg);
+    }
+}

@@ -6,6 +6,7 @@ from .mapping import find_hogql_aggregation, find_hogql_function, find_hogql_pos
 from .recording_button import recording_button
 from .sparkline import sparkline
 from .survey import get_survey_response, unique_survey_submissions_filter
+from .with_icon import with_icon
 
 __all__ = [
     "find_hogql_function",
@@ -18,6 +19,7 @@ __all__ = [
     "cohort",
     "sparkline",
     "recording_button",
+    "with_icon",
     "explain_csp_report",
     "get_survey_response",
     "unique_survey_submissions_filter",

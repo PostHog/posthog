@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_defer' */ \n                UPDATE person_publish_outbox o\n                SET last_error = u.last_error, attempts = o.attempts + 1\n                FROM unnest($1::bigint[], $2::text[]) AS u(id, last_error)\n                WHERE o.id = u.id\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce4a22eb1a61cb97207fec2a0c921b4fa8d5a0de7240f68b25a06d39753ebf27"
+}

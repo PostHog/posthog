@@ -1,9 +1,16 @@
+from collections.abc import Callable
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.paging import PageRequest
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.logic.account_property_runs import (
@@ -14,12 +21,15 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     start_account_property_sync_runs,
     update_account_property_sync_runs_phase,
 )
+from products.customer_analytics.backend.logic.custom_property_source_health import MAX_CONSECUTIVE_SYNC_FAILURES
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
 from products.customer_analytics.backend.models.custom_property_sync_run import SyncPhase, SyncSegment, SyncStatus
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
 
 DataWarehouseSavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+
+HEALTH_SERVICE = "products.customer_analytics.backend.logic.custom_property_source_health"
 
 
 class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
@@ -84,40 +94,34 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert {str(run.workflow_run_id) for run in runs} == {"00000000-0000-4000-8000-000000000001"}
         assert {run.attempt for run in runs} == {0}
 
-        views, total_count = api.list_custom_property_sync_runs(
-            self.team.id,
-            str(self.source.id),
-            offset=0,
-            limit=10,
-        )
-        assert total_count == 2
+        runs_page = api.list_custom_property_sync_runs(self.team.id, str(self.source.id), page=PageRequest(limit=10))
+        views = runs_page.results
+        assert runs_page.count == 2
         assert {view.account_segment for view in views} == {"tracked", "ignored"}
         assert {view.sync_phase for view in views} == {"staging"}
         assert {view.job_id for view in views} == {"job-1"}
         assert {view.workflow_id for view in views} == {None}
-        assert {view.workflow_run_id for view in views} == {None}
+        assert {str(view.workflow_run_id) for view in views} == {"00000000-0000-4000-8000-000000000001"}
         assert {view.temporal_url for view in views} == {None}
 
-        staff_views, _ = api.list_custom_property_sync_runs(
+        staff_views = api.list_custom_property_sync_runs(
             self.team.id,
             str(self.source.id),
-            offset=0,
-            limit=10,
+            page=PageRequest(limit=10),
             include_temporal_urls=True,
-        )
+        ).results
         assert {view.workflow_id for view in staff_views} == {"stage-workflow-job-1"}
         assert {str(view.workflow_run_id) for view in staff_views} == {"00000000-0000-4000-8000-000000000001"}
         assert all(view.temporal_url is not None for view in staff_views)
 
-        search_views, search_count = api.list_custom_property_sync_runs(
+        search_page = api.list_custom_property_sync_runs(
             self.team.id,
             str(self.source.id),
-            offset=0,
-            limit=20,
+            page=PageRequest(limit=20),
             search="ignored",
         )
-        assert search_count == 1
-        assert [view.account_segment for view in search_views] == ["ignored"]
+        assert search_page.count == 1
+        assert [view.account_segment for view in search_page.results] == ["ignored"]
 
     def test_phase_updates_record_retries_without_regressing_the_sibling(self) -> None:
         self._start_runs()
@@ -159,18 +163,72 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
             "00000000-0000-4000-8000-000000000001",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "phase",
+                lambda context, source_id: update_account_property_sync_runs_phase(
+                    context,
+                    phase=SyncPhase.SYNCING,
+                    workflow_id="sync-workflow-job-1-tracked",
+                    workflow_run_id="00000000-0000-4000-8000-000000000002",
+                    attempt=2,
+                    segment=SyncSegment.TRACKED,
+                    source_id=source_id,
+                ),
+                ("running", "syncing"),
+            ),
+            (
+                "finalize",
+                lambda context, source_id: finalize_account_property_sync_runs(
+                    context,
+                    status=SyncStatus.FAILED,
+                    phase=SyncPhase.SYNCING,
+                    error="Couldn't update accounts.",
+                    segment=SyncSegment.TRACKED,
+                    source_id=source_id,
+                ),
+                ("failed", "syncing"),
+            ),
+        ]
+    )
+    def test_source_scoped_updates_leave_sibling_sources_untouched(
+        self,
+        _case: str,
+        update: Callable[[AccountPropertySyncRunContext, UUID], None],
+        expected: tuple[str, str],
+    ) -> None:
+        sibling = CustomPropertySource.objects.create(
+            team=self.team,
+            definition=create_custom_property_definition(team_id=self.team.id, name="Tier"),
+            saved_query=self.saved_query,
+            key_column="external_id",
+            source_column="tier",
+        )
+        self._start_runs()
+
+        update(self.context, self.source.id)
+
+        states = {
+            (run.source_id, run.segment): (run.status, run.phase)
+            for run in CustomPropertySyncRun.objects.for_team(self.team.id).filter(job_id="job-1")
+        }
+        assert states == {
+            (self.source.id, "tracked"): expected,
+            (self.source.id, "ignored"): ("running", "staging"),
+            (sibling.id, "tracked"): ("running", "staging"),
+            (sibling.id, "ignored"): ("running", "staging"),
+        }
+
     def test_account_runs_remain_active_during_their_workflow_timeout(self) -> None:
         self._start_runs()
         CustomPropertySyncRun.objects.for_team(self.team.id).filter(source=self.source).update(
             started_at=timezone.now() - timedelta(hours=7)
         )
 
-        views, _ = api.list_custom_property_sync_runs(
-            self.team.id,
-            str(self.source.id),
-            offset=0,
-            limit=10,
-        )
+        views = api.list_custom_property_sync_runs(
+            self.team.id, str(self.source.id), page=PageRequest(limit=10)
+        ).results
 
         assert {view.status for view in views} == {"running"}
 
@@ -249,3 +307,21 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert (tracked.status, tracked.phase, tracked.produced) == ("completed", "completed", 3)
         assert (ignored.status, ignored.phase, ignored.error) == ("running", "staging", None)
         assert CustomPropertySyncRun.objects.for_team(self.team.id).filter(source=self.source).count() == 2
+
+    @patch(f"{HEALTH_SERVICE}.notify_source_auto_disabled")
+    def test_the_fifth_failed_sync_disables_the_source_and_tells_its_owner_once(self, mock_notify) -> None:
+        self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
+        self.source.save(update_fields=["consecutive_failures"])
+        self._start_runs()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            finalize_account_property_sync_runs(
+                self.context,
+                status=SyncStatus.FAILED,
+                phase=SyncPhase.STAGING,
+                error="Couldn't prepare warehouse rows.",
+            )
+
+        self.source.refresh_from_db()
+        assert self.source.is_enabled is False
+        mock_notify.assert_called_once_with(team_id=self.team.id, source_id=self.source.id, disable_event_id="job-1")

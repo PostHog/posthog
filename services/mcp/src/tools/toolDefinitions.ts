@@ -31,6 +31,19 @@ export const ToolDefinitionSchema = z
          */
         hidden_when_flag_on: z.string().optional(),
         /**
+         * Tool names that took over this tool's job. Declared next to the gate
+         * that retires the tool, so a call to the retired name can name its
+         * successor instead of reporting the name as unknown.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
+        /**
+         * The Django endpoints the handler calls, as `METHOD /path` with OpenAPI path templates.
+         * A narrowed scout run is refused a non-GET call when no tool it holds lists the endpoint.
+         */
+        api_operations: z.array(z.string()).optional(),
+        /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
          * `premium_feature_on_cloud`. Best-effort — the backend
@@ -39,6 +52,7 @@ export const ToolDefinitionSchema = z
         feature_entitlement: z.string().optional(),
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string()).optional(),
         /**
          * When true, the tool is exposed even when the client passes a `features`
          * or `tools` allowlist that wouldn't otherwise match. Reserved for
@@ -69,7 +83,7 @@ let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
-const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create-markdown', 'notebooks-add-cell'] as const
 
 function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
     const widgetCatalog = formatNotebookWidgetCatalogForAgents()
@@ -172,6 +186,7 @@ export function getToolDescription(toolName: string): string | undefined {
 }
 
 export interface ToolFilterOptions {
+    definitions?: ToolDefinitions | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
     excludeTools?: string[] | undefined
@@ -269,10 +284,16 @@ export function toolPassesEntitlementGate(
     return availableFeatures.includes(definition.feature_entitlement)
 }
 
-export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+/**
+ * Every catalog filter, with the flag gate optional: {@link getToolsForFeatures}
+ * drops what the flags hide, {@link getFlagGatedTools} keeps exactly that set.
+ */
+function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
-    const toolDefinitions = getToolDefinitions()
+    const toolDefinitions = options?.definitions
+        ? { ...getToolDefinitions(), ...options.definitions }
+        : getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
 
@@ -310,7 +331,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
-    entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    if (applyFlagGate) {
+        entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    }
 
     // Filter by billing entitlement — see {@link toolPassesEntitlementGate}.
     entries = entries.filter(([_, definition]) => toolPassesEntitlementGate(definition, availableFeatures, isCloud))
@@ -323,15 +346,59 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         )
     }
 
-    return entries.map(([toolName, _]) => toolName)
+    return entries
+}
+
+export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+    return filterToolEntries(options, true).map(([toolName, _]) => toolName)
+}
+
+export interface FlagGatedTool {
+    name: string
+    /** Tool names the definition declares as this tool's successors, in the order it lists them. */
+    supersededBy: string[]
+    /** Free-text guidance the definition adds to the redirect. */
+    redirectHint?: string
+}
+
+/**
+ * Tools a feature flag removed from the active catalog, while every other filter
+ * kept them. The exec dispatcher reads this so a call to a retired name reports
+ * the successor, or reports that the tool is not enabled — never that the name
+ * is unknown, which reads to an agent as a removed capability.
+ *
+ * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
+ * leaves them out: the hint would advertise a staff surface to a customer.
+ */
+export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: FlagGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries(options, false)) {
+        if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
+            continue
+        }
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
+        gated.push({
+            name,
+            supersededBy: definition.superseded_by ?? [],
+            ...(definition.redirect_hint ? { redirectHint: definition.redirect_hint } : {}),
+        })
+    }
+
+    return gated
 }
 
 export interface ScopeGatedTool {
     name: string
     title: string
     description: string
+    searchKeywords?: string[]
     /** Scopes the tool requires that the current API key is missing. */
     missingScopes: string[]
+    requiredScopes: readonly string[]
 }
 
 /**
@@ -364,7 +431,9 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
             name,
             title: definition.title,
             description: definition.description,
+            searchKeywords: definition.search_keywords,
             missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+            requiredScopes: required,
         })
     }
 

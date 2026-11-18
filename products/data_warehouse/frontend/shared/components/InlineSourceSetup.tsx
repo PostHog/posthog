@@ -5,20 +5,19 @@ import { useEffect, useState } from 'react'
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+import type { ExternalDataSourceType } from '~/types'
+
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { wizardDetectedSourcesLogic } from 'products/wizard/frontend/logics/wizardDetectedSourcesLogic'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
-import { SourceIcon } from './SourceIcon'
+import { inlineSourceGrid } from './inlineSourceGrid'
+import { type InlineSourceItem, InlineSourceTile } from './InlineSourceTile'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
-
-interface SourceItem {
-    id: ExternalDataSourceType
-    label: string
-}
 
 export interface InlineSourceSetupProps {
     /** Callback when source connection is completed */
@@ -56,6 +55,7 @@ function InternalInlineSourceSetup({
     onFormSuccess,
 }: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
+    const { detectedSourceTypes } = useValues(wizardDetectedSourcesLogic)
     const { searchParams, location } = useValues(router)
     const { replace } = useActions(router)
 
@@ -63,7 +63,7 @@ function InternalInlineSourceSetup({
     const [searchQuery, setSearchQuery] = useState('')
 
     // Filter out unreleased sources
-    const availableConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
+    const availableConnectors = connectors.filter((c: SourceConfigResponseApi) => !c.unreleasedSource)
 
     // Resume an OAuth round-trip: an OAuth source redirects the whole page to the provider and
     // back to this onboarding URL with ?kind=<source>. On mount, re-open the wizard for that
@@ -84,22 +84,18 @@ function InternalInlineSourceSetup({
         replace(location.pathname, restParams)
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-    const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)
-    const hiddenSources = availableConnectors.filter((c: SourceConfig) => !c.featured)
+    const isSearching = searchQuery.trim().length > 0
+    const { shown, hiddenCount } = inlineSourceGrid({
+        connectors: availableConnectors,
+        detectedTypes: detectedSourceTypes,
+        featuredOnly: !expanded,
+        query: searchQuery,
+    })
 
-    const trimmedQuery = searchQuery.trim().toLowerCase()
-    const isSearching = trimmedQuery.length > 0
-    // While searching, match across every source — the featured/expand split only applies
-    // to the default (unsearched) view.
-    const sourcesToShow = isSearching
-        ? availableConnectors.filter((c: SourceConfig) => (c.label ?? c.name).toLowerCase().includes(trimmedQuery))
-        : expanded
-          ? availableConnectors
-          : featuredSources
-
-    const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfig) => ({
+    const sourceItems: InlineSourceItem[] = shown.map((source: SourceConfigResponseApi) => ({
         id: source.name,
         label: source.label ?? source.name,
+        detected: detectedSourceTypes.has(source.name),
     }))
 
     const effectiveTitle = title ?? `Choose from ${availableConnectors.length} sources`
@@ -134,14 +130,7 @@ function InternalInlineSourceSetup({
                         {sourceItems.length > 0 ? (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                                 {sourceItems.map((source) => (
-                                    <div
-                                        key={source.id}
-                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
-                                        onClick={() => onSourceSelect(source.id)}
-                                    >
-                                        <SourceIcon type={source.id} size="small" disableTooltip />
-                                        <span className="font-medium text-sm">{source.label}</span>
-                                    </div>
+                                    <InlineSourceTile key={source.id} source={source} onSelect={onSourceSelect} />
                                 ))}
                             </div>
                         ) : (
@@ -150,7 +139,7 @@ function InternalInlineSourceSetup({
                             </p>
                         )}
 
-                        {!isSearching && featured && !expanded && hiddenSources.length > 0 && (
+                        {!isSearching && featured && !expanded && hiddenCount > 0 && (
                             <div className="flex justify-center pt-2">
                                 <LemonButton
                                     type="secondary"
@@ -158,8 +147,8 @@ function InternalInlineSourceSetup({
                                     onClick={() => setExpanded(true)}
                                     size="small"
                                 >
-                                    Show {hiddenSources.length} more source
-                                    {hiddenSources.length !== 1 ? 's' : ''}
+                                    Show {hiddenCount} more source
+                                    {hiddenCount !== 1 ? 's' : ''}
                                 </LemonButton>
                             </div>
                         )}
@@ -179,7 +168,7 @@ function InternalInlineSourceSetup({
                         <NewSourcesWizard
                             hideBackButton
                             onComplete={onFormSuccess}
-                            allowedSources={availableConnectors.map((c: SourceConfig) => c.name)}
+                            allowedSources={availableConnectors.map((c: SourceConfigResponseApi) => c.name)}
                             initialSource={selectedSource}
                             autoConfigureTables={autoConfigureTables}
                         />

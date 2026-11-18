@@ -1,13 +1,15 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
+import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+
+import { AIAccessRequest } from './AIAccessRequest'
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
-import { aiConsentLogic } from './aiConsentLogic'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -15,7 +17,7 @@ export function AIConsentPopoverContent({
     approvalDisabledReason,
     hideTrainingDisclaimer,
 }: {
-    onApprove: () => void
+    onApprove: () => void | Promise<void>
     onDismiss: () => void
     approvalDisabledReason: string | null
     /** Omit the "won't be used for training third-party models" line where it doesn't apply. */
@@ -57,9 +59,6 @@ export function AIConsentPopoverContent({
 }
 
 function AIAccessRequestPopoverContent(): JSX.Element {
-    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
-    const { requestAiAccess } = useActions(aiConsentLogic)
-
     return (
         <div className="flex flex-col gap-2 m-1.5 max-w-prose">
             <p className="font-medium text-pretty">
@@ -67,17 +66,7 @@ function AIAccessRequestPopoverContent(): JSX.Element {
                 organization owner or admin.
             </p>
             <div className="flex self-end">
-                <LemonButton
-                    data-attr="ai-access-request"
-                    type="primary"
-                    size="xsmall"
-                    onClick={() => requestAiAccess()}
-                    loading={requestingAiAccess}
-                    disabledReason={aiAccessRequested ? 'Your request has been sent' : undefined}
-                    sideIcon={aiAccessRequested ? <IconCheck /> : <IconArrowRight />}
-                >
-                    {aiAccessRequested ? 'Request sent' : 'Request access'}
-                </LemonButton>
+                <AIAccessRequest />
             </div>
         </div>
     )
@@ -88,6 +77,7 @@ export function AIConsentPopoverWrapper({
     children,
     ignoreDismissal,
     onApprove,
+    onBeforeApprove,
     onDismiss,
     hideTrainingDisclaimer,
     pendingRedirectUrl,
@@ -98,6 +88,11 @@ export function AIConsentPopoverWrapper({
     /** Always show popover regardless of prior dismissal. */
     ignoreDismissal?: boolean
     onApprove?: () => void
+    /**
+     * Runs once the person confirms, before the approval request. That request can trigger a
+     * full-page SSO reauthentication, so persist here anything `onApprove` would need after it.
+     */
+    onBeforeApprove?: () => void
     onDismiss?: () => void
     /** Passed through to AIConsentPopoverContent. */
     hideTrainingDisclaimer?: boolean
@@ -128,7 +123,7 @@ export function AIConsentPopoverWrapper({
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
-                        onApprove={() => {
+                        onApprove={async () => {
                             if (pendingRedirectUrl && currentOrganization) {
                                 // Cleared by the acceptDataProcessing listener on success or failure.
                                 setPendingApprovalRedirect({
@@ -137,9 +132,9 @@ export function AIConsentPopoverWrapper({
                                     setAt: Date.now(),
                                 })
                             }
-                            void acceptDataProcessing()
-                                .then(() => onApprove?.())
-                                .catch(console.error)
+                            onBeforeApprove?.()
+                            await acceptDataProcessing()
+                            onApprove?.()
                         }}
                         onDismiss={handleDismiss}
                     />

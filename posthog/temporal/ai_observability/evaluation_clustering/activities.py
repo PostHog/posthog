@@ -217,8 +217,6 @@ def _parse_iso(ts: str | None) -> datetime | None:
 
 
 def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationClusteringComputeResult:
-    team = Team.objects.get(id=inputs.team_id)
-
     # Prefer the workflow-provided window so compute and metadata operate on the
     # identical time slice. Fall back to activity-local time for replays / manual
     # invocations that don't set it.
@@ -231,6 +229,22 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
     # year, and the `timestamp BETWEEN` filter on the day-window query never matched.
     base_run_id = f"{inputs.team_id}_evaluation_{window_end_dt.strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
+
+    # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
+    try:
+        team = Team.objects.get(id=inputs.team_id)
+    except Team.DoesNotExist:
+        logger.info("Team not found, skipping eval clustering run", team_id=inputs.team_id, job_id=inputs.job_id)
+        return EvaluationClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            eval_ids=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            skip_reason="team_not_found",
+        )
 
     # Bound the random embedding sample to the same window Stage B's metadata
     # query uses — otherwise the sample can include older eval ids whose linked

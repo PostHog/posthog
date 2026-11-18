@@ -39,6 +39,27 @@ scrape:
 # the full env surface.
 podEnv: {}
 
+# Pull metrics from Google Cloud Monitoring in addition to (or instead of)
+# Prometheus scraping. Set projectId to enable. Not compatible with shards > 1:
+# every shard would pull the same series. Run a separate release for Google
+# Cloud Monitoring instead. A GCP-only install sets
+# scrape.annotationDiscovery: false and may set rbac.create: false.
+gcp:
+    projectId: ''
+    # Metric types to pull, e.g. ['compute.googleapis.com/instance/cpu/utilization'].
+    metrics: []
+    # Metric descriptor filters, e.g. ['metric.type = starts_with("compute.googleapis.com/")'].
+    metricFilters: []
+    # Minimum 60s (rejected by the collector below that: Cloud Monitoring quota).
+    collectionInterval: 60s
+    # service_name set on every pulled metric in PostHog.
+    serviceName: google-cloud-monitoring
+    # Service account JSON key in an existing Secret. Leave name empty on GKE
+    # with Workload Identity (annotate the service account below instead).
+    credentialsSecret:
+        name: ''
+        key: credentials.json
+
 # Disk-backed delivery queue: samples scraped while PostHog is unreachable
 # survive pod restarts and deliver on recovery. Without it the queue is
 # in-memory and a restart during an outage drops whatever was buffered.
@@ -60,6 +81,9 @@ rbac:
 serviceAccount:
     create: true
     name: ''
+    # e.g. GKE Workload Identity for Google Cloud Monitoring:
+    # iam.gke.io/gcp-service-account: agent@my-project.iam.gserviceaccount.com
+    annotations: {}
 
 nodeSelector: {}
 tolerations: []

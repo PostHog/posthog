@@ -7,6 +7,7 @@ import type { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { subscriptionDestination } from './subscriptionDestination'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 import { subscriptionResourceLabel, subscriptionResourceViewUrl } from './SubscriptionsTable'
@@ -40,7 +41,9 @@ export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Elem
                 <div>
                     <dt className="text-sm text-secondary">Destination</dt>
                     <dd className="min-w-0">
-                        <SubscriptionDestinationCell sub={sub} />
+                        <SubscriptionDestinationCell
+                            destination={subscriptionDestination(sub.target_type, sub.target_value)}
+                        />
                     </dd>
                 </div>
                 <div className="min-w-0">

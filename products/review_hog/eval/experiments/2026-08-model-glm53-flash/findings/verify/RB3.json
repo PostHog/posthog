@@ -1,0 +1,6 @@
+{
+    "id": "RB3",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted. The serializer field is not a different concern under the same name: it is the ModelSerializer field for the model column urgency_threshold (api/settings.py:62 Meta.fields -> models.py:296), and DRF requires the names to match to map. Its ChoiceField derives choices directly from the model enum (api/settings.py:41 choices=ReviewUserSettings.UrgencyThreshold.choices), so the value set has a single source of truth and cannot silently diverge; adding an enum value propagates automatically. The serializer override exists only for required=False and help_text. 'Grep returns both' is true of every DRF model/serializer field pair. Finding concedes nothing is broken; no divergence mechanism exists."
+}

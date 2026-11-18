@@ -25,9 +25,9 @@ from typing import Literal
 
 import requests
 import structlog
-from openai import OpenAI
+from anthropic import Anthropic
 
-from posthog.llm.gateway_client import Product, get_llm_client
+from posthog.llm.gateway_client import Product, build_anthropic_client, team_distinct_id
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -129,6 +129,26 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
 
 
+# The builder's only other route is the "Configure manually" button, so every failure points there.
+_CONFIGURE_MANUALLY = 'choose "Configure manually"'
+
+
+def _docs_fetch_error_message(exc: requests.RequestException) -> str:
+    """Name the likely cause and a next step the builder actually offers.
+
+    `str(exc)` carries a status line and the URL the caller typed, which can hold a token, so the
+    raw reason is logged rather than returned.
+    """
+    status_code = exc.response.status_code if exc.response is not None else None
+    if status_code in (401, 403):
+        return f"That docs page needs a login. Link a page anyone can open, or {_CONFIGURE_MANUALLY}."
+    if status_code == 404:
+        return f"There is no page at that address. Check the link, or {_CONFIGURE_MANUALLY}."
+    if isinstance(exc, requests.Timeout):
+        return f"That docs page took too long to answer. Try again, or {_CONFIGURE_MANUALLY}."
+    return f"PostHog couldn't reach that docs page. Check the link, or {_CONFIGURE_MANUALLY}."
+
+
 def fetch_docs_text(url: str) -> str:
     """Fetch an API docs page and return its text. HTML is reduced to visible text; other content
     types are returned as-is. Relies on Smokescreen for SSRF protection — do NOT bypass the proxy.
@@ -147,14 +167,23 @@ def fetch_docs_text(url: str) -> str:
                 if len(raw) >= DOCS_FETCH_MAX_BYTES:
                     break
     except requests.RequestException as exc:
-        raise DocsFetchError(f"Could not fetch the docs URL: {exc}") from exc
+        # `str(exc)` embeds the URL, which can carry a token in its query string or userinfo, so the
+        # log gets the class and the status only.
+        logger.warning(
+            "custom_source_docs_fetch_failed",
+            error_type=type(exc).__name__,
+            status_code=exc.response.status_code if exc.response is not None else None,
+        )
+        raise DocsFetchError(_docs_fetch_error_message(exc)) from exc
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
     if "html" in content_type.lower():
         text = _html_to_text(text)
     text = text.strip()
     if not text:
-        raise DocsFetchError("The docs URL returned no readable text — paste the docs or an OpenAPI spec instead.")
+        raise DocsFetchError(
+            f"That docs page has no readable text. Link the API reference itself, or {_CONFIGURE_MANUALLY}."
+        )
     return text
 
 
@@ -166,8 +195,8 @@ def _collapse_untrusted(text: str) -> str:
 def extract_manifest_json(content: str) -> dict | None:
     """Parse the model's reply into a manifest dict, tolerating fences or surrounding prose.
 
-    ``response_format={"type": "json_object"}`` isn't reliably honoured through the gateway's
-    Anthropic route, so the reply can arrive fenced or with leading text. Try the whole string,
+    The Anthropic Messages API has no JSON mode, so the reply can arrive fenced or with leading
+    text. Try the whole string,
     then a fenced block, then the outermost ``{…}`` span. Returns the dict, or None if nothing
     parses to a JSON object.
     """
@@ -294,22 +323,19 @@ def _validate_manifest(manifest: dict, *, team_id: int) -> tuple[list[str], str 
     return [schema.name for schema in schemas], None
 
 
-def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt: str) -> str:
+def _call_model(*, client: Anthropic, team_id: int, system_prompt: str, user_prompt: str) -> str:
     # Bound each call: the SDK defaults to a 600s timeout and automatic retries, so without this one
     # synchronous draft request could pin a web worker for many minutes. Fail fast and let the draft
     # loop / caller surface the error instead. (A Temporal-backed async path is the longer-term fix.)
-    response = client.with_options(timeout=90.0, max_retries=0).chat.completions.create(
+    response = client.with_options(timeout=90.0, max_retries=0).messages.create(
         model=CUSTOM_SOURCE_BUILDER_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
         # No `temperature`: it's deprecated/rejected for claude-opus-4-8 (the model fixes it).
         max_tokens=MAX_OUTPUT_TOKENS,
-        response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        metadata={"user_id": team_distinct_id(team_id)},
     )
-    return response.choices[0].message.content or ""
+    return "".join(block.text for block in response.content if block.type == "text")
 
 
 def draft_manifest_sync(
@@ -318,7 +344,7 @@ def draft_manifest_sync(
     source_name: str,
     docs_text: str,
     max_attempts: int = MAX_DRAFT_ATTEMPTS,
-    client: OpenAI | None = None,
+    client: Anthropic | None = None,
     reference_text: str | None = None,
 ) -> ManifestDraftResult:
     """Draft and validate a manifest, repairing against validation errors up to ``max_attempts``.
@@ -327,7 +353,16 @@ def draft_manifest_sync(
     AI-data-processing opt-in before calling: this ships the docs text to the LLM gateway.
     """
     reference_text = reference_text if reference_text is not None else load_skill_reference()
-    client = client if client is not None else get_llm_client(product=CUSTOM_SOURCE_BUILDER_PRODUCT, team_id=team_id)
+    client = (
+        client
+        if client is not None
+        else build_anthropic_client(
+            product=CUSTOM_SOURCE_BUILDER_PRODUCT,
+            ai_product=CUSTOM_SOURCE_BUILDER_PRODUCT,
+            distinct_id=team_distinct_id(team_id),
+            team_id=team_id,
+        )
+    )
 
     system_prompt = build_system_prompt(reference_text)
     docs = _bounded_docs(docs_text)

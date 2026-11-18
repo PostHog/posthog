@@ -1,3 +1,11 @@
+import { context, propagation, trace } from '@opentelemetry/api'
+import {
+    InMemorySpanExporter,
+    NodeTracerProvider,
+    ReadableSpan,
+    SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-node'
+
 import { LazyLoader } from './lazy-loader'
 import { delay } from './utils'
 
@@ -133,6 +141,26 @@ describe('LazyLoader', () => {
         })
     })
 
+    describe('getMany with flush', () => {
+        it('issues the buffered load at once, carrying keys already buffered, and later gets join it', async () => {
+            const slowBufferLoader = new LazyLoader<string>({ name: 'test', loader, bufferMs: 5000 })
+            loader.mockImplementation(async (keys: string[]) => {
+                await delay(20)
+                return Object.fromEntries(keys.map((key) => [key, { val: key }]))
+            })
+
+            const buffered = slowBufferLoader.get('key1')
+            const flushed = slowBufferLoader.getMany(['key2'], { flush: true })
+            const joined = slowBufferLoader.get('key1')
+
+            const results = await Promise.all([buffered, flushed, joined])
+
+            expect(loader).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledWith(['key1', 'key2'])
+            expect(results).toEqual([{ val: 'key1' }, { key2: { val: 'key2' } }, { val: 'key1' }])
+        })
+    })
+
     describe('getMany', () => {
         it('loads and caches multiple values', async () => {
             loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })
@@ -175,6 +203,50 @@ describe('LazyLoader', () => {
         })
     })
 
+    describe('spans', () => {
+        let exporter: InMemorySpanExporter
+        let provider: NodeTracerProvider
+
+        beforeEach(() => {
+            exporter = new InMemorySpanExporter()
+            provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+            provider.register()
+        })
+
+        afterEach(async () => {
+            await provider.shutdown()
+            trace.disable()
+            context.disable()
+            propagation.disable()
+        })
+
+        const loadSpans = (): ReadableSpan[] =>
+            exporter.getFinishedSpans().filter((span) => span.name === 'lazyLoader.loadViaCache')
+
+        it('spans loads and in-flight waits, and skips the span on a full cache hit', async () => {
+            loader.mockResolvedValue({ key1: 'value1' })
+
+            const first = lazyLoader.get('key1')
+            const second = lazyLoader.get('key1')
+            await Promise.all([first, second])
+
+            expect(loadSpans().map((span) => span.attributes['lazyloader.outcome'])).toEqual([
+                'loaded',
+                'waited_pending',
+            ])
+            expect(loadSpans()[1].attributes).toMatchObject({
+                'lazyloader.name': 'test',
+                'lazyloader.keys': 1,
+                'lazyloader.misses': 1,
+                'lazyloader.outcome': 'waited_pending',
+            })
+
+            await lazyLoader.get('key1')
+
+            expect(loadSpans()).toHaveLength(2)
+        })
+    })
+
     describe('refresh behavior', () => {
         it('refreshes values after refreshAge', async () => {
             loader.mockResolvedValueOnce({ key1: 'value1' }).mockResolvedValueOnce({ key1: 'value2' })
@@ -187,6 +259,88 @@ describe('LazyLoader', () => {
 
             await lazyLoader.get('key1')
             expect(loader).toHaveBeenCalledTimes(2)
+        })
+
+        it('drops expired entries from memory on the next lookup', async () => {
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2' }).mockResolvedValueOnce({ key3: 'value3' })
+            await lazyLoader.getMany(['key1', 'key2'])
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            await lazyLoader.get('key3')
+
+            expect(lazyLoader.getCache()).toEqual({ key3: 'value3' })
+            expect(lazyLoader['cacheSize']).toBe(1)
+        })
+
+        describe('a lookup still waiting when another lookup drops expired entries', () => {
+            const setupSlowLoader = (): {
+                lazy: LazyLoader<string>
+                loaderCalledWith: (key: string) => Promise<void>
+                release: (key: string, values: Record<string, string>) => Promise<void>
+            } => {
+                const resolvers = new Map<string, (values: Record<string, string>) => void>()
+                const waiters = new Map<string, () => void>()
+                const lazy = new LazyLoader<string>({
+                    name: 'test',
+                    loader: (keys) =>
+                        new Promise((resolve) => {
+                            for (const key of keys) {
+                                resolvers.set(key, resolve)
+                                waiters.get(key)?.()
+                            }
+                        }),
+                    refreshAgeMs: 30_000,
+                    refreshJitterMs: 0,
+                    bufferMs: 0,
+                })
+                const loaderCalledWith = (key: string): Promise<void> =>
+                    resolvers.has(key) ? Promise.resolve() : new Promise((resolve) => waiters.set(key, resolve))
+                const release = async (key: string, values: Record<string, string>): Promise<void> => {
+                    await loaderCalledWith(key)
+                    resolvers.get(key)!(values)
+                }
+                return { lazy, loaderCalledWith, release }
+            }
+
+            const dropExpiredEntries = async (
+                lazy: LazyLoader<string>,
+                release: (key: string, values: Record<string, string>) => Promise<void>
+            ): Promise<void> => {
+                jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+                const lookup = lazy.get('other')
+                await release('other', { other: 'OTHER' })
+                await lookup
+            }
+
+            it('keeps a value it already had from the cache', async () => {
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await release('a', { a: 'A' })
+                await first
+
+                jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
+                const both = lazy.getMany(['a', 'b'])
+                await loaderCalledWith('b')
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
+
+            it('keeps a value that finished loading before its other keys', async () => {
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await loaderCalledWith('a')
+                const both = lazy.getMany(['a', 'b'])
+                await loaderCalledWith('b')
+
+                await release('a', { a: 'A' })
+                await first
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
         })
 
         it('respects custom refreshAge', async () => {
@@ -453,9 +607,9 @@ describe('LazyLoader', () => {
             loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
-            // Reloading an expired key replaces its entry rather than adding one, so the cache is
-            // still at maxSize and nothing live gets evicted.
-            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            // Reloading a key replaces its entry rather than adding one, so the cache is still at
+            // maxSize and nothing live gets evicted.
+            customLoader.markForRefresh('key1')
             loader.mockResolvedValueOnce({ key1: 'value1-refreshed' })
             await customLoader.get('key1')
 

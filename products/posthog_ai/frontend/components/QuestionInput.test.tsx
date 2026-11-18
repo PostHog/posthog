@@ -164,12 +164,56 @@ describe('QuestionInput', () => {
         })
     })
 
-    it('shows a sending state and blocks interaction while a reply is in flight', () => {
-        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
-        render(<QuestionInput streamKey="conv-1" request={makeRequest([goalQuestion])} />)
+    it.each([
+        {
+            caseName: 'an input prompt',
+            extra: { placeholder: 'Button label' },
+            findField: () => screen.getByPlaceholderText('Button label'),
+            typed: 'Download CSV',
+            sent: 'Download CSV',
+        },
+        {
+            caseName: 'an editor prompt',
+            extra: { defaultAnswer: 'Line one\nLine two', multiline: true },
+            findField: () => screen.getByDisplayValue(/Line one/),
+            typed: undefined,
+            sent: 'Line one\nLine two',
+        },
+    ])('answers $caseName through a field that is open from the start', ({ extra, findField, typed, sent }) => {
+        const question: AgentQuestion = { question: 'What should it say?', multiSelect: false, options: [], ...extra }
+        render(<QuestionInput streamKey="conv-1" request={makeRequest([question])} />)
 
-        expect(screen.getByText('Sending response…')).toBeInTheDocument()
-        expect(screen.queryByText('Revenue')).not.toBeInTheDocument()
-        expect(respondToPermission).not.toHaveBeenCalled()
+        expect(screen.queryByText("Explain what you'd like instead.")).not.toBeInTheDocument()
+        if (typed !== undefined) {
+            fireEvent.change(findField(), { target: { value: typed } })
+        }
+        expect(findField()).toHaveValue(sent)
+        fireEvent.click(screen.getByText('Submit'))
+
+        expect(respondToPermission).toHaveBeenCalledWith({
+            requestId: 'req-1',
+            optionId: 'option_0',
+            answers: { 'What should it say?': sent },
+            customInput: sent,
+        })
+    })
+
+    it('preserves custom answers and disables hidden shortcuts during delivery', () => {
+        const request = makeRequest([goalQuestion])
+        const { rerender } = render(<QuestionInput streamKey="conv-1" request={request} />)
+        fireEvent.click(screen.getByText("Explain what you'd like instead."))
+        fireEvent.change(screen.getByPlaceholderText('Type your answer...'), { target: { value: 'Cut churn' } })
+        fireEvent.click(screen.getByText('Submit'))
+        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
+        rerender(<QuestionInput streamKey="conv-1" request={request} />)
+        fireEvent.keyDown(document.body, { key: 'Escape' })
+        fireEvent.keyDown(document.body, { key: '1' })
+        expect(respondToPermission).toHaveBeenCalledTimes(1)
+        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: false })
+        rerender(<QuestionInput streamKey="conv-1" request={request} />)
+        expect(screen.getByPlaceholderText('Type your answer...')).toHaveValue('Cut churn')
+        fireEvent.click(screen.getByText('Submit'))
+        expect(respondToPermission).toHaveBeenCalledTimes(2)
+        expect(respondToPermission.mock.calls[1]).toEqual(respondToPermission.mock.calls[0])
     })
 })

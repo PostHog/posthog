@@ -56,11 +56,11 @@ CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
 
 
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     target_type = models.CharField(
         choices=[(t.value, t.value) for t in TargetType],
-        default=TargetType.ACCOUNT,
+        default=TargetType.ACCOUNT.value,
         max_length=20,
         help_text="What entity this property is attached to: an account (default), a person, or a group.",
     )
@@ -74,7 +74,7 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
     display_type = models.CharField(
-        choices=[(t.value, t.value) for t in DisplayType], default=DisplayType.TEXT, max_length=20
+        choices=[(t.value, t.value) for t in DisplayType], default=DisplayType.TEXT.value, max_length=20
     )
     is_big_number = models.BooleanField(
         default=False, help_text="Whether the property is a big number and should be abbreviated. E.g.: 10,000 -> 10K"

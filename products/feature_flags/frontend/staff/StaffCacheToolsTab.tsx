@@ -21,6 +21,7 @@ import { truncate } from 'lib/utils/strings'
 import { featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax } from '../generated/api.zod'
 import {
     CACHE_LABELS,
+    FLAG_EVALUATIONS_MODE_LABELS,
     featureFlagsStaffToolsLogic,
     parseFlagLimit,
     StaffCacheEntryStatus,
@@ -31,6 +32,7 @@ import {
     StaffWarmRun,
 } from './featureFlagsStaffToolsLogic'
 import { StaffCacheEntryModal } from './StaffCacheEntryModal'
+import { StaffFlagEvaluationsModeModal } from './StaffFlagEvaluationsModeModal'
 import { StaffTeamSearchInput } from './StaffTeamSearchInput'
 
 const NO_SELECTION_REASON = 'Select at least one team'
@@ -197,8 +199,14 @@ export function StaffCacheToolsTab(): JSX.Element {
         teamConfigByTeamId,
         pendingTeamConfigTeamIds,
     } = useValues(featureFlagsStaffToolsLogic)
-    const { rebuildCache, clearCache, loadCacheStatus, viewCacheEntry, setMinimalFlagCalledEvents } =
-        useActions(featureFlagsStaffToolsLogic)
+    const {
+        rebuildCache,
+        clearCache,
+        loadCacheStatus,
+        viewCacheEntry,
+        setMinimalFlagCalledEvents,
+        openFlagEvaluationsModeModal,
+    } = useActions(featureFlagsStaffToolsLogic)
     // Async so the dialog can await the write and keep its submit button loading meanwhile.
     const { setMaxFeatureFlagsOverride } = useAsyncActions(featureFlagsStaffToolsLogic)
 
@@ -293,6 +301,21 @@ export function StaffCacheToolsTab(): JSX.Element {
                 )
             },
         },
+        {
+            title: 'Flag evaluations mode',
+            key: 'flag_evaluations_mode',
+            render: (_, team) => {
+                const config = teamConfigByTeamId[team.id]
+                if (!config) {
+                    return <span className="text-secondary">Loading…</span>
+                }
+                return (
+                    <LemonTag type={config.flag_evaluations_mode === 0 ? 'muted' : 'completion'}>
+                        {FLAG_EVALUATIONS_MODE_LABELS[config.flag_evaluations_mode]}
+                    </LemonTag>
+                )
+            },
+        },
         ...READABLE_CACHE_KINDS.map((cacheKind) => ({
             title: CACHE_LABELS[cacheKind],
             key: cacheKind,
@@ -345,6 +368,15 @@ export function StaffCacheToolsTab(): JSX.Element {
                     Clear flag caches
                 </LemonButton>
                 <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => openFlagEvaluationsModeModal()}
+                    disabledReason={!hasSelection ? NO_SELECTION_REASON : undefined}
+                    data-attr="ff-staff-flag-evaluations-mode-open"
+                >
+                    Set flag evaluations mode
+                </LemonButton>
+                <LemonButton
                     type="tertiary"
                     size="small"
                     onClick={() => loadCacheStatus()}
@@ -364,6 +396,7 @@ export function StaffCacheToolsTab(): JSX.Element {
             />
 
             <StaffCacheEntryModal />
+            <StaffFlagEvaluationsModeModal />
         </div>
     )
 }

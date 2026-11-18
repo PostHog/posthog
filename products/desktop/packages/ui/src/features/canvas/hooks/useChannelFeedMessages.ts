@@ -1,7 +1,6 @@
 import { shouldPollChannelFeed } from "@posthog/core/canvas/channelFeed";
 import type {
   ChannelFeedMessage,
-  TaskChannel,
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -31,10 +30,12 @@ export function channelFeedMessagesQueryKey(channelId: string | undefined) {
 // same thing twice: creation is the intro header's line (channel_created and
 // its legacy client-posted context_created twin), and a CONTEXT.md build is
 // its own plan-task card in the feed plus the intro card's "Creating…" state.
+// A space setup is likewise its own task card.
 const REDUNDANT_EVENTS = new Set([
   "channel_created",
   "context_created",
   "context_md_building",
+  "space_setup_started",
 ]);
 
 // Render the announcement from its freeform content, with a generic fallback
@@ -42,25 +43,6 @@ const REDUNDANT_EVENTS = new Set([
 function messageText(message: ChannelFeedMessage): string {
   const actor = userDisplayName(message.author ?? null);
   return message.content || `${actor} posted an update`;
-}
-
-/**
- * The feed's Slack-style "joined" opener, derived from the channel row
- * (creator + creation time) rather than a feed message: the channel predates
- * everything in its feed, so it always sorts first, and it renders even before
- * the feed-message endpoint is deployed. Personal channels are provisioned by
- * the system, so they get no creation row.
- */
-export function channelCreationMessage(
-  channel: TaskChannel | undefined,
-): ChannelFeedSystemMessage | undefined {
-  if (!channel || channel.channel_type !== "public") return undefined;
-  return {
-    id: `channel-created-${channel.id}`,
-    createdAt: channel.created_at,
-    text: `joined ${channel.name}`,
-    author: channel.created_by,
-  };
 }
 
 /**

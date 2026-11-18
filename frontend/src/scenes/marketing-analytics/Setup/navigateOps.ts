@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import type { ApplyOp } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
@@ -10,7 +12,14 @@ import type { ApplyOp } from 'scenes/web-analytics/tabs/marketing-analytics/fron
  * New tabs throughout: the user is midway through a checklist and navigating away
  * loses their place in it.
  */
-export function runNavigateOp(op: ApplyOp): boolean {
+export function runNavigateOp(op: ApplyOp, entryPoint: string): boolean {
+    if (['open_oauth', 'open_source_wizard', 'open_settings'].includes(op.op)) {
+        posthog.capture('marketing analytics setup navigation opened', {
+            destination: op.op,
+            integration: op.kind,
+            entry_point: entryPoint,
+        })
+    }
     switch (op.op) {
         case 'open_oauth':
             window.open(
@@ -24,7 +33,13 @@ export function runNavigateOp(op: ApplyOp): boolean {
             return true
         case 'open_source_wizard':
             window.open(
-                urls.dataWarehouseSourceNew(op.kind as string, urls.marketingAnalyticsApp(), 'Marketing analytics'),
+                urls.dataWarehouseSourceNew(
+                    op.kind as string,
+                    urls.marketingAnalyticsApp(),
+                    'Marketing analytics',
+                    undefined,
+                    `marketing_analytics_setup_${entryPoint}`
+                ),
                 '_blank',
                 'noopener'
             )

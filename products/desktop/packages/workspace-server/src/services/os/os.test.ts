@@ -34,6 +34,7 @@ function createService() {
   const imageProcessor = { downscale: vi.fn() };
   const workspaceSettings = {
     getWorktreeLocation: vi.fn(() => "/tmp/worktrees"),
+    setWorktreeLocation: vi.fn(),
   };
 
   const storagePaths = {
@@ -154,9 +155,15 @@ describe("OsService simple delegations", () => {
     expect(service.getAppVersion()).toBe("9.9.9");
   });
 
-  it("returns the worktree location from workspace settings", () => {
-    const { service } = createService();
+  it("reads and updates the worktree location through workspace settings", () => {
+    const { service, workspaceSettings } = createService();
     expect(service.getWorktreeLocation()).toBe("/tmp/worktrees");
+
+    service.setWorktreeLocation("/tmp/posthog-desktop/worktrees");
+
+    expect(workspaceSettings.setWorktreeLocation).toHaveBeenCalledWith(
+      "/tmp/posthog-desktop/worktrees",
+    );
   });
 
   it("opens external URLs through the url launcher", async () => {
@@ -616,5 +623,46 @@ describe("OsService.getClaudePermissions", () => {
       allow: [],
       deny: [],
     });
+  });
+});
+
+describe("OsService.readFileAsDataUrl", () => {
+  const clipboardFile = path.join(
+    os.tmpdir(),
+    "posthog-code-clipboard",
+    "attachment-a",
+    "shot.png",
+  );
+  const lookAlike = "/work/repo/posthog-code-clipboard/attachment-a/shot.png";
+
+  it.each([
+    {
+      name: "reads an image the composer saved",
+      requested: clipboardFile,
+      resolvesTo: clipboardFile,
+      expected: "data:image/png;base64,aW1n",
+    },
+    {
+      name: "rejects a look-alike folder outside the temp dir",
+      requested: lookAlike,
+      resolvesTo: lookAlike,
+      expected: null,
+    },
+    {
+      name: "rejects a clipboard file that links elsewhere",
+      requested: clipboardFile,
+      resolvesTo: "/Users/me/secret.png",
+      expected: null,
+    },
+  ])("$name", async ({ requested, resolvesTo, expected }) => {
+    mockRealpath.mockImplementation(async (p: string) =>
+      p === requested ? resolvesTo : p,
+    );
+    mockStat.mockResolvedValue({ size: 3 });
+    mockReadFile.mockResolvedValue(Buffer.from("img"));
+    const { service } = createService();
+
+    expect(await service.readFileAsDataUrl(requested, 1024)).toBe(expected);
+    expect(mockReadFile).toHaveBeenCalledTimes(expected ? 1 : 0);
   });
 });

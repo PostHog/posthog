@@ -75,6 +75,7 @@ export const webNotificationSettings: INotificationSettings = {
       completionVolume: s.completionVolume,
       scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
       customSounds: s.customSounds,
+      notificationsPausedUntil: s.notificationsPausedUntil,
     };
   },
 };

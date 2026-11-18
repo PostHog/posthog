@@ -1,7 +1,7 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -209,6 +209,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
+        # An empty value means no filter, the same as omitting the parameter.
+        empty = self.client.get("/api/element/stats/?paginate_response=true&properties=")
+        self.assertEqual(empty.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(empty.json()["results"]), 3)
+
     @parameterized.expand([(False, False), (True, False), (True, True)])
     def test_element_stats_can_filter_by_person_properties(self, person_on_events: bool, poe_v2: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=person_on_events, PERSON_ON_EVENTS_V2_OVERRIDE=poe_v2):
@@ -225,24 +230,88 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response["results"][0]["elements"][0]["href"] == "https://posthog.com/event-2"
             assert response["results"][0]["count"] == 1
 
-    def test_element_stats_can_filter_by_hogql(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "flat_list",
+                [{"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"}],
+            ),
+            (
+                "mixed_with_allowed_types",
+                [
+                    {"key": "$current_url", "value": "http://example.com/another_page"},
+                    {"type": "hogql", "key": "(SELECT count() FROM persons) > 0"},
+                ],
+            ),
+            (
+                "nested_property_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "hogql", "key": "(SELECT count() FROM persons) > 0"}],
+                        }
+                    ],
+                },
+            ),
+            (
+                "behavioral",
+                [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "day",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_element_stats_rejects_unsupported_property_filter_types(self, _name: str, properties: object) -> None:
+        response = self.client.get("/api/element/stats/", {"properties": json.dumps(properties)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("Unsupported property filter type", response.json()["detail"])
+
+    def test_element_stats_accepts_supported_property_filter_types(self) -> None:
         self._setup_events()
+
         properties_filter = json.dumps(
             [
-                {
-                    "type": "hogql",
-                    "key": "like(properties.$current_url, '%another_page%')",
-                },
+                {"key": "$current_url", "value": "http://example.com/another_page", "type": "event"},
+                {"key": "tag_name", "value": ["a"], "operator": "exact", "type": "element"},
             ]
         )
-        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
-        self.assertEqual(len(response["results"]), 1)
+        response = self.client.get(
+            "/api/element/stats/", {"paginate_response": "true", "properties": properties_filter}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=30")
+        vary = {value.strip().lower() for value in response.headers["Vary"].split(",")}
+        self.assertTrue({"authorization", "cookie"} <= vary, response.headers["Vary"])
+
+    def test_element_stats_still_applies_hogql_test_account_filters(self) -> None:
+        self._setup_events()
+        self.team.test_account_filters = [
+            {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
+        ]
+        self.team.save()
+
+        response = self.client.get("/api/element/stats/", {"paginate_response": "true", "filter_test_accounts": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(len(response.json()["results"]), 1)
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"
         query_time = "2012-01-14T08:21:34.000Z"
 
-        with freeze_time(event_start) as frozen_time:
+        with time_machine.travel(event_start, tick=False) as frozen_time:
             elements = [
                 Element(
                     tag_name="a",
@@ -259,7 +328,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -267,10 +336,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-            frozen_time.tick(delta=timedelta(hours=10))
+            frozen_time.shift(timedelta(hours=10))
 
             _create_event(  # included
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -278,7 +347,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-        with freeze_time(query_time):
+        with time_machine.travel(query_time, tick=False):
             # the UI doesn't allow you to choose time, so query should always be from start of day
             response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -392,6 +461,79 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filtered = self.client.get("/api/element/stats/?paginate_response=true&data_attributes=data-attr").json()
         assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
         assert filtered["results"][0]["elements"][0]["text"] == "sign up"
+
+    STATS_URL = "/api/element/stats/?paginate_response=true&data_attributes=data-attr"
+    NONCES = ("a1b2c3", "d4e5f6", "0a9b8c")
+
+    def _create_autocapture(self, text: str, attributes: dict) -> None:
+        _create_event(
+            team=self.team,
+            elements=[Element(tag_name="button", text=text, order=0, attributes=attributes)],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "collapses_attributes_the_response_discards",
+                True,
+                [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES]
+                + [("log in", {"attr__data-attr": "login-cta"})],
+                [3, 1],
+            ),
+            (
+                "collapses_attribute_values_holding_escaped_quotes",
+                True,
+                [
+                    (
+                        "sign up",
+                        {
+                            "attr__data-attr": "signup-cta",
+                            "attr__style": '--icon: url("/assets/icon.svg")',
+                            "attr__ngcspnonce": nonce,
+                        },
+                    )
+                    for nonce in NONCES[:2]
+                ],
+                [2],
+            ),
+            (
+                "leaves_grouping_untouched_while_the_flag_is_off",
+                False,
+                [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES],
+                [1, 1, 1],
+            ),
+        ]
+    )
+    def test_element_stats_chain_normalization(
+        self, _name: str, flag_enabled: bool, events: list[tuple[str, dict]], expected_counts: list[int]
+    ) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        for text, attributes in events:
+            self._create_autocapture(text, attributes)
+
+        with mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=flag_enabled):
+            results = self.client.get(self.STATS_URL).json()["results"]
+
+        assert [row["count"] for row in results] == expected_counts
+        assert results[0]["elements"][0]["text"] == "sign up"
+        assert results[0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
+
+    @mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=True)
+    def test_element_stats_keeps_requested_data_attributes_distinct(self, _flag: mock.MagicMock) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        self._create_autocapture("sign up", {"attr__data-attr": "signup-cta"})
+        self._create_autocapture("sign up", {"attr__data-attr": "signup-secondary"})
+
+        results = self.client.get(self.STATS_URL).json()["results"]
+
+        assert len(results) == 2
+        assert sorted(row["elements"][0]["attributes"]["attr__data-attr"] for row in results) == [
+            "signup-cta",
+            "signup-secondary",
+        ]
 
     def test_element_stats_returns_stable_chain_hashes(self) -> None:
         self._setup_events()

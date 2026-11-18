@@ -4,6 +4,11 @@
         "id": {
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
+        },
+        "note": {
+            "description": "Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.",
+            "maxLength": 1000,
+            "type": "string"
         }
     },
     "required": ["id"],

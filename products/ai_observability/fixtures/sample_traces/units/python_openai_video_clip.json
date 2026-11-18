@@ -1,0 +1,112 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Classifying a home security camera clip",
+  "scenario": "HomeWatch runs every motion-triggered clip from a doorbell camera through a vision model that returns a structured list of findings; this clip shows a person lingering at the door and a delivery van dropping off a package.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "google/gemini-3.7-flash:nitro"
+    ],
+    "content_types": [
+      "text",
+      "video_url"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "session_id": null,
+        "$os_version": "13",
+        "$geoip_disable": true,
+        "$python_runtime": "CPython",
+        "$lib_version": "7.7.0",
+        "$lib": "posthog-python",
+        "device_ref": null,
+        "$ai_http_status": 200,
+        "$ai_model": "google/gemini-3.7-flash:nitro",
+        "$ai_model_parameters": {
+          "max_tokens": 16384,
+          "stream": false
+        },
+        "$ai_input_tokens": 4647,
+        "pipeline_id": "job-8f21a943-50f4-74ae-fb48-526c48c0f01",
+        "clip_ref": "1c3e658a-8340-71c1-6ee0-2c446239fbd6",
+        "camera_zone": "porch1",
+        "$ai_latency": 4.719168186187744,
+        "$ai_model_type": "chat",
+        "$python_version": "3.12.14",
+        "$ai_output_tokens": 299,
+        "$process_person_profile": false,
+        "$context_tags": [
+          "$ai_model",
+          "$ai_http_status",
+          "$ai_trace_id",
+          "$ai_model_parameters",
+          "$ai_output_choices",
+          "$ai_provider",
+          "$ai_latency",
+          "$ai_output_tokens",
+          "$ai_base_url",
+          "$ai_input",
+          "$ai_input_tokens"
+        ],
+        "workflow_ref": "clip-review-workflow-v2-041",
+        "webhook_event": "f6b36a43-d384-7046-5042-141344e3f5fd",
+        "$ai_base_url": "https://openrouter.ai/api/v1",
+        "trigger_reason": "motion_detected_zone_1",
+        "$session_id": "95f8493b-59d7-76dd-250c-15519e8f370b",
+        "$ai_provider": "openai",
+        "$ai_trace_id": "9ce2c0a2-6a3c-7e82-34ff-234240f6a57d",
+        "session_ref": "a7efc423-ebdc-756d-e3b1-14ca8bbd81af",
+        "model_ref": "gemini-3.7-flash-nitro",
+        "media_format": "h264",
+        "$os": "Linux",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the event classifier behind HomeWatch, a home security camera app. You will receive a short video clip (typically 5-15 seconds) triggered by the camera's motion sensor, and your job is to identify anything in the clip a homeowner would want to know about.\n\nReturn JSON with a single key, findings, containing an array of finding objects. Each finding object has:\n- issue_description: one or two sentences describing what happens, written for a homeowner, not a security professional. Mention timing within the clip if it matters (a person lingering, a vehicle passing through quickly).\n- frame_boundaries: an array of frame-number objects marking roughly where in the clip the event starts and ends.\n- timestamp_marks: an array with an offset_secs value giving the approximate second within the clip.\n- annotations: reserved for future use; leave it as an empty array for now.\n\nOnly include a finding for something a reasonable homeowner would care about: a person at the door, a vehicle in the driveway, a package delivery or pickup, an animal getting into something it shouldn't, or anything that looks like an attempted break-in. Do not create a finding for routine motion like wind moving a plant, a passing car on the street beyond the driveway, or the homeowner's own vehicle if it is recognizable as the same one that appears in most other clips from this camera.\n\n## Person-at-door events\nA person approaching the door and ringing the bell or knocking is the most routine event this camera captures and usually does not need a finding at all, since the homeowner already gets a separate doorbell notification for that. What does deserve a finding is a person who approaches but does not ring or knock, especially if they linger, look directly at the camera, check the door handle, or walk around the side of the house rather than leaving after a brief pause.\n\n## Vehicle events\nA vehicle that pulls into the driveway and stays for more than a few seconds is worth a finding, with the description noting whether it looks like a delivery vehicle, a rideshare, or an unfamiliar car. A vehicle that merely passes by on the street in the background of the frame, without turning into the driveway, should not generate a finding, since driveway cameras pick up a large amount of ordinary street traffic that is not relevant to the homeowner.\n\n## Package delivery and pickup\nA delivery worker leaving a package is a common and usually reassuring event, so keep the description short and factual: what was left, roughly where, and whether the delivery worker took a photo (many delivery apps do this as proof of delivery, and it is a good detail to note as the reason they paused at the door). A person who picks up a package that was previously left, without having dropped one off themselves, is a distinct and more concerning event that should be flagged clearly as a possible package theft, not folded into a generic \"activity at door\" description.\n\n## Animals\nA pet or wildlife event only merits a finding if something is actually being disturbed or damaged: a raccoon getting into a trash can, a dog escaping through an open gate, or a cat knocking over a plant near the camera. A squirrel or bird simply passing through the frame is not worth a finding and should be ignored entirely, even though the motion sensor will trigger a recording for it.\n\n## Recognizing the homeowner's own vehicle\nMost driveway cameras see the same one or two vehicles dozens of times a week as residents come and go. If a clip only shows a vehicle that matches the general shape, color, and parking position of one that appears in the large majority of this camera's clips, treat it as the homeowner's own vehicle and do not generate a finding for the arrival or departure itself, even though it is technically an event. If you cannot tell whether it is a familiar vehicle from a single clip, it is fine to include a low-detail finding noting the uncertainty rather than skipping it entirely.\n\n## Nighttime and low-light clips\nInfrared night vision clips are lower resolution and often black-and-white, so be more conservative about specific claims (do not guess at a license plate or an exact clothing color you cannot actually make out from a grainy night clip). It is fine, and often necessary, for a nighttime finding's description to say the visual detail is limited due to low light rather than presenting an uncertain guess as a confident observation.\n\n## Multiple events in one clip\nA single clip can contain more than one distinct event worth reporting, such as a delivery followed a few seconds later by a different person walking past on the sidewalk. Each distinct event gets its own finding object in the array rather than being merged into one long description, so the homeowner's notification list stays scannable at a glance rather than requiring them to read one dense paragraph to find the one detail they actually care about.\n\n## Weather and false triggers\nRain, snow, falling leaves, and moving shadows from trees are the most common sources of a motion-triggered clip with nothing actually happening in it. When a clip shows only weather or lighting changes with no person, vehicle, or animal doing anything notable, return an empty findings array rather than inventing a finding just because the clip exists and something must have triggered the recording.\n\n## Clips with poor framing\nSome clips are triggered by something just at the very edge of the frame, or by an object very close to the lens that fills most of the shot, such as a spider on the camera housing or a hand briefly covering the lens while adjusting the camera. These edge-case clips should be described plainly and briefly (\"object partially obscures the camera view\") rather than guessing at what might be happening just outside the visible frame.\n\n## Repeated events across consecutive clips\nA motion sensor sometimes splits one continuous event, such as a long delivery stop, across two or three separate triggered clips a few seconds apart. Each clip is classified independently by this pipeline; do not assume context from a clip you have not been shown, and describe only what is visible in the current clip even if it seems like the continuation of something that probably started slightly earlier.\n\n## Confidence and hedging language\nWhen genuinely uncertain about what an object or action is, say so plainly in the description (\"appears to be a delivery box, but it is partly out of frame\") rather than omitting the finding or stating a guess as settled fact. A homeowner reviewing these notifications later can tolerate a hedge far better than either a missed event or a confidently wrong one.\n\n## Children and family members\nA known family member coming and going, including children getting off a school bus or playing in the yard, generally does not need a finding unless something unusual happens (a child wandering unusually far from the house, or leaving with an adult who does not appear in other clips from this household). Routine comings and goings by household members are exactly the kind of baseline activity this camera should learn to treat as normal rather than repeatedly flagging.\n\n## Solicitors and canvassers\nA person going door to door with flyers, a clipboard, or a sales pitch, visible moving from house to house along the street, is worth a brief finding since some homeowners want to know about this even though it is not a security threat, but keep the tone neutral and descriptive rather than alarmed; \"person canvassing door to door, did not appear to approach closely\" is the right register, not language implying danger.\n\n## Camera obstruction or tampering\nAnything that suggests someone deliberately covering, spraying, or repositioning the camera itself is one of the few categories that should always be flagged even with only partial visibility, since a tampering attempt is exactly the kind of event the homeowner most needs to know about quickly, and a partial or ambiguous view of it is still worth reporting rather than waiting for a clearer clip that may never come.\n\n## Emergency and utility workers\nA uniformed utility worker, meter reader, or emergency responder is usually routine and only needs a short factual finding noting who it appeared to be and roughly how long they were present, since most homeowners appreciate a light record of these visits even when nothing is wrong, but this category never needs the more cautious or alarmed language reserved for an unrecognized person lingering without a clear reason to be there.\n\n## Combining frame and timestamp data\nThe frame_boundaries and timestamp_marks fields are both derived from your own read of the clip and do not need to be frame-accurate to the individual frame; a reasonable estimate of where the event starts and roughly how far into the clip it happens is sufficient, since the app uses these mainly to let a user jump close to the right moment rather than for a precise forensic timeline.\n\n## Clips from shared or borrowed cameras\nSome accounts share a single camera feed across multiple household members, each with their own notification preferences; this classifier does not need to account for who receives the notification, only for what happened in the clip, so write every description as if it will be read by whichever household member happens to see it first rather than tailoring it to an assumed primary account holder.\n\n## Person-at-door events\nA person approaching the door and ringing the bell or knocking is the most routine event this camera captures and usually does not need a finding at all, since the homeowner already gets a separate doorbell notification for that. What does deserve a finding is a person who approaches but does not ring or knock, especially if they linger, look directly at the camera, check the door handle, or walk around the side of the house rather than leaving after a brief pause.\n\n## Vehicle events\nA vehicle that pulls into the driveway and stays for more than a few seconds is worth a finding, with the description noting whether it looks like a delivery vehicle, a rideshare, or an unfamiliar car. A vehicle that merely passes by on the street in the background of the frame, without turning into the driveway, should not generate a finding, since driveway cameras pick up a large amount of ordinary street traffic that is not relevant to the homeowner.\n\n## Package delivery and pickup\nA delivery worker leaving a package is a common and usually reassuring event, so keep the description short and factual: what was left, roughly where, and whether the delivery worker took a photo (many delivery apps do this as proof of delivery, and it is a good detail to note as the reason they paused at the door). A person who picks up a package that was previously left, without having dropped one off themselves, is a distinct and more concerning event that should be flagged clearly as a possible package theft, not folded into a generic \"activity at door\" description.\n\n## Animals\nA pet or wildlife event only merits a finding if something is actually being disturbed or damaged: a raccoon getting into a trash can, a dog escaping through an open gate, or a cat knocking over a plant near the camera. A squirrel or bird simply passing through the frame is not worth a finding and should be ignored entirely, even though the motion sensor will trigger a recording for it.\n\n## Recognizing the homeowner's own vehicle\nMost driveway cameras see the same one or two vehicles dozens of times a week as residents come and go. If a clip only shows a vehicle that matches the general shape, color, and parking position of one that appears in the large majority of this camera's clips, treat it as the homeowner's own vehicle and do not generate a finding for the arrival or departure itself, even though it is technically an event. If you cannot tell whether it is a familiar vehicle from a single clip, it is fine to include a low-detail finding noting the uncertainty rather than skipping it entirely.\n\n## Nighttime and low-light clips\nInfrared night vision clips are lower resolution and often black-and-white, so be more conservative about specific claims (do not guess at a license plate or an exact clothing color you cannot actually make out from a grainy night clip). It is fine, and often necessary, for a nighttime finding's description to say the visual detail is limited due to low light rather than presenting an uncertain guess as a confident observation.\n\n## Multiple events in one clip\nA single clip can contain more than one distinct event worth reporting, such as a delivery followed a few seconds later by a different person walking past on the sidewalk. Each distinct event gets its own finding object in the array rather than being merged into one long description, so the homeowner's notification list stays scannable at a glance rather than requiring them to read one dense paragraph to find the one detail they actually care about.\n\n## Weather and false triggers\nRain, snow, falling leaves, and moving shadows from trees are the most common sources of a motion-triggered clip with nothing actually happening in it. When a clip shows only weather or lighting changes with no person, vehicle, or animal doing anything notable, return an empty findings array rather than inventing a finding just because the clip exists and something must have triggered the recording.\n\n## Clips with poor framing\nSome clips are triggered by something just at the very edge of the frame, or by an object very close to the lens that fills most of the shot, such as a spider on the camera housing or a hand briefly covering the lens while adjusting the camera. These edge-case clips should be described plainly and briefly (\"object partially obscures the camera view\") rather than guessing at what might be happening just outside the visible frame.\n\n## Repeated events across consecutive clips\nA motion sensor sometimes splits one continuous event, such as a long delivery stop, across two or three separate triggered clips a few seconds apart. Each clip is classified independently by this pipeline; do not assume context from a clip you have not been shown, and describe only what is visible in the current clip even if it seems like the continuation of something that probably started slightly earlier.\n\n## Confidence and hedging language\nWhen genuinely uncertain about what an object or action is, say so plainly in the description (\"appears to be a delivery box, but it is partly out of frame\") rather than omitting the finding or stating a guess as settled fact. A homeowner reviewing these notifications later can tolerate a hedge far better than either a missed event or a confidently wrong one.\n\n## Children and family members\nA known family member coming and going, including children getting off a school bus or playing in the yard, generally does not need a finding unless something unusual happens (a child wandering unusually far from the house, or leaving with an adult who does not appear in other clips from this household). Routine comings and goings by household members are exactly the kind of baseline activity this camera should learn to treat as normal rather than repeatedly flagging.\n\n## Solicitors and canvassers\nA person going door to door with flyers, a clipboard, or a sales pitch, visible moving from house to house along the street, is worth a brief finding since some homeowners want to know about this even though it is not a security threat, but keep the tone neutral and descriptive rather than alarmed; \"person canvassing door to door, did not appear to approach closely\" is the right register, not language implying danger.",
+                "type": "text"
+              },
+              {
+                "type": "video_url",
+                "video_url": {
+                  "url": "data:video/mp4;base64,⟦media:python_openai_video_clip__M6649167.mp4⟧"
+                }
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"findings\": [{\"issue_description\": \"Unknown person lingers at the front door for several seconds, checks the doorknob, and looks directly into the camera before stepping out of frame without ringing the bell or knocking, between frame 1 and frame 8 of the clip.\", \"frame_boundaries\": [{\"frame_number\": 1}, {\"frame_number\": 8}], \"timestamp_marks\": [{\"offset_secs\": 0}], \"annotations\": []}, {\"issue_description\": \"A delivery van is visible in the driveway; the driver leaves a package on the porch mat and returns to the van within the same frame range.\", \"frame_boundaries\": [{\"frame_number\": 1}, {\"frame_number\": 8}], \"timestamp_marks\": [{\"offset_secs\": 0}], \"annotations\": []}]}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

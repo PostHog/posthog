@@ -69,7 +69,7 @@ describe("CommentThreadCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Resolve"));
+    fireEvent.click(screen.getByLabelText("Resolve"));
 
     await waitFor(() => expect(onResolve).toHaveBeenCalledWith(true));
   });

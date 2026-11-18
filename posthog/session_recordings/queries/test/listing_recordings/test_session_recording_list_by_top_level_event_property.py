@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from django.utils.timezone import now
@@ -10,7 +10,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import EventProperty
+from posthog.models import Element
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
@@ -23,11 +23,12 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIBaseTest):
     # set by parameterized_class decorator
     allow_event_property_expansion: bool
@@ -44,7 +45,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(
+        action = create_action(
             team_id=team_id,
             name=name,
             steps_json=[
@@ -157,7 +158,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ),
         ]
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -243,7 +244,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
 
         self._assert_query_matches_session_ids({"properties": properties}, expected)
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_two_is_not_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -321,7 +322,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ["3", "4"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_match_regex_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -398,7 +399,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ["1", "4"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -480,4 +481,74 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
                 ]
             },
             [paul_google_session, no_email_session],
+        )
+
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
+    def test_can_filter_by_cleaned_path_not_exact(self) -> None:
+        self.team.path_cleaning_filters = [{"regex": "\\/user\\/\\d+", "alias": "/user/:id"}]
+        self.team.save()
+        EventProperty.objects.create(team=self.team, event="$pageview", property="$pathname")
+
+        sessions = {"user_page_session": str(uuid7()), "other_session": str(uuid7())}
+        paths = {"user_page_session": ["/user/123", "/pricing"], "other_session": ["/pricing"]}
+        for label, session_id in sessions.items():
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            for path in paths[label]:
+                create_event(
+                    team=self.team,
+                    distinct_id="user",
+                    timestamp=self.an_hour_ago + timedelta(minutes=1),
+                    properties={"$session_id": session_id, "$window_id": "1", "$pathname": path},
+                )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": [
+                    {
+                        "type": "event",
+                        "key": "$pathname",
+                        "operator": "is_cleaned_path_not_exact",
+                        "value": ["/user/999"],
+                    }
+                ]
+            },
+            [sessions["other_session"]],
+        )
+
+    @parameterized.expand(
+        [
+            ("icontains", "icontains", ["chat_session"]),
+            ("not_icontains", "not_icontains", ["other_session"]),
+        ]
+    )
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
+    def test_can_filter_by_top_level_element_text(self, _name: str, operator: str, expected: list[str]) -> None:
+        sessions = {"chat_session": str(uuid7()), "other_session": str(uuid7())}
+        texts = {"chat_session": "Open chat", "other_session": "Cancel"}
+        for label, session_id in sessions.items():
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                team=self.team,
+                distinct_id="user",
+                timestamp=self.an_hour_ago + timedelta(minutes=1),
+                event_name="$autocapture",
+                properties={"$session_id": session_id, "$window_id": str(uuid7())},
+                elements=[Element(tag_name="button", text=texts[label], nth_child=0, nth_of_type=0)],
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"type": "element", "key": "text", "operator": operator, "value": "chat"}]},
+            [sessions[label] for label in expected],
         )

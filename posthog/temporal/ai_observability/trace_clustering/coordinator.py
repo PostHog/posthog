@@ -51,6 +51,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai_observability.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
+        DISCOVERY_FAIL_CLOSED_PATCH_ID,
         GUARANTEED_TEAM_IDS,
         TeamDiscoveryInput,
         get_team_ids_for_ai_observability,
@@ -140,8 +141,6 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 max_samples=inputs.max_samples,
             )
 
-            # Discover teams dynamically via activity, falling back to guaranteed
-            # teams if the activity fails (e.g. ClickHouse timeout).
             try:
                 team_ids = await temporalio.workflow.execute_activity(
                     get_team_ids_for_ai_observability,
@@ -150,6 +149,8 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
                 )
             except Exception:
+                if temporalio.workflow.patched(DISCOVERY_FAIL_CLOSED_PATCH_ID):
+                    raise
                 logger.warning("Team discovery activity failed, falling back to guaranteed teams", exc_info=True)
                 team_ids = sorted(GUARANTEED_TEAM_IDS)
 

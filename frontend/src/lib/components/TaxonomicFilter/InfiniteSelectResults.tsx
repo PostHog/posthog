@@ -1,12 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconSidebarClose } from '@posthog/icons'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import {
-    CategoryDropdownVariant,
     DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -18,6 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
@@ -26,7 +27,6 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
-    categoryDropdownVariant?: CategoryDropdownVariant
 }
 
 export function getCategoryPillDisabledReason(
@@ -157,17 +157,25 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     definitionPopoverRenderer,
-    categoryDropdownVariant = 'control',
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
-        useValues(taxonomicFilterLogic)
+    const {
+        activeTab,
+        taxonomicGroups,
+        taxonomicGroupTypes,
+        categoryGroupTypes,
+        activeTaxonomicGroup,
+        value,
+        searchQuery,
+    } = useValues(taxonomicFilterLogic)
     const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     const openTab = activeTab || taxonomicGroups[0].type
     const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
     const logic = infiniteListLogic(infiniteListLogicProps)
 
-    const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const { markUserInteraction, setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
+    const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { totalListCount, isLocalDataLoading } = useValues(logic)
@@ -175,7 +183,7 @@ export function InfiniteSelectResults({
     const RenderComponent = activeTaxonomicGroup?.render
 
     const hasMultipleGroups = taxonomicGroupTypes.length > 1
-    const showCategoryColumn = hasMultipleGroups && categoryDropdownVariant === 'control'
+    const showCategoryColumn = hasMultipleGroups && categoryRailPinned
 
     const listComponent = RenderComponent ? (
         <RenderComponent
@@ -208,15 +216,29 @@ export function InfiniteSelectResults({
     const showEmptyState =
         !showDataWarehouseLoadingState &&
         totalListCount === 0 &&
-        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
+        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab) &&
+        (!searchQuery.trim() || activeTaxonomicGroup?.shouldSearch?.(searchQuery) !== false)
 
     return (
-        <div ref={wrapperRef} className="flex flex-row h-full">
+        <div ref={wrapperRef} className="@container flex flex-row h-full">
             {showCategoryColumn && (
-                <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
-                    <div className="taxonomic-group-title">Categories</div>
+                <div className="TaxonomicFilter__category-rail border-r pr-2 mr-2 flex-shrink-0 border-primary @max-[32rem]:hidden">
+                    <div className="taxonomic-group-title items-center justify-between gap-1">
+                        <span>Categories</span>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconSidebarClose />}
+                            tooltip="Undock categories"
+                            data-attr="taxonomic-category-rail-unpin"
+                            onClick={() => {
+                                markUserInteraction()
+                                setCategoryRailPinned(false)
+                            }}
+                        />
+                    </div>
                     <div className="taxonomic-pills flex flex-col gap-1">
-                        {taxonomicGroupTypes.map((groupType) => {
+                        {categoryGroupTypes.map((groupType) => {
                             return (
                                 <CategoryPill
                                     key={groupType}

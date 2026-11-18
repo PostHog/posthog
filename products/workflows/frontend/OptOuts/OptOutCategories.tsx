@@ -10,27 +10,19 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
 import { NewCategoryModal } from './NewCategoryModal'
-import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
+import { providerImportLogic } from './providerImportLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
-
-interface MessageCategory {
-    id: string
-    key: string
-    name: string
-    description: string
-    public_description: string
-    category_type: string
-}
 
 export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { openImportModal } = useActions(providerImportLogic)
+    const { hasSeveralProviders } = useValues(providerImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -57,7 +49,7 @@ export function OptOutCategories(): JSX.Element {
                                 <div className="text-xs text-muted">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
-                                {category.category_type.toUpperCase()}
+                                {(category.category_type ?? '').toUpperCase()}
                             </LemonTag>
                         </div>
                         <More
@@ -140,14 +132,17 @@ export function OptOutCategories(): JSX.Element {
                         <LemonCollapse panels={collapseItems} />
                     ) : (
                         <ProductIntroduction
-                            productName="Message Categories"
                             thingName="category"
                             description="Configure message categories to manage user opt-out preferences for different types of communications."
                             docsURL="https://posthog.com/docs/workflows/customerio-import"
                             actionElementOverride={
                                 <>
-                                    <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
-                                        Import from Customer.io
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconDownload />}
+                                        onClick={() => openImportModal()}
+                                    >
+                                        {hasSeveralProviders ? 'Import from another tool' : 'Import from Customer.io'}
                                     </LemonButton>
                                     <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>
                                         Create category

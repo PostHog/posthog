@@ -5,8 +5,10 @@ import {
   useCommandCenterStore,
 } from "./commandCenterStore";
 import {
+  expandCanvasInCommandCenterInto,
   placeCanvasInCommandCenter,
   placeCanvasInCommandCenterCell,
+  placeTasksInCommandCenter,
   placeTasksInCommandCenterCell,
 } from "./placeTaskInCommandCenter";
 
@@ -74,4 +76,35 @@ describe("placeTasksInCommandCenterCell", () => {
       ]);
     },
   );
+});
+
+describe("placement while composing", () => {
+  beforeEach(() => {
+    useCommandCenterStore.setState(COMMAND_CENTER_INITIAL_STATE);
+    useCommandCenterStore.getState().startCreating(1, "session-1");
+  });
+
+  it("rejects bulk placement instead of overwriting the reserved tile", () => {
+    const result = placeTasksInCommandCenter(
+      ["task-1", "task-2"],
+      new Set(["task-1", "task-2"]),
+    );
+
+    expect(result).toEqual({ placed: 0, overflow: 2, alreadyPresent: 0 });
+    expect(useCommandCenterStore.getState().cells).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("keeps expansion and assignment atomic", () => {
+    expandCanvasInCommandCenterInto("horizontal", 0, "canvas-1");
+
+    const state = useCommandCenterStore.getState();
+    expect(state.layout).toBe("2x2");
+    expect(state.cells).toEqual([null, null, null, null]);
+    expect(state.composer?.sessionId).toBe("session-1");
+  });
 });

@@ -1,11 +1,12 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { safeClickhouseString } from '~/common/utils/db/utils'
-import { castTimestampOrNow } from '~/common/utils/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
 
-import { TimestampFormat } from '../../types'
+import { ClickHouseTimestamp, TimestampFormat } from '../../types'
 
 const appMetricsAggregatorQueuedCounter = new Counter({
     name: 'app_metrics_aggregator_queued_total',
@@ -21,8 +22,9 @@ const appMetricsAggregatorFlushedCounter = new Counter({
 
 /**
  * One v2 app metric row, matching the ClickHouse `app_metrics2` schema.
- * Aggregation key is the six identity fields — entries sharing them have
- * their `count` summed in-memory and emitted as one Kafka message on `flush`.
+ * Aggregation key is the six identity fields plus the timestamp hour — entries
+ * sharing them have their `count` summed in-memory and emitted as one Kafka
+ * message on `flush`.
  */
 export interface AppMetricInput {
     team_id: number
@@ -32,6 +34,17 @@ export interface AppMetricInput {
     metric_kind: string
     metric_name: string
     count: number
+    /**
+     * Defaults to the flush time. Set it to date the row at another hour, e.g. a future
+     * month of logs retention that should bill when that month starts. Truncated to the hour,
+     * the same grain `app_metrics2` aggregates at.
+     */
+    timestamp?: DateTime
+}
+
+type BufferedAppMetric = Omit<AppMetricInput, 'instance_id' | 'timestamp'> & {
+    instance_id: string
+    timestamp: ClickHouseTimestamp | null
 }
 
 /**
@@ -44,18 +57,26 @@ export interface AppMetricInput {
  * whatever batch / cycle they want metrics emitted for.
  */
 export class AppMetricsAggregator {
-    private buffer = new Map<string, AppMetricInput & { instance_id: string }>()
+    private buffer = new Map<string, BufferedAppMetric>()
 
     constructor(private readonly outputs: IngestionOutputs<AppMetricsOutput>) {}
 
     queue(metric: AppMetricInput): void {
         appMetricsAggregatorQueuedCounter.inc({ app_source: metric.app_source })
-        const key = makeKey(metric)
+        const { timestamp, ...rest } = metric
+        const row: BufferedAppMetric = {
+            ...rest,
+            instance_id: metric.instance_id ?? '',
+            timestamp: timestamp
+                ? castTimestampToClickhouseFormat(timestamp.toUTC().startOf('hour'), TimestampFormat.ClickHouse)
+                : null,
+        }
+        const key = makeKey(row)
         const existing = this.buffer.get(key)
         if (existing) {
             existing.count += metric.count
         } else {
-            this.buffer.set(key, { ...metric, instance_id: metric.instance_id ?? '' })
+            this.buffer.set(key, row)
         }
     }
 
@@ -66,7 +87,7 @@ export class AppMetricsAggregator {
         const drained = [...this.buffer.values()]
         this.buffer.clear()
 
-        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
+        const flushTimestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
         // No partition key — rows are re-aggregated by ClickHouse, ordering is
         // irrelevant, and round-robin distributes load evenly across partitions.
         const messages = drained.map((m) => ({
@@ -77,7 +98,7 @@ export class AppMetricsAggregator {
                 safeClickhouseString(
                     JSON.stringify({
                         team_id: m.team_id,
-                        timestamp,
+                        timestamp: m.timestamp ?? flushTimestamp,
                         app_source: m.app_source,
                         app_source_id: m.app_source_id,
                         instance_id: m.instance_id,
@@ -99,6 +120,6 @@ export class AppMetricsAggregator {
     }
 }
 
-function makeKey(m: AppMetricInput): string {
-    return `${m.team_id}:${m.app_source}:${m.app_source_id}:${m.instance_id ?? ''}:${m.metric_kind}:${m.metric_name}`
+function makeKey(m: BufferedAppMetric): string {
+    return `${m.team_id}:${m.app_source}:${m.app_source_id}:${m.instance_id}:${m.metric_kind}:${m.metric_name}:${m.timestamp ?? ''}`
 }

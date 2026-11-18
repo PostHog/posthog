@@ -15,9 +15,6 @@ def test_http_context_shim_reexports_neutral_module():
     assert http_context.bind_job_context is job_context.bind_job_context
     assert http_context.scoped_job_context is job_context.scoped_job_context
     assert http_context.current_job_context is job_context.current_job_context
-    # Private names a few HTTP tests reach into.
-    assert http_context._current_job_context is job_context._current_job_context
-    assert http_context._BOUND_LOG_FIELD_NAMES is job_context._BOUND_LOG_FIELD_NAMES
 
 
 def test_scoped_job_context_sets_and_resets():

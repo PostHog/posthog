@@ -2,34 +2,47 @@ import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconRewindPlay, IconX } from '@posthog/icons'
+import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, ButtonGroup } from 'lib/ui/quill'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
+import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
+import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
@@ -40,10 +53,17 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { getIssueReplayDateRange, getIssueReplayFilterGroup } from '../../utils'
+import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneMenuBar } from './ErrorTrackingIssueSceneMenuBar'
+import { IssueEmailMenu } from './IssueEmailMenu'
+import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
+import { IssueSummary } from './IssueSummary'
+import { IssueTags } from './IssueTags'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -54,6 +74,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
+function isDisplayed(element: HTMLElement | null): boolean {
+    return !!element && getComputedStyle(element).display !== 'none'
+}
+
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
@@ -62,8 +86,51 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
+    const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
+    // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
+    const [emailInOverflow, setEmailInOverflow] = useState(true)
+
+    // Jump to the session replay list filtered to this issue. Captured so we can measure how often
+    // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
+    // Named to match the sibling 'viewed recordings from experiment' / 'from feature flag' events, so
+    // all three cross-product entry points compare in one breakdown.
+    const openRecordings = useCallback((): void => {
+        posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: 'header' })
+        newInternalTab(
+            urls.replay(ReplayTabs.Home, {
+                ...getIssueReplayDateRange(
+                    issue?.first_seen,
+                    lastSeen,
+                    selectedEvent?.timestamp ?? initialEventTimestamp
+                ),
+                filter_group: getIssueReplayFilterGroup(issueId),
+            })
+        )
+    }, [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
+
+    // Prefill a Replay vision scanner scoped to this issue and open the wizard on its review-and-create
+    // overview. The overview blocks creation when no recordings match, so a sessionless issue can't
+    // launch a scanner that never runs.
+    const setUpVisionScanner = useCallback((): void => {
+        if (!issue?.name) {
+            return
+        }
+        markScannerHandoffIntent(
+            issueVisionScannerHandoff(
+                issueId,
+                issue.name,
+                getIssueReplayDateRange(issue.first_seen, lastSeen, selectedEvent?.timestamp ?? initialEventTimestamp)
+            )
+        )
+        void addProductIntentForCrossSell({
+            from: ProductKey.ERROR_TRACKING,
+            to: ProductKey.REPLAY_VISION,
+            intent_context: ProductIntentContext.ERROR_TRACKING_SCAN_WITH_VISION,
+        })
+        router.actions.push(urls.replayVisionScannerOverview('new'))
+    }, [issueId, issue?.name, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -91,60 +158,28 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                {sceneMenuBarEnabled && (
-                                    <SceneMenuBar>
-                                        <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
-                                            <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && (
-                                                <SceneMenuBarItem
-                                                    onClick={() =>
-                                                        window.open(
-                                                            urls.errorTrackingIssueFingerprints(issue.id),
-                                                            '_self'
-                                                        )
-                                                    }
-                                                    data-attr="issue-menubar-fingerprints"
-                                                >
-                                                    Manage fingerprints
-                                                </SceneMenuBarItem>
-                                            )}
-                                        </SceneMenuBarMenu>
-                                        <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
-                                            <SceneMenuBarItem
-                                                onClick={() => {
-                                                    const url = urls.replay(ReplayTabs.Home, {
-                                                        ...getIssueReplayDateRange(
-                                                            issue.first_seen,
-                                                            lastSeen,
-                                                            selectedEvent?.timestamp ?? initialEventTimestamp
-                                                        ),
-                                                        filter_group: getIssueReplayFilterGroup(issue.id),
-                                                    })
-                                                    newInternalTab(url)
-                                                }}
-                                                data-attr="issue-menubar-view-recordings"
-                                            >
-                                                <IconRewindPlay />
-                                                View recordings
-                                            </SceneMenuBarItem>
-                                        </SceneMenuBarMenu>
-                                    </SceneMenuBar>
-                                )}
+                                <ErrorTrackingIssueSceneMenuBar issue={issue} />
                                 <SceneTitleSection
+                                    noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
+                                    nameAction={<TodayScenePinButton />}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
-                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
+                                        {
+                                            '@max-5xl/main-content:h-auto @max-5xl/main-content:flex-wrap @max-5xl/main-content:gap-y-2 @max-5xl/main-content:py-2 @max-5xl/main-content:[&>div]:basis-full':
+                                                hasSceneMenuBar,
+                                        },
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex flex-wrap items-center justify-end gap-1">
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
@@ -163,24 +198,76 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        const url = urls.replay(ReplayTabs.Home, {
-                                                            ...getIssueReplayDateRange(
-                                                                issue.first_seen,
-                                                                lastSeen,
-                                                                selectedEvent?.timestamp ?? initialEventTimestamp
-                                                            ),
-                                                            filter_group: getIssueReplayFilterGroup(issue.id),
-                                                        })
-                                                        newInternalTab(url)
-                                                    }}
-                                                    data-attr="error-tracking-issue-view-recordings"
-                                                >
-                                                    View recordings
-                                                    <IconRewindPlay />
-                                                </Button>
+                                                {issue.name ? (
+                                                    <ButtonGroup>
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={openRecordings}
+                                                            data-attr="error-tracking-issue-view-recordings"
+                                                        >
+                                                            View recordings
+                                                            <IconRewindPlay />
+                                                        </Button>
+                                                        <DropdownMenu
+                                                            onOpenChange={(open) => {
+                                                                if (open) {
+                                                                    setEmailInOverflow(
+                                                                        !isDisplayed(inlineEmailMenuRef.current)
+                                                                    )
+                                                                }
+                                                            }}
+                                                        >
+                                                            <DropdownMenuTrigger
+                                                                render={
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="icon"
+                                                                        aria-label="More options"
+                                                                    />
+                                                                }
+                                                            >
+                                                                <IconChevronDown />
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent
+                                                                align="end"
+                                                                className="w-auto min-w-56"
+                                                            >
+                                                                <DropdownMenuItem
+                                                                    onClick={setUpVisionScanner}
+                                                                    data-attr="error-tracking-scan-with-vision"
+                                                                >
+                                                                    <IconSparkles className="text-ai" />
+                                                                    Set up a scanner to watch these
+                                                                </DropdownMenuItem>
+                                                                {emailInOverflow &&
+                                                                    !messageAudienceAccessDisabledReason() && (
+                                                                        <>
+                                                                            <DropdownMenuSeparator />
+                                                                            <IssueEmailMenuItems
+                                                                                issueId={issue.id}
+                                                                                issueName={issue.name}
+                                                                            />
+                                                                        </>
+                                                                    )}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </ButtonGroup>
+                                                ) : (
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={openRecordings}
+                                                        data-attr="error-tracking-issue-view-recordings"
+                                                    >
+                                                        View recordings
+                                                        <IconRewindPlay />
+                                                    </Button>
+                                                )}
+                                                <IssueEmailMenu
+                                                    issueId={issue.id}
+                                                    issueName={issue.name}
+                                                    collapseWhenNarrow={!!issue.name}
+                                                    wrapperRef={inlineEmailMenuRef}
+                                                />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
@@ -207,6 +294,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 disabled={issue.status != 'active'}
                                             />
                                         </ButtonGroup>
+                                        <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         {!mobileDetailOpen && (
                                             <LemonButton
@@ -221,6 +309,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 )}
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
+                                {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <SuppressSimilarIssuesDialog />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -250,10 +340,13 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -274,6 +367,8 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            {hasIssueTags && <IssueTags tags={issue?.tags ?? []} />}
+            <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
@@ -281,6 +376,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

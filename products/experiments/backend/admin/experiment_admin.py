@@ -1,20 +1,19 @@
-import copy
+from uuid import UUID
 
 from django.contrib import admin, messages
-from django.db import transaction
 from django.forms import ModelForm
-from django.shortcuts import redirect
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
-from posthog.models.utils import convert_legacy_metrics
+from posthog.models.organization import Organization
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.staff_operations import (
+    experiment_has_legacy_metric,
+    experiment_has_malformed_properties,
+    fix_malformed_properties,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -40,84 +39,49 @@ class ExperimentAdminForm(ModelForm):
                 )
 
 
-def has_legacy_metric(metrics):
-    if not metrics:
-        return False
-    for metric in metrics:
-        kind = metric.get("kind")
-        if kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery"):
-            return True
-    return False
+class ExperimentStatusFilter(admin.SimpleListFilter):
+    title = "status"
+    parameter_name = "status"
+
+    def lookups(self, request, model_admin):
+        return [(status.value, status.label) for status in Experiment.Status]
+
+    def queryset(self, request, queryset):
+        # Mirrors Experiment.computed_status, so rows whose stored status is still null match too.
+        match self.value():
+            case Experiment.Status.DRAFT:
+                return queryset.filter(start_date__isnull=True)
+            case Experiment.Status.RUNNING:
+                return queryset.filter(start_date__isnull=False, end_date__isnull=True)
+            case Experiment.Status.STOPPED:
+                return queryset.filter(start_date__isnull=False, end_date__isnull=False)
+        return queryset
 
 
-def _is_malformed_properties(properties):
-    """Check if properties are in old-style dict format instead of list format."""
-    if properties is None or isinstance(properties, list):
-        return False
-    if isinstance(properties, dict):
-        if "AND" in properties or "OR" in properties or "type" in properties:
-            return False
-        if len(properties) > 0:
-            return True
-    return False
+class OrganizationFilter(admin.SimpleListFilter):
+    # Only the organization named in the URL is offered, because a sidebar that lists every
+    # organization loads them all on each changelist render. The organization column sets the URL.
+    title = "organization"
+    parameter_name = "organization"
 
+    def _organization_id(self) -> UUID | None:
+        try:
+            return UUID(self.value() or "")
+        except ValueError:
+            return None
 
-def has_malformed_properties(metrics):
-    """Check if any metric has dict-style properties instead of list format."""
-    if not metrics:
-        return False
-    for metric in metrics:
-        for step in metric.get("series", []):
-            if _is_malformed_properties(step.get("properties")):
-                return True
-        source = metric.get("source")
-        if isinstance(source, dict) and _is_malformed_properties(source.get("properties")):
-            return True
-        for field in ["numerator", "denominator", "start_event", "completion_event"]:
-            node = metric.get(field)
-            if isinstance(node, dict) and _is_malformed_properties(node.get("properties")):
-                return True
-    return False
+    def lookups(self, request, model_admin):
+        organization_id = self._organization_id()
+        if organization_id is None:
+            return []
+        organization = Organization.objects.filter(pk=organization_id).only("name").first()
+        return [(str(organization_id), organization.name if organization else str(organization_id))]
 
-
-def transform_old_style_properties(properties):
-    """Convert old-style dict properties to list format."""
-    if properties is None or isinstance(properties, list):
-        return properties
-    if isinstance(properties, dict):
-        if "AND" in properties or "OR" in properties or "type" in properties:
-            return properties
-        if len(properties) > 0:
-            result = []
-            for key, value in properties.items():
-                key_parts = key.rsplit("__", 1)
-                result.append(
-                    {
-                        "key": key_parts[0],
-                        "value": value,
-                        "operator": key_parts[1] if len(key_parts) > 1 else "exact",
-                        "type": "event",
-                    }
-                )
-            return result
-    return properties
-
-
-def fix_metric_properties(metric):
-    """Transform old-style properties in all metric fields."""
-    if not metric:
-        return metric
-    for step in metric.get("series", []):
-        if "properties" in step:
-            step["properties"] = transform_old_style_properties(step.get("properties"))
-    if "source" in metric and isinstance(metric.get("source"), dict):
-        if "properties" in metric["source"]:
-            metric["source"]["properties"] = transform_old_style_properties(metric["source"]["properties"])
-    for field in ["numerator", "denominator", "start_event", "completion_event"]:
-        if field in metric and isinstance(metric.get(field), dict):
-            if "properties" in metric[field]:
-                metric[field]["properties"] = transform_old_style_properties(metric[field]["properties"])
-    return metric
+    def queryset(self, request, queryset):
+        organization_id = self._organization_id()
+        if organization_id is None:
+            return queryset
+        return queryset.filter(team__organization_id=organization_id)
 
 
 @admin.register(Experiment)
@@ -130,15 +94,18 @@ class ExperimentAdmin(admin.ModelAdmin):
         "engine",
         "migrated_links",
         "team_link",
+        "organization_link",
         "created_at",
         "created_by",
     )
     list_display_links = ("id", "name")
     list_select_related = ("team", "team__organization")
+    list_filter = (ExperimentStatusFilter, "archived", OrganizationFilter)
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
     actions = ["fix_malformed_properties_bulk"]
+    readonly_fields = ("console_link",)
 
     @admin.display(description="Team")
     def team_link(self, experiment: Experiment):
@@ -148,11 +115,20 @@ class ExperimentAdmin(admin.ModelAdmin):
             experiment.team.name,
         )
 
+    @admin.display(description="Organization")
+    def organization_link(self, experiment: Experiment):
+        organization = experiment.team.organization
+        return format_html(
+            '<a href="{}?organization={}" title="Show only this organization\'s experiments">{}</a>',
+            reverse("admin:experiments_experiment_changelist"),
+            organization.pk,
+            organization.name,
+        )
+
     @admin.display(description="Status")
     def status_indicator(self, experiment: Experiment):
         issues = []
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        if has_malformed_properties(all_metrics):
+        if experiment_has_malformed_properties(experiment):
             issues.append("malformed properties")
         # Add more issue checks here as needed
         if issues:
@@ -164,9 +140,8 @@ class ExperimentAdmin(admin.ModelAdmin):
 
     @admin.display(description="Engine")
     def engine(self, experiment: Experiment):
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        if has_legacy_metric(all_metrics):
-            return format_html('<span style="color: orange;">Legacy</span>')
+        if experiment_has_legacy_metric(experiment):
+            return mark_safe('<span style="color: orange;">Legacy</span>')
         return ""
 
     @admin.display(description="")
@@ -185,172 +160,13 @@ class ExperimentAdmin(admin.ModelAdmin):
             )
         return ""
 
-    change_form_template = "admin/posthog/experiment/change_form.html"
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        extra_context = extra_context or {}
-
-        obj = self.get_object(request, object_id)
-        if obj is None:
-            messages.error(request, "Experiment not found")
-            return redirect("admin:experiments_experiment_changelist")
-
-        all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
-        extra_context["show_fix_properties"] = has_malformed_properties(all_metrics)
-
-        # Get all related ExperimentSavedMetric objects
-        shared_metrics = obj.saved_metrics.all()
-        shared_metrics_status = []
-        has_legacy_shared_metric = False
-        has_unmigrated_legacy_shared_metric = False
-        for metric in shared_metrics:
-            kind = metric.query.get("kind") if metric.query else None
-            is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
-            if is_legacy:
-                has_legacy_shared_metric = True
-            migrated_to_id = metric.metadata.get("migrated_to") if metric.metadata else None
-            migrated = migrated_to_id is not None
-            if is_legacy and not migrated:
-                has_unmigrated_legacy_shared_metric = True
-            shared_metrics_status.append(
-                {
-                    "id": metric.id,
-                    "name": metric.name,
-                    "is_legacy": is_legacy,
-                    "migrated": migrated,
-                    "migrate_url": reverse("admin:experiments_experimentsavedmetric_change", args=[metric.id]),
-                    "migrated_to_id": migrated_to_id,
-                    "migrated_to_url": reverse("admin:experiments_experimentsavedmetric_change", args=[migrated_to_id])
-                    if migrated_to_id
-                    else None,
-                }
-            )
-        extra_context["shared_metrics_status"] = shared_metrics_status
-        extra_context["show_migration"] = has_legacy_metric(all_metrics) or has_legacy_shared_metric
-        extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
-
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "<path:object_id>/migrate/",
-                self.admin_site.admin_view(self.migrate_experiment),
-                name="experiment_migrate",
-            ),
-            path(
-                "<path:object_id>/fix-properties/",
-                self.admin_site.admin_view(self.fix_malformed_properties),
-                name="experiment_fix_properties",
-            ),
-        ]
-        return custom_urls + urls
-
-    def migrate_experiment(self, request, object_id):
-        try:
-            with transaction.atomic():
-                original = Experiment.objects.select_for_update().get(pk=object_id)
-
-                if original.stats_config and original.stats_config.get("migrated_to"):
-                    messages.warning(request, f"Experiment already migrated to {original.stats_config['migrated_to']}")
-                    return redirect("admin:experiments_experiment_change", original.stats_config["migrated_to"])
-
-                new_experiment = Experiment()
-
-                # copy all fields... almost all...
-                excluded_fields = ["id", "created_at", "key"]
-                for field in original._meta.fields:
-                    if field.name not in excluded_fields:
-                        value = getattr(original, field.name)
-                        # Deep copy dicts to avoid shared references
-                        if isinstance(value, dict):
-                            value = copy.deepcopy(value)
-                        setattr(new_experiment, field.name, value)
-
-                # migrate metrics and secondary metrics
-                new_experiment.metrics = convert_legacy_metrics(original.metrics)
-                new_experiment.metrics_secondary = convert_legacy_metrics(original.metrics_secondary)
-
-                # update the migrated from relation
-                if new_experiment.stats_config is None:
-                    new_experiment.stats_config = {}
-                new_experiment.stats_config["migrated_from"] = int(object_id)
-
-                # save the experiment, we need this for referential integrity
-                new_experiment.save()
-
-                # find the shared metrics "migrated to" and create new relationships
-                # check if all saved metrics have been migrated
-                for metric in original.saved_metrics.all():
-                    kind = metric.query.get("kind") if metric.query else None
-                    is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
-                    migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
-
-                    # bail with an exception if the metric is legacy and has not been migrated
-                    if is_legacy and not migrated:
-                        raise Exception(f"Saved metric {metric.id} has not been migrated yet")
-
-                    # because we need metadata from the through table, we can't just do
-                    # experiment.saved_metrics.add. We need to create the relationship by hand
-                    original_to_saved_metric = ExperimentToSavedMetric.objects.get(
-                        experiment=original, saved_metric=metric
-                    )
-
-                    # if is legacy, get the migrated metric, otherwise, keep the id from the original experiment
-                    metric_id = metric.metadata["migrated_to"] if is_legacy else metric.id
-
-                    saved_metric = ExperimentSavedMetric.objects.get(id=metric_id)
-
-                    # Create the new through object with the same metadata
-                    ExperimentToSavedMetric.objects.create(
-                        experiment=new_experiment,
-                        saved_metric=saved_metric,
-                        metadata=copy.deepcopy(original_to_saved_metric.metadata),
-                    )
-
-                # update the migrated to soft relation
-                if original.stats_config is None:
-                    original.stats_config = {}
-                original.stats_config["migrated_to"] = new_experiment.id
-                original.save(update_fields=["stats_config"])
-
-            messages.success(request, "Experiment migrated successfully")
-            return redirect("admin:experiments_experiment_change", new_experiment.pk)
-        except Experiment.DoesNotExist:
-            messages.error(request, "Experiment not found")
-            return redirect("admin:experiments_experiment_changelist")
-        except Exception as e:
-            messages.error(request, f"Error migrating experiment: {e}")
-            return redirect("admin:experiments_experiment_change", object_id)
-
-    def fix_malformed_properties(self, request, object_id):
-        try:
-            # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
-            experiment = Experiment.objects.get(pk=object_id)
-
-            all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-            if not has_malformed_properties(all_metrics):
-                messages.info(request, "No malformed properties found")
-                return redirect("admin:experiments_experiment_change", object_id)
-
-            # Fix metrics
-            if experiment.metrics:
-                experiment.metrics = [fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics]
-            if experiment.metrics_secondary:
-                experiment.metrics_secondary = [
-                    fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics_secondary
-                ]
-
-            experiment.save(update_fields=["metrics", "metrics_secondary"])
-            messages.success(request, "Fixed malformed properties in experiment metrics")
-            return redirect("admin:experiments_experiment_change", object_id)
-        except Experiment.DoesNotExist:
-            messages.error(request, "Experiment not found")
-            return redirect("admin:experiments_experiment_changelist")
-        except Exception as e:
-            messages.error(request, f"Error fixing properties: {e}")
-            return redirect("admin:experiments_experiment_change", object_id)
+    @admin.display(description="PostHog Admin")
+    def console_link(self, experiment: Experiment):
+        return format_html(
+            '<a href="{}?experiment={}">Repairs, migration and recalculations: now in PostHog Admin &#8599;</a>',
+            reverse("admin_console_tool", kwargs={"tool_key": "experiments"}),
+            experiment.pk,
+        )
 
     @admin.action(description="Fix malformed metric properties")
     def fix_malformed_properties_bulk(self, request, queryset):
@@ -358,20 +174,10 @@ class ExperimentAdmin(admin.ModelAdmin):
         skipped_count = 0
 
         for experiment in queryset:
-            all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-            if not has_malformed_properties(all_metrics):
+            if fix_malformed_properties(experiment):
+                fixed_count += 1
+            else:
                 skipped_count += 1
-                continue
-
-            if experiment.metrics:
-                experiment.metrics = [fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics]
-            if experiment.metrics_secondary:
-                experiment.metrics_secondary = [
-                    fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics_secondary
-                ]
-
-            experiment.save(update_fields=["metrics", "metrics_secondary"])
-            fixed_count += 1
 
         if fixed_count > 0:
             messages.success(request, f"Fixed malformed properties in {fixed_count} experiment(s)")

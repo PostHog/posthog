@@ -12,10 +12,10 @@ from datetime import date, datetime, timedelta
 GRACE_PERIOD_DAYS = 10
 
 # How long a campaign keeps pushing before it is closed as skipped.
-CAMPAIGN_DURATION_DAYS = 14
+CAMPAIGN_DURATION_DAYS = 10
 
 # Quiet period between one campaign ending (for any reason) and the next starting.
-COOLDOWN_DAYS = 7
+COOLDOWN_DAYS = 5
 
 # A skipped (or cancelled) product becomes eligible to push again after this long.
 # Deliberately short enough that blessed products keep cycling — an org that skips

@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ViewMode = "split" | "unified";
-export type DiffSource = "local" | "branch" | "pr";
+type DiffSource = "local" | "branch" | "pr";
 
 interface DiffViewerStoreState {
   viewMode: ViewMode;

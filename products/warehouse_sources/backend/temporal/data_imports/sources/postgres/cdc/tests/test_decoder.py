@@ -1,12 +1,15 @@
+import io
 import struct
 from datetime import UTC, datetime
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import (
     _OID_BOOL,
     _OID_FLOAT8,
@@ -15,10 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     _OID_JSONB,
     _OID_TEXT,
     PG_EPOCH_OFFSET_US,
+    CDCSpillBudgetExhaustedError,
     PgOutputDecoder,
     Relation,
     RelationColumn,
     _pg_timestamp_to_datetime,
+    _WorkerSpillBudget,
 )
 
 _DECODER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder"
@@ -57,7 +62,8 @@ def _make_relation(
     schema: str,
     table: str,
     columns: list[tuple[str, int, int]],
-    replica_identity: int = 0,
+    replica_identity: int = ord("d"),
+    key_columns: set[str] | None = None,
 ) -> bytes:
     """Build a Relation (R) message.
 
@@ -71,7 +77,7 @@ def _make_relation(
     data += struct.pack("!H", len(columns))
 
     for col_name, type_oid, type_mod in columns:
-        flags = 1  # part of key by default
+        flags = 1 if key_columns is None or col_name in key_columns else 0
         data += struct.pack("!B", flags)
         data += _make_cstring(col_name)
         data += struct.pack("!I", type_oid)
@@ -148,10 +154,10 @@ class TestPgOutputDecoder:
         begin = _make_begin()
         commit = _make_commit()
 
-        events = decoder.decode_message(begin, "0/100")
+        events = list(decoder.decode_message(begin, "0/100"))
         assert events == []
 
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
         assert events == []
 
     def test_event_table_name_is_schema_qualified(self):
@@ -163,7 +169,7 @@ class TestPgOutputDecoder:
         )
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(7, [("t", "1")]), "0/150")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].table_name == "public.cdc_test_orders"
@@ -177,7 +183,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(insert, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -195,7 +201,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -204,24 +210,54 @@ class TestPgOutputDecoder:
         assert event.columns["id"] == 42
         assert event.columns["name"] == "Bob"
 
-    def test_update_with_old_key(self):
-        decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
+    @parameterized.expand(
+        [
+            ("key_changed", b"K", [("t", "41"), None], ["id"], {"id": 41}),
+            ("key_unchanged", b"K", [("t", "42"), None], ["id"], None),
+            ("full_identity_row_keeps_only_the_key", b"O", [("t", "41"), ("t", "Alice")], ["id"], {"id": 41}),
+            ("no_old_tuple", b"K", None, ["id"], None),
+            ("table_without_a_splittable_key", b"K", [("t", "41"), None], None, None),
+            ("key_column_outside_the_identity", b"K", [("t", "41"), None], ["id", "name"], None),
+            (
+                "full_identity_row_covers_a_wider_key",
+                b"O",
+                [("t", "41"), ("t", "Alice")],
+                ["id", "name"],
+                {"id": 41, "name": "Alice"},
+            ),
+        ]
+    )
+    def test_update_with_old_key(
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_values: list[tuple[str, str] | None] | None,
+        key_change_columns: list[str] | None,
+        expected_previous: dict[str, object] | None,
+    ) -> None:
+        decoder = PgOutputDecoder()
+        if key_change_columns is not None:
+            decoder.set_key_change_columns({"public.users": key_change_columns})
+        columns = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)]
+        decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
 
         begin = _make_begin()
         update = _make_update(
             1,
             new_values=[("t", "42"), ("t", "Bob")],
-            old_values=[("t", "42"), ("t", "Alice")],
+            old_values=old_values,
+            old_marker=old_marker,
         )
         commit = _make_commit()
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].operation == "U"
-        assert events[0].columns["name"] == "Bob"
+        assert events[0].columns == {"id": 42, "name": "Bob"}
+        assert events[0].previous_values == expected_previous
 
     def test_delete_event(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
@@ -232,7 +268,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(delete, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         event = events[0]
@@ -252,7 +288,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(insert, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["id"] == 1
@@ -277,7 +313,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(
             _make_insert(1, [("t", "1"), ("t", "5"), ("t", "9.5"), ("t", "t"), ("t", "{}"), ("t", "x")]), "0/150"
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events[0].column_types == {
             "id": pa.int64(),
@@ -298,7 +334,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(begin, "0/100")
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["id"] == 1
@@ -307,24 +343,39 @@ class TestPgOutputDecoder:
         assert "big_text" not in events[0].columns
         assert events[0].omitted_columns == frozenset({"big_text"})
 
-    def test_unchanged_toast_filled_from_replica_identity_full_old_tuple(self):
-        # With REPLICA IDENTITY FULL the old tuple carries the TOAST value; since the
-        # column is unchanged, the old value IS the current value — no marker needed.
-        decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)])
+    @parameterized.expand(
+        [
+            # With REPLICA IDENTITY FULL the old tuple carries the TOAST value; since the
+            # column is unchanged, the old value IS the current value — no marker needed.
+            ("full_identity_old_row", b"O", ("t", "big toasted value"), {"big_text": "big toasted value"}, set()),
+            ("old_key_tuple", b"K", None, {}, {"big_text"}),
+        ]
+    )
+    def test_unchanged_toast_filled_only_from_a_real_old_value(
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_big_text: tuple[str, str] | None,
+        expected_filled: dict[str, str],
+        expected_omitted: set[str],
+    ) -> None:
+        decoder = PgOutputDecoder()
+        columns = [("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)]
+        decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
 
         decoder.decode_message(_make_begin(), "0/100")
         update = _make_update(
             1,
-            new_values=[("t", "1"), ("u", "")],
-            old_values=[("t", "1"), ("t", "big toasted value")],
-            old_marker=b"O",
+            new_values=[("t", "2"), ("u", "")],
+            old_values=[("t", "1"), old_big_text],
+            old_marker=old_marker,
         )
         decoder.decode_message(update, "0/150")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
-        assert events[0].columns["big_text"] == "big toasted value"
-        assert events[0].omitted_columns == frozenset()
+        assert events[0].columns == {"id": 2, **expected_filled}
+        assert events[0].omitted_columns == frozenset(expected_omitted)
 
     def test_transaction_buffering(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1)])
@@ -335,13 +386,13 @@ class TestPgOutputDecoder:
         insert3 = _make_insert(1, [("t", "3")])
 
         # Events should NOT be returned until Commit
-        assert decoder.decode_message(begin, "0/100") == []
-        assert decoder.decode_message(insert1, "0/110") == []
-        assert decoder.decode_message(insert2, "0/120") == []
-        assert decoder.decode_message(insert3, "0/130") == []
+        assert list(decoder.decode_message(begin, "0/100")) == []
+        assert list(decoder.decode_message(insert1, "0/110")) == []
+        assert list(decoder.decode_message(insert2, "0/120")) == []
+        assert list(decoder.decode_message(insert3, "0/130")) == []
 
         commit = _make_commit()
-        events = decoder.decode_message(commit, "0/200")
+        events = list(decoder.decode_message(commit, "0/200"))
 
         assert len(events) == 3
         assert [e.columns["id"] for e in events] == [1, 2, 3]
@@ -352,12 +403,12 @@ class TestPgOutputDecoder:
         # Transaction 1
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", "1")]), "0/110")
-        events1 = decoder.decode_message(_make_commit(), "0/200")
+        events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         # Transaction 2
         decoder.decode_message(_make_begin(), "0/300")
         decoder.decode_message(_make_insert(1, [("t", "2")]), "0/310")
-        events2 = decoder.decode_message(_make_commit(), "0/400")
+        events2 = list(decoder.decode_message(_make_commit(), "0/400"))
 
         assert len(events1) == 1
         assert events1[0].columns["id"] == 1
@@ -378,7 +429,7 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "10"), ("t", "20"), ("t", "99.5")]),
             "0/110",
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["tenant_id"] == 10
@@ -393,7 +444,7 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "1"), ("t", "日本語テスト 🎉")]),
             "0/110",
         )
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
         assert events[0].columns["name"] == "日本語テスト 🎉"
@@ -406,8 +457,8 @@ class TestPgOutputDecoder:
         decoder.decode_message(rel1, "0/50")
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
-        events1 = decoder.decode_message(_make_commit(), "0/200")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
+        events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events1[0].columns == {"id": 1, "name": "Alice"}
 
@@ -422,17 +473,24 @@ class TestPgOutputDecoder:
             _make_insert(1, [("t", "2"), ("t", "Bob"), ("t", "bob@example.com")]),
             "0/310",
         )
-        events2 = decoder.decode_message(_make_commit(), "0/400")
+        events2 = list(decoder.decode_message(_make_commit(), "0/400"))
 
         assert events2[0].columns == {"id": 2, "name": "Bob", "email": "bob@example.com"}
 
-    def test_truncate_marks_table(self):
-        decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+    @parameterized.expand([("in_memory", 100), ("spilled", 1)])
+    def test_a_truncate_shows_only_once_its_transactions_changes_are_consumed(self, _name, chunk):
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
+            decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+            decoder.decode_message(_make_begin(), "0/100")
+            decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
+            decoder.decode_message(_make_insert(1, [("t", "2"), ("t", "Bob"), None]), "0/120")
+            decoder.decode_message(_make_truncate([1]), "0/130")
+            events = iter(decoder.decode_message(_make_commit(), "0/200"))
 
-        truncate = _make_truncate([1])
-        decoder.decode_message(truncate, "0/100")
-
-        assert decoder.truncated_tables == ["public.users"]
+            next(events)
+            assert decoder.truncated_tables == []
+            assert len(list(events)) == 1
+            assert decoder.truncated_tables == ["public.users"]
 
         decoder.clear_truncated_tables()
         assert decoder.truncated_tables == []
@@ -448,7 +506,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", "1")]), "0/110")
         decoder.decode_message(_make_insert(2, [("t", "100"), ("t", "1")]), "0/120")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 2
         assert events[0].table_name == "public.users"
@@ -472,7 +530,7 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", text_value)]), "0/110")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events[0].columns["val"] == expected
 
@@ -482,28 +540,28 @@ class TestPgOutputDecoder:
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(99, [("t", "1")]), "0/110")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 0
 
     def test_empty_message(self):
         decoder = PgOutputDecoder()
-        events = decoder.decode_message(b"", "0/100")
+        events = list(decoder.decode_message(b"", "0/100"))
         assert events == []
 
     def test_unknown_message_type_ignored(self):
         decoder = PgOutputDecoder()
-        events = decoder.decode_message(b"Z\x00\x00", "0/100")
+        events = list(decoder.decode_message(b"Z\x00\x00", "0/100"))
         assert events == []
 
     def test_mixed_operations_in_transaction(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
         decoder.decode_message(_make_update(1, [("t", "1"), ("t", "Alice Updated")]), "0/120")
         decoder.decode_message(_make_delete(1, [("t", "2"), None]), "0/130")
-        events = decoder.decode_message(_make_commit(), "0/200")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 3
         assert events[0].operation == "I"
@@ -527,48 +585,152 @@ class TestPgTimestamp:
 
 
 class TestTransactionBufferGuard:
-    """A single transaction is buffered fully in memory until COMMIT; the decoder caps it so one
-    pathological transaction can't OOM the worker."""
+    _COLUMNS = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("active", _OID_BOOL, -1), ("score", _OID_FLOAT8, -1)]
 
     def _decoder_with_relation(self) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
-        decoder.decode_message(_make_relation(1, "public", "users", [("id", _OID_INT4, -1)]), "0/1")
+        decoder.set_key_change_columns({"public.users": ["id"]})
+        decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS, key_columns={"id"}), "0/1")
         return decoder
 
-    def test_raises_when_transaction_exceeds_buffer_cap(self, monkeypatch):
-        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 3)
-        decoder = self._decoder_with_relation()
+    def _row(self, i: int) -> list[tuple[str, str] | None]:
+        return [("t", str(i)), None if i % 2 else ("t", f"用户 {i}"), ("t", "t"), ("t", f"{i}.5")]
+
+    def _decode(self, decoder: PgOutputDecoder, messages: list[bytes]) -> list[ChangeEvent]:
         decoder.decode_message(_make_begin(), "0/1")
+        for message in messages:
+            assert list(decoder.decode_message(message, "0/1")) == []
+        return list(decoder.decode_message(_make_commit(end_lsn=0x500), "0/2"))
 
-        # Up to the cap buffers without yielding (events flush only on COMMIT).
-        for i in range(3):
-            assert decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1") == []
+    def _mixed_transaction(self) -> list[bytes]:
+        retyped = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("active", _OID_BOOL, -1), ("score", _OID_TEXT, -1)]
+        return [
+            *(_make_insert(1, self._row(i)) for i in range(4)),
+            _make_update(
+                1, [("t", "2"), ("u", ""), ("t", "f"), ("t", "9.5")], old_values=[("t", "1"), None, None, None]
+            ),
+            _make_relation(1, "public", "users", retyped, key_columns={"id"}),
+            *(_make_insert(1, self._row(i)) for i in range(4, 7)),
+        ]
 
-        # The change past the cap aborts decoding instead of growing the buffer unbounded.
-        with pytest.raises(CDCTransactionTooLargeError):
-            decoder.decode_message(_make_insert(1, [("t", "99")]), "0/1")
+    @parameterized.expand([("spills_whole_chunks", 4), ("spills_with_a_tail", 3)])
+    def test_a_spilled_transaction_comes_back_identical_at_the_commit_position(self, _name: str, chunk: int) -> None:
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 100):
+            in_memory = self._decode(self._decoder_with_relation(), self._mixed_transaction())
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
+            decoder = self._decoder_with_relation()
+            spilled = self._decode(decoder, self._mixed_transaction())
+            follow_up = self._decode(decoder, [_make_insert(1, self._row(100))])
 
-    def test_cap_is_per_transaction(self, monkeypatch):
-        # The buffer clears at each COMMIT, so a long stream of small transactions never trips the cap.
-        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 2)
-        decoder = self._decoder_with_relation()
+        assert spilled == in_memory
+        assert {e.position_serialized for e in spilled} == {"0/500"}
+        assert spilled[4].omitted_columns == frozenset({"name"})
+        assert spilled[4].previous_values == {"id": 1}
+        assert spilled[0].column_types != spilled[-1].column_types
+        assert [e.columns["id"] for e in follow_up] == [100]
 
-        for _ in range(3):
+    @parameterized.expand(
+        [
+            ("change_count", "MAX_TX_BUFFER_EVENTS", 3),
+            ("spill_bytes", "MAX_TX_SPILL_BYTES", 1),
+            ("larger_than_the_worker_budget", "_worker_spill_budget", _WorkerSpillBudget(limit=1)),
+        ]
+    )
+    def test_raises_when_transaction_exceeds_a_cap(self, _name: str, cap: str, value: object) -> None:
+        with patch(f"{_DECODER_MODULE}.{cap}", value), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 4):
+            decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
-            decoder.decode_message(_make_insert(1, [("t", "1")]), "0/1")
-            decoder.decode_message(_make_insert(1, [("t", "2")]), "0/1")
-            events = decoder.decode_message(_make_commit(), "0/1")
-            assert len(events) == 2
+            for i in range(3):
+                decoder.decode_message(_make_insert(1, [("t", str(i)), None, None, None]), "0/1")
+
+            with pytest.raises(CDCTransactionTooLargeError):
+                decoder.decode_message(_make_insert(1, [("t", "99"), None, None, None]), "0/1")
+
+    def test_concurrent_transactions_share_the_worker_spill_budget(self) -> None:
+        row = _make_insert(1, [("t", "1"), None, None, None])
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1):
+            probe = io.BytesIO()
+            with patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=probe):
+                measured = self._decoder_with_relation()
+                measured.decode_message(_make_begin(), "0/1")
+                measured.decode_message(row, "0/1")
+                line = len(probe.getvalue())
+                measured.close()
+
+            with patch(f"{_DECODER_MODULE}._worker_spill_budget", _WorkerSpillBudget(limit=line * 5 // 2)):
+                first, second = self._decoder_with_relation(), self._decoder_with_relation()
+                first.decode_message(_make_begin(), "0/1")
+                first.decode_message(row, "0/1")
+                first.decode_message(row, "0/1")
+                second.decode_message(_make_begin(), "0/1")
+
+                with pytest.raises(CDCSpillBudgetExhaustedError):
+                    second.decode_message(row, "0/1")
+
+                assert len(list(first.decode_message(_make_commit(), "0/2"))) == 2
+                assert len(self._decode(second, [row, row])) == 2
+
+    def test_a_failed_spill_write_returns_its_budget_on_close(self) -> None:
+        budget = _WorkerSpillBudget(limit=10_000)
+        full_disk = MagicMock()
+        full_disk.write.side_effect = OSError(28, "No space left on device")
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}._worker_spill_budget", budget),
+            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=full_disk),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+            with pytest.raises(OSError):
+                decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+
+            decoder.close()
+
+        assert budget.reserve(10_000)
+
+    @parameterized.expand([("at_a_spill", 1), ("at_commit", 100)])
+    def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self, _name: str, chunk: int) -> None:
+        clock = iter([0.0, 3601.0])
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk),
+            patch(f"{_DECODER_MODULE}.time.monotonic", side_effect=lambda: next(clock)),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+
+            with pytest.raises(CDCTransactionTooLargeError):
+                decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+                decoder.decode_message(_make_commit(), "0/2")
+
+    @parameterized.expand([("before_commit", False), ("mid_replay", True)])
+    def test_close_releases_the_spill(self, _name: str, committed: bool) -> None:
+        spill = io.BytesIO()
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=spill),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "2"), None, None, None]), "0/1")
+            if committed:
+                replay = iter(decoder.decode_message(_make_commit(), "0/2"))
+                next(replay)
+                assert not spill.closed
+
+            decoder.close()
+
+        assert spill.closed
 
 
 class TestReplicaIdentityKeyColumns:
-    def _decoder_with(self, replica_identity: int = 0, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
+    def _decoder_with(self, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
         decoder._relations[1] = Relation(
             relation_id=1,
             schema_name="cdc_test",
             table_name="orders",
-            replica_identity=replica_identity,
+            replica_identity=ord("d"),
             columns=[
                 RelationColumn(flags=flags, name=name, type_oid=_OID_INT8, type_modifier=-1)
                 for flags, name in zip(key_flags, ["id", "tenant_id", "total"])
@@ -589,11 +751,13 @@ class TestReplicaIdentityKeyColumns:
     def test_full_replica_identity_yields_no_key(self):
         # FULL flags every column, so adopting it as the key would make the merge key the whole row
         # and every update would insert instead of replace.
-        decoder = self._decoder_with(replica_identity=2, key_flags=(1, 1, 1))
+        decoder = PgOutputDecoder()
+        columns = [("id", _OID_INT8, -1), ("tenant_id", _OID_INT8, -1), ("total", _OID_INT8, -1)]
+        decoder.decode_message(_make_relation(1, "cdc_test", "orders", columns, replica_identity=ord("f")), "0/1")
 
         assert decoder.get_key_columns("cdc_test.orders") == []
 
     def test_declared_key_covering_every_column_survives(self):
-        decoder = self._decoder_with(replica_identity=0, key_flags=(1, 1, 1))
+        decoder = self._decoder_with(key_flags=(1, 1, 1))
 
         assert decoder.get_key_columns("cdc_test.orders") == ["id", "tenant_id", "total"]

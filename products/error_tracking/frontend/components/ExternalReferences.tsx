@@ -1,9 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { stackFrameLogic } from 'lib/components/Errors/Frame/stackFrameLogic'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -31,20 +32,28 @@ import {
     ErrorTrackingExternalIssueResultApi,
     ErrorTrackingExternalIssueResultApiExternalContext,
 } from '../generated/api.schemas'
-import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import {
+    errorTrackingIssueSceneLogic,
+    errorTrackingIssueSceneLogicType,
+} from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { ExternalIssueAssigneeField } from './ExternalIssueAssigneeField'
+import { appendStacktrace, getStacktrace } from './externalIssueBody'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
+import { IncludeStacktraceField } from './IncludeStacktraceField'
 
 const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
-type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
+type onSubmitFormType = (integrationId: number, config: Record<string, string>, includeStacktrace: boolean) => void
 type onSubmitLinkType = (
     integrationId: number,
     externalContext: ErrorTrackingExternalIssueResultApiExternalContext
 ) => void
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
 type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
+type ErrorTrackingIssueSceneBuiltLogic = BuiltLogic<errorTrackingIssueSceneLogicType>
 
-const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
+// The dialog otherwise sizes to its widest line, so it would resize when the stack trace preview is shown or hidden.
+const CREATE_ISSUE_DIALOG_WIDTH = '40rem'
 
 const PROVIDER_LABELS: Record<ErrorTrackingIntegrationKind, string> = {
     github: 'GitHub',
@@ -58,6 +67,7 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
     (
         issue: ErrorTrackingRelationalIssue,
         issueUrl: string,
+        sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
         integration: ErrorTrackingIntegration,
         onSubmit: onSubmitFormType
     ) => void
@@ -69,8 +79,9 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
 }
 
 export const ExternalReferences = (): JSX.Element | null => {
-    const { issue, issueLoading, issueFingerprints } = useValues(errorTrackingIssueSceneLogic)
-    const { createExternalReference, linkExternalReference } = useActions(errorTrackingIssueSceneLogic)
+    const sceneLogic = useMountedLogic(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, issueFingerprints } = useValues(sceneLogic)
+    const { createExternalReference, linkExternalReference } = useActions(sceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     if (!issue || integrationsLoading) {
@@ -94,6 +105,7 @@ export const ExternalReferences = (): JSX.Element | null => {
             buildForm(
                 issue,
                 getIssueUrl(issueFingerprints),
+                sceneLogic,
                 integration as ErrorTrackingIntegration,
                 createExternalReference
             )
@@ -119,8 +131,18 @@ export const ExternalReferences = (): JSX.Element | null => {
                     }}
                 >
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
-                        <IntegrationIcon kind={reference.integration.kind} />
-                        {reference.integration.display_name}
+                        <div className="flex items-center gap-2 min-w-0 w-full">
+                            <IntegrationIcon kind={reference.integration.kind} />
+                            <span className="truncate min-w-0 flex-1 text-left">
+                                {reference.title ||
+                                    PROVIDER_LABELS[reference.integration.kind as ErrorTrackingIntegrationKind]}
+                            </span>
+                            {reference.external_id && (
+                                <span className="text-sm text-muted flex-shrink-0 ml-auto">
+                                    {reference.external_id}
+                                </span>
+                            )}
+                        </div>
                     </ButtonPrimitive>
                 </Link>
             ))}
@@ -225,38 +247,57 @@ function getIssueUrl(fingerprints: ErrorTrackingFingerprint[]): string {
     return `${window.location.origin}${window.location.pathname}`
 }
 
-function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
+// The event and its frame records can finish loading after the dialog opens, so the trace is built at submit time.
+function getSubmittedBody(
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
+    text: string,
+    includeStacktrace: boolean
+): string {
+    if (!includeStacktrace) {
+        return text
+    }
+    const { selectedEvent, initialEvent } = sceneLogic.values
+    return appendStacktrace(
+        text,
+        getStacktrace(selectedEvent ?? initialEvent, stackFrameLogic.values.stackFrameRecords)
+    )
 }
 
-function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}\n\nPostHog issue: ${issueUrl}`
+function withAssignee(config: Record<string, string>, assignees: string[] | undefined): Record<string, string> {
+    const assignee = assignees?.[0]
+    return assignee ? { ...config, assignee } : config
 }
 
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
             repositories: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <GitHubRepositorySelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="github" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="body" />
             </div>
         ),
         errors: {
@@ -264,8 +305,13 @@ function createGitHubIssueForm(
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: ({ title, body, repositories }) => {
-            onSubmit(integration.id, { repository: repositories[0], title, body })
+        onSubmit: ({ title, body, includeStacktrace, repositories, assignees }) => {
+            const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
+            onSubmit(
+                integration.id,
+                withAssignee({ repository: repositories[0], title, body: submittedBody }, assignees),
+                submittedBody !== body
+            )
         },
     })
 }
@@ -273,32 +319,39 @@ function createGitHubIssueForm(
 function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create GitLab issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="gitlab" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="body" />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
-        onSubmit: ({ title, body }) => {
-            onSubmit(integration.id, { title, body })
+        onSubmit: ({ title, body, includeStacktrace, assignees }) => {
+            const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
+            onSubmit(integration.id, withAssignee({ title, body: submittedBody }, assignees), submittedBody !== body)
         },
     })
 }
@@ -306,35 +359,46 @@ function createGitLabIssueForm(
 function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
     _issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: issue.description,
+            description: '',
+            includeStacktrace: true,
             integrationId: integration.id,
             teamIds: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <LinearTeamSelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="linear" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="description" />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: ({ title, description, teamIds }) => {
-            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, teamIds, assignees }) => {
+            const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
+            onSubmit(
+                integration.id,
+                withAssignee({ team_id: teamIds[0], title, description: submittedDescription }, assignees),
+                submittedDescription !== description
+            )
         },
     })
 }
@@ -342,27 +406,33 @@ function createLinearIssueForm(
 function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create Jira issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getIssuePlaintextBody(issue, issueUrl),
+            description: `PostHog issue: ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
             projectKeys: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <JiraProjectSelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="jira" />
                 <LemonField name="title" label="Summary">
                     <LemonInput data-attr="jira-issue-title" placeholder="Issue summary" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="description" />
             </div>
         ),
         errors: {
@@ -370,8 +440,13 @@ function createJiraIssueForm(
             projectKeys: (projectKeys) =>
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
-        onSubmit: ({ title, description, projectKeys }) => {
-            onSubmit(integration.id, { project_key: projectKeys[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, projectKeys, assignees }) => {
+            const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
+            onSubmit(
+                integration.id,
+                withAssignee({ project_key: projectKeys[0], title, description: submittedDescription }, assignees),
+                submittedDescription !== description
+            )
         },
     })
 }
@@ -392,7 +467,7 @@ function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: 
         },
         onSubmit: ({ externalIssue }) => {
             if (externalIssue) {
-                onSubmit(integration.id, externalIssue.external_context)
+                onSubmit(integration.id, { ...externalIssue.external_context, title: externalIssue.title })
             }
         },
     })
@@ -420,12 +495,17 @@ function ExistingIssueSelect({
     const selectedKey = value ? optionKey(value) : null
     const options = results.map((result) => ({
         key: optionKey(result),
-        label: result.title,
+        label: `${result.title} ${formatExternalIssueId(result.id, kind)}`,
+        labelComponent: externalIssueOptionLabel(result, kind),
     }))
     // A results refresh must not visually drop a valid selection, so the selected
     // issue stays in the options even when the fresh results no longer include it.
     if (value && selectedKey && !options.some((option) => option.key === selectedKey)) {
-        options.push({ key: selectedKey, label: value.title })
+        options.push({
+            key: selectedKey,
+            label: `${value.title} ${formatExternalIssueId(value.id, kind)}`,
+            labelComponent: externalIssueOptionLabel(value, kind),
+        })
     }
 
     return (
@@ -443,6 +523,7 @@ function ExistingIssueSelect({
             <LemonInputSelect
                 mode="single"
                 data-attr="select-existing-issue"
+                popoverClassName="[&_.LemonButton__content>span]:grow [&_.LemonButton__content>span]:min-w-0"
                 placeholder={
                     requiresRepository && !repository ? 'Select a repository first...' : 'Search for an issue...'
                 }
@@ -474,6 +555,22 @@ function ExistingIssueSelect({
             />
         </div>
     )
+}
+
+function externalIssueOptionLabel(
+    issue: ErrorTrackingExternalIssueResultApi,
+    kind: ErrorTrackingIntegrationKind
+): JSX.Element {
+    return (
+        <span className="flex items-center justify-between gap-2 min-w-0 w-full">
+            <span className="truncate">{issue.title}</span>
+            <span className="text-muted flex-shrink-0">{formatExternalIssueId(issue.id, kind)}</span>
+        </span>
+    )
+}
+
+function formatExternalIssueId(id: string, kind: ErrorTrackingIntegrationKind): string {
+    return (kind === 'github' || kind === 'gitlab') && !id.startsWith('#') ? `#${id}` : id
 }
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {

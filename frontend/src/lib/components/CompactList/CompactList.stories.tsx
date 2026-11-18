@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { CompactList, CompactListProps } from './CompactList'
 

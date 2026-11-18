@@ -21,6 +21,7 @@ import { createPrepareEventStep } from '~/ingestion/common/steps/event-processin
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
+import { createStripAiEventBytesStep } from '~/ingestion/common/steps/event-processing/strip-ai-event-bytes-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createRecordEventUsageAfterIngestStep,
@@ -41,6 +42,7 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
+    RealtimeOnlyEventsOutput,
 } from './outputs'
 
 // Mirrors the merge condition in PersonMergeService.handleIdentifyOrAlias: an event asks for a person
@@ -69,6 +71,7 @@ export interface EventSubpipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
         | IngestionWarningsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
@@ -124,9 +127,16 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
-            retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
-        })
+        .pipe(createStripAiEventBytesStep())
+        // From here on the event writes persons, groups and itself, so finishing costs less than redelivering.
+        .timeoutBarrier()
+        .pipe(
+            createProcessPersonlessStep(
+                options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                options.FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS
+            ),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_personless' } }
+        )
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
@@ -167,12 +177,18 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
         .pipe(createRecordEventUsageStep(resolveAnalyticsUsageKey))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT, options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS))
+        .pipe(
+            createCreateEventStep(
+                // The fork step below moves a FLAG_EVALUATIONS_ONLY team's flag calls to the realtime-only output.
+                EVENTS_OUTPUT as EventOutput | RealtimeOnlyEventsOutput,
+                options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS
+            )
+        )
 
     // Composed at build time so the disabled fleet default pays no per-event step
     // overhead. No retry envelope: a retry would queue the produce again. Unlike
     // emit-event below, this produce is best effort: its ack settles inside the
-    // step and a failure drops the shadow row.
+    // step and a failure drops the row.
     if (flagEvaluationsService) {
         pipeline = pipeline.pipe(createForkFlagEvaluationsStep(outputs, flagEvaluationsService))
     }

@@ -1,11 +1,14 @@
 from django.db import models
-from django.db.models import Case, CharField, Expression, F, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
 class ObservationStatus(models.TextChoices):
@@ -27,6 +30,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
 
 
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
@@ -37,8 +46,12 @@ class ObservationTrigger(models.TextChoices):
 class ReplayObservation(UUIDModel):
     """One application of a `ReplayScanner` to a session recording (see README)."""
 
-    scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_index=False: rlo_scanner_status_idx leads with scanner_id and serves every scanner filter.
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations", db_index=False
+    )
+    # db_index=False: rlo_team_created_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
     distinct_id = models.CharField(
         max_length=400,
@@ -64,6 +77,14 @@ class ReplayObservation(UUIDModel):
             "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
         ),
     )
+    session_geoip = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "`$geoip_*` properties the recorded session's events carry (country, region, city, time zone). "
+            "Resolved at scan time and stamped on the emitted event, which is otherwise geolocated to the worker."
+        ),
+    )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
     error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)
@@ -81,6 +102,23 @@ class ReplayObservation(UUIDModel):
     scanner_result = models.JSONField(
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
+    )
+    # Real keys are short ("test_a", "step_2"), but a variant key is only charset-validated, never
+    # length-bounded, so this matches `FeatureFlag.key` rather than truncate one a flag accepted.
+    group_key = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="The label the scanner's scope gave this session, such as an experiment variant. Null when the scope gives none.",
+    )
+    # Ranks live in `ReplayObservationRank`.
+    watch_rank = deprecate_field(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="Highlight feed ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+        ),
+        raise_on_access=True,
     )
     created_task_id = models.UUIDField(
         null=True,
@@ -130,6 +168,8 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the recording-delete cleanup, which looks rows up by session rather than scanner.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
             # Serves the alert-engine observation window: succeeded rows per scanner in a
             # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
@@ -140,11 +180,6 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            models.Index(
-                fields=["workflow_id"],
-                name="rlo_workflow_id_idx",
-                condition=~models.Q(workflow_id=""),
-            ),
             # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
             # in-flight statuses only, since terminal rows dominate and are never counted.
             models.Index(
@@ -157,6 +192,12 @@ class ReplayObservation(UUIDModel):
                 fields=["backfill"],
                 name="rlo_backfill_idx",
                 condition=models.Q(backfill__isnull=False),
+            ),
+            # Serves the per-group readout and filter; partial since scopes that give no label leave it null.
+            models.Index(
+                fields=["scanner", "group_key"],
+                name="rlo_scanner_group_idx",
+                condition=models.Q(group_key__isnull=False),
             ),
         ]
 
@@ -184,13 +225,42 @@ def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
-def hydrate_for_serialization(qs: "models.QuerySet[ReplayObservation]") -> "models.QuerySet[ReplayObservation]":
+def hydrate_for_serialization(
+    qs: "models.QuerySet[ReplayObservation]", viewer_id: int | None = None
+) -> "models.QuerySet[ReplayObservation]":
     """Load everything `ReplayObservationSerializer` reads, so no queryset feeding it goes one query per row.
 
     `scanner_origin` is annotated rather than joined through `select_related("scanner")`: the serializer
     reads one enum, and hydrating the scanner would ship its config and hour-bucket JSON blobs per row.
+
+    `viewed` is per caller; without a viewer nothing counts as viewed.
     """
-    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"))
+    viewed = (
+        Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        if viewer_id is not None
+        else Value(False, output_field=models.BooleanField())
+    )
+    return (
+        qs.select_related("triggered_by_user", "label")
+        # Explicit queryset, because the serializer reads `media` off each row and the reverse manager is
+        # fail-closed: without one it raises unless the caller happens to sit inside a team scope. The rows
+        # are reachable only through an observation the caller already passed team filtering on.
+        .prefetch_related(
+            models.Prefetch(
+                "media",
+                queryset=ReplayObservationMedia.objects.unscoped()
+                .select_related("asset", "small_asset")
+                .order_by("kind", "position"),
+            )
+        )
+        .annotate(
+            scanner_origin=F("scanner__origin"),
+            scanner_prompt_question=F("scanner__prompt_question"),
+            scanner_prompt_question_source=F("scanner__prompt_question_source"),
+            scanner_prompt_valence=F("scanner__prompt_valence"),
+            viewed=viewed,
+        )
+    )
 
 
 def annotate_output_number(

@@ -24,9 +24,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from structlog.contextvars import bind_contextvars, unbind_contextvars
+from structlog.contextvars import bind_contextvars, clear_contextvars, unbind_contextvars
 
-from posthog.exceptions_capture import bind_exception_context, exception_context
+from posthog.exceptions_capture import _ambient_exception_properties, bind_exception_context, exception_context
 
 if TYPE_CHECKING:
     import uuid
@@ -193,3 +193,22 @@ def scoped_job_context(
     finally:
         _current_job_context.reset(token)
         unbind_contextvars(*_BOUND_LOG_FIELD_NAMES)
+
+
+@contextmanager
+def isolated_job_context() -> Iterator[None]:
+    """Run a block with no job context, log fields, or exception context bound, and restore them on exit.
+
+    `bind_job_context` never resets what it sets, because production runs each Temporal activity in a
+    fresh context. Tests that run activity code on the main thread use this, so that state cannot reach
+    later tests.
+    """
+    job_token = _current_job_context.set(None)
+    exception_token = _ambient_exception_properties.set(None)
+    clear_contextvars()
+    try:
+        yield
+    finally:
+        _current_job_context.reset(job_token)
+        _ambient_exception_properties.reset(exception_token)
+        clear_contextvars()

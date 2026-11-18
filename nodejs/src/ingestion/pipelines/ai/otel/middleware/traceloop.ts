@@ -1,6 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { promotePosthogCustomMetadata } from './custom-metadata'
+import { liftStopReasonFromOutputChoices, usableStopReason } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'
 
 const STRIP_KEYS = [
@@ -138,7 +139,12 @@ function process(event: PluginEvent, next: () => void): void {
     }
 
     if (props['$ai_output_choices'] === undefined) {
-        const completions = reassembleIndexedAttributes(props, 'gen_ai.completion.', ['role', 'content'], [])
+        const completions = reassembleIndexedAttributes(
+            props,
+            'gen_ai.completion.',
+            ['role', 'content', 'finish_reason'],
+            []
+        )
         if (completions) {
             props['$ai_output_choices'] = completions
         }
@@ -156,15 +162,26 @@ function process(event: PluginEvent, next: () => void): void {
         }
     }
 
-    // Map stop/finish reason to $ai_stop_reason before stripping
+    // Map the stop/finish reason to $ai_stop_reason before stripping. OpenLLMetry writes it in up
+    // to three places: the legacy flat `llm.response.*` names, the `gen_ai.response.finish_reasons`
+    // array, which it sets even when content capture is off, and on each output message, which the
+    // reassembly above lands in $ai_output_choices.
     if (props['$ai_stop_reason'] === undefined) {
-        const stopReason = props['llm.response.stop_reason'] ?? props['llm.response.finish_reason']
+        const stopReason =
+            usableStopReason(props['llm.response.stop_reason']) ?? usableStopReason(props['llm.response.finish_reason'])
+        const genAiReasons = props['gen_ai.response.finish_reasons']
+        // One reason per choice. The first choice is the one the trace view renders first.
+        const firstGenAiReason = Array.isArray(genAiReasons) ? usableStopReason(genAiReasons[0]) : undefined
         if (stopReason !== undefined) {
             props['$ai_stop_reason'] = stopReason
+        } else if (firstGenAiReason !== undefined) {
+            props['$ai_stop_reason'] = firstGenAiReason
         }
     }
+    liftStopReasonFromOutputChoices(props)
     delete props['llm.response.stop_reason']
     delete props['llm.response.finish_reason']
+    delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/traceloop'
 

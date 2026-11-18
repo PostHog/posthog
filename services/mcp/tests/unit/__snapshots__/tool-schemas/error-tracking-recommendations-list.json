@@ -8,6 +8,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "poll": {
+            "description": "True reads the current state without scheduling a refresh.",
+            "type": "boolean"
         }
     },
     "type": "object"

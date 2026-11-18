@@ -1,0 +1,302 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ActionPreview {
+    --action-preview-accent: var(--empty-state-accent, var(--color-product-actions-light));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden click state. A direct child of .ActionPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__app,
+    &__panel {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Before/after pairs are stacked on one grid cell and crossfaded, so sending the
+    // event never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-after {
+        @include preview-swap-hidden;
+    }
+
+    &__when-before {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    // Mini pricing page
+
+    &__chrome {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.75rem;
+    }
+
+    &__plan {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.625rem;
+        font-size: 0.75rem;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: var(--radius);
+    }
+
+    &__plan-name {
+        font-weight: 500;
+    }
+
+    &__plan-price {
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+    }
+
+    &__cta {
+        display: block;
+        padding: 0.4375rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        text-align: center;
+        cursor: pointer;
+        user-select: none;
+        background: var(--action-preview-accent);
+        border-radius: var(--radius);
+        transition: filter 150ms ease;
+    }
+
+    &__cta:hover {
+        filter: brightness(1.05);
+    }
+
+    &__toast-slot {
+        min-height: 1.5rem;
+    }
+
+    &__toast-spacer {
+        min-height: 1.5rem;
+    }
+
+    &__toast {
+        align-self: center;
+        padding: 0.25rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        background: color-mix(in oklab, var(--action-preview-accent) 12%, var(--color-bg-surface-primary));
+        border: 1px solid color-mix(in oklab, var(--action-preview-accent) 35%, transparent);
+        border-radius: var(--radius);
+
+        @include preview-accent-text(var(--action-preview-accent));
+    }
+
+    &__hint {
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: center;
+    }
+
+    // Actions panel
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__dot {
+        width: 7px;
+        height: 7px;
+        background: var(--action-preview-accent);
+        border-radius: 50%;
+    }
+
+    &__action {
+        display: flex;
+        flex-direction: column;
+        gap: 0.0625rem;
+        overflow: hidden;
+    }
+
+    &__name {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__match {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__badge {
+        padding: 0 0.3125rem;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        white-space: nowrap;
+        background: color-mix(in oklab, var(--action-preview-accent) 12%, var(--color-bg-surface-primary));
+        border-radius: 999px;
+
+        @include preview-accent-text(var(--action-preview-accent));
+    }
+
+    &__count {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__count--bumped {
+        @include preview-accent-text(var(--action-preview-accent));
+    }
+
+    // Sign-ups stat + sparkline, inside the actions panel
+
+    &__spark {
+        padding: 0.5rem 0.75rem 0.625rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__spark-value {
+        font-size: 1.25rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--action-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--action-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--action-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: ActionPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Clicked state (user sent the event)
+
+.ActionPreview__checkbox:checked ~ * .ActionPreview__when-after {
+    @include preview-swap-visible;
+}
+
+.ActionPreview__checkbox:checked ~ * .ActionPreview__when-before {
+    @include preview-swap-hidden;
+}
+
+.ActionPreview__checkbox:checked ~ .ActionPreview__panel .ActionPreview__row--hero {
+    background: color-mix(in oklab, var(--action-preview-accent) 8%, transparent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the button it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.ActionPreview__checkbox:focus-visible ~ .ActionPreview__app .ActionPreview__cta {
+    outline: 2px solid var(--action-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the trial button until it's clicked.
+.ActionPreview:not(.ActionPreview--static)
+    .ActionPreview__checkbox:not(:checked)
+    ~ .ActionPreview__app
+    .ActionPreview__cta {
+    animation: ActionPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes ActionPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--action-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--action-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes ActionPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// trial button still flips the state (transitions only).
+@include preview-motion-guards('ActionPreview');

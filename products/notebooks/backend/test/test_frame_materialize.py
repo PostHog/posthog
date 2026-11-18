@@ -20,6 +20,8 @@ from posthog.schema import QueryStatus
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
@@ -147,6 +149,35 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         status = manager.get_query_status()
         self.assertTrue(status.complete and status.error)
         self.assertIn(expected_message, status.error_message or "")
+
+    @parameterized.expand(
+        [
+            ("trace_spans_streaming", "select 1 from posthog.trace_spans", False),
+            ("logs_ch_writes", "select 1 from logs", True),
+            ("metrics_streaming", "select 1 from posthog.metrics", False),
+        ]
+    )
+    def test_logs_cluster_table_is_rejected_before_clickhouse(self, _name, query, ch_writes):
+        # These tables exist only on the logs cluster, and neither write path connects there.
+        # Without the early rejection the DESCRIBE fails with an unknown-table error.
+        inputs, manager = _registered_inputs(
+            self.team.id, self.notebook.short_id, self.user.id, query=query, ch_writes=ch_writes
+        )
+
+        with (
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize, "_describe_columns") as describe,
+            patch.object(frame_materialize, "_describe_columns_pooled") as describe_pooled,
+        ):
+            with self.assertRaises(exceptions.ApplicationError) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        describe.assert_not_called()
+        describe_pooled.assert_not_called()
+        self.assertTrue(caught.exception.non_retryable)
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and status.error)
+        self.assertIn("SQL editor", status.error_message or "")
 
     def test_mid_stream_failure_removes_the_corrupt_object_and_surfaces_the_real_error(self):
         # ClickHouse streams 200 before execution finishes; a mid-stream failure can close
@@ -282,7 +313,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
         # literals: sync_execute's single %-substitution pass escapes them (so a % or quote in
         # a config value can't corrupt the format pass or reach the credential zone). A
-        # regression back to literal splicing is the design doc's named injection risk.
+        # regression back to literal splicing is an injection risk.
         # Path-style URL uses the CH-reachable endpoint, NOT OBJECT_STORAGE_ENDPOINT.
         with self.settings(
             NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="http://store:19000",
@@ -548,3 +579,27 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
         )
 
         assert printed.resolve_seconds > 0
+
+
+@pytest.mark.parametrize("file_backed", [True, False])
+def test_bounded_offline_client_stays_token_aware_for_a_file_backed_user(monkeypatch, tmp_path, file_backed):
+    token = tmp_path / "token"
+    token.write_text("notebooks-token")
+    creds = ClickHouseCredentials(
+        user="notebooks",
+        password="static-fallback",
+        password_file=str(token) if file_backed else None,
+    )
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.NOTEBOOKS: creds})
+
+    with patch.object(frame_materialize, "make_ch_pool") as mock_pool:
+        frame_materialize._bounded_offline_client(team_id=1)
+
+    call_kwargs = mock_pool.call_args.kwargs
+    assert call_kwargs["send_receive_timeout"] == frame_materialize._INSERT_SEND_RECEIVE_TIMEOUT_SECONDS
+    if file_backed:
+        assert call_kwargs["credential_provider"]() == "notebooks-token"
+        assert "password" not in call_kwargs
+    else:
+        assert call_kwargs["password"] == "static-fallback"
+        assert "credential_provider" not in call_kwargs

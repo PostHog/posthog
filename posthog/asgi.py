@@ -4,8 +4,10 @@ import time
 import asyncio
 
 # Django Imports
+import django
 from django.conf import settings
-from django.core.asgi import get_asgi_application
+from django.core.handlers.asgi import ASGIHandler
+from django.http import HttpRequest, HttpResponseBase
 
 # Structlog Import
 import structlog
@@ -24,12 +26,10 @@ logger = structlog.get_logger(__name__)
 # NOTE: OTel, continuous profiling, and the web-memory sampler init are deferred to first
 # request via _ensure_post_fork_init() below. They start background threads (OTel's
 # BatchSpanProcessor, Pyroscope's native profiler, the sampler's loop) that cannot survive
-# fork(). Nginx Unit loads this module in a "prototype" process and then
-# forks workers from it — the forked children inherit dead thread state and
-# corrupted mutexes, causing SIGSEGV / SIGABRT on the worker. Deferring to
-# first request ensures threads start in the actual worker process.
-# This is safe across all server types: Granian uses spawn (not fork),
-# runserver is single-process, and Celery doesn't import this file.
+# fork(): a child inherits dead thread state and corrupted mutexes, causing SIGSEGV /
+# SIGABRT on the worker. Deferring to first request ensures threads start in the actual
+# worker process. This is safe across all server types: runserver is single-process,
+# and Celery doesn't import this file.
 _post_fork_initialized = False
 
 _LOOP_LAG_HEARTBEAT_SECONDS = 1.0
@@ -88,7 +88,7 @@ def _ensure_post_fork_init():
     from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
-    initialize_otel()
+    initialize_otel(instrument_outbound_calls=True)
     prewarm_query_cache_cluster_in_background()
     # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
     # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
@@ -155,6 +155,27 @@ def self_capture_wrapper(func):
     return inner
 
 
+class PostHogASGIHandler(ASGIHandler):
+    """Run each request's middleware chain and view in a child task, like Django 5.2 did.
+
+    Django 6.0 awaits run_get_response() in the handler's own task. When the client
+    disconnects, asgiref cancels the sync view and copies the context of the still-running
+    view thread back into the caller. That copy can carry asgiref's per-call executor, so
+    request_finished stops waiting for the view thread. ThreadSensitiveContext then joins
+    that thread on the event loop. If the view calls async_to_sync() again, the thread
+    waits for the blocked loop and the worker deadlocks. A child task keeps the copied
+    context out of the handler.
+    """
+
+    async def run_get_response(self, request: HttpRequest) -> HttpResponseBase:
+        return await asyncio.create_task(super().run_get_response(request))
+
+
+def get_asgi_application() -> PostHogASGIHandler:
+    django.setup(set_prefix=False)
+    return PostHogASGIHandler()
+
+
 def task_run_event_ingest_wrapper(func):
     async def inner(scope, receive, send):
         from products.tasks.backend.facade.streams import handle_task_run_event_ingest
@@ -169,8 +190,7 @@ def task_run_event_ingest_wrapper(func):
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them — which also maximizes copy-on-write sharing when a prototype
-# process forks workers. See docs/internal/django-startup-time.md.
+# collections skip them. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
     application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))

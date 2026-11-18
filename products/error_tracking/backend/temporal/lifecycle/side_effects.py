@@ -6,7 +6,6 @@ from django.utils.dateparse import parse_datetime
 from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.helpers.tiktoken_encoding import (
     LLM_TOKEN_COUNT_PROXY_MODEL,
     TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL,
@@ -14,6 +13,16 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
+from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
+from products.error_tracking.backend.logic.assignees import resolve_current_assignee
+from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
+from products.error_tracking.backend.temporal.alerts.filter_evaluation import evaluate_lifecycle_filters
+from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
     fetch_event_properties,
@@ -24,6 +33,7 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
     render_stacktrace,
 )
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.source_configs import enabled_issue_filters, record_source_filter_drop
 
 KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
 
@@ -68,6 +78,105 @@ class IssueLifecycleWorkflowInputs(Protocol):
     def assignee(self) -> str | None: ...
 
 
+_STATUS_LABELS = {
+    "archived": "Archived",
+    "active": "Active",
+    "resolved": "Resolved",
+    "pending_release": "Pending Release",
+    "suppressed": "Suppressed",
+}
+
+
+def _status_property(
+    inputs: IssueLifecycleWorkflowInputs, *, include_status: bool, humanize_status: bool
+) -> str | None:
+    if not include_status:
+        return None
+    status = inputs.issue.status
+    return _STATUS_LABELS.get(status, status) if humanize_status else status
+
+
+def _assignee_display_properties(inputs: IssueLifecycleWorkflowInputs) -> dict[str, str]:
+    if inputs.assignee is None:
+        return {}
+    resolved = resolve_current_assignee(inputs.issue_id)
+    # Cymbal snapshots the assignee at ingestion, and the issue can be reassigned before
+    # this activity runs. Names for a different assignee would contradict `assignee`,
+    # so leave them out in that case.
+    if resolved is None or resolved.property_value != inputs.assignee:
+        return {}
+    return resolved.display_properties()
+
+
+def _normalize_timestamp(value: str) -> datetime:
+    timestamp = parse_datetime(value)
+    if timestamp is None:
+        return datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=UTC)
+    return timestamp
+
+
+def alert_delivery_inputs(
+    inputs: IssueLifecycleWorkflowInputs,
+    *,
+    event: str,
+    exception_timestamp: str,
+    extra_properties: dict[str, object] | None = None,
+    include_status: bool = True,
+    humanize_status: bool = True,
+) -> AlertDeliveryWorkflowInputs:
+    """The alert workflow's view of a lifecycle transition, mirroring the internal event's properties."""
+    extra = {
+        key: str(value)
+        for key, value in (extra_properties or {}).items()
+        if key in ("computed_baseline", "current_bucket_value") and value is not None
+    }
+    return AlertDeliveryWorkflowInputs.build(
+        notification_id=inputs.notification_id,
+        team_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        event=event,
+        issue_name=inputs.issue.name,
+        issue_description=inputs.issue.description,
+        status=_status_property(inputs, include_status=include_status, humanize_status=humanize_status),
+        assignee=inputs.assignee,
+        severity=inputs.issue.severity,
+        fingerprint=inputs.fingerprint,
+        first_seen=inputs.issue.created_at,
+        event_uuid=inputs.event_uuid,
+        # Paired with event_uuid, so it must be the exception's own time: spiking
+        # passes the detection time as exception_timestamp, which can differ.
+        event_timestamp=inputs.event_timestamp,
+        # Same value the internal event carries as exception_timestamp (spiking: the
+        # detection time), so filters see one clock across both paths.
+        lifecycle_timestamp=_normalize_timestamp(exception_timestamp).isoformat(),
+        extra=extra or None,
+    )
+
+
+def dispatch_issue_lifecycle_alert(
+    inputs: IssueLifecycleWorkflowInputs,
+    *,
+    event: str,
+    exception_timestamp: str,
+    extra_properties: dict[str, object] | None = None,
+    include_status: bool = True,
+    humanize_status: bool = True,
+) -> None:
+    """Start the alert delivery workflow; raises so the calling activity's retry policy re-drives it."""
+    start_alert_delivery_workflow(
+        alert_delivery_inputs(
+            inputs,
+            event=event,
+            exception_timestamp=exception_timestamp,
+            extra_properties=extra_properties,
+            include_status=include_status,
+            humanize_status=humanize_status,
+        )
+    )
+
+
 def produce_issue_lifecycle_internal_event(
     inputs: IssueLifecycleWorkflowInputs,
     *,
@@ -83,11 +192,7 @@ def produce_issue_lifecycle_internal_event(
         return
 
     event_properties = fetch_event_properties(team, inputs)
-    timestamp = parse_datetime(exception_timestamp)
-    if timestamp is None:
-        timestamp = datetime.now(UTC)
-    elif timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=UTC)
+    timestamp = _normalize_timestamp(exception_timestamp)
 
     properties: dict[str, object] = {
         "name": inputs.issue.name,
@@ -99,21 +204,12 @@ def produce_issue_lifecycle_internal_event(
         "exception_timestamp": timestamp.isoformat(),
         "exception_props": event_properties,
     }
-    if include_status:
-        status = inputs.issue.status
-        properties["status"] = (
-            {
-                "archived": "Archived",
-                "active": "Active",
-                "resolved": "Resolved",
-                "pending_release": "Pending Release",
-                "suppressed": "Suppressed",
-            }.get(status, status)
-            if humanize_status
-            else status
-        )
+    status_property = _status_property(inputs, include_status=include_status, humanize_status=humanize_status)
+    if status_property is not None:
+        properties["status"] = status_property
     if inputs.assignee is not None:
         properties["assignee"] = inputs.assignee
+        properties.update(_assignee_display_properties(inputs))
     if extra_properties is not None:
         properties.update(extra_properties)
 
@@ -141,18 +237,84 @@ def produce_issue_lifecycle_internal_event(
         produce(properties)
 
 
+def issue_filter_outcome(
+    inputs: IssueLifecycleWorkflowInputs,
+    stored_filters: object,
+    event_properties: dict[str, object],
+    *,
+    event: str,
+    source_type: str,
+    exception_timestamp: str,
+    extra_properties: dict[str, object] | None = None,
+    include_status: bool = True,
+    humanize_status: bool = True,
+) -> LifecycleFilterOutcome:
+    """Whether the team's Inbox issue filter admits this transition, seen as the alert path sees it."""
+    if not isinstance(stored_filters, dict):
+        return LifecycleFilterOutcome.FILTER_ERROR
+    return evaluate_lifecycle_filters(
+        stored_filters,
+        alert_delivery_inputs(
+            inputs,
+            event=event,
+            exception_timestamp=exception_timestamp,
+            extra_properties=extra_properties,
+            include_status=include_status,
+            humanize_status=humanize_status,
+        ),
+        event_properties,
+        log_context={"signal_source_type": source_type},
+    )
+
+
 async def emit_issue_lifecycle_signal(
     inputs: IssueLifecycleWorkflowInputs,
     *,
     source_type: str,
     preamble: str,
+    event: str,
+    exception_timestamp: str,
+    extra_properties: dict[str, object] | None = None,
+    include_status: bool = True,
+    humanize_status: bool = True,
 ) -> None:
+    """Emit the transition as an Inbox signal, unless the team's issue filter excludes it.
+
+    The lifecycle arguments match the alert dispatch of the same transition, so the filter
+    sees the properties an alert filter sees.
+    """
     try:
         team = await Team.objects.aget(id=inputs.team_id)
     except Team.DoesNotExist:
         return
 
+    # A fetch failure raises, so the activity retries instead of deciding without the exception.
     event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
+    stored_filters = await sync_to_async(enabled_issue_filters, thread_sensitive=False)(
+        team_id=team.id, source_product="error_tracking", source_type=source_type
+    )
+    if stored_filters is not None:
+        outcome = issue_filter_outcome(
+            inputs,
+            stored_filters,
+            event_properties,
+            event=event,
+            source_type=source_type,
+            exception_timestamp=exception_timestamp,
+            extra_properties=extra_properties,
+            include_status=include_status,
+            humanize_status=humanize_status,
+        )
+        if outcome != LifecycleFilterOutcome.MATCH:
+            await sync_to_async(record_source_filter_drop, thread_sensitive=False)(
+                team=team,
+                source_product="error_tracking",
+                source_type=source_type,
+                source_id=inputs.issue_id,
+                reason=outcome.value,
+            )
+            return
+
     issue_name = inputs.issue.name or "Unknown"
     issue_description = inputs.issue.description or ""
     header = f"{preamble}:\n{issue_name}: {issue_description}\n"

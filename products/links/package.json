@@ -1,25 +1,6 @@
 {
     "name": "@posthog/products-links",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
-    },
-    "dependencies": {
-        "@posthog/quill-charts": "workspace:*",
-        "kea": "catalog:",
-        "kea-forms": "catalog:",
-        "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
-        "qrcode.react": "^4.2.0"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
-    },
-    "peerDependencies": {
-        "@posthog/brand": "catalog:",
-        "@posthog/icons": "catalog:",
-        "@storybook/react": "catalog:",
-        "@types/react": "*",
-        "clsx": "*",
-        "react": "*"
+        "backend:test": "echo 'vestigial app — no tests'"
     }
 }

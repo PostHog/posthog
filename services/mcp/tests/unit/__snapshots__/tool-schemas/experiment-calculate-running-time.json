@@ -58,7 +58,7 @@
                         },
                         "sum_squares": {
                             "default": 0,
-                            "description": "Sum of squared metric values. Required for ratio/retention variance.",
+                            "description": "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value.",
                             "type": "number"
                         }
                     },
@@ -106,7 +106,8 @@
         },
         "number_of_variants": {
             "default": 2,
-            "description": "Total number of variants including control (default 2).",
+            "description": "Total number of variants including control (default 2, at most 100).",
+            "maximum": 100,
             "minimum": 2,
             "type": "number"
         },
@@ -119,7 +120,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly."
+            "description": "Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels."
         }
     },
     "required": ["metric_type", "minimum_detectable_effect"],

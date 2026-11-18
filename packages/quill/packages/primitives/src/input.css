@@ -5,7 +5,7 @@
         height: 2rem;
         padding-block: 0.125rem;
         padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         border: 1px solid var(--input);
         border-radius: var(--radius-sm);
@@ -16,6 +16,10 @@
             border-color 0.15s ease;
     }
 
+    .quill-input--size-sm {
+        height: 1.75rem;
+    }
+
     :is(.dark, [theme='dark']) .quill-input {
         background-color: color-mix(in oklab, var(--input) 30%, transparent);
     }
@@ -23,7 +27,7 @@
     .quill-input::file-selector-button {
         display: inline-flex;
         height: 1.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.625;
         color: var(--foreground);

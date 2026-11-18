@@ -1,4 +1,5 @@
-import { AlertDialog, Button, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { AlertDialog, Button, Flex, Text } from "@radix-ui/themes";
 
 interface GatewayDeleteServerDialogProps {
   open: boolean;
@@ -49,7 +50,7 @@ export function GatewayDeleteServerDialog({
               disabled={pending}
               onClick={onConfirm}
             >
-              {pending ? <Spinner size="1" /> : null}
+              {pending ? <Spinner size="sm" /> : null}
               Delete
             </Button>
           </AlertDialog.Action>

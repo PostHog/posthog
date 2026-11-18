@@ -1,12 +1,22 @@
 version: 1
-owners: []
+owners:
+    - team-context-and-mcp
 rules:
+    - match:
+          - '/api/generated.ts'
+          - '/**/*.generated.ts'
+          - '/generated/'
+          - '/tools/generated/'
+          - '/ui-apps/generated/'
+          - '/ui-apps/apps/generated/'
+          - '/tools/links/app-url-manifest.json'
+      status: generated
     - match:
           - '/generated/mcp_analytics/'
           - '/hono/analytics.ts'
           - '/lib/posthog/analytics.ts'
           - '/tools/generated/mcp_analytics.ts'
-      owners: team-mcp-analytics
+      owners: mcp-analytics
     - match:
           - '/generated/ai_observability/'
           - '/tools/aiObservability/'

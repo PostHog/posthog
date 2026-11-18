@@ -7,7 +7,6 @@ import { Provider } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
-import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions } from '~/test/mocks'
@@ -20,17 +19,23 @@ jest.mock('lib/components/AutoSizer', () => ({
 }))
 
 describe('TaxonomicPopover', () => {
+    let actionRequestCount: number
+
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
             },
         })
         initKeaTests()
-        actionsModel.mount()
         groupsModel.mount()
     })
 
@@ -55,6 +60,35 @@ describe('TaxonomicPopover', () => {
         expect(screen.getByText('pageview')).toBeInTheDocument()
     })
 
+    it('loads actions only after an actions picker opens', async () => {
+        renderPopover({
+            groupType: TaxonomicFilterGroupType.Actions,
+            groupTypes: [TaxonomicFilterGroupType.Actions],
+        })
+
+        expect(actionRequestCount).toBe(0)
+
+        await userEvent.click(screen.getByText('Please select'))
+
+        await waitFor(() => {
+            expect(actionRequestCount).toBe(1)
+        })
+    })
+
+    it('resets the picker search after closing completely', async () => {
+        renderPopover()
+
+        await userEvent.click(screen.getByText('Please select'))
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event1')
+        await userEvent.click(document.body)
+        await waitFor(() => {
+            expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+        })
+        await userEvent.click(screen.getByText('Please select'))
+
+        expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('')
+    })
+
     it('opens dropdown on click and calls onChange with correct args on selection', async () => {
         const { onChange } = renderPopover({ placeholder: 'Select an event' })
         await userEvent.click(screen.getByText('Select an event'))
@@ -72,6 +106,15 @@ describe('TaxonomicPopover', () => {
         expect(value).toBe('event1')
         expect(groupType).toBe(TaxonomicFilterGroupType.Events)
         expect(item.name).toBe('event1')
+    })
+
+    it('calls onOpen when opening the dropdown', async () => {
+        const onOpen = jest.fn()
+        renderPopover({ placeholder: 'Select an event', onOpen })
+
+        await userEvent.click(screen.getByText('Select an event'))
+
+        expect(onOpen).toHaveBeenCalledTimes(1)
     })
 
     it('clear button calls onChange with empty value', async () => {

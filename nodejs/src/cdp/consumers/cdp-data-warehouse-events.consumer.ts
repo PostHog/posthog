@@ -9,6 +9,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
+import { DWH_SOURCE_TABLE_PROPERTY, WAREHOUSE_SOURCE_ROW_EVENT, WAREHOUSE_VIEW_ROW_EVENT } from '../schema/hogflow'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -19,15 +20,7 @@ import {
     HogFunctionTypeType,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
-
-// Synthetic event name stamped on the synthetic event built for a warehouse-row trigger.
-// Acts as the "this globals object originated from a synced warehouse row" discriminator.
-export const WAREHOUSE_SOURCE_ROW_EVENT = '$warehouse_source_row'
-
-// The same, for a row a materialized view run added or updated. Kept distinct from the source-table
-// name so a run's origin is legible in logs and test payloads without decoding the trigger config.
-export const WAREHOUSE_VIEW_ROW_EVENT = '$warehouse_view_row'
+import { parseBatch } from './message-parsing'
 
 // Filter source / trigger type each kind of warehouse row matches against.
 const TRIGGER_TYPE_BY_TABLE_TYPE = {
@@ -38,11 +31,6 @@ const TRIGGER_TYPE_BY_TABLE_TYPE = {
 type WarehouseTableType = keyof typeof TRIGGER_TYPE_BY_TABLE_TYPE
 
 const WAREHOUSE_TRIGGER_TYPES = new Set<string>(Object.values(TRIGGER_TYPE_BY_TABLE_TYPE))
-
-// Special property on the synthetic event holding the dot-notated source table name.
-// Used by the pipeline's eligibility predicate to match warehouse-table HogFlow triggers
-// against the row's source table without adding a top-level field to globals.
-export const DWH_SOURCE_TABLE_PROPERTY = '$source_table'
 
 export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpDatawarehouseEventsConsumer'
@@ -85,6 +73,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            workflowsActivationReporter: this.workflowsActivationReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
@@ -160,35 +149,18 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
-                    const event = CdpDataWarehouseEventSchema.parse(kafkaEvent)
-
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                        this.deps.teamManager.getTeam(event.team_id),
-                    ])
-
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
-
-                    events.push(
-                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
-                    )
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const event = CdpDataWarehouseEventSchema.parse(parseJSON(message.value!.toString()))
+                return {
+                    teamId: event.team_id,
+                    toGlobals: (team) =>
+                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL),
                 }
-            })
-        )
-
-        return events
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+        })
     }
 
     public override async start(): Promise<void> {

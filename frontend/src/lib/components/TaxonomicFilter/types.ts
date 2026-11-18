@@ -2,15 +2,17 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { LegacyDisplayEntity } from 'lib/insights/entityFilterNames'
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
     ActionFilter,
     ActionType,
+    AnyPropertyFilter,
     CohortType,
-    EntityFilter,
     EventDefinition,
     EventPropertyFilter,
     PersonProperty,
@@ -24,6 +26,8 @@ import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/t
 
 export interface SimpleOption {
     name: string
+    /** The group whose `getValue` and `getName` read this option, when it is not the group that lists it. */
+    group?: TaxonomicFilterGroupType
     propertyFilterType?: PropertyFilterType
     /** When the search query matched a value rather than a key, this is set to 'value'. Otherwise 'key' or omitted. */
     matchedOn?: 'key' | 'value'
@@ -41,13 +45,28 @@ export interface QuickFilterItem {
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
     /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
-     *  measure contains-shortcut adoption, matching the rebuild menu's
-     *  `wasUrlContainsShortcut`. */
+     *  measure contains-shortcut adoption (`wasUrlContainsShortcut`). */
     isContainsShortcut?: boolean
 }
 
+export interface HiddenEventStandIn {
+    _type: 'hidden_event_stand_in'
+    name: string
+    value: string
+}
+
+export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
+
+function hasItemType(item: unknown, type: string): boolean {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === type
+}
+
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
-    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+    return hasItemType(item, 'quick_filter')
+}
+
+export function isHiddenEventStandIn(item: unknown): item is HiddenEventStandIn {
+    return hasItemType(item, 'hidden_event_stand_in')
 }
 
 export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
@@ -68,17 +87,16 @@ export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
 
 /**
- * Per-group-type **denylist of property-filter operators** the host cannot represent.
- * Acts only on the **Recent tab** — items whose stored operator is denylisted for
- * their source group are hidden so the picker never surfaces a value the
- * surrounding UI can't reproduce.
+ * Per-group rule for hiding property filters the host cannot represent.
+ * Acts only on the Recent tab. A list hides recent filters whose operator it contains.
+ * A callback receives the whole saved filter and returns true to hide it.
  *
  * Pairs with `selectingKeyOnly` when a host wants both (a) no operator/value
  * slot in the row *and* (b) impossible recents kept out of the picker — the two
  * concerns are deliberately separate so callers can use one without the other:
  * - `selectingKeyOnly` decides whether the row renders an operator+value pair
  *   (UI shape concern).
- * - `excludedOperators` decides which stored operators the host is willing to
+ * - `excludedOperators` decides which stored filters the host is willing to
  *   surface in Recent (history concern).
  *
  * NOT the same as `operatorAllowlist` on `OperatorValueSelect` — that's a flat
@@ -86,7 +104,9 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
  * filter (e.g. survey trigger surfaces only `=` / `contains` regardless of
  * filter type).
  */
-export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
+export type ExcludedOperators = {
+    [key in TaxonomicFilterGroupType]?: PropertyOperator[] | ((filter: AnyPropertyFilter) => boolean)
+}
 
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
@@ -126,7 +146,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter
+    filter?: LegacyDisplayEntity | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -139,13 +159,39 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
+    /**
+     * Keep offering events whose data is moving out of the `events` table. Set it where the surface
+     * still needs such an event: it reads live capture, it matches events as they arrive (destinations
+     * and workflows), it measures experiment exposure, or it is a cohort criterion type that the cohorts
+     * API accepts on the event. Leave it unset everywhere else, so a picker stops saving queries that
+     * return nothing once the data moves.
+     */
+    includeHiddenEvents?: boolean
+    /**
+     * A search that reaches the second word of a hidden event's name or label offers a stand-in row for it.
+     * The event's own row stays out of the search results, whatever `includeHiddenEvents` says.
+     * Recent and pinned rows still follow `includeHiddenEvents`.
+     * Picking the stand-in commits the event's name.
+     * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
+     * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that
+     * drops out of searches once it is 30 days stale.
+     */
+    offerHiddenEventStandIns?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
+    /**
+     * Mark every cohort row with what feature flags can do with it. Set it only where that is the
+     * question the picker is asking, which today is a feature flag's release conditions. The same
+     * cohort groups back every other picker in the app, and a row reading "No flag targeting" in an
+     * insight breakdown describes nothing the reader is choosing.
+     */
+    showCohortFlagTargeting?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -173,7 +219,7 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
-    /** Hide recent property filters whose operator is denylisted for their source group, so the
+    /** Hide recent property filters that the `ExcludedOperators` rule for their source group rejects, so the
      *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
      *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
     excludedOperators?: ExcludedOperators
@@ -185,7 +231,7 @@ export interface TaxonomicFilterProps {
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
     /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
-     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  shortcut row instead of listing every matching URL.
      *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
      *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
      *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
@@ -222,6 +268,7 @@ export type DefinitionPopoverRendererProps = {
     group: TaxonomicFilterGroup
     defaultView: JSX.Element
 }
+/** Return `defaultView` itself for an item the renderer does not handle. The popover compares it by reference. */
 export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
@@ -259,6 +306,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** A small tag after the item's name, for a per-item state a reader should see before selecting it. */
+    getTag?: (instance: any) => ReactNode
     /** Determines if an item should be disabled (unselectable) */
     getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
@@ -269,12 +318,15 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    shouldSearch?: (query: string) => boolean
+    searchQueryHint?: string
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    hiddenEventStandIns?: (searchQuery: string) => HiddenEventStandIn[]
     /**
      * Pre-fetch the first page (empty-query) once, cache it, and filter
      * subsequent typed queries client-side via Fuse rather than firing a
@@ -345,6 +397,7 @@ export enum TaxonomicFilterGroupType {
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     AccountFields = 'account_fields',
+    AccountRelationships = 'account_relationships',
     AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
@@ -360,6 +413,27 @@ export enum TaxonomicFilterGroupType {
     Empty = 'empty',
 }
 
+/**
+ * Value shortcut groups that stay searched and keep feeding the All list, but are not offered as categories.
+ * Their items are found through All and search, so a separate category only adds a place to come up empty.
+ */
+export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.EmailAddresses,
+    TaxonomicFilterGroupType.AutocaptureEvents,
+    TaxonomicFilterGroupType.PageviewEvents,
+    TaxonomicFilterGroupType.ScreenEvents,
+])
+
+/** The categories to offer: everything except search-only groups, unless that leaves no real category. */
+export function withoutSearchOnlyGroups<T>(
+    items: T[],
+    groupTypeOf: (item: T) => TaxonomicFilterGroupType,
+    isMetaGroupType: (groupType: TaxonomicFilterGroupType) => boolean
+): T[] {
+    const kept = items.filter((item) => !SEARCH_ONLY_GROUP_TYPES.has(groupTypeOf(item)))
+    return kept.some((item) => !isMetaGroupType(groupTypeOf(item))) ? kept : items
+}
+
 export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SuggestedFilters,
@@ -372,8 +446,8 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 
 /** Selection types that reopen on their own tab/panel rather than the default "All" surface,
  *  because they're config/edit flows (an expression editor, a data-warehouse table/column
- *  picker) with no simple category value to verify at a glance. Honored by the legacy
- *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+ *  picker) with no simple category value to verify at a glance. Honored by the
+ *  `activeTab` selector. */
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
@@ -429,15 +503,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
-
-export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
-
-export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
-
-export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
-    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
-}
-
-export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}
+    | HiddenEventStandIn

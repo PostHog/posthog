@@ -1,0 +1,171 @@
+.MCPHowItWorks {
+    &__ring {
+        position: absolute;
+        inset: 32px 28px 78px;
+        display: grid;
+        place-items: center;
+        border: 2px dashed var(--mcp-how-blue);
+        border-radius: 16px;
+        opacity: 0;
+        transition:
+            opacity 0.6s ease 0.35s,
+            transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.35s;
+        transform: scale(1.14);
+    }
+
+    &__diagram:is([data-phase='1'], [data-phase='2'], [data-phase='3']) &__ring {
+        opacity: 1;
+        transform: none;
+    }
+
+    &__diagram[data-phase='1'] &__ring {
+        animation: MCPHowItWorks__zap 1.1s ease 1s 2;
+    }
+
+    &__ph-badge {
+        position: absolute;
+        top: -17px;
+        left: 16px;
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        font-size: 19px;
+        color: var(--color-white);
+        background: var(--mcp-how-blue);
+        border: 3px solid var(--mcp-how-card);
+        border-radius: 50%;
+    }
+
+    &__server {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        width: 72%;
+        padding: 12px;
+        background: var(--mcp-how-surface);
+        border: 1.5px solid var(--mcp-how-border);
+        border-radius: 10px;
+    }
+
+    &__server-top {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 14px;
+        font-weight: 700;
+
+        svg {
+            font-size: 20px;
+        }
+    }
+
+    &__tool {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 14px;
+        color: var(--mcp-how-muted);
+
+        i {
+            display: block;
+            flex: 1;
+            height: 7px;
+            background: var(--mcp-how-border);
+            border-radius: 4px;
+        }
+
+        &:nth-child(3) i {
+            max-width: 70%;
+        }
+
+        &:nth-child(4) i {
+            max-width: 48%;
+        }
+    }
+
+    &__live {
+        position: absolute;
+        top: -12px;
+        right: -12px;
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        font-size: 15px;
+        color: var(--mcp-how-ink);
+        background: var(--mcp-how-green);
+        border: 3px solid var(--mcp-how-card);
+        border-radius: 50%;
+    }
+
+    &__wiz {
+        position: absolute;
+        bottom: 14px;
+        left: 50%;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 5px 5px 5px 11px;
+        font-family: var(--mcp-how-mono);
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--mcp-how-text);
+        white-space: nowrap;
+        background: var(--mcp-how-surface);
+        border: 1.5px solid var(--mcp-how-border);
+        border-radius: 7px;
+        box-shadow: 0 2px 0 var(--mcp-how-line);
+        translate: -50% 0;
+    }
+
+    &__wiz-prompt {
+        color: var(--mcp-how-muted);
+        user-select: none;
+    }
+
+    &__wiz-cmd {
+        user-select: all;
+    }
+
+    &__copy {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        font-size: 15px;
+        color: var(--mcp-how-text-secondary);
+        appearance: none;
+        cursor: pointer;
+        background: var(--mcp-how-card);
+        border: 0;
+        border-radius: 5px;
+        transition:
+            background 0.2s ease,
+            color 0.2s ease;
+
+        &:hover {
+            color: var(--mcp-how-text);
+            background: var(--mcp-how-border);
+        }
+
+        &--done,
+        &--done:hover {
+            color: var(--mcp-how-ink);
+            background: var(--mcp-how-green);
+        }
+    }
+}
+
+@keyframes MCPHowItWorks__zap {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px color-mix(in oklab, var(--mcp-how-blue) 24%, transparent);
+    }
+}

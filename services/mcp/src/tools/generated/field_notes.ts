@@ -2,21 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    FieldNotesListQueryParams,
-    FieldNotesPartialUpdateBody,
-    FieldNotesPartialUpdateParams,
-    FieldNotesRetrieveParams,
-} from '@/generated/field_notes/api'
+import * as orvalSchemas from '@/generated/field_notes/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const FieldNotesGetSchema = FieldNotesRetrieveParams.omit({ project_id: true })
+const FieldNotesGetSchema = () => {
+    const FieldNotesRetrieveParams = orvalSchemas.FieldNotesRetrieveParams()
+    return FieldNotesRetrieveParams.omit({ project_id: true })
+}
 
-const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, Schemas.FieldNote> => ({
+const fieldNotesGet = (): ToolBase<ReturnType<typeof FieldNotesGetSchema>, Schemas.FieldNote> => ({
     name: 'field-notes-get',
-    schema: FieldNotesGetSchema,
-    handler: async (context: Context, params: z.infer<typeof FieldNotesGetSchema>) => {
+    schema: FieldNotesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FieldNotesGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FieldNote>({
             method: 'GET',
@@ -26,12 +24,18 @@ const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, Schemas.FieldNote
     },
 })
 
-const FieldNotesListSchema = FieldNotesListQueryParams
+const FieldNotesListSchema = () => {
+    const FieldNotesListQueryParams = orvalSchemas.FieldNotesListQueryParams()
+    return FieldNotesListQueryParams
+}
 
-const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<Schemas.PaginatedFieldNoteList>> => ({
+const fieldNotesList = (): ToolBase<
+    ReturnType<typeof FieldNotesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedFieldNoteList>
+> => ({
     name: 'field-notes-list',
-    schema: FieldNotesListSchema,
-    handler: async (context: Context, params: z.infer<typeof FieldNotesListSchema>) => {
+    schema: FieldNotesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FieldNotesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedFieldNoteList>({
             method: 'GET',
@@ -66,14 +70,16 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
     },
 })
 
-const FieldNotesPartialUpdateSchema = FieldNotesPartialUpdateParams.omit({ project_id: true }).extend(
-    FieldNotesPartialUpdateBody.shape
-)
+const FieldNotesPartialUpdateSchema = () => {
+    const FieldNotesPartialUpdateBody = orvalSchemas.FieldNotesPartialUpdateBody()
+    const FieldNotesPartialUpdateParams = orvalSchemas.FieldNotesPartialUpdateParams()
+    return FieldNotesPartialUpdateParams.omit({ project_id: true }).extend(FieldNotesPartialUpdateBody.shape)
+}
 
-const fieldNotesPartialUpdate = (): ToolBase<typeof FieldNotesPartialUpdateSchema, Schemas.FieldNote> => ({
+const fieldNotesPartialUpdate = (): ToolBase<ReturnType<typeof FieldNotesPartialUpdateSchema>, Schemas.FieldNote> => ({
     name: 'field-notes-partial-update',
-    schema: FieldNotesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof FieldNotesPartialUpdateSchema>) => {
+    schema: FieldNotesPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FieldNotesPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.comment !== undefined) {

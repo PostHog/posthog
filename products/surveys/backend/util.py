@@ -24,7 +24,7 @@ class SurveyEventProperties(StrEnum):
     SURVEY_RESPONDED = "$survey_responded"
     SURVEY_DISMISSED = "$survey_dismissed"
     SURVEY_COMPLETED = "$survey_completed"
-    SURVEY_LAST_SEEN_DATE = "$last_seen_survey_date"
+    SURVEY_LAST_SEEN_DATE = "$survey_last_seen_date"
 
 
 def get_survey_property_string_expr(
@@ -41,12 +41,6 @@ def get_survey_property_string_expr(
         use_new_events_schema=use_new_events_schema,
     )
     return expression
-
-
-def get_survey_property_bool_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
-    expression = get_survey_property_string_expr(property_name, table_alias)
-    normalized_expression = f"toString(nullIf(nullIf({expression}, ''), 'null'))"
-    return f"toBool(transform({normalized_expression}, ['true', 'false'], [1, 0], NULL))"
 
 
 def get_survey_response_clickhouse_query(

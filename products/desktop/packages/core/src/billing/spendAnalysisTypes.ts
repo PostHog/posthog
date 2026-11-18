@@ -22,13 +22,13 @@ export interface SpendAnalysisToolRow {
   avg_input_tokens: number;
 }
 
-export interface SpendAnalysisTokenRow {
+interface SpendAnalysisTokenRow {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
 }
 
-export interface SpendAnalysisGenerationRow extends SpendAnalysisTokenRow {
+interface SpendAnalysisGenerationRow extends SpendAnalysisTokenRow {
   generation_count: number;
 }
 

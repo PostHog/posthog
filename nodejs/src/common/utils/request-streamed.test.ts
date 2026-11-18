@@ -2,7 +2,7 @@ import { Readable } from 'node:stream'
 // eslint-disable-next-line no-restricted-imports
 import { request } from 'undici'
 
-import { InvalidRequestError, fetchStreamed } from './request'
+import { InvalidRequestError, fetch, fetchStreamed } from './request'
 
 jest.mock('undici', () => ({
     ...jest.requireActual('undici'),
@@ -11,7 +11,7 @@ jest.mock('undici', () => ({
 
 const requestMock = request as jest.MockedFunction<typeof request>
 
-function respond(chunks: Buffer[], headers: Record<string, string> | string[] = {}): void {
+function respond(chunks: Iterable<Buffer>, headers: Record<string, string> | string[] = {}): void {
     requestMock.mockResolvedValue({
         statusCode: 200,
         headers,
@@ -75,6 +75,37 @@ describe('fetchStreamed', () => {
         expect(bytes.toString()).toBe('abcde')
     })
 
+    const REST = Array<string>(40).fill('rest')
+
+    it.each([
+        ['refuses them in the first chunk', ['<html>', ...REST], { refused: true, body: '', asked: '<htm' }],
+        ['refuses them across chunks', ['<h', 'tml>', ...REST], { refused: true, body: '', asked: '<htm' }],
+        ['refuses a body shorter than them', ['<h'], { refused: true, body: '', asked: '<h' }],
+        ['accepts them', ['PNG!', 'rest'], { refused: undefined, body: 'PNG!rest', asked: 'PNG!' }],
+    ])('checks the first bytes once, and stops reading when the caller %s', async (_name, chunks, expected) => {
+        let pulled = 0
+        function* body(): Generator<Buffer> {
+            for (const chunk of chunks) {
+                pulled++
+                yield Buffer.from(chunk)
+            }
+        }
+        respond(body())
+        const accept = jest.fn((head: Buffer) => head.toString().startsWith('PNG'))
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit, refused } = await response.read(1000, false, { bytes: 4, accept })
+
+        expect({ refused, body: bytes.toString(), overLimit }).toEqual({
+            refused: expected.refused,
+            body: expected.body,
+            overLimit: false,
+        })
+        expect(accept.mock.calls.map(([head]) => head.toString())).toEqual([expected.asked])
+        // The stream reads a chunk or two ahead of its consumer.
+        expect(pulled).toBeLessThanOrEqual(Math.min(chunks.length, 5))
+    })
+
     it('reads no body after the response was discarded', async () => {
         respond([Buffer.from('abc')])
 
@@ -120,4 +151,24 @@ describe('fetchStreamed', () => {
 
         expect(requestMock).not.toHaveBeenCalled()
     })
+
+    it('releases the cold-start gate when a request throws before it is sent', async () => {
+        // A probe that never reaches undici must still release its origin, or every later request to it waits forever.
+        await expect(fetch('ftp://origin.test/a', { allowH2: true })).rejects.toThrow('URL must have HTTP or HTTPS')
+        await expect(fetch('ftp://origin.test/b', { allowH2: true })).rejects.toThrow('URL must have HTTP or HTTPS')
+
+        expect(requestMock).not.toHaveBeenCalled()
+    }, 5000)
+
+    it.each([[0], [-1], [NaN], [2 ** 31]])(
+        'refuses an http2IdleTimeoutMs of %p before opening a socket',
+        async (ms) => {
+            // InvalidRequestError is not retriable, so a bad constant fails once instead of using its retries.
+            await expect(
+                fetchStreamed('https://example.com/a.png', { timeoutMs: 1000, allowH2: true, http2IdleTimeoutMs: ms })
+            ).rejects.toThrow(InvalidRequestError)
+
+            expect(requestMock).not.toHaveBeenCalled()
+        }
+    )
 })

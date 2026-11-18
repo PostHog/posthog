@@ -263,19 +263,14 @@ class TestStoreTeamSelectionInClickhouse:
     def test_stores_team_selection_successfully(self):
         team_ids = [1, 2, 3]
 
-        # Mock successful operations
         insert_results = {"host1": True, "host2": True}
-        reload_results = {"host1": True, "host2": True}
 
-        self.mock_cluster.map_all_hosts.side_effect = [
-            Mock(result=Mock(return_value=insert_results)),
-            Mock(result=Mock(return_value=reload_results)),
-        ]
+        self.mock_cluster.map_all_hosts.return_value = Mock(result=Mock(return_value=insert_results))
 
         result = store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         assert result == team_ids
-        assert self.mock_cluster.map_all_hosts.call_count == 2
+        assert self.mock_cluster.map_all_hosts.call_count == 1
         self.mock_context.log.info.assert_called()
 
     def test_handles_empty_team_ids_list(self):
@@ -291,65 +286,23 @@ class TestStoreTeamSelectionInClickhouse:
     def test_raises_exception_on_insert_failure(self):
         team_ids = [1, 2, 3]
 
-        # Mock failed insert on one host
         insert_results = {"host1": True, "host2": False}
-        reload_results = {"host1": True, "host2": True}
 
-        self.mock_cluster.map_all_hosts.side_effect = [
-            Mock(result=Mock(return_value=insert_results)),
-            Mock(result=Mock(return_value=reload_results)),
-        ]
+        self.mock_cluster.map_all_hosts.return_value = Mock(result=Mock(return_value=insert_results))
 
         with pytest.raises(Exception, match="Failed to insert team selection"):
-            store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
-
-    def test_raises_exception_on_dictionary_reload_failure(self):
-        team_ids = [1, 2, 3]
-
-        # Mock failed reload on one host
-        insert_results = {"host1": True, "host2": True}
-        reload_results = {"host1": True, "host2": False}
-
-        self.mock_cluster.map_all_hosts.side_effect = [
-            Mock(result=Mock(return_value=insert_results)),
-            Mock(result=Mock(return_value=reload_results)),
-        ]
-
-        with pytest.raises(Exception, match="Failed to reload dictionary"):
             store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
     def test_logs_appropriate_messages(self):
         team_ids = [1, 2, 3]
 
-        # Mock successful operations
         insert_results = {"host1": True, "host2": True}
-        reload_results = {"host1": True, "host2": True}
 
-        self.mock_cluster.map_all_hosts.side_effect = [
-            Mock(result=Mock(return_value=insert_results)),
-            Mock(result=Mock(return_value=reload_results)),
-        ]
+        self.mock_cluster.map_all_hosts.return_value = Mock(result=Mock(return_value=insert_results))
 
         store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         self.mock_context.log.info.assert_called_with(f"Storing {len(team_ids)} enabled team IDs in ClickHouse")
-
-    def test_calls_cluster_map_all_hosts_twice(self):
-        team_ids = [1, 2, 3]
-
-        # Mock successful operations
-        insert_results = {"host1": True}
-        reload_results = {"host1": True}
-
-        self.mock_cluster.map_all_hosts.side_effect = [
-            Mock(result=Mock(return_value=insert_results)),
-            Mock(result=Mock(return_value=reload_results)),
-        ]
-
-        store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
-
-        # Verify map_all_hosts was called twice (once for insert, once for reload)
-        assert self.mock_cluster.map_all_hosts.call_count == 2
 
 
 class TestWebAnalyticsTeamSelectionAsset:

@@ -68,6 +68,11 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
     }
 }
 
+export interface ProduceToDLQOptions {
+    /** Rethrow a failed DLQ produce. Set it only when the caller stores no offsets after the error. */
+    rethrowOnFailure?: boolean
+}
+
 /**
  * Send a Kafka message to the dead letter queue with proper logging and metrics.
  */
@@ -75,7 +80,8 @@ export async function produceMessageToDLQ(
     outputs: IngestionOutputs<DlqOutput>,
     originalMessage: Message,
     error: unknown,
-    stepName: string
+    stepName: string,
+    options: ProduceToDLQOptions = {}
 ): Promise<void> {
     const step = stepName
     const messageInfo = getEventMetadata(originalMessage)
@@ -115,6 +121,9 @@ export async function produceMessageToDLQ(
             tags: { team_id: messageInfo.teamId, pipeline_step: step },
             extra: { originalMessage, error: dlqError },
         })
+        if (options.rethrowOnFailure) {
+            throw dlqError
+        }
     }
 }
 
@@ -133,10 +142,16 @@ export async function redirectMessageToOutput<O extends string>(
     const step = stepName || 'unknown'
 
     try {
-        const headers = copyAndExtendHeaders(originalMessage, {
+        const extraHeaders: Record<string, string> = {
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
-        })
+        }
+        // Dropping the key spreads the redirected stream across partitions;
+        // keep the original key recoverable for consumers of the stream.
+        if (!preserveKey && originalMessage.key) {
+            extraHeaders['redirect-original-key'] = originalMessage.key.toString()
+        }
+        const headers = copyAndExtendHeaders(originalMessage, extraHeaders)
 
         const key = preserveKey ? (originalMessage.key ?? null) : null
         const producePromise = outputs.produce(output, {

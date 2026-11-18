@@ -1,0 +1,111 @@
+{% extends "email/base.html" %}
+{% block head %}
+    <style type="text/css">body, .main { background-color: #f3f4f0 !important; }</style>
+{% endblock %}
+{% block preheader %}{{ total }} item{{ total|pluralize }} awaiting review in your data catalog{% endblock %}
+{% block main %}
+    <p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0;">
+        Your data catalog has <strong>{{ total }}</strong> item{{ total|pluralize }} waiting for review. Approving a
+        metric, a relationship, or a certification tells everyone which numbers and tables to trust.
+    </p>
+    {% for section in project_sections %}
+        <div style="margin-bottom: 40px;">
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0"
+                   style="margin-bottom: 12px">
+                <tr>
+                    <td style="width: 50%; vertical-align: middle;">
+                        <div style="height: 1px; background-color: #d1d5db;"></div>
+                    </td>
+                    <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
+                        <a href="{{ section.project_url }}"
+                           target="_blank"
+                           style="font-size: 1.15em;
+                                  font-weight: 600;
+                                  color: #111827;
+                                  text-decoration: none">{{ section.team_name }}</a>
+                    </td>
+                    <td style="width: 50%; vertical-align: middle;">
+                        <div style="height: 1px; background-color: #d1d5db;"></div>
+                    </td>
+                </tr>
+            </table>
+            <div style="background-color: #ffffff;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin-bottom: 12px">
+                <table width="100%"
+                       cellpadding="0"
+                       cellspacing="0"
+                       border="0"
+                       style="border-collapse: collapse">
+                    {% for row in section.rows %}
+                        <tr>
+                            <td align="left"
+                                style="padding: 12px 8px 12px 0;
+                                       {% if not forloop.first %}border-top: 1px solid #f3f4f6;
+                                       {% endif %} vertical-align: top;
+                                       text-align: left">
+                                <span style="color: #111827; font-weight: 600; font-size: 0.95em;">{{ row.count }} {{ row.noun }}{{ row.count|pluralize }}</span>
+                                <br />
+                                <span style="color: #6b7280; font-size: 0.85em;">
+                                    {% for name in row.sample_names %}
+                                        {{ name|truncatechars:60 }}{% if not forloop.last %},{% endif %}
+                                    {% endfor %}
+                                    {% if row.omitted_count %}and {{ row.omitted_count }} more{% endif %}
+                                </span>
+                            </td>
+                            <td align="right"
+                                style="padding: 12px 0 12px 8px;
+                                       {% if not forloop.first %}border-top: 1px solid #f3f4f6;
+                                       {% endif %} vertical-align: top;
+                                       text-align: right;
+                                       white-space: nowrap">
+                                <a href="{{ row.review_url }}"
+                                   target="_blank"
+                                   style="color: #111827;
+                                          font-weight: 600;
+                                          font-size: 0.85em">Review</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            </div>
+            <div style="text-align: center;">
+                <a href="{{ section.review_url }}"
+                   target="_blank"
+                   style="background-color: #111827;
+                          border-radius: 6px;
+                          color: #ffffff;
+                          display: inline-block;
+                          font-size: 0.9em;
+                          font-weight: 600;
+                          padding: 10px 20px;
+                          text-decoration: none">Review pending items</a>
+                <a href="{{ section.create_metric_url }}"
+                   target="_blank"
+                   style="color: #6b7280;
+                          font-size: 0.85em;
+                          margin-left: 16px;
+                          text-decoration: underline">Create a metric</a>
+            </div>
+        </div>
+    {% endfor %}
+    {% if omitted_project_count %}
+        <p style="font-size: 0.9em;
+                  color: #6b7280;
+                  margin: 0 0 24px 0;
+                  text-align: center">
+            {{ omitted_project_count }} more project{{ omitted_project_count|pluralize }} also {{ omitted_project_count|pluralize:"has,have" }} items waiting for review.
+        </p>
+    {% endif %}
+    <div style="margin-bottom: 16px; text-align: center;">
+        <a href="{{ settings_url }}"
+           style="color: #6b7280;
+                  font-size: 0.85em;
+                  text-decoration: underline">Change notification settings</a>
+    </div>
+{% endblock %}
+{% block footer %}{% endblock %}

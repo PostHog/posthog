@@ -40,7 +40,7 @@ export function getSlackIntegrationLabel(
   );
 }
 
-export function configuredSlackChannelOption(
+function configuredSlackChannelOption(
   id: string,
   name: string,
 ): SlackChannelOption {

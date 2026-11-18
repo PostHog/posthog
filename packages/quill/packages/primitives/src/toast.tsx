@@ -91,7 +91,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                 {action && (
                     <div className="flex items-center gap-3 mt-2">
                         {icon && <span className="size-6 shrink-0" />}
-                        <Button variant="outline" size="sm" className="quill-toast-card__action" onClick={action.onClick}>
+                        <Button variant="outline" onClick={action.onClick}>
                             {action.label}
                         </Button>
                     </div>
@@ -217,7 +217,13 @@ function AnchoredToastViewport(): React.ReactElement {
             <Toast.Viewport data-quill data-quill-portal="toast" className="fixed">
                 {manager.toasts.map((t) => {
                     return (
-                        <Toast.Positioner key={t.id} toast={t} side="top" sideOffset={8}>
+                        // The caller's side and offset win; top and 8px are only the defaults.
+                        <Toast.Positioner
+                            key={t.id}
+                            toast={t}
+                            side={t.positionerProps?.side ?? 'top'}
+                            sideOffset={t.positionerProps?.sideOffset ?? 8}
+                        >
                             <Toast.Root
                                 toast={t}
                                 render={

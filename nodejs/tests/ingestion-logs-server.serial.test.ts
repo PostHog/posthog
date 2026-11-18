@@ -6,7 +6,7 @@ import { resetTestDatabase } from './helpers/sql'
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
 
 describe('ingestion logs server', () => {
-    jest.retryTimes(3) // Flakey due to reliance on kafka/clickhouse
+    jest.retryTimes(3, { logErrorsBeforeRetry: true }) // Flakey due to reliance on kafka/clickhouse
     let server: IngestionLogsServer | null = null
 
     beforeEach(async () => {

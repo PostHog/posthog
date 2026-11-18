@@ -30,7 +30,7 @@ interface UseScoutChatTaskOptions {
 
 interface UseScoutChatTaskReturn {
   /** Create the auto-mode scout chat task and navigate to it on success. */
-  runTask: () => Promise<void>;
+  runTask: () => Promise<boolean>;
   /** True while the task is being created. */
   isRunning: boolean;
 }
@@ -108,7 +108,7 @@ export function useScoutChatTask({
       surface,
       ...(skillName ? { skill_name: skillName } : {}),
     });
-    await run();
+    return await run();
   }, [run, chatType, surface, skillName]);
 
   return { runTask, isRunning };

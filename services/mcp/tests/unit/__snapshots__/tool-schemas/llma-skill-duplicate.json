@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "new_name": {
-            "description": "Name for the duplicated skill. Must be unique.",
+            "description": "Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.",
             "maxLength": 64,
             "type": "string"
         },

@@ -1,3 +1,4 @@
+import WorkerUrl from "@pierre/diffs/worker/worker.js?worker&url";
 import { type ServiceContainer, setRootContainer } from "@posthog/di/container";
 import { ServiceProvider } from "@posthog/di/react";
 import { ipcLink } from "@posthog/electron-trpc/renderer";
@@ -65,21 +66,6 @@ const noopHostClient = {
     list: { query: async () => [] },
   },
 } as unknown as HostTrpcClient;
-
-// Diffs are computed in a web worker. Storybook has no worker backend, so hand
-// out an inert stub: components render, diffs just never resolve.
-const stubWorker = {
-  postMessage() {},
-  terminate() {},
-  addEventListener() {},
-  removeEventListener() {},
-  dispatchEvent() {
-    return false;
-  },
-  onmessage: null,
-  onmessageerror: null,
-  onerror: null,
-} as unknown as Worker;
 
 // An inert, infinitely-chainable stand-in for any core service a deep component
 // tree resolves that we haven't (and don't need to) wire up for visuals — e.g.
@@ -149,7 +135,9 @@ function createProviderStack(): ProviderStack {
     .bind<HostTrpcClient>(HOST_TRPC_CLIENT)
     .toConstantValue(noopHostClient);
   bindings.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
-  bindings.bind(DIFF_WORKER_FACTORY).toConstantValue(() => stubWorker);
+  bindings
+    .bind(DIFF_WORKER_FACTORY)
+    .toConstantValue(() => new Worker(WorkerUrl, { type: "module" }));
   // Real (not inert-proxy) flags: isEnabled must return an actual boolean, or
   // every flag reads as enabled and useFeatureFlag's state never settles.
   bindings.bind<FeatureFlags>(FEATURE_FLAGS).toConstantValue({

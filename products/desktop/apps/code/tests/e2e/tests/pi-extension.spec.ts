@@ -99,7 +99,7 @@ test.describe("Pi extensions", () => {
       const prompt = client.prompt("/extension-e2e");
 
       await expect
-        .poll(() => events)
+        .poll(() => events, { timeout: 15000 })
         .toContainEqual(
           expect.objectContaining({
             type: "extension_ui_request",

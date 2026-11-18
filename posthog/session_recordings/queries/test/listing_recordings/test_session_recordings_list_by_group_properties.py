@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 from django.utils.timezone import now
@@ -15,7 +15,7 @@ from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-@freeze_time("2020-01-01T13:46:23")
+@time_machine.travel("2020-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListByGroupProperties(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()

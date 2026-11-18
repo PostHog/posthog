@@ -1,0 +1,177 @@
+cases:
+    - name: inherit false discards the owners of ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          island/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: false
+      expect:
+          island/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: inherit false discards the status of ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+          island/owners.yaml: |
+              version: 1
+              owners: team-b
+              inherit: false
+      expect:
+          island/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: island/owners.yaml
+              slack: '#team-b'
+
+    - name: inherit false discards an ancestor's owners null
+      files:
+          owners.yaml: |
+              version: 1
+              owners: null
+          island/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: false
+      expect:
+          island/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: files below a cut still fall through to the file that cut
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              status: deprecated
+          island/owners.yaml: |
+              version: 1
+              owners: team-a
+              inherit: false
+          island/sub/owners.yaml: |
+              version: 1
+              owners: []
+              status: generated
+      expect:
+          island/sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: island/owners.yaml
+              slack: '#team-a'
+          island/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: island/owners.yaml
+              slack: '#team-a'
+
+    - name: inherit true is the same as no inherit field
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+          sub/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: true
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a rule with inherit false cuts ancestors only for the paths it matches
+      files:
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+          a/b/owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '/cut/'
+                  owners: team-b
+                  inherit: false
+      expect:
+          a/b/cut/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: a/b/owners.yaml
+              slack: '#team-b'
+          a/b/other.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: a/owners.yaml
+              slack: '#team-a'
+
+    - name: a rule with inherit true restores ancestors under a file-level cut
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              status: deprecated
+          a/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: false
+              rules:
+                - match: '/keep/'
+                  inherit: true
+      expect:
+          a/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+          a/keep/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a rule with inherit false and no owners leaves its paths unowned
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          a/owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '*.lock'
+                  inherit: false
+      expect:
+          a/deps/yarn.lock:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+          a/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'

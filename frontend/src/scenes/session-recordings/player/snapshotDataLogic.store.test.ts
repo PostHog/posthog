@@ -65,6 +65,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     describe('initialization', () => {
@@ -304,6 +305,8 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('re-arms the next poll after a poll returns unchanged sources', async () => {
+            jest.useFakeTimers()
+
             // polling-enabled instance, unlike the shared harness
             logic = snapshotDataLogic({ sessionRecordingId: 'store-test-polling' })
             logic.mount()
@@ -313,14 +316,18 @@ describe('snapshotDataLogic (store-based loading)', () => {
             store.setSources([SOURCE_A])
             markLoaded(store, 0, [makeFullSnapshot(tsMs(0, 0))])
 
-            await expectLogic(logic, () => {
+            const firstPoll = expectLogic(logic, () => {
                 logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
             }).toDispatchActions(['maybeStartPolling', 'startPolling'])
+            await jest.advanceTimersByTimeAsync(1)
+            await firstPoll
 
             // a poll response with the same source list must close this cycle and arm the next one
-            await expectLogic(logic, () => {
+            const nextPoll = expectLogic(logic, () => {
                 logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
             }).toDispatchActions(['stopPolling', 'maybeStartPolling', 'startPolling'])
+            await jest.advanceTimersByTimeAsync(1)
+            await nextPoll
         })
     })
 

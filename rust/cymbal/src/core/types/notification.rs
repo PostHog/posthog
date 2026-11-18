@@ -200,6 +200,18 @@ impl IssueNotificationContext {
     }
 }
 
+/// How ingestion chose the severity of a new issue. The issue-created workflow only
+/// lets a model replace a `Heuristic` severity or a missing one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeveritySource {
+    /// The event carried an explicit `$issue_severity`.
+    Event,
+    Rule,
+    /// Derived from the exception level and handled flag.
+    Heuristic,
+}
+
 /// Payload for [`IngestionNotification::IssueCreated`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {
@@ -211,6 +223,8 @@ pub struct IssueCreated {
     pub event_uuid: Uuid,
     pub event_timestamp: String,
     pub assignee: Option<String>,
+    #[serde(default)]
+    pub severity_source: Option<SeveritySource>,
 }
 
 /// Payload for [`IngestionNotification::IssueReopened`].
@@ -292,6 +306,7 @@ mod tests {
             event_uuid: Uuid::nil(),
             event_timestamp: "1970-01-01T00:00:00Z".to_string(),
             assignee: None,
+            severity_source: Some(SeveritySource::Rule),
         });
 
         assert_eq!(notification.validate(), Ok(()));
@@ -301,6 +316,7 @@ mod tests {
         assert_eq!(json["team_id"], 42);
         assert_eq!(json["fingerprint"], "abc");
         assert_eq!(json["issue"]["severity"], "high");
+        assert_eq!(json["severity_source"], "rule");
         assert_eq!(json["event_properties"]["$exception_fingerprint"], "abc");
 
         // Round-trips back to the same JSON through the typed enum.

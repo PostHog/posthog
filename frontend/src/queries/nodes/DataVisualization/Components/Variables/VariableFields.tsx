@@ -14,11 +14,12 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { cn } from 'lib/utils/css-classes'
+
 import {
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
     getConnectionOptionLabel,
-} from 'scenes/data-warehouse/editor/connectionSelectorLogic'
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
 import {
     BooleanVariable,

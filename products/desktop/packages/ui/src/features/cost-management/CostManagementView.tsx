@@ -8,6 +8,7 @@ interface CostManagementViewProps {
   items: CostChecklistItem[];
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
+  onSte100Toggle: (enabled: boolean) => void;
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
@@ -18,6 +19,7 @@ export function CostManagementView({
   items,
   onSwitchModel,
   onCreateImage,
+  onSte100Toggle,
   onInstallSkill,
   onUninstallSkill,
   onOpenSkill,
@@ -35,6 +37,7 @@ export function CostManagementView({
           items={items}
           onSwitchModel={onSwitchModel}
           onCreateImage={onCreateImage}
+          onSte100Toggle={onSte100Toggle}
           onInstallSkill={onInstallSkill}
           onUninstallSkill={onUninstallSkill}
           onOpenSkill={onOpenSkill}

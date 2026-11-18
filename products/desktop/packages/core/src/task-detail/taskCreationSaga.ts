@@ -29,8 +29,10 @@ import type {
 } from "./taskCreationHost";
 import { buildTaskNamingSource } from "./taskDescription";
 import { resolveTaskRepository } from "./taskRepository";
+import type { WarmTaskSubmission } from "./warmTaskService";
 
 export interface TaskCreationDeps {
+  warmSubmission?: WarmTaskSubmission;
   posthogClient: TaskCreationApiClient;
   host: ITaskCreationHost;
   sessionService: SessionService;
@@ -45,7 +47,7 @@ interface WarmActivationPayload {
   pendingUserMessage?: string;
   pendingUserArtifactIds?: string[];
   suppressWarmReuse: boolean;
-  augmented: boolean;
+  warmRunId?: string;
 }
 
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
@@ -57,7 +59,7 @@ interface WarmActivationPayload {
 function buildCloudFirstMessage(
   messageText: string | undefined,
   input: TaskCreationInput,
-): { pendingUserMessage?: string; augmented: boolean } {
+): string | undefined {
   const customInstructionsText = messageText
     ? buildCustomInstructionsText(input.customInstructions)
     : null;
@@ -67,14 +69,11 @@ function buildCloudFirstMessage(
     input.channelContextId,
     input.channelContextPath,
   );
-  const pendingUserMessage =
+  return (
     [messageText, customInstructionsText, channelContextText]
       .filter((part): part is string => !!part)
-      .join("\n\n") || undefined;
-  return {
-    pendingUserMessage,
-    augmented: !!(customInstructionsText || channelContextText),
-  };
+      .join("\n\n") || undefined
+  );
 }
 
 export class TaskCreationSaga extends Saga<
@@ -106,6 +105,12 @@ export class TaskCreationSaga extends Saga<
   ): Promise<TaskCreationOutput> {
     const taskId = input.taskId;
     const isPiRuntime = input.runtime === "pi";
+    const claudeCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.claudeCloudModelAccess;
+    const codexCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.codexCloudModelAccess;
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -115,8 +120,15 @@ export class TaskCreationSaga extends Saga<
       ? undefined
       : await this.importClaudeSession(input);
 
+    // Warm runs are provisioned for GitHub repositories only, so a GitLab
+    // task never takes a warm lease or uploads attachments to a warm run.
     const warmPayload =
-      !isPiRuntime && !taskId && input.workspaceMode === "cloud"
+      !isPiRuntime &&
+      !taskId &&
+      input.workspaceMode === "cloud" &&
+      input.repositoryIntegrationId === undefined &&
+      claudeCloudModelAccess !== "own-subscription" &&
+      codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -127,7 +139,16 @@ export class TaskCreationSaga extends Saga<
       : await this.createTask(input, warmPayload);
 
     if (!isPiRuntime) {
-      this.deps.sessionService.markTaskCreationInFlight(task.id);
+      await this.step({
+        name: "mark_task_starting",
+        execute: async () => {
+          this.deps.sessionService.markTaskCreationInFlight(task.id);
+          return task.id;
+        },
+        rollback: async (markedTaskId) => {
+          this.deps.sessionService.clearVisibleTaskStarting(markedTaskId);
+        },
+      });
     }
 
     if (importedClaude && input.repoPath) {
@@ -225,11 +246,12 @@ export class TaskCreationSaga extends Saga<
           error,
         });
         this.deps.host.clearProvisioning(task.id);
+        this.deps.sessionService.clearVisibleTaskStarting(task.id);
         if (shouldDeferLocalPiTaskReady) {
           this.notifyTaskReady({ task, workspace: null });
         }
-        // The in-flight mark is left to TTL-expire on purpose: this state has
-        // its own retry-prompt UX, and auto-recovery would race the retry.
+        // Keep the recovery guard until its TTL expires so automatic recovery
+        // cannot race the worktree retry.
         return { task, workspace: null, provisioningError };
       }
     } else if (workspaceMode === "cloud") {
@@ -313,7 +335,7 @@ export class TaskCreationSaga extends Saga<
     // Warm-activated at create time: the backend already forwarded the first
     // message (with any uploaded artifacts) to the pre-warmed run.
     if (!taskId && warmPayload && task.latest_run) {
-      if (warmPayload.augmented && warmPayload.pendingUserMessage) {
+      if (warmPayload.pendingUserMessage) {
         this.deps.sessionService.rememberInitialCloudPrompt(
           task.id,
           warmPayload.pendingUserMessage,
@@ -407,15 +429,15 @@ export class TaskCreationSaga extends Saga<
             ? warmPayload.transport
             : await buildTransport();
 
-          const { pendingUserMessage, augmented } = warmPayload
-            ? warmPayload
+          const pendingUserMessage = warmPayload
+            ? warmPayload.pendingUserMessage
             : buildCloudFirstMessage(transport?.messageText, input);
 
           // The sandbox echoes pendingUserMessage back once it boots; until then
           // the optimistic placeholder would show the bare task description with
           // no CONTEXT.md / personalization chip. Hand the augmented message to
           // the session service so it seeds the placeholder right away.
-          if (!isPiRuntime && augmented && pendingUserMessage) {
+          if (!isPiRuntime && pendingUserMessage) {
             this.deps.sessionService.rememberInitialCloudPrompt(
               task.id,
               pendingUserMessage,
@@ -430,6 +452,8 @@ export class TaskCreationSaga extends Saga<
             branch,
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
+            claudeModelAccess: claudeCloudModelAccess,
+            codexModelAccess: codexCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,
             contextWindow: isPiRuntime ? undefined : input.contextWindow,
@@ -450,6 +474,13 @@ export class TaskCreationSaga extends Saga<
           });
           if (!taskRun?.id) {
             throw new Error("Failed to create cloud run");
+          }
+
+          if (claudeCloudModelAccess === "own-subscription") {
+            await this.deps.sessionService.designateClaudeSubscription(
+              task.id,
+              taskRun.id,
+            );
           }
 
           if (!isPiRuntime && input.relayedMcpServers?.length) {
@@ -560,9 +591,26 @@ export class TaskCreationSaga extends Saga<
               .filter((part): part is string => !!part)
               .join("\n\n");
 
+            // The run only attributes spend; a failure starts Pi untagged and keeps the task.
+            const taskRun = await this.deps.posthogClient
+              .createTaskRun(task.id)
+              .catch((error: unknown) => {
+                this.log.warn("Pi task run creation failed", {
+                  taskId: task.id,
+                  error,
+                });
+                return undefined;
+              });
+            const taskRunId = taskRun?.id || undefined;
+            if (taskRun?.id) {
+              // The Pi view keys its session on `latest_run`; a run that appears only after a refetch resets the live session.
+              task = { ...task, latest_run: taskRun };
+            }
+
             await this.deps.piRunner.create({
               taskContext: {
                 taskId: task.id,
+                taskRunId,
                 cwd: agentCwd ?? "",
                 customInstructions: input.customInstructions,
                 additionalDirectories: input.additionalDirectories,
@@ -585,6 +633,8 @@ export class TaskCreationSaga extends Saga<
           if (input.adapter) connectParams.adapter = input.adapter;
           if (input.codexModelAccess)
             connectParams.codexModelAccess = input.codexModelAccess;
+          if (input.claudeModelAccess)
+            connectParams.claudeModelAccess = input.claudeModelAccess;
           if (input.model) connectParams.model = input.model;
           if (input.reasoningLevel)
             connectParams.reasoningLevel = input.reasoningLevel;
@@ -763,7 +813,7 @@ export class TaskCreationSaga extends Saga<
       resolvedContent,
       input.filePaths,
     );
-    const { pendingUserMessage, augmented } = buildCloudFirstMessage(
+    const pendingUserMessage = buildCloudFirstMessage(
       transport.messageText,
       input,
     );
@@ -771,33 +821,36 @@ export class TaskCreationSaga extends Saga<
       transport,
       pendingUserMessage,
       suppressWarmReuse: false,
-      augmented,
     };
 
-    const lease =
-      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
-        ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository ?? null,
-            repositories: input.repositories,
-            branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? null,
-            model: input.model ?? null,
-            reasoningEffort: input.reasoningLevel ?? null,
-            sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
-            customImageId: input.customImageId ?? null,
-          })
-        : null;
+    if (
+      input.signalReportId ||
+      input.contextWindow === "1m" ||
+      input.fastMode === true
+    ) {
+      return { ...base, suppressWarmReuse: true };
+    }
 
-    const requiresConfiguredWarm = Boolean(
-      input.sandboxEnvironmentId || input.customImageId,
-    );
+    const lease = this.deps.warmSubmission?.take({
+      repository: input.repository ?? null,
+      repositories: input.repositories,
+      github_integration: input.githubIntegrationId,
+      branch: input.branch ?? null,
+      runtime_adapter: input.adapter ?? "claude",
+      model: input.model ?? null,
+      reasoning_effort: input.reasoningLevel ?? null,
+      initial_permission_mode: input.executionMode ?? null,
+      sandbox_environment_id: input.sandboxEnvironmentId ?? null,
+      custom_image_id: input.customImageId ?? null,
+    });
 
     const needsAttachments =
       transport.filePaths.length > 0 || transport.skillBundles.length > 0;
     if (!needsAttachments) {
       return {
         ...base,
-        suppressWarmReuse: requiresConfiguredWarm && !lease,
+        suppressWarmReuse: !lease,
+        warmRunId: lease?.permissionModeMutable ? lease.runId : undefined,
       };
     }
     if (!lease) {
@@ -816,6 +869,7 @@ export class TaskCreationSaga extends Saga<
         ...base,
         pendingUserArtifactIds:
           artifactIds.length > 0 ? artifactIds : undefined,
+        warmRunId: lease.permissionModeMutable ? lease.runId : undefined,
       };
     } catch (error) {
       this.log.warn(
@@ -843,8 +897,15 @@ export class TaskCreationSaga extends Saga<
           input.filePaths ?? [],
           this.deps.fileReadClient,
         );
+        const usesGitlab =
+          input.workspaceMode === "cloud" &&
+          input.repositoryIntegrationId !== undefined;
         const canActivateWarmRun =
-          input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
+          input.runtime !== "pi" &&
+          !usesGitlab &&
+          !warmPayload?.suppressWarmReuse &&
+          input.claudeCloudModelAccess !== "own-subscription" &&
+          input.codexCloudModelAccess !== "own-subscription";
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
@@ -856,12 +917,17 @@ export class TaskCreationSaga extends Saga<
               ? undefined
               : (repository ?? undefined),
           repositories: input.signalReportId ? undefined : input.repositories,
+          repository_integration: usesGitlab
+            ? input.repositoryIntegrationId
+            : undefined,
           github_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             input.cloudRunSource !== "signal_report"
               ? input.githubUserIntegrationId
@@ -875,6 +941,9 @@ export class TaskCreationSaga extends Saga<
           signal_report_task_relationship: input.signalReportId
             ? input.signalReportTaskRelationship
             : undefined,
+          signal_report_discussion_question: input.signalReportId
+            ? input.signalReportDiscussionQuestion
+            : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)
@@ -883,7 +952,7 @@ export class TaskCreationSaga extends Saga<
             input.workspaceMode === "cloud" &&
             canActivateWarmRun &&
             input.runtime !== "pi"
-              ? (input.adapter ?? null)
+              ? (input.adapter ?? "claude")
               : undefined,
           model:
             input.workspaceMode === "cloud" &&
@@ -897,6 +966,13 @@ export class TaskCreationSaga extends Saga<
             input.runtime !== "pi"
               ? (input.reasoningLevel ?? null)
               : undefined,
+          initial_permission_mode:
+            input.workspaceMode === "cloud" &&
+            canActivateWarmRun &&
+            input.runtime !== "pi"
+              ? (input.executionMode ??
+                (input.adapter === "codex" ? "auto" : "plan"))
+              : undefined,
           sandbox_environment_id:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? input.sandboxEnvironmentId
@@ -908,6 +984,7 @@ export class TaskCreationSaga extends Saga<
           signal_report: input.signalReportId ?? undefined,
           channel: input.channelId ?? undefined,
           runtime: input.runtime ?? "acp",
+          warm_run_id: canActivateWarmRun ? warmPayload?.warmRunId : undefined,
           pending_user_message: warmPayload?.pendingUserMessage,
           pending_user_artifact_ids: warmPayload?.pendingUserArtifactIds,
           // If creation activates a pre-warmed run, this is the only request

@@ -1,0 +1,79 @@
+import '@testing-library/jest-dom'
+
+import { render, screen, waitFor } from '@testing-library/react'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { PropertyFilterType } from '~/types'
+
+import { SpanAttributes } from './SpanAttributes'
+
+// The branch under test is which component a value renders as, not the link internals:
+// both targets mount their own data-fetching logics, so they're stubbed at the boundary.
+jest.mock('products/persons/frontend/components/PersonDisplay', () => ({
+    PersonDisplay: ({ person }: { person: { distinct_id: string } }) => (
+        <div data-attr="mock-person-display">{person.distinct_id}</div>
+    ),
+}))
+jest.mock('lib/components/ViewRecordingButton/ViewRecordingButton', () => ({
+    __esModule: true,
+    default: ({ sessionId }: { sessionId: string }) => <div data-attr="mock-view-recording">{sessionId}</div>,
+    RecordingPlayerType: { Modal: 'modal' },
+    ViewRecordingButtonVariant: { Link: 'link' },
+}))
+
+describe('SpanAttributes correlation links', () => {
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/tracing_config/': () => [
+                    200,
+                    {
+                        tracing_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        tracing_session_id_attribute_keys: ['sessionId', 'my.custom.session'],
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+    })
+
+    it('renders person and replay links for matching keys, plain text otherwise', () => {
+        render(
+            <SpanAttributes
+                title="Attributes"
+                attributes={{ posthogDistinctId: 'user-1', sessionId: 'session-1', 'http.method': 'GET' }}
+                propertyType={PropertyFilterType.SpanAttribute}
+            />
+        )
+
+        expect(screen.getByText('user-1')).toHaveAttribute('data-attr', 'mock-person-display')
+        expect(screen.getByText('session-1')).toHaveAttribute('data-attr', 'mock-view-recording')
+        expect(screen.getByText('GET')).not.toHaveAttribute('data-attr')
+    })
+
+    it('links a session id under a team-configured custom key once the config loads', async () => {
+        const { container } = render(
+            <SpanAttributes
+                title="Attributes"
+                attributes={{ 'my.custom.session': 'session-2' }}
+                propertyType={PropertyFilterType.SpanAttribute}
+            />
+        )
+
+        // The custom key only matches after the mocked tracing_config resolves; until then the
+        // value renders as plain text, so wait for the link element rather than the text.
+        await waitFor(() =>
+            expect(container.querySelector('[data-attr="mock-view-recording"]')).toHaveTextContent('session-2')
+        )
+    })
+
+    it('never links values in the synthetic details table (no propertyType)', () => {
+        const { container } = render(
+            <SpanAttributes title="Span details" attributes={{ 'session.id': 'session-3' }} showFilterActions={false} />
+        )
+
+        expect(screen.getAllByText('session-3').length).toBeGreaterThan(0)
+        expect(container.querySelector('[data-attr="mock-view-recording"]')).toBeNull()
+    })
+})

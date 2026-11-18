@@ -128,13 +128,13 @@ export function EditableTextBlock({
             return
         }
 
-        const selection = window.getSelection()
         const rootEditableInputHtml = rootEditableInputHtmlByNodeIdRef.current[node.id]
         delete rootEditableInputHtmlByNodeIdRef.current[node.id]
 
+        // Reading the selection forces a layout, so check it last: a notebook mounts hundreds of blocks at once.
         const shouldSkipOwnInputSync =
-            (document.activeElement === element || isSelectionAnchoredInsideElement(selection, element)) &&
-            (skipDomSyncForHtmlRef.current === renderedHtml || rootEditableInputHtml === renderedHtml)
+            (skipDomSyncForHtmlRef.current === renderedHtml || rootEditableInputHtml === renderedHtml) &&
+            (document.activeElement === element || isSelectionAnchoredInsideElement(window.getSelection(), element))
         skipDomSyncForHtmlRef.current = null
 
         if (shouldSkipOwnInputSync || element.innerHTML === renderedHtml) {

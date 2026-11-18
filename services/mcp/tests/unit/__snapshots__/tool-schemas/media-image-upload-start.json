@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "The file's display name, e.g. 'logo.png'.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "purpose": {
+            "description": "Library to add this image to once uploaded, e.g. 'email'.",
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["name", "purpose"],
+    "type": "object"
+}

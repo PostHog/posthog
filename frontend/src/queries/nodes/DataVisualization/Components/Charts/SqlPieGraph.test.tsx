@@ -1,12 +1,17 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { BIField } from '~/queries/schema/schema-business-intelligence'
+import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { renderDataVisualization } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -41,10 +46,14 @@ const yData = (data: (number | null)[]): AxisSeries<number | null>[] => [
     },
 ]
 
-const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): SqlChartProps => ({
+const baseProps = (
+    chartSettings: ChartSettings,
+    data: (number | null)[],
+    visualizationType = ChartDisplayType.ActionsPie
+): SqlChartProps => ({
     xData,
     yData: yData(data),
-    visualizationType: ChartDisplayType.ActionsPie,
+    visualizationType,
     chartSettings,
 })
 
@@ -52,9 +61,9 @@ const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): SqlCh
 // quill PieChart's flaky hover/click interaction tests. Each slice renders one <div> per line
 // (label and/or value), so we read the lines per slice rather than the concatenated text.
 function sliceLabelLines(): string[][] {
-    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) =>
-        Array.from(el.querySelectorAll('div')).map((line) => line.textContent!)
-    )
+    return getChart()
+        .pie.sliceLabels()
+        .map((label) => label.lines)
 }
 
 async function waitForSlices(): Promise<void> {
@@ -70,6 +79,71 @@ async function waitForSlices(): Promise<void> {
 }
 
 describe('SqlPieGraph', () => {
+    it('keeps aliased slices distinct and reuses their data when settings open', async () => {
+        let aliasReads = 0
+        const field = (name: string): BIField => ({
+            id: name,
+            name,
+            expression: name,
+            type: 'string',
+            source: { table: 'events' },
+        })
+        const region = field('region')
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: region.source,
+            chartType: ChartDisplayType.ActionsPie,
+            rows: [field('segment')],
+            columns: [region],
+            memberAliases: [
+                {
+                    field: region,
+                    aliases: [
+                        {
+                            value: null,
+                            get label(): string {
+                                aliasReads++
+                                return 'Missing'
+                            },
+                        },
+                        { value: '', label: 'Blank' },
+                    ],
+                },
+            ],
+        }
+        renderDataVisualization({
+            readOnly: false,
+            query: {
+                ...buildBIQuery(config)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config,
+                chartSettings: {
+                    xAxis: { column: 'segment' },
+                    yAxis: [{ column: 'count' }],
+                    seriesBreakdownColumn: 'region',
+                    pie: { sliceContent: 'labels' },
+                },
+            },
+            response: {
+                columns: ['segment', 'region', 'count'],
+                types: [
+                    ['segment', 'String'],
+                    ['region', 'Nullable(String)'],
+                    ['count', 'Int64'],
+                ],
+                results: [
+                    ['first', null, 2],
+                    ['first', '', 3],
+                ],
+            },
+        })
+        await waitForSlices()
+        expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
+        const readsBeforeSettings = aliasReads
+        await userEvent.click(screen.getByLabelText('Visualization settings'))
+        expect(aliasReads).toBe(readsBeforeSettings)
+        expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
+    })
     it('defaults to values and the total when slice content is unset (existing chart)', async () => {
         render(<SqlPieGraph {...baseProps({}, [40, 30, 20, 10])} />)
 
@@ -95,6 +169,38 @@ describe('SqlPieGraph', () => {
         await waitForSlices()
 
         expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('shows the total in the center of a donut', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps(
+                    { pie: { sliceContent: 'labels', showTotal: true } },
+                    [40, 30, 20, 10],
+                    ChartDisplayType.ActionsDonut
+                )}
+            />
+        )
+
+        await waitForSlices()
+
+        expect(screen.getByText('100').closest('[data-attr="sql-pie-chart"]')).toBeInTheDocument()
+    })
+
+    it('hides the donut center total when showTotal is false', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps(
+                    { pie: { sliceContent: 'labels', showTotal: false } },
+                    [40, 30, 20, 10],
+                    ChartDisplayType.ActionsDonut
+                )}
+            />
+        )
+
+        await waitForSlices()
+
         expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 
@@ -149,13 +255,35 @@ describe('SqlPieGraph', () => {
         expect(sliceLabelLines()).toEqual([])
     })
 
-    it('renders the side legend with per-slice values and shares', () => {
-        // The legend is plain DOM (rendered for both responsive layouts), so it needs no canvas paint.
+    it("renders quill's legend with one row per slice", () => {
+        // The legend is plain DOM outside the canvas, so it needs no canvas paint.
         render(<SqlPieGraph {...baseProps({ showLegend: true }, [60, 40, 0, 0])} />)
 
-        expect(screen.getAllByText('alpha').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('60.0%').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('40.0%').length).toBeGreaterThan(0)
+        expect(getChart().legend()).toBeInTheDocument()
+        expect(screen.getByText('alpha')).toBeInTheDocument()
+        expect(screen.getByText('beta')).toBeInTheDocument()
+    })
+
+    it('restores all slices when the legend is hidden after isolating one', async () => {
+        const chartSettings: ChartSettings = { showLegend: true, pie: { sliceContent: 'labels', showTotal: true } }
+        const { rerender } = render(<SqlPieGraph {...baseProps(chartSettings, [60, 40, 0, 0])} />)
+        const user = userEvent.setup()
+
+        await waitForSlices()
+        await user.click(within(getChart().legend()!).getByText('alpha'))
+
+        await waitFor(() => {
+            expect(sliceLabelLines()).toEqual([['alpha']])
+            expect(screen.getByText('60')).toBeInTheDocument()
+        })
+
+        rerender(<SqlPieGraph {...baseProps({ ...chartSettings, showLegend: false }, [60, 40, 0, 0])} />)
+
+        await waitFor(() => {
+            expect(getChart().legend()).toBeNull()
+            expect(sliceLabelLines()).toEqual([['alpha'], ['beta']])
+            expect(screen.getByText('100')).toBeInTheDocument()
+        })
     })
 
     it('shows the empty state when there are no positive values', () => {
@@ -180,10 +308,10 @@ describe('SqlPieGraph', () => {
             />
         )
 
-        const swatchColors = Array.from(document.querySelectorAll<HTMLElement>('.LemonColorGlyph')).map(
-            (el) => el.style.color
-        )
-        expect(screen.getAllByText('first').length).toBeGreaterThan(0)
+        const swatchColors = Array.from(
+            getChart().legend()!.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')
+        ).map((el) => el.style.backgroundColor)
+        expect(screen.getByText('first')).toBeInTheDocument()
         expect(swatchColors).toContain('rgb(170, 0, 0)')
         expect(swatchColors).toContain('rgb(0, 170, 0)')
     })

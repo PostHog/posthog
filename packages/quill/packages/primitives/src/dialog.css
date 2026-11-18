@@ -43,7 +43,7 @@
          */
         max-height: calc(100dvh - var(--quill-dialog-top-gap) - 1rem);
         overflow: hidden;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         background-color: var(--background);
         border-radius: var(--radius-lg);
@@ -174,7 +174,7 @@
 
     .quill-dialog__title {
         font-size: var(--text-sm, 0.875rem);
-        font-weight: 500;
+        font-weight: 700;
         line-height: var(--text-sm--line-height, 1.25rem);
     }
 

@@ -1,13 +1,18 @@
 import copy
+import dataclasses
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from confluent_kafka import KafkaError, KafkaException
 
-from posthog.cdp.internal_events import InternalEventEvent
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.models import Team
 
+from products.cdp.backend.filters import compile_filters_bytecode
+from products.cdp.backend.internal_events import InternalEventEvent
+from products.error_tracking.backend.logic.assignees import ResolvedAssignee
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
@@ -16,11 +21,28 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
     IssueReopenedSnapshot,
     IssueReopenedWorkflowInputs,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_spiking.types import (
+    IssueSpikingSnapshot,
+    IssueSpikingWorkflowInputs,
+)
 from products.error_tracking.backend.temporal.lifecycle.rendering import SIGNAL_MAX_TOKENS
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
+    alert_delivery_inputs,
+    dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+
+ASSIGNEE = '{"type":"user","id":1}'
+
+
+@pytest.fixture(autouse=True)
+def resolve_assignee() -> Iterator[MagicMock]:
+    with patch(
+        "products.error_tracking.backend.temporal.lifecycle.side_effects.resolve_current_assignee",
+        return_value=None,
+    ) as resolve:
+        yield resolve
 
 
 def _inputs() -> IssueReopenedWorkflowInputs:
@@ -38,7 +60,7 @@ def _inputs() -> IssueReopenedWorkflowInputs:
         fingerprint="fingerprint",
         event_uuid="01982721-5e00-7000-8000-000000000003",
         event_timestamp="2026-07-21T12:05:00Z",
-        assignee='{"type":"user","id":1}',
+        assignee=ASSIGNEE,
     )
 
 
@@ -92,11 +114,12 @@ def test_created_internal_event_preserves_raw_status() -> None:
     assert sent_events[0].properties["severity"] == "critical"
 
 
-def test_oversized_internal_event_retries_without_exception_properties() -> None:
+def test_oversized_internal_event_retries_without_exception_properties(resolve_assignee: MagicMock) -> None:
     inputs = _inputs()
+    resolve_assignee.return_value = ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com")
     event_properties = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     oversized_result = MagicMock()
-    oversized_result.get.side_effect = KafkaException(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))  # type: ignore[attr-defined]
+    oversized_result.get.side_effect = KafkaException(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))
     retry_result = MagicMock()
     results = iter([oversized_result, retry_result])
     sent_events: list[InternalEventEvent] = []
@@ -145,6 +168,8 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         "exception_props": event_properties,
         "status": "Pending Release",
         "assignee": inputs.assignee,
+        "assignee_name": "Jane Doe",
+        "assignee_email": "jane@example.com",
         "attempt": 2,
     }
     assert sent_events[1].properties == {
@@ -156,8 +181,9 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
 
 
 def test_internal_event_reraises_non_size_kafka_errors() -> None:
+    inputs = _inputs()
     result = MagicMock()
-    result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))  # type: ignore[attr-defined]
+    result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))
     sent_events: list[InternalEventEvent] = []
 
     def capture_event(_team_id: int, event: InternalEventEvent) -> MagicMock:
@@ -181,9 +207,9 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
         pytest.raises(KafkaException),
     ):
         produce_issue_lifecycle_internal_event(
-            _inputs(),
+            inputs,
             event="$error_tracking_issue_spiking",
-            exception_timestamp="invalid",
+            exception_timestamp="2026-07-21T12:30:00Z",
             include_status=False,
         )
 
@@ -191,6 +217,116 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     assert sent_events[0].event == "$error_tracking_issue_spiking"
     assert "status" not in sent_events[0].properties
     assert sent_events[0].properties["severity"] == "high"
+    assert sent_events[0].properties["exception_timestamp"] == "2026-07-21T12:30:00+00:00"
+
+
+def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own_time() -> None:
+    inputs = IssueSpikingWorkflowInputs(
+        notification_id="01982721-5e00-7000-8000-000000000001",
+        team_id=42,
+        issue_id="01982721-5e00-7000-8000-000000000002",
+        issue=IssueSpikingSnapshot(
+            name="x" * 600,
+            description="Something failed",
+            status="active",
+            created_at="2026-07-21T12:00:00Z",
+            severity="high",
+        ),
+        fingerprint="fingerprint",
+        event_uuid="01982721-5e00-7000-8000-000000000003",
+        event_timestamp="2026-07-21T12:05:00Z",
+        assignee=None,
+        detected_at="2026-07-21T12:30:00Z",
+        computed_baseline=2.0,
+        current_bucket_value=40,
+    )
+
+    alert = alert_delivery_inputs(
+        inputs,
+        event="$error_tracking_issue_spiking",
+        exception_timestamp=inputs.detected_at,
+        extra_properties={"computed_baseline": 2.0, "current_bucket_value": 40, "ignored": "x"},
+        include_status=False,
+    )
+
+    assert alert.notification_id == inputs.notification_id
+    assert alert.status is None
+    # The alert keys the exception by its own timestamp even when the lifecycle event
+    # carries the spike detection time.
+    assert alert.event_uuid == inputs.event_uuid
+    assert alert.event_timestamp == inputs.event_timestamp
+    # The filter clock is the lifecycle event's own time, normalized like the internal event.
+    assert alert.lifecycle_timestamp == "2026-07-21T12:30:00+00:00"
+    assert alert.extra == {"computed_baseline": "2.0", "current_bucket_value": "40"}
+    assert alert.issue_name is not None and len(alert.issue_name) == 500
+
+    reopened = alert_delivery_inputs(
+        _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+    )
+    assert reopened.status == "Pending Release"
+    assert reopened.assignee == ASSIGNEE
+
+
+@pytest.mark.parametrize(
+    "resolved, expected_names",
+    [
+        (
+            ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com"),
+            {"assignee_name": "Jane Doe", "assignee_email": "jane@example.com"},
+        ),
+        (ResolvedAssignee(property_value='{"type":"role","id":"r1"}', name="Backend", email=None), {}),
+        (None, {}),
+    ],
+    ids=["same_assignee", "reassigned_since_ingestion", "unassigned_since_ingestion"],
+)
+def test_internal_event_names_the_assignee_only_while_it_matches_the_snapshot(
+    resolve_assignee: MagicMock, resolved: ResolvedAssignee | None, expected_names: dict[str, str]
+) -> None:
+    resolve_assignee.return_value = resolved
+    sent_events: list[InternalEventEvent] = []
+
+    def capture_event(_team_id: int, event: InternalEventEvent) -> MagicMock:
+        sent_events.append(copy.deepcopy(event))
+        return MagicMock()
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.get",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value={},
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.produce_internal_event",
+            side_effect=capture_event,
+        ),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+    ):
+        produce_issue_lifecycle_internal_event(
+            _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+        )
+
+    properties = sent_events[0].properties
+    assert properties["assignee"] == ASSIGNEE
+    assert {key: value for key, value in properties.items() if key in ("assignee_name", "assignee_email")} == (
+        expected_names
+    )
+
+
+def test_dispatch_raises_so_the_activity_retries() -> None:
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+            side_effect=RuntimeError("temporal down"),
+        ) as start,
+        pytest.raises(RuntimeError),
+    ):
+        dispatch_issue_lifecycle_alert(
+            _inputs(), event="$error_tracking_issue_reopened", exception_timestamp="2026-07-21T12:05:00Z"
+        )
+    assert start.call_args.args[0].event == "$error_tracking_issue_reopened"
 
 
 @pytest.mark.asyncio
@@ -214,6 +350,10 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
             return_value=stacktrace,
         ),
         patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.enabled_issue_filters",
+            return_value=None,
+        ),
+        patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
             new=AsyncMock(),
         ) as emit_signal,
@@ -222,6 +362,8 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
             inputs,
             source_type="issue_reopened",
             preamble="Previously resolved issue reappeared",
+            event="$error_tracking_issue_reopened",
+            exception_timestamp=inputs.event_timestamp,
         )
 
     emit_signal.assert_awaited_once()
@@ -241,3 +383,73 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "extra": {"fingerprint": inputs.fingerprint},
         "idempotency_key": inputs.notification_id,
     }
+
+
+PRODUCTION = {"key": "environment", "value": ["production"], "operator": "exact", "type": "event"}
+HIGH_SEVERITY = {"key": "severity", "value": ["high"], "operator": "exact", "type": "event"}
+
+
+def _compiled(*leaves: dict) -> dict:
+    return compile_filters_bytecode({"properties": list(leaves)}, Team(id=42, project_id=42))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored_filters, event_properties, severity, drop_reason",
+    [
+        pytest.param(None, {"environment": "staging"}, "high", None, id="no_filter_keeps_todays_behavior"),
+        # The filter sees one exception: an issue first seen on staging fails a production filter.
+        pytest.param(
+            lambda: _compiled(PRODUCTION), {"environment": "staging"}, "high", "excluded_by_filter", id="excluded"
+        ),
+        pytest.param(lambda: _compiled(PRODUCTION), {"environment": "production"}, "high", None, id="matches"),
+        pytest.param(lambda: _compiled(HIGH_SEVERITY), {}, None, "excluded_by_filter", id="empty_severity_is_not_high"),
+        pytest.param(
+            {"properties": [PRODUCTION]}, {"environment": "production"}, "high", "filter_error", id="missing_bytecode"
+        ),
+        pytest.param("not-a-filter", {}, "high", "filter_error", id="malformed_filter"),
+    ],
+)
+async def test_issue_filter_gates_the_signal(
+    stored_filters: object, event_properties: dict, severity: str | None, drop_reason: str | None
+) -> None:
+    inputs = _inputs()
+    inputs = dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=severity))
+    team = MagicMock(id=inputs.team_id)
+    side_effects = "products.error_tracking.backend.temporal.lifecycle.side_effects"
+
+    with (
+        patch(f"{side_effects}.Team.objects.aget", new=AsyncMock(return_value=team)),
+        patch(f"{side_effects}.fetch_event_properties", return_value=event_properties),
+        patch(
+            f"{side_effects}.enabled_issue_filters",
+            return_value=stored_filters() if callable(stored_filters) else stored_filters,
+        ) as enabled_issue_filters,
+        patch(f"{side_effects}.record_source_filter_drop") as record_drop,
+        patch(f"{side_effects}.emit_signal", new=AsyncMock()) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+            event="$error_tracking_issue_reopened",
+            exception_timestamp=inputs.event_timestamp,
+        )
+
+    assert enabled_issue_filters.call_args.kwargs == {
+        "team_id": inputs.team_id,
+        "source_product": "error_tracking",
+        "source_type": "issue_reopened",
+    }
+    if drop_reason is None:
+        emit_signal.assert_awaited_once()
+        record_drop.assert_not_called()
+    else:
+        emit_signal.assert_not_awaited()
+        record_drop.assert_called_once_with(
+            team=team,
+            source_product="error_tracking",
+            source_type="issue_reopened",
+            source_id=inputs.issue_id,
+            reason=drop_reason,
+        )

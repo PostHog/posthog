@@ -1,6 +1,6 @@
 import './Setup2FA.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -12,9 +12,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
-    const { startSetupLoading, startSetup, generalError } = useValues(twoFactorLogic({ onSuccess }))
+    const { startSetupLoading, startSetup, generalError, isTokenSubmitting } = useValues(twoFactorLogic({ onSuccess }))
+    const { loadStartSetup } = useActions(twoFactorLogic)
     if (startSetupLoading) {
         return null
+    }
+    if (!startSetup) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadStartSetup() }}>
+                Couldn't start 2FA setup.
+            </LemonBanner>
+        )
     }
 
     return (
@@ -28,37 +36,52 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 <div className="flex flex-col items-center">
                     <div className="bg-white p-4 rounded">
                         <img
-                            src="/account/two_factor/qrcode/"
+                            src={startSetup.qrCodeUrl}
                             className="Setup2FA__image"
                             alt="QR code for two-factor authentication setup"
                         />
                     </div>
 
                     {/* Secret key for manual entry */}
-                    {startSetup?.secret && (
-                        <div className="ph-no-capture mt-4 p-3 bg-secondary rounded text-center w-full max-w-md">
-                            <p className="text-default">
-                                If you can't scan the QR code, you can use the secret key below to manually set up your
-                                authenticator app.
-                            </p>
-                            <CopyToClipboardInline description="2FA secret key" selectable iconSize="xsmall">
-                                {startSetup.secret}
-                            </CopyToClipboardInline>
-                        </div>
-                    )}
+                    <div className="ph-no-capture mt-4 p-3 bg-secondary rounded text-center w-full max-w-md">
+                        <p className="text-default">
+                            If you can't scan the QR code, you can use the secret key below to manually set up your
+                            authenticator app.
+                        </p>
+                        <CopyToClipboardInline description="2FA secret key" selectable iconSize="xsmall">
+                            {startSetup.secret}
+                        </CopyToClipboardInline>
+                    </div>
                 </div>
                 {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                 <LemonField name="token" label="Authenticator token">
-                    <LemonInput
-                        className="ph-ignore-input"
-                        autoFocus
-                        data-attr="token"
-                        placeholder="123456"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                    />
+                    {({ value, onChange, id }) => (
+                        <LemonInput
+                            id={id}
+                            className="ph-ignore-input"
+                            autoFocus
+                            data-attr="token"
+                            placeholder="123456"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            value={value ?? ''}
+                            // Password-manager autofill can set the field without firing a React change event.
+                            // Read the value on change, blur, and Enter so the store matches what the field shows.
+                            // Enter submits the form without blurring, so sync the value before validation runs.
+                            onChange={(newValue) => onChange(newValue.replace(/\D/g, ''))}
+                            onBlur={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
+                            onPressEnter={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
+                        />
+                    )}
                 </LemonField>
-                <LemonButton htmlType="submit" data-attr="2fa-setup" fullWidth type="primary" center loading={false}>
+                <LemonButton
+                    htmlType="submit"
+                    data-attr="2fa-setup"
+                    fullWidth
+                    type="primary"
+                    center
+                    loading={isTokenSubmitting}
+                >
                     Submit
                 </LemonButton>
             </Form>

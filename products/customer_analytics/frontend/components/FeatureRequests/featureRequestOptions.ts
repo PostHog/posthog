@@ -1,6 +1,6 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import type { FeatureRequestStatusEnumApi, RequestPriorityEnumApi } from '../../generated/api.schemas'
+import type { FeatureRequestStatusEnumApi, FeatureRequestPriorityEnumApi } from '../../generated/api.schemas'
 
 export type FeatureRequestArchiveState = 'active' | 'archived' | 'all'
 export type FeatureRequestOrdering =
@@ -22,7 +22,7 @@ export type FeatureRequestOrdering =
     | '-created_by'
     | 'evidence_count'
     | '-evidence_count'
-export type FeatureRequestPriorityFilter = RequestPriorityEnumApi | 'none'
+export type FeatureRequestPriorityFilter = FeatureRequestPriorityEnumApi | 'none'
 
 // Event names are consumed by product analytics, so changing one splits its historical data.
 export const FeatureRequestEvents = {
@@ -37,7 +37,7 @@ export const FEATURE_REQUEST_STATUS_OPTIONS: { value: FeatureRequestStatusEnumAp
     { value: 'duplicate', label: 'Duplicate' },
 ]
 
-export const FEATURE_REQUEST_PRIORITY_OPTIONS: { value: RequestPriorityEnumApi; label: string }[] = [
+export const FEATURE_REQUEST_PRIORITY_OPTIONS: { value: FeatureRequestPriorityEnumApi; label: string }[] = [
     { value: 'high', label: 'High' },
     { value: 'medium', label: 'Medium' },
     { value: 'low', label: 'Low' },
@@ -94,7 +94,7 @@ export function featureRequestStatusTagType(status: FeatureRequestStatusEnumApi)
     }
 }
 
-export function featureRequestPriorityLabel(priority: RequestPriorityEnumApi | null): string {
+export function featureRequestPriorityLabel(priority: FeatureRequestPriorityEnumApi | null): string {
     return priority
         ? (FEATURE_REQUEST_PRIORITY_OPTIONS.find((option) => option.value === priority)?.label ?? priority)
         : 'No priority'

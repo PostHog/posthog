@@ -2,10 +2,14 @@ from typing import Any, cast
 
 from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQuery, TrendsQueryResponse, WebVitalsQuery
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.query_runner import unwrapped_source
 from posthog.schema_helpers import to_dict
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
+)
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
     execute_lazy_precomputed_vitals_timeseries,
     is_vitals_precompute_enabled_for_team,
@@ -35,16 +39,19 @@ class WebVitalsQueryRunner(TrendsQueryRunner):
             # sources fall through to the legacy source unwrap), so this guards
             # against direct/invalid construction, not the dispatch path.
             raise ValueError(f"WebVitalsQueryRunner requires a TrendsQuery source, got {type(source).__name__}")
-        super().__init__(query=source, **kwargs)
+        super().__init__(query=unwrapped_source(vitals_query, source), **kwargs)
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         # Rollout state in the cache key = immediate kill switch: disabling a
         # flag must not keep serving cached precompute-derived results until
         # they stale out (same mechanism as WebTrendsQueryRunner).
-        payload["web_vitals_timeseries_precompute"] = is_vitals_precompute_enabled_for_team(
-            self.team
-        ) and is_precompute_enabled_for_team(self.team)
+        precompute = is_vitals_precompute_enabled_for_team(self.team) and is_precompute_enabled_for_team(self.team)
+        payload["web_vitals_timeseries_precompute"] = precompute
+        # The volume floor also flips the serving path (precompute <-> live), so
+        # it must vary the key too: a team crossing below the floor keeps serving
+        # a stale precompute result otherwise. Read it only when precompute is on.
+        payload["web_vitals_timeseries_above_floor"] = precompute and is_team_above_volume_floor(self.team.pk)
         # `super()` serializes only the inner TrendsQuery, but the precompute
         # read builds its jobs from the wrapper's own filters (see
         # `_build_inner_path_breakdown_query`). Fold those into the key — using

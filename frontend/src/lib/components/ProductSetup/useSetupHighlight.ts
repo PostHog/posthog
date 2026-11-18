@@ -75,15 +75,17 @@ function scrollIntoViewWithinContainer(element: Element): void {
 }
 
 /**
- * Hook that watches for a pending highlight selector and applies a pulsing
- * animation to the matching element. Used to draw attention to UI elements
- * after navigating from the quick start guide.
+ * Hook that watches for a pending highlight and applies a pulsing animation to the
+ * matching element. Used to draw attention to UI elements after navigating from the
+ * quick start guide. The highlight only applies on the route that asked for it -
+ * globalSetupLogic drops it when the user goes somewhere else.
  *
  * Usage: Call this hook once in a top-level component (e.g., App or Layout).
  */
 export function useSetupHighlight(): void {
-    const { highlightSelector } = useValues(globalSetupLogic)
-    const { clearHighlightSelector } = useActions(globalSetupLogic)
+    const { highlight } = useValues(globalSetupLogic)
+    const { clearHighlight } = useActions(globalSetupLogic)
+    const highlightSelector = highlight?.selector ?? null
     const attemptCountRef = useRef(0)
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const highlightedElementRef = useRef<Element | null>(null)
@@ -110,7 +112,7 @@ export function useSetupHighlight(): void {
                 timeoutRef.current = setTimeout(() => {
                     element.classList.remove(HIGHLIGHT_CLASS)
                     highlightedElementRef.current = null
-                    clearHighlightSelector()
+                    clearHighlight()
                 }, HIGHLIGHT_DURATION_MS)
             } else if (attemptCountRef.current < MAX_ATTEMPTS) {
                 // Element not found yet - retry (it might still be rendering)
@@ -118,7 +120,7 @@ export function useSetupHighlight(): void {
                 timeoutRef.current = setTimeout(tryHighlight, ATTEMPT_INTERVAL_MS)
             } else {
                 // Give up after max attempts
-                clearHighlightSelector()
+                clearHighlight()
             }
         }
 
@@ -135,5 +137,5 @@ export function useSetupHighlight(): void {
                 highlightedElementRef.current = null
             }
         }
-    }, [highlightSelector, clearHighlightSelector])
+    }, [highlightSelector, clearHighlight])
 }

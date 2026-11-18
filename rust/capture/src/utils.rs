@@ -10,7 +10,6 @@ use uuid::Uuid;
 use crate::{
     api::CaptureError,
     payload::{Compression, EventFormData, EventQuery},
-    prometheus::report_dropped_events,
     token::validate_token,
 };
 
@@ -68,6 +67,21 @@ pub fn uuid_v7(unix_millis: u64) -> Uuid {
 /// Builds a UUIDv7 whose time component is the given instant. Pre-epoch datetimes are floored to the epoch, since the unsigned time field can't represent negatives.
 pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
     uuid_v7(datetime.timestamp_millis().max(0) as u64)
+}
+
+/// The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+pub fn uuid_time_millis(uuid: Uuid) -> u128 {
+    uuid.as_u128() >> 80
+}
+
+/// The instant a UUIDv7 encodes, or `None` for any other version. Capture mints a
+/// UUIDv7 from the already-adjusted timestamp when the SDK sends none, so a caller
+/// that compares this against the stored timestamp must use only client-sent UUIDs.
+pub fn client_capture_millis(uuid: Uuid) -> Option<i64> {
+    if uuid.get_version_num() != 7 {
+        return None;
+    }
+    i64::try_from(uuid_time_millis(uuid)).ok()
 }
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
@@ -173,46 +187,6 @@ pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
     }
 }
 
-pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
-    // with lz64 the payload is a Base64 string that must be decoded prior to decompression
-    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
-    let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
-        Some(v) => v,
-        None => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            debug!(
-                payload_snippet = payload_snippet,
-                "decompress_lz64: failed decompress to UTF16"
-            );
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed decompress to UTF16",
-            )));
-        }
-    };
-
-    // the decompressed data is UTF16 so we need to convert it to UTF8 to
-    // obtain the JSON event batch payload we've come to know and love
-    let decompressed = match String::from_utf16(&decomp_utf16) {
-        Ok(result) => result,
-        Err(_) => {
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed UTF16 to UTF8 conversion",
-            )));
-        }
-    };
-
-    if decompressed.len() > limit {
-        report_dropped_events("event_too_big", 1);
-        return Err(CaptureError::EventTooBig(String::from(
-            "lz64 request payload size limit exceeded",
-        )));
-    }
-
-    Ok(decompressed)
-}
-
 pub fn extract_and_verify_token(
     events: &[RawEvent],
     batch_token: Option<String>,
@@ -255,11 +229,6 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
-    fn uuid_time_millis(uuid: Uuid) -> u128 {
-        uuid.as_u128() >> 80
-    }
 
     #[test]
     fn uuid_v7_from_datetime_encodes_the_instant() {

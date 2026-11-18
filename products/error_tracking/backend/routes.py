@@ -1,7 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
 from products.error_tracking.backend.presentation.views import (
+    ErrorTrackingAlertViewSet,
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingBuiltInFilterViewSet,
     ErrorTrackingBypassRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
@@ -62,6 +64,12 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"error_tracking/built_in_filters",
+        ErrorTrackingBuiltInFilterViewSet,
+        "project_error_tracking_built_in_filter",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"error_tracking/recommendations",
         ErrorTrackingRecommendationViewSet,
         "project_error_tracking_recommendation",
@@ -106,9 +114,16 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_error_tracking_spike_events",
         ["team_id"],
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     routers.projects.register(
         r"error_tracking/git-provider-file-links",
         GitProviderFileLinksViewSet,
         "project_error_tracking_git_provider_file_links",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/alerts",
+        ErrorTrackingAlertViewSet,
+        "project_error_tracking_alerts",
         ["team_id"],
     )

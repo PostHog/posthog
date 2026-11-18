@@ -11,14 +11,24 @@ from functools import cached_property
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When, prefetch_related_objects
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    When,
+    prefetch_related_objects,
+)
 from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -28,12 +38,13 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
-from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
+from ..agents import BUILT_IN_AGENTS, built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -54,7 +65,13 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
+from ..policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_destructive_tool,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -220,7 +237,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return False
-    return not (installation.sensitive_configuration or {}).get("access_token")
+    return not installation.upstream_access_token()
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
@@ -249,6 +266,13 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         allow_null=True,
         default=None,
         help_text="Fixed authentication type for catalog templates. Null for custom servers, where members choose.",
+    )
+    auth_type = serializers.SerializerMethodField(
+        help_text=(
+            "How members connect to this server: the template's type for catalog servers, or the type the "
+            "custom server was added with. Null only for custom servers registered before the type was "
+            "recorded; members then choose."
+        )
     )
     icon_key = serializers.CharField(
         source="template.icon_key",
@@ -285,6 +309,9 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     is_revoked_for_you = serializers.SerializerMethodField(
         help_text="True when an admin has turned this server off for the requesting user."
     )
+    is_team_enabled = serializers.SerializerMethodField(
+        help_text="True when this server is enabled and available to the project."
+    )
 
     class Meta:
         model = MCPGatewayServer
@@ -295,6 +322,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "template_auth_type",
+            "auth_type",
             "is_team_enabled",
             "icon_key",
             "icon_domain",
@@ -320,6 +348,16 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    @extend_schema_field(serializers.ChoiceField(choices=AUTH_TYPE_CHOICES, allow_null=True))
+    def get_auth_type(self, obj: MCPGatewayServer) -> str | None:
+        if obj.template is not None:
+            return obj.template.auth_type
+        return obj.auth_type or None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_team_enabled(self, obj: MCPGatewayServer) -> bool:
+        return obj.is_team_enabled
 
     @extend_schema_field(serializers.IntegerField())
     def get_tool_count(self, obj: MCPGatewayServer) -> int:
@@ -457,6 +495,9 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
     input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
     is_destructive = serializers.BooleanField(
         help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
+    is_read_only = serializers.BooleanField(
+        help_text="Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb."
     )
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
@@ -596,11 +637,21 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
     )
     name = serializers.CharField(help_text="Server display name.")
     description = serializers.CharField(help_text="Server description.")
+    url = serializers.CharField(
+        help_text="MCP server URL. Clients derive a brand icon from it when icon_domain is empty."
+    )
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
     icon_domain = serializers.CharField(help_text="Brand domain. Empty for custom servers.")
     connection_state = serializers.ChoiceField(
         choices=AGENT_SERVER_CONNECTION_STATE_CHOICES,
         help_text="Whether the credential delegated to the agent is ready to use.",
+    )
+    reachable = serializers.BooleanField(
+        help_text=(
+            "Whether agent runs can use this grant: the server is enabled for the project and an admin "
+            "has not revoked the sharing member's access. Independent of connection_state, which reports "
+            "credential health."
+        )
     )
 
 
@@ -643,7 +694,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "last_active_at": {"help_text": "When the agent last made a call through the gateway."},
         }
 
-    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout"]))
+    @extend_schema_field(serializers.ChoiceField(choices=[spec.key for spec in BUILT_IN_AGENTS]))
     def get_agent_key(self, obj: MCPServiceAccount) -> str:
         spec = get_built_in_agent_spec(obj)
         return spec.key if spec is not None else ""
@@ -675,9 +726,13 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "scope": access.scope,
                     "name": server.name,
                     "description": server.description,
+                    "url": server.url,
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
+                    # Mirrors the run path's grant and server checks so
+                    # pickers can hide grants a run cannot mount.
+                    "reachable": (server.is_team_enabled and not getattr(access, "grant_owner_revoked", False)),
                 }
             )
         return servers
@@ -906,7 +961,10 @@ class MCPGatewayServerViewSet(
             .prefetch_related(
                 Prefetch(
                     "installations",
-                    queryset=MCPServerInstallation.objects.select_related("user").order_by("created_at"),
+                    # The token resolver reads the template of a link-backed installation.
+                    queryset=MCPServerInstallation.objects.select_related(
+                        "user", "template", "linked_user_integration"
+                    ).order_by("created_at"),
                 ),
                 Prefetch(
                     "agent_access",
@@ -1003,18 +1061,47 @@ class MCPGatewayServerViewSet(
             return "agent", None, account
         return "team", None, None
 
-    def _require_scope_permission(self, scope_type: str, scope_user: User | None, write: bool = False) -> None:
+    def _require_scope_permission(
+        self,
+        server: MCPGatewayServer,
+        scope_type: str,
+        scope_user: User | None,
+        scope_account: MCPServiceAccount | None,
+        write: bool = False,
+    ) -> None:
         """Members may view team defaults and manage their own member scope;
-        agent scopes follow the team's agent-access setting."""
+        agent scopes follow the team's agent-access setting. Agent policy covers
+        every member's share of the server, so a member may change it only
+        while holding a live share of their own."""
         if self._is_project_admin():
             return
         if scope_type == "member" and scope_user is not None and scope_user.id == self.request.user.id:
             return
         if scope_type == "agent" and self._can_manage_agent_access():
-            return
+            if not write or self._holds_live_agent_share(server, scope_account):
+                return
+            raise PermissionDenied(
+                "Share your connection to this server with the agent before changing its tool access."
+            )
         if scope_type == "team" and not write:
             return
         raise PermissionDenied("Only project admins can manage this scope.")
+
+    def _holds_live_agent_share(self, server: MCPGatewayServer, account: MCPServiceAccount | None) -> bool:
+        """The share must still carry the member's own credential. Revoked members
+        never get here, because `safely_get_queryset` hides the server from them."""
+        user_id = cast(User, self.request.user).id
+        return (
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+            .filter(
+                service_account=account,
+                gateway_server=server,
+                user_id=user_id,
+                installation__isnull=False,
+                installation__user_id=user_id,
+            )
+            .exists()
+        )
 
     def _member_installation(self, server: MCPGatewayServer, scope_user: User) -> MCPServerInstallation | None:
         """The credential this member calls the server through.
@@ -1076,6 +1163,7 @@ class MCPGatewayServerViewSet(
                     "description": description,
                     "input_schema": input_schema,
                     "is_destructive": is_destructive_tool(tool_name, annotations),
+                    "is_read_only": is_read_only_connector_tool(tool_name, annotations),
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
@@ -1097,7 +1185,7 @@ class MCPGatewayServerViewSet(
         self._require_project_admin()
         data = request.validated_data
         try:
-            template = MCPServerTemplate.objects.get(id=data["template_id"], is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=data["template_id"])
         except MCPServerTemplate.DoesNotExist:
             raise NotFound("Template not found.")
 
@@ -1143,7 +1231,7 @@ class MCPGatewayServerViewSet(
         """Tool catalog with the resolved policy for a scope."""
         server = self.get_object()
         scope_type, scope_user, scope_account = self._resolve_scope(request.validated_query_data)
-        self._require_scope_permission(scope_type, scope_user)
+        self._require_scope_permission(server, scope_type, scope_user, scope_account)
         rows = self._resolve_policies_for_scope(server, scope_type, scope_user, scope_account)
         return Response({"count": len(rows), "next": None, "previous": None, "results": rows})
 
@@ -1157,7 +1245,7 @@ class MCPGatewayServerViewSet(
         server = self.get_object()
         data = request.validated_data
         scope_type, scope_user, scope_account = self._resolve_scope(data)
-        self._require_scope_permission(scope_type, scope_user, write=True)
+        self._require_scope_permission(server, scope_type, scope_user, scope_account, write=True)
 
         if scope_type != "team":
             if scope_type == "agent" and scope_account is not None:
@@ -1227,6 +1315,12 @@ class MCPServiceAccountViewSet(
         return sync_built_in_agents(self.team)
 
     def _server_access_prefetch(self) -> Prefetch:
+        # An admin revocation makes the grant unreachable for agent runs, the
+        # same way reachable_agent_grants excludes it on the mount path.
+        grant_owner_revoked = MCPMemberServerRevocation.objects.for_team(self.team_id).filter(
+            gateway_server_id=OuterRef("gateway_server_id"),
+            user_id=OuterRef("user_id"),
+        )
         return Prefetch(
             "server_access",
             # See MCPGatewayServerViewSet.safely_get_queryset: a user-less grant
@@ -1234,6 +1328,7 @@ class MCPServiceAccountViewSet(
             # MCPServiceAccountServerSerializer.shared_by is not nullable.
             queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
             .exclude(user__isnull=True)
+            .annotate(grant_owner_revoked=Exists(grant_owner_revoked))
             .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name"),
         )

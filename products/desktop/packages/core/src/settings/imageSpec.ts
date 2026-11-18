@@ -13,7 +13,7 @@ import { type ImagePresetTool, toolInstallMethod } from "./imagePreset";
 
 const MAX_APT_PACKAGES = 128;
 const MAX_RUN_COMMANDS = 64;
-export const MAX_COMMAND_LENGTH = 4096;
+const MAX_COMMAND_LENGTH = 4096;
 
 const APT_PACKAGE_PATTERN = /^[a-z0-9][a-z0-9+.-]*$/;
 

@@ -1,0 +1,157 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Scanning a career-fair business card into a contact record",
+  "scenario": "A Vertex AI vision model, ingested over OTel, extracts a recruiter-facing contact record from a photo of a business card collected at a career fair booth, pulling out the candidate's name, title, company, and contact details plus a note about the role she asked about.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1,
+      "$ai_span": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "gcp.vertex_ai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3.8-flash"
+    ],
+    "content_types": [
+      "blob",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_span_id": "f9d25f1f1aaf4765",
+        "$ai_trace_id": "15e349390828d5878bf5192264f0e690",
+        "$geoip_disable": true,
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "service.name": "card-scanner",
+        "$ai_input_tokens": 1539,
+        "$ai_output_tokens": 289,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "extract_business_card_contact",
+        "$ai_model": "gemini-3.8-flash",
+        "$ai_latency": 3.856529058,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You extract contact details from a photo of a business card collected\nat a recruiting career fair booth.\n\nRead the card image carefully and pull out:\n- Full name\n- Job title\n- Company\n- Email address\n- Phone number, if printed on the card\n\nOnly report fields that are actually printed and legible on the card.\nNever guess a missing field or invent one that is not there - if the\ncard has no phone number, say so rather than leaving the recruiter to\nassume one exists.\n\nIf the recruiter's accompanying note mentions which role or booth the\ncontact expressed interest in, include that as a short note at the end\nof your answer so the sourcing team can follow up on the right\nrequisition without having to ask the recruiter again later.\n\nFormat your answer as a short plain-text list, one field per line, in\nthe order: name, title, company, email, phone, source, notes. Skip a\nfield entirely rather than writing \"unknown\" or \"not found\" when it is\nmissing from the card.\n\nKeep the whole answer under ten lines. Do not add any commentary about\nthe card's design, condition, or legibility beyond what is needed to\nexplain a missing field. Verified against the scanned card image directly. Verified against the scanned card image directly. Verified against the scanned card image directly."
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "blob",
+                "modality": "image",
+                "mime_type": null,
+                "content": "base64-image-01"
+              },
+              {
+                "type": "text",
+                "content": "Extract the name, title, company, and contact info from this card."
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "content": "Name: Priya Raman\nTitle: Senior Backend Engineer\nCompany: Fairline Logistics\nEmail: priya.raman@example.com\nPhone: (555) 019-2277\nSource: Career fair, booth 14\nNotes: asked about the Platform\nInfrastructure opening and said\nshe'd follow up by email this week"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 3,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "f9d25f1f1aaf4765",
+        "$ai_span_id": "fead1a74bb63926d",
+        "$ai_trace_id": "15e349390828d5878bf5192264f0e690",
+        "$geoip_disable": true,
+        "service.name": "card-scanner",
+        "$ai_span_name": "step 1",
+        "$ai_latency": 3.853538353
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 4,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "fead1a74bb63926d",
+        "$ai_span_id": "bf26ce8392eb5dba",
+        "$ai_trace_id": "15e349390828d5878bf5192264f0e690",
+        "$geoip_disable": true,
+        "gen_ai.client.operation.duration": 3.851185094000073,
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "aitxt-ooZazAXa3oaiHOELyPHid55W",
+        "service.name": "card-scanner",
+        "$ai_input_tokens": 1539,
+        "$ai_output_tokens": 289,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "extract-contact-info",
+        "$ai_model": "gemini-3.8-flash",
+        "$ai_latency": 3.850047674,
+        "$ai_input": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "blob",
+                "modality": "image",
+                "mime_type": null,
+                "content": "base64-image-01"
+              },
+              {
+                "type": "text",
+                "content": "Extract the name, title, company, and contact info from this card."
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "content": "Name: Priya Raman\nTitle: Senior Backend Engineer\nCompany: Fairline Logistics\nEmail: priya.raman@example.com\nPhone: (555) 019-2277\nSource: Career fair, booth 14\nNotes: asked about the Platform\nInfrastructure opening and said\nshe'd follow up by email this week"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

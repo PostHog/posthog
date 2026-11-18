@@ -6,30 +6,40 @@ from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.user_integration import UserIntegration, slack_link_fits
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-AUTH_TYPE_CHOICES = [
-    ("api_key", "API Key"),
-    ("oauth", "OAuth"),
-]
 
-APPROVAL_STATES = [
-    ("approved", "Approved"),
-    ("needs_approval", "Needs approval"),
-    ("do_not_use", "Do not use"),
-]
+class MCPAuthType(models.TextChoices):
+    API_KEY = "api_key", "API Key"
+    OAUTH = "oauth", "OAuth"
+
+
+AUTH_TYPE_CHOICES = MCPAuthType.choices
+
+
+class MCPToolApprovalState(models.TextChoices):
+    APPROVED = "approved", "Approved"
+    NEEDS_APPROVAL = "needs_approval", "Needs approval"
+    DO_NOT_USE = "do_not_use", "Do not use"
+
+
+APPROVAL_STATES = MCPToolApprovalState.choices
+
 
 # Catalog categories used by the marketplace UI to group templates. Pinned to a
 # finite choice list so the frontend can render predictable filter chips. New
 # rows default to "dev" until they're reclassified in the admin.
-CATEGORY_CHOICES = [
-    ("business", "Business Operations"),
-    ("data", "Data & Analytics"),
-    ("design", "Design & Content"),
-    ("dev", "Developer Tools & APIs"),
-    ("infra", "Infrastructure"),
-    ("productivity", "Productivity & Collaboration"),
-]
+class MCPServerCategory(models.TextChoices):
+    BUSINESS = "business", "Business Operations"
+    DATA = "data", "Data & Analytics"
+    DESIGN = "design", "Design & Content"
+    DEV = "dev", "Developer Tools & APIs"
+    INFRA = "infra", "Infrastructure"
+    PRODUCTIVITY = "productivity", "Productivity & Collaboration"
+
+
+CATEGORY_CHOICES = MCPServerCategory.choices
 
 SCOPE_CHOICES = [
     ("personal", "Personal"),
@@ -46,19 +56,25 @@ AGENT_GRANT_SCOPE_CHOICES = [
     ("team", "Team"),
 ]
 
-SERVICE_ACCOUNT_STATUS_CHOICES = [
-    ("active", "Active"),
-    ("paused", "Paused"),
-]
+
+class MCPServiceAccountStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    PAUSED = "paused", "Paused"
+
+
+SERVICE_ACCOUNT_STATUS_CHOICES = MCPServiceAccountStatus.choices
+
 
 # Team-level policy baselines. They derive a default per-tool state for tools
 # that have no explicit policy row (see policy.member_preset_team_state).
-POLICY_PRESET_CHOICES = [
-    ("allow", "Allow all"),
-    ("user", "Member decides"),
-    ("ask", "Ask for destructive"),
-    ("block", "Block destructive"),
-]
+class MCPPolicyPreset(models.TextChoices):
+    ALLOW = "allow", "Allow all"
+    USER = "user", "Member decides"
+    ASK = "ask", "Ask for destructive"
+    BLOCK = "block", "Block destructive"
+
+
+POLICY_PRESET_CHOICES = MCPPolicyPreset.choices
 
 POLICY_SCOPE_TYPE_CHOICES = [
     ("team", "Team default"),
@@ -77,14 +93,17 @@ ORG_RULE_EFFECT_CHOICES = [
     ("do_not_use", "Block"),
 ]
 
+
 # How the gateway decided a proxied tool call. "pending" is an agent call that
 # hit a needs_approval tool and was rejected awaiting a human.
-AUDIT_DECISION_CHOICES = [
-    ("auto", "Auto-approved"),
-    ("approved", "Approved"),
-    ("pending", "Awaiting approval"),
-    ("blocked", "Blocked"),
-]
+class MCPAuditDecision(models.TextChoices):
+    AUTO = "auto", "Auto-approved"
+    APPROVED = "approved", "Approved"
+    PENDING = "pending", "Awaiting approval"
+    BLOCKED = "blocked", "Blocked"
+
+
+AUDIT_DECISION_CHOICES = MCPAuditDecision.choices
 
 
 class SensitiveConfig(TypedDict, total=False):
@@ -107,6 +126,7 @@ class SensitiveConfig(TypedDict, total=False):
 class TemplateOAuthCredentials(TypedDict, total=False):
     client_id: str
     client_secret: str
+    token_endpoint_auth_method: str
 
 
 InstallSource = Literal["posthog", "twig", "posthog-code"]
@@ -130,12 +150,12 @@ def normalize_mcp_icon_domain(value: str) -> str:
 
 
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """A curated, pre-registered MCP server. PostHog operators register a real
-    OAuth app with the provider ahead of time and paste the client_id /
-    client_secret in Django admin. The credentials are shared across every user
-    who installs the template — users only get their own per-user access/refresh
-    tokens. User-added servers (see MCPServerInstallation without a template
-    FK) go through per-user DCR instead."""
+    """A curated, pre-registered MCP server.
+
+    Shared OAuth clients use an existing instance credential source or encrypted
+    credentials provisioned on the template. Each installation still stores its
+    own user tokens. User-added servers use per-user DCR instead.
+    """
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
@@ -150,8 +170,14 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev", db_default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
+    oauth_scope_allowlist = models.JSONField(null=True, blank=True, default=None)
+    oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
+
+    @classmethod
+    def available_for_team(cls, team_id: int) -> models.QuerySet["MCPServerTemplate"]:
+        return cls.objects.filter(is_active=True)
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
@@ -167,11 +193,19 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
 
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
     )
+    # The member's account link whose token this installation uses instead of a copy of it. The link stays the only
+    # place that holds the token, so an unlink also ends the installation's access.
+    linked_user_integration = models.ForeignKey(
+        "posthog.UserIntegration", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
+    )
+    # When the account link made this installation. Set even after an unlink clears the link, until the member
+    # connects the server with a token of their own.
+    connected_from_link_at = models.DateTimeField(null=True, blank=True)
     display_name = models.CharField(max_length=200, blank=True, default="")
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
@@ -210,6 +244,20 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             ),
         ]
 
+    def upstream_access_token(self) -> str | None:
+        """The installation's own OAuth token first. Otherwise the token of the member's Slack link, while the link
+        exists, belongs to the same member and fits the scopes that the template allows."""
+        if own_token := (self.sensitive_configuration or {}).get("access_token"):
+            return own_token
+        link = self.linked_user_integration
+        if link is None or self.template is None:
+            return None
+        if link.user_id != self.user_id or link.kind != UserIntegration.IntegrationKind.SLACK:
+            return None
+        if not slack_link_fits(link, self.template.oauth_scope_allowlist or ()):
+            return None
+        return (link.sensitive_config or {}).get("user_access_token") or None
+
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Per-installation cache of the tools an MCP server exposes, with a
@@ -243,7 +291,7 @@ class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
 class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     installation = models.ForeignKey(MCPServerInstallation, on_delete=models.CASCADE, related_name="oauth_states")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.CASCADE, related_name="oauth_states", null=True, blank=True
     )
@@ -310,6 +358,11 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="gateway_servers", null=True, blank=True
     )
+    # How members authenticate to a custom server, copied from the credential
+    # that registered the row. Later connections follow it instead of asking
+    # each member to guess. Templates carry their own auth_type. Blank on rows
+    # that predate the column; members then choose.
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -338,6 +391,22 @@ class MCPMemberServerRevocation(TeamScopedRootMixin, UUIDModel):
         db_table = "mcp_store_mcpmemberserverrevocation"
         constraints = [
             models.UniqueConstraint(fields=["gateway_server", "user"], name="uniq_member_server_revocation"),
+        ]
+
+
+class MCPMemberAutoConnectOptOut(TeamScopedRootMixin, UUIDModel):
+    """The member removed a server that PostHog connected for them from an account link. Presence = do not connect
+    it again for them. A manual connect stays allowed, and the row outlives the link."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    url = models.URLField(max_length=2048)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "mcp_store_mcpmemberautoconnectoptout"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "url"], name="uniq_member_auto_connect_opt_out"),
         ]
 
 
@@ -494,7 +563,7 @@ class MCPToolPolicy(TeamScopedRootMixin, UUIDModel):
                 name="uniq_agent_tool_policy",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(scope_type="team", scope_user__isnull=True, scope_service_account__isnull=True)
                     | Q(scope_type="member", scope_user__isnull=False, scope_service_account__isnull=True)
                     | Q(scope_type="agent", scope_user__isnull=True, scope_service_account__isnull=False)

@@ -1,5 +1,5 @@
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   RpcExtensionUIRequest,
 } from "@posthog/agent/pi/types";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -57,7 +57,7 @@ export interface PiExtensionState {
 export type PiExtensionStore = StoreApi<PiExtensionState>;
 
 export type PiExtensionStateAction =
-  | { type: "event"; event: PiExtensionEvent; id: string }
+  | { type: "event"; event: PiExtensionSessionEvent; id: string }
   | { type: "notification"; notification: PiExtensionNotification }
   | { type: "remove-dialog"; id: string }
   | { type: "remove-notification"; id: string }
@@ -100,6 +100,12 @@ export function reducePiExtensionState(
   }
 
   const event = action.event;
+  if (event.type === "extension_ui_response") {
+    return {
+      ...state,
+      dialogs: state.dialogs.filter((dialog) => dialog.id !== event.id),
+    };
+  }
   if (event.type === "extension_error") {
     const extensionName = event.extensionPath.split(/[\\/]/).pop();
     return addNotification(state, {

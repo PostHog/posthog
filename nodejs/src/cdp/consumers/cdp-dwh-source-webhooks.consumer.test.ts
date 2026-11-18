@@ -73,6 +73,16 @@ if (request.method != 'POST') {
 }
 
 if (not inputs.bypass_signature_check) {
+  if (empty(inputs.signing_secret)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
+    }
+  }
+
   let body := request.stringBody
   let signatureHeader := request.headers['stripe-signature']
 
@@ -281,6 +291,12 @@ describe('DWH source webhooks', () => {
             await api['cdpSourceWebhooksConsumer']['promiseScheduler'].waitForAllSettled()
         }
 
+        const getMetricNames = (): string[] => {
+            return mockProducerObserver
+                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                .map((message) => message.value.metric_name) as string[]
+        }
+
         it('should return 404 for non-existent webhook ID', async () => {
             const res = await doDwhPostRequest({ webhookId: 'non-existent-id' })
             expect(res.status).toEqual(404)
@@ -365,6 +381,37 @@ describe('DWH source webhooks', () => {
             const kafkaMessages = getDwhKafkaMessages()
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].key).toEqual(`${team.id}:${chargeSchemaId}`)
+        })
+
+        it('should drop the delivery instead of rejecting it when no signing secret is set', async () => {
+            const unconfiguredFunction = await insertHogFunction(hub.postgres, team.id, {
+                type: 'warehouse_source_webhook',
+                template_id: stripeTemplateId,
+                bytecode: [],
+                inputs: {
+                    ...(await compileInputs(stripeTemplateForInputs, {
+                        signing_secret: '',
+                        bypass_signature_check: false,
+                    })),
+                    schema_mapping: { value: schemaMapping },
+                    source_id: { value: 'test-source-id' },
+                    source_type: { value: 'Stripe' },
+                },
+            })
+
+            const res = await doDwhPostRequest({
+                webhookId: unconfiguredFunction.id,
+                body: { type: 'charge.succeeded', data: { object: { id: 'ch_1', object: 'charge' } } },
+            })
+
+            // A 4xx here makes the provider retry for hours over a gap only the customer can close.
+            expect(res.status).toEqual(200)
+            expect(res.text).toEqual('Signing secret not configured, delivery dropped')
+            expect(getDwhKafkaMessages()).toHaveLength(0)
+
+            await waitForBackgroundTasks()
+
+            expect(getMetricNames()).toContain('missing_credential')
         })
 
         it('should return 200 and skip when object type is not in schema_mapping', async () => {

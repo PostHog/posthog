@@ -4,6 +4,7 @@ import {
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
     formatPropertyLabel,
+    inlineEquivalentPropertyGroups,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -22,6 +23,7 @@ import {
     BehavioralEventType,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CohortType,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
@@ -136,7 +138,7 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                     { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
                 ],
             },
-            'Did not perform signed_up where Source = web in the last 30\u00a0days',
+            'Did not perform signed_up where source = web in the last 30\u00a0days',
             noActions,
         ],
         [
@@ -147,11 +149,57 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                     { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsSet, value: null },
                 ],
             },
-            'Performed signed_up where Source = web and Email address ✓ is set in the last 30\u00a0days',
+            'Performed signed_up where source = web and Email address ✓ is set in the last 30\u00a0days',
             noActions,
         ],
     ])('%s', (_name, overrides, expected, actionsById) => {
         expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
+    })
+})
+
+describe('formatPropertyLabel() for cohort filters', () => {
+    const cohortsById = { 42: { id: 42, name: 'Known cohort' } as CohortType }
+
+    it.each<[string, Partial<CohortPropertyFilter>, string]>([
+        ['live cohort named by the flag API', { cohort_name: 'Beta testers' }, 'User in Beta testers'],
+        ['live cohort named by the cohorts model', {}, 'User in Known cohort'],
+        [
+            'deleted cohort with a name',
+            { cohort_name: 'Beta testers', cohort_deleted: true },
+            'User in Beta testers (deleted)',
+        ],
+        ['deleted cohort without a name', { value: 7, cohort_deleted: true }, 'User in Deleted cohort (ID 7)'],
+        ['missing cohort', { value: 7, cohort_deleted: true, cohort_missing: true }, 'User in Missing cohort (ID 7)'],
+    ])('formats a %s', (_, overrides, expected) => {
+        const filter: CohortPropertyFilter = {
+            key: 'id',
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+            value: 42,
+            ...overrides,
+        }
+        expect(formatPropertyLabel(filter, cohortsById)).toEqual(expected)
+    })
+})
+
+describe('formatPropertyLabel() for account date filters', () => {
+    it.each([
+        ['-14d', 'created_at > 14 days ago'],
+        [['-14d'], 'created_at > 14 days ago'],
+        ['14d', 'created_at > 14 days from now'],
+        ['+1w', 'created_at > 1 week from now'],
+    ])('formats %s as %s', (value, expected) => {
+        expect(
+            formatPropertyLabel(
+                {
+                    key: 'created_at',
+                    value,
+                    type: PropertyFilterType.Account,
+                    operator: PropertyOperator.IsDateAfter,
+                } as unknown as AnyPropertyFilter,
+                {}
+            ).trim()
+        ).toBe(expected)
     })
 })
 
@@ -391,8 +439,8 @@ describe('type mapping round-trip', () => {
     })
 
     it('MCPProperties maps one-way to the Event property filter type', () => {
-        // The rebuild menu commits with the tab's own group type, so without this
-        // mapping an MCP-tab selection would produce a filter with no type.
+        // A selection committed with the MCP tab's own group type would otherwise
+        // produce a filter with no type.
         expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
             PropertyFilterType.Event
         )
@@ -605,5 +653,54 @@ describe('resolvePropertyDefinitionId()', () => {
                 () => null
             )
         ).toBeUndefined()
+    })
+})
+
+describe('inlineEquivalentPropertyGroups()', () => {
+    const browser = { key: '$browser', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const os = { key: '$os', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const cohort = { key: 'id', value: 3, type: PropertyFilterType.Cohort } as AnyPropertyFilter
+
+    it.each([
+        {
+            name: 'leaves a flat list alone',
+            values: [browser, cohort],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort],
+        },
+        {
+            name: 'inlines a nested group that joins its values the same way',
+            values: [browser, { type: FilterLogicalOperator.And, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort, os],
+        },
+        {
+            name: 'inlines a single-value nested group whatever its operator',
+            values: [{ type: FilterLogicalOperator.Or, values: [cohort] }],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+        {
+            name: 'drops an empty nested group',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser],
+        },
+        {
+            name: 'keeps a nested group that joins its values differently',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+        },
+        {
+            name: 'inlines through several levels of the same operator',
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [cohort] }] },
+            ],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+    ])('$name', ({ values, operator, expected }) => {
+        expect(inlineEquivalentPropertyGroups(values, operator)).toEqual(expected)
     })
 })

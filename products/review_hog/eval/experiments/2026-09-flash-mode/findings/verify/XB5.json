@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB5",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 dispatches after the TaskRun output commits, then 224-234 catches a final enqueue failure and only logs. stamphog/backend/facade/api.py:147-155 only calls delay(), without persisting pending dispatch. The first ReviewRun is created in the worker at tasks.py:1223-1229, so a rejected broker publication leaves no recoverable run. test_inbox_trigger.py:358-369 verifies that broker failure causes one attempted dispatch and the save still succeeds. The bot/draft webhook carve-out excludes opened and ready_for_review at stamphog/tasks.py:160-168, so the initial event has no independent replacement.",
+            "refutation": "I first checked publisher/worker retries and repeated webhook/output writes. Publisher retries can postpone the final error but do not fix the exception ultimately swallowed at receiver.py:233-234. Worker retries at tasks.py:1235-1237 cannot operate before a message reaches the worker. A later output save or push/reopen can recover it, but is not guaranteed; state/status-only saves are filtered at receivers.py:85-89, and duplicate PR-field webhook writes return without saving at tasks/webhooks.py:283-292. This is a narrow outage-dependent lost initial review with later-event/manual recovery, so should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138 dispatches after the TaskRun output commit; :224-234 catches enqueue failure and records only a log. The called Stamphog facade/api.py:149-155 is a bare Celery delay, so exhausted publication failure leaves neither a message nor a durable pending review record. tasks/tasks.py:1109 retries only an accepted task, and :1223-1229 creates its ReviewRun later. With the last output save already committed, a broker outage can therefore lose the initial review indefinitely.",
+            "refutation": "First checked retry coverage, subsequent saves and webhook recovery. receivers.py:85-89 explicitly ignores later status-only saves. Stamphog tasks.py:160-168 excludes opened and ready_for_review from its bot carve-out; a new output save or later push can recover, but is not guaranteed. tests/test_inbox_trigger.py:358-369 simulates broker failure and checks that the output save survives, with only one queue attempt and no eventual-delivery assertion. Scheduled Stamphog registration (posthog/tasks/scheduled.py:97,808 and facade/tasks.py:7-8) covers digests, not unpublished inbox dispatches. The failure is outage-specific and retriggerable, hence should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/review_hog/backend/receivers.py:224-234 catches the facade's publish exception and only logs it; stamphog/backend/facade/api.py:147-155 performs a bare delay call without recording pending dispatch state. The broker-down test explicitly saves output successfully after the mocked enqueue failure (review_hog/backend/tests/test_inbox_trigger.py:358-369). No worker task or ReviewRun exists to retry that failed publication. The initial bot-draft opened webhook is excluded from the carve-out at stamphog/backend/tasks/tasks.py:160-169, so an otherwise eligible manual Inbox PR can permanently lack its initial review.",
+            "refutation": "I checked Celery retries, on_commit, webhook recovery, and subsequent task saves. on_commit establishes the source save's ordering but does not make a broker publication durable. Worker retries start only after successful delivery, so they cannot recover this exception. A later output save can retry, but status persistence saves no output (tasks/backend/temporal/process_task/activities/update_task_run_status.py:69) and is filtered by receivers.py:85-89; no subsequent target write is guaranteed. Stamphog's only periodic schedule is daily digests (tasks/schedules.py:1-13). The source save correctly stays successful, but its requested review is lost without a durable retry mechanism; manual refire is a workaround."
+        }
+    ]
+}

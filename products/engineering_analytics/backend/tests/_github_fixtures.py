@@ -1,4 +1,4 @@
-"""GitHub and Trunk source warehouse fixtures shared across this product's test files."""
+"""Warehouse source fixtures shared across this product's test files."""
 
 import os
 import json
@@ -6,37 +6,46 @@ import zlib
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import PostHogTestCase
 
 import pandas as pd
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
 )
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+
+def enroll_team(team: Team) -> None:
+    DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS)
+
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
-# Non-default prefix on purpose: every fixture below lands tables named
-# `myprefixgithub_*`, so the resolver and builders are proven against a name the old
-# hardcoded `github_*` constants would never have matched.
+# A non-default prefix, so a hardcoded `github_*` table name fails the tests.
 GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 @contextmanager
-def seeding_object_storage(test: BaseTest) -> Iterator[None]:
-    # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
-    # warehouse-backed assertion behind a green job, so there it raises.
+def seeding_object_storage(test: PostHogTestCase) -> Iterator[None]:
+    # A skip in CI would hide every warehouse-backed assertion behind a green job, so CI raises.
     try:
         yield
     except PermissionError as err:
@@ -60,7 +69,11 @@ def create_github_source(
 
 
 def create_trunk_source(
-    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+    team: Team,
+    *,
+    prefix: str = "trunkprefix_",
+    source_id: str = "trunk-source",
+    job_inputs: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -69,8 +82,69 @@ def create_trunk_source(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
-        job_inputs={},
+        job_inputs=job_inputs or {},
     )
+
+
+def _depot_attempt_row(**overrides: Any) -> dict[str, Any]:
+    return (
+        dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS)
+        | {
+            "run_id": "427q556wmn",
+            "run_workflow_count": 1,
+            "repo": "PostHog/posthog",
+            "workflow_id": "6n4tghls33",
+            "job_id": "p4kd9tq2xs",
+            "attempt_id": "zf6sbbn2wh",
+            "attempt": 1,
+        }
+        | overrides
+    )
+
+
+def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str = "") -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id="depot-source",
+        connection_id="depot-source",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.DEPOT,
+        prefix=prefix,
+        job_inputs={"repository": repository} if repository else {},
+    )
+
+
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str, v2_shape: bool = True) -> dict[str, Any]:
+    if not v2_shape:
+        return {
+            "file": file,
+            "name": name,
+            "labels": "[]",
+            "parent": parent,
+            "status": "FLAKY",
+            "variant": "",
+            "classname": classname,
+            "codeowners": "[]",
+            "test_case_id": f"case-{name}",
+            "quarantined_at": "2026-01-10T10:00:00.000Z",
+            "quarantine_setting": "AUTO_QUARANTINE",
+            "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        }
+    return {
+        "id": f"case-{name}",
+        "test_collection_id": "collection",
+        "file": file,
+        "name": name,
+        "labels": "[]",
+        "parent_name": parent,
+        "class_name": classname,
+        "variant": "",
+        "status": "flaky",
+        "codeowners": "[]",
+        "quarantine_state": "quarantined",
+        "quarantined_since": "2026-01-10T10:00:00.000Z",
+        "url": f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}",
+    }
 
 
 def _trunk_queue_row(
@@ -106,7 +180,6 @@ def link_schema(
 def create_warehouse_table_row(
     team: Team, *, name: str, source: ExternalDataSource | None = None
 ) -> DataWarehouseTable:
-    # ORM-only table (no object storage); for resolver/mapping tests that mock the query.
     return DataWarehouseTable.objects.create(
         team=team,
         name=name,
@@ -120,12 +193,7 @@ def create_warehouse_table_row(
 def connect_github_source_without_data(
     team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = "", include_issue_events: bool = False
 ) -> GitHubTables:
-    """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
-
-    The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters. ``include_issue_events``
-    links the optional issue-events schema too, activating the transition reads.
-    """
+    """Create a GitHub source whose schemas point at ORM-only tables with no object storage behind them."""
     source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
@@ -145,22 +213,19 @@ def connect_github_source_without_data(
 
 
 def repo_id(full_name: str) -> int:
-    """A stable synthetic GitHub repo id for a fixture repo — distinct per ``owner/name``."""
     return zlib.crc32(full_name.encode())
 
 
 def pr_association_entry(number: int, *, base_repo: str = "PostHog/posthog") -> dict[str, Any]:
-    """One entry of a run's ``pull_requests`` association, shaped like the real webhook payload.
+    """Build one entry of a run's ``pull_requests`` association.
 
-    ``base.repo.id`` is what the curated builder matches against the run's own ``repository.id`` to
-    ignore the fork network's PRs. Pass ``base_repo`` to forge an entry based in a *different* repo —
-    that's what a default-branch push really lands, and the builder must skip it.
+    The runs builder keeps an entry only when ``base.repo.id`` equals the run's ``repository.id``,
+    so a different ``base_repo`` models a fork network PR.
     """
     return {"number": number, "base": {"repo": {"id": repo_id(base_repo)}}}
 
 
 def pr_association(*numbers: int, base_repo: str = "PostHog/posthog") -> str:
-    """A run's ``pull_requests`` association over one base repo, serialized as the column lands it."""
     return json.dumps([pr_association_entry(number, base_repo=base_repo) for number in numbers])
 
 
@@ -169,7 +234,6 @@ def _user(login: str) -> str:
 
 
 def _base(full_name: str, ref: str = "", default_branch: str = "") -> str:
-    # Mirrors the real payload: base.repo is a full repository object, so it carries default_branch.
     repo = f'{{"full_name": "{full_name}", "default_branch": "{default_branch}"}}'
     return f'{{"ref": "{ref}", "repo": {repo}}}'
 
@@ -186,6 +250,7 @@ def _pr_row(
     created_at: str,
     *,
     merged_at: str | None = None,
+    closed_at: str | None = None,
     merge_commit_sha: str | None = None,
     head_sha: str = "",
     head_ref: str = "",
@@ -193,17 +258,18 @@ def _pr_row(
     full_name: str = "PostHog/posthog",
     default_branch: str = "",
     labels: tuple[str, ...] = (),
+    title: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": 1000 + number,
         "number": number,
-        "title": f"PR {number}",
+        "title": title if title is not None else f"PR {number}",
         "state": state,
         "draft": draft,
         "created_at": created_at,
         "updated_at": merged_at or created_at,
         "merged_at": merged_at,
-        "closed_at": merged_at,
+        "closed_at": closed_at or merged_at,
         "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
@@ -244,10 +310,14 @@ def _run_row(
     head_branch: str = "main",
     commit_message: str | None = None,
     actor: str = "alice",
+    workflow_id: int | None = None,
+    event: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
+        "workflow_id": workflow_id,
+        "event": event,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,
@@ -256,8 +326,7 @@ def _run_row(
         "run_started_at": run_started_at,
         "updated_at": updated_at,
         "run_attempt": run_attempt,
-        # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
-        # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
+        # The source lands NULL, not "[]", for a run with no association.
         "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
         "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
         "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
@@ -265,9 +334,79 @@ def _run_row(
     }
 
 
-def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
-    # Returns the real table name (prefixed), which the builder is then told to read,
-    # proving build_query honors the resolved name instead of a hardcoded one.
+def _deployment_row(
+    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
+) -> dict:
+    return {
+        "id": deployment_id,
+        "sha": sha,
+        "ref": "master",
+        "task": "deploy",
+        "environment": environment,
+        "original_environment": environment,
+        "description": "",
+        "creator": "{}",
+        "payload": "{}",
+        "production_environment": production,
+        "transient_environment": transient,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def _status_row(status_id: int, deployment_id: int, state: str, environment: str, created_at: str) -> dict:
+    return {
+        "id": status_id,
+        "deployment_id": deployment_id,
+        "state": state,
+        "creator": "{}",
+        "description": "",
+        "environment": environment,
+        "target_url": "",
+        "log_url": "",
+        "environment_url": "",
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def connect_github_jobs(test: PostHogTestCase, *, prefix: str, jobs: list[tuple[int, int, int, str]]) -> None:
+    """Seed ``workflow_jobs`` rows, each ``(id, run_id, attempt, conclusion)``, on the team's GitHub source."""
+    source = ExternalDataSource.objects.get(team=test.team, prefix=prefix)
+    now = datetime.now(UTC)
+    table_name = create_github_warehouse_table(
+        test,
+        "github_workflow_jobs",
+        WORKFLOW_JOBS_COLUMNS,
+        [
+            dict.fromkeys(WORKFLOW_JOBS_COLUMNS)
+            | {
+                "id": job_id,
+                "run_id": run_id,
+                "run_attempt": attempt,
+                "name": f"job-{job_id}",
+                "conclusion": conclusion,
+                "created_at": (now - timedelta(days=1)).isoformat(),
+                "started_at": (now - timedelta(days=1)).isoformat(),
+                "completed_at": now.isoformat(),
+            }
+            for job_id, run_id, attempt, conclusion in jobs
+        ],
+        source=source,
+        prefix=prefix,
+    )
+    link_schema(test.team, source, name=WORKFLOW_JOBS_SCHEMA, table=DataWarehouseTable.objects.get(name=table_name))
+
+
+def create_github_warehouse_table(
+    test: PostHogTestCase,
+    base_name: str,
+    columns: dict,
+    rows: list[dict[str, Any]],
+    *,
+    source: ExternalDataSource | None = None,
+    prefix: str = GITHUB_SOURCE_PREFIX,
+) -> str:
     df = pd.DataFrame(rows, columns=list(columns.keys()))
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
     df.to_csv(tmp.name, index=False)
@@ -280,7 +419,8 @@ def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict,
             table_columns=columns,
             test_bucket=TEST_BUCKET,
             team=test.team,
-            source_prefix=GITHUB_SOURCE_PREFIX,
+            source=source,
+            source_prefix=prefix,
         )
     test.addCleanup(cleanup)
     return table.name

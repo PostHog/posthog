@@ -35,7 +35,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
+import { getKafkaConfigFromEnv, redactKafkaConfig, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -110,7 +110,6 @@ export type KafkaConsumerConfig = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
-    waitForBackgroundTasksOnRebalance?: boolean
     /**
      * Messages pulled per poll, overriding CONSUMER_BATCH_SIZE for this consumer only.
      *
@@ -119,14 +118,14 @@ export type KafkaConsumerConfig = {
      * deployment value that can drift away from the assumption without anything noticing.
      */
     fetchBatchSize?: number
+    /** Background tasks in flight before the consumer waits for the oldest one, overriding CONSUMER_MAX_BACKGROUND_TASKS. */
+    maxBackgroundTasks?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
     ConsumerGlobalConfig,
     'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
 >
-
-type RebalanceCallback = boolean | ((err: LibrdKafkaError, assignments: Assignment[]) => void)
 
 interface RebalanceCoordination {
     isRebalancing: boolean
@@ -144,6 +143,9 @@ export class KafkaConsumer {
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: { promise: Promise<void>; createdAt: number }[]
+    // Set when a background task rejects. Kafka redelivers the failed batch only if no offset at or past it
+    // is committed. Once this is set, the consumer stores no more offsets and the consume loop rethrows it.
+    private fatalError: Error | undefined
     private podName: string
     private lastBackgroundTaskCompletionTime: number
     private consumerId: string
@@ -158,6 +160,7 @@ export class KafkaConsumer {
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
+    private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -172,17 +175,12 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
         this.consumerLogStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
-
-        const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
-            ? this.rebalanceCallback.bind(this)
-            : true
 
         this.consumerConfig = stripClassicProtocolConfig({
             'client.id': hostname(),
@@ -215,7 +213,7 @@ export class KafkaConsumer {
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            rebalance_cb: rebalancecb,
+            rebalance_cb: this.rebalanceCallback.bind(this),
             offset_commit_cb: true,
         })
 
@@ -354,6 +352,9 @@ export class KafkaConsumer {
     }
 
     public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]): void {
+        if (this.fatalError) {
+            throw new Error('Refusing to store offsets after a background task failed', { cause: this.fatalError })
+        }
         return this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
     }
 
@@ -407,9 +408,7 @@ export class KafkaConsumer {
 
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             // Mark rebalancing as complete when partitions are assigned
-            if (this.config.waitForBackgroundTasksOnRebalance) {
-                this.resetRebalanceCoordination()
-            }
+            this.resetRebalanceCoordination()
             assignments.forEach((tp) => {
                 kafkaConsumerAssignment.set(
                     {
@@ -428,10 +427,8 @@ export class KafkaConsumer {
             }
         } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
             // Mark rebalancing as starting when partitions are revoked
-            if (this.config.waitForBackgroundTasksOnRebalance) {
-                this.rebalanceCoordination.isRebalancing = true
-                this.rebalanceCoordination.rebalanceStartTime = Date.now()
-            }
+            this.rebalanceCoordination.isRebalancing = true
+            this.rebalanceCoordination.rebalanceStartTime = Date.now()
             logger.info('🔁', 'partition_revocation_starting', {
                 backgroundTaskCount: this.backgroundTask.length,
                 revokedPartitions: assignments.map((tp) => ({
@@ -441,58 +438,21 @@ export class KafkaConsumer {
             })
 
             // Handle background task coordination asynchronously
-            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+            if (this.backgroundTask.length > 0) {
                 // Don't block the rebalance callback, but coordinate in the background
                 Promise.all(this.backgroundTask.map((t) => t.promise))
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
+                        this.completeRevocation(assignments)
                     })
                     .catch((error) => {
                         logger.error('🔁', 'background_task_error_during_revocation', { error })
                         // Still proceed with revocation even if background tasks fail
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
+                        this.completeRevocation(assignments)
                     })
             } else {
-                // No background tasks or feature disabled, proceed immediately
-                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                    this.rdKafkaConsumer.incrementalUnassign(assignments)
-                } else {
-                    this.rdKafkaConsumer.unassign()
-                }
-                this.updateMetricsAfterRevocation(assignments)
+                // No background tasks, proceed immediately
+                this.completeRevocation(assignments)
             }
         } else {
             // Ignore exceptions if we are not connected
@@ -503,6 +463,24 @@ export class KafkaConsumer {
                 logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
             }
         }
+    }
+
+    private completeRevocation(assignments: Assignment[]): void {
+        try {
+            if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                this.rdKafkaConsumer.incrementalUnassign(assignments)
+            } else {
+                this.rdKafkaConsumer.unassign()
+            }
+            this.updateMetricsAfterRevocation(assignments)
+        } finally {
+            this.resetRebalanceCoordination()
+        }
+        Promise.resolve()
+            .then(() => this.onPartitionsRevoked?.(assignments))
+            .catch((error) => {
+                logger.error('🔁', 'partition_revoked_handler_failed', { error: String(error) })
+            })
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {
@@ -591,11 +569,18 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
+            logger.info('📝', 'librdkafka consumer subscribed', {
+                topics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            logger.error('📝', 'librdkafka connection failure', { error, metrics, config: this.consumerConfig })
+            logger.error('📝', 'librdkafka connection failure', {
+                error,
+                metrics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
@@ -635,9 +620,11 @@ export class KafkaConsumer {
     }
 
     public async connect(
-        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>,
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
     ): Promise<void> {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
+        this.onPartitionsRevoked = onPartitionsRevoked
 
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
@@ -673,9 +660,13 @@ export class KafkaConsumer {
                     this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
 
-                    // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
+                    if (this.fatalError) {
+                        throw this.fatalError
+                    }
+
+                    // If we're rebalancing, skip consuming to avoid processing messages
                     // during rebalancing when background tasks might be running
-                    if (this.rebalanceCoordination.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
+                    if (this.rebalanceCoordination.isRebalancing) {
                         if (
                             Date.now() - this.rebalanceCoordination.rebalanceStartTime >
                             this.rebalanceCoordination.rebalanceTimeoutMs
@@ -756,7 +747,7 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    void backgroundTask.finally(async () => {
+                    const settle = async (): Promise<void> => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
 
@@ -766,22 +757,34 @@ export class KafkaConsumer {
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
 
                         // CRITICAL: If task not found, this indicates some bigger problem
+                        // Without a position in the queue we cannot show that the batches ahead of us finished.
                         if (index < 0) {
                             captureException(new Error('Background task not found in array during cleanup'))
+                            return
                         }
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
                         // Important: capture the promises BEFORE removing the task, as the array changes after splice
-                        if (index >= 0) {
-                            // Task found - capture promises to wait for, then remove the task
-                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
-                            this.backgroundTask.splice(index, 1)
-                            await Promise.all(promisesToWait)
-                        }
+                        const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                        this.backgroundTask.splice(index, 1)
+                        // A rejected task ahead of us has already set fatalError when this resumes,
+                        // because its rejection handler below was attached before this wait.
+                        await Promise.allSettled(promisesToWait)
 
-                        if (this.config.autoCommit && this.config.autoOffsetStore) {
+                        if (!this.fatalError && this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
+                    }
+
+                    // settle must run in the same tick as the task settles, on both paths.
+                    // A later batch that settles afterwards then no longer finds this task in the queue,
+                    // which keeps offsets stored in batch order.
+                    void backgroundTask.then(settle, (error) => {
+                        logger.error('🔥', 'kafka_consumer_background_task_failed', { error: String(error) })
+                        captureException(error)
+                        this.fatalError ??=
+                            error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
+                        return settle()
                     })
 
                     // At first we just add the background work to the queue with metadata
@@ -815,7 +818,8 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                 })
-                throw error
+                // A background task that rejected with a falsy value would otherwise stop the process with exit code 0.
+                throw this.fatalError ?? error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
 
@@ -835,7 +839,7 @@ export class KafkaConsumer {
                 isFatal: (error as any)?.isFatal,
                 isRetriable: (error as any)?.isRetriable,
                 config: this.config,
-                consumerConfig: this.consumerConfig,
+                consumerConfig: redactKafkaConfig(this.consumerConfig),
             })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
@@ -867,7 +871,7 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                     config: this.config,
-                    consumerConfig: this.consumerConfig,
+                    consumerConfig: redactKafkaConfig(this.consumerConfig),
                 })
             })
         }
@@ -940,6 +944,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.historical_migration = value === 'true'
             } else if (key === 'skip_heatmap_processing') {
                 result.skip_heatmap_processing = value === 'true'
+            } else if (key === 'redirect-original-key') {
+                result.redirect_original_key = value
             }
         })
     })

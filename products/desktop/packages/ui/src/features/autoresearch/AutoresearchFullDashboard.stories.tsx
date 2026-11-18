@@ -52,7 +52,6 @@ function FullDashboardStory(props: FullDashboardStoryProps) {
           props.contextSize > 0
             ? Math.round((props.contextUsed / props.contextSize) * 100)
             : 0,
-        cost: null,
         breakdown: null,
       }
     : null;

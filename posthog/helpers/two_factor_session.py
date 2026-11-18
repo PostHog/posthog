@@ -1,10 +1,8 @@
 import re
-import json
 import time
 import datetime
 import unicodedata
-from dataclasses import dataclass
-from typing import Optional
+from typing import Literal
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -20,84 +18,15 @@ from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
-from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available, is_http_email_service_available
-from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
-CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY = "code_based_verification_bypass_emails"
-
-
-def is_code_based_verification_bypass(email: str) -> bool:
-    return bool(get_client().sismember(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower()))
-
-
-def add_code_based_verification_bypass(email: str) -> None:
-    get_client().sadd(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
-
-
-def remove_code_based_verification_bypass(email: str) -> None:
-    get_client().srem(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
-
-
-# Global kill-switch: when this Redis key is present, code-based verification is skipped for every
-# user (e.g. while transactional email delivery is down and the verification link can't be
-# delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
-# Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
-CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY = "code_based_verification_global_disable"
-MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
-
-
-def is_code_based_verification_globally_disabled() -> bool:
-    # Fail closed: if Redis is unreachable, keep code-based verification enforced (the secure default) rather than
-    # silently dropping the second factor — and never let a Redis hiccup break the login flow.
-    try:
-        return bool(get_client().exists(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY))
-    except Exception:
-        mfa_logger.exception(
-            "Failed to read code-based verification global disable flag; keeping code-based verification enforced"
-        )
-        return False
-
-
-def get_code_based_verification_global_disable() -> Optional[dict]:
-    try:
-        client = get_client()
-        raw = client.get(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
-        if not raw:
-            return None
-        data = json.loads(raw)
-        ttl = client.ttl(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
-        data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
-        return data
-    except Exception:
-        mfa_logger.exception("Failed to read code-based verification global disable state")
-        return None
-
-
-def set_code_based_verification_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
-    reason = (reason or "").strip()
-    if not reason:
-        raise ValueError("A reason is required to disable code-based verification.")
-    if not 0 < ttl_seconds <= MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS:
-        raise ValueError(
-            f"TTL must be between 1 second and {MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
-        )
-    payload = json.dumps(
-        {
-            "reason": reason,
-            "disabled_by": disabled_by,
-            "disabled_at": datetime.datetime.now(datetime.UTC).isoformat(),
-        }
-    )
-    get_client().set(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
-
-
-def clear_code_based_verification_global_disable() -> None:
-    get_client().delete(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
+from products.security.backend.facade.api import is_email_code_exempt
 
 
 def has_passkeys(user: User) -> bool:
@@ -124,7 +53,7 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
 )
 
 
@@ -204,32 +133,48 @@ def enforce_two_factor(request, user):
     if is_path_whitelisted(request.path):
         return
 
+    missing_step = missing_two_factor_step(request._request, user)
+    if missing_step == "setup":
+        raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
+    if missing_step == "verification":
+        raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
+
+
+def missing_two_factor_step(
+    request: HttpRequest, user: User, organization: Organization | None = None
+) -> Literal["setup", "verification"] | None:
+    """`organization` defaults to the user's current organization. Pass another one to check its policy,
+    such as the organization of a project the user grants access to."""
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
-    if is_sso_authentication_backend(request._request):
-        return
+    if is_sso_authentication_backend(request):
+        return None
 
-    organization = getattr(user, "organization", None)
-    if organization and organization.enforce_2fa:
-        # Same as above, we don't enforce 2FA on SSO-enforced domains, we depend on the SSO provider to handle 2FA
-        # TODO: This will soon be made configurable
-        if is_domain_sso_enforced(request._request):
-            return
+    organization = organization or getattr(user, "organization", None)
+    if not organization or not organization.enforce_2fa:
+        return None
 
-        if not is_two_factor_enforcement_in_effect(request._request):
-            return
+    # Same as above, we don't enforce 2FA on SSO-enforced domains, we depend on the SSO provider to handle 2FA
+    # TODO: This will soon be made configurable
+    if is_domain_sso_enforced(request):
+        return None
 
-        if is_impersonated_session(request._request):
-            return
+    if not is_two_factor_enforcement_in_effect(request):
+        return None
 
-        device = default_device(user)
-        user_has_passkeys = has_passkeys(user)
-        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
-        if not device and not passkeys_enabled_for_2fa:
-            raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
+    if is_impersonated_session(request):
+        return None
 
-        if not is_two_factor_verified_in_session(request._request):
-            raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
+    device = default_device(user)
+    user_has_passkeys = has_passkeys(user)
+    passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+    if not device and not passkeys_enabled_for_2fa:
+        return "setup"
+
+    if not is_two_factor_verified_in_session(request):
+        return "verification"
+
+    return None
 
 
 def is_path_whitelisted(path):
@@ -305,6 +250,17 @@ def normalize_verification_code(value: str) -> str:
     return CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
 
 
+# Authenticator apps show 6 digits, while StaticToken.random_token() backup codes are 8 base32
+# characters, so the shape of a 2FA login token is enough to tell which device it is for.
+TOTP_TOKEN_RE = re.compile(r"[0-9]{6}")
+
+
+def is_backup_code_attempt(token: object) -> bool:
+    """Whether a 2FA login token is checked against the backup codes rather than the authenticator.
+    Each device then keeps its own throttle, so a locked authenticator does not lock the backup codes."""
+    return isinstance(token, str) and bool(token) and not TOTP_TOKEN_RE.fullmatch(token)
+
+
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
@@ -316,17 +272,22 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     the login attempt's issuance time, valid for CODE_TTL_SECONDS, and rotates
     automatically on login, password change, email change, or deactivation."""
 
-    def make_code(self, user: AbstractBaseUser, issued_at: int) -> str:
-        """Deterministic CODE_LENGTH-digit code for this user and issuance time."""
+    def make_code(self, user: AbstractBaseUser, issued_at: int, target: str = "") -> str:
+        """Deterministic CODE_LENGTH-digit code for this user and issuance time.
+
+        `target` binds the code to the address it authorizes. Without it, two sends for the same
+        user in the same second derive the same code. A code mailed to one address could then
+        verify another. Login and signup have no target and use the default.
+        """
         digest = salted_hmac(
             self.key_salt,
-            self._make_hash_value(user, issued_at),
+            self._make_hash_value(user, issued_at, target),
             secret=self.secret,
             algorithm=self.algorithm,
         ).hexdigest()
         return f"{int(digest, 16) % (10**CODE_LENGTH):0{CODE_LENGTH}d}"
 
-    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int) -> bool:
+    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int, target: str = "") -> bool:
         """Constant-time compare against the expected code, rejecting expired codes.
 
         Brute-force resistance does not come from the code's entropy (6 digits is
@@ -337,37 +298,36 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
             return False
         if int(time.time()) - issued_at > CODE_TTL_SECONDS:
             return False
-        return constant_time_compare(self.make_code(user, issued_at), code)
+        return constant_time_compare(self.make_code(user, issued_at, target), code)
 
-    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
-        """Include last_login and is_active to invalidate tokens after use or deactivation."""
+    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int, target: str = "") -> str:
+        """Include last_login and is_active to invalidate tokens after use or deactivation.
+
+        `target` is the address an email change code authorizes, so a code cannot verify a
+        different address. Login and signup leave it empty.
+        """
         from posthog.models.user import User
 
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}"
+        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}{target}"
 
 
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
-@dataclass
-class CodeBasedVerificationCheckResult:
-    should_send: bool
-    suppression_bypassed: bool = False
-    suppression_reason: Optional[str] = None
-    suppression_cached: bool = False
+NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
 
 
 class CodeBasedVerifier:
-    def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
+    def _capture_no_http_service_bypass_event(self, user: User) -> None:
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
                 event="code_based_verification_bypassed_due_to_suppression",
                 properties={
-                    "reason": reason,
-                    "cached": cached,
+                    "reason": NO_EMAIL_HTTP_SERVICE,
+                    "cached": False,
                 },
             )
         except Exception as e:
@@ -377,59 +337,40 @@ class CodeBasedVerifier:
                 error=str(e),
             )
 
-    def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
-        if is_code_based_verification_globally_disabled():
-            return CodeBasedVerificationCheckResult(should_send=False)
-
+    def should_send_code_based_verification(self, user: User) -> bool:
         if is_dev_mode() and not settings.TEST:
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return False
+
+        if is_cloud() and not is_http_email_service_available():
+            # Cloud always has the Workflows key and an https host, so this means a deployment lost its email config
+            # and every password login is skipping the emailed code. Cloud has no SMTP, so check before email availability.
+            capture_exception(Exception("Login code skipped: HTTP email is unavailable on a cloud deployment"))
 
         if not is_email_available(with_absolute_urls=True):
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return False
 
         if not is_http_email_service_available():
             mfa_logger.info(
                 "Code-based verification bypassed - HTTP email service not configured",
                 user_id=user.pk,
             )
-            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
-            return CodeBasedVerificationCheckResult(
-                should_send=False,
-                suppression_bypassed=True,
-                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
-                suppression_cached=False,
-            )
+            self._capture_no_http_service_bypass_event(user)
+            return False
 
-        if is_code_based_verification_bypass(user.email):
-            mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
-            return CodeBasedVerificationCheckResult(should_send=False)
+        # An exempting rule drops only the emailed code. TOTP and passkey 2FA are gated earlier in the login flow.
+        if is_email_code_exempt(user.email):
+            mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
+            return False
 
-        suppression_result = check_esp_suppression(user.email)
-        if suppression_result.is_suppressed:
-            reason = suppression_result.reason or ""
-            from_cache = suppression_result.from_cache
-            mfa_logger.info(
-                "Code-based verification bypassed due to ESP suppression",
-                user_id=user.pk,
-                reason=reason,
-                cached=from_cache,
-            )
-            self._capture_suppression_bypass_event(user, reason, from_cache)
-            return CodeBasedVerificationCheckResult(
-                should_send=False,
-                suppression_bypassed=True,
-                suppression_reason=reason,
-                suppression_cached=from_cache,
-            )
-
-        return CodeBasedVerificationCheckResult(should_send=True)
+        return True
 
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user).should_send:
+        if not self.should_send_code_based_verification(user):
             return False
 
         try:
@@ -451,6 +392,10 @@ class CodeBasedVerifier:
                 user_last_login=str(user.last_login) if user.last_login else None,
             )
             return True
+        except EmailRecipientUndeliverableError:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="undeliverable").inc()
+            mfa_logger.info("Code-based verification email refused as undeliverable", user_id=user.pk)
+            raise
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(

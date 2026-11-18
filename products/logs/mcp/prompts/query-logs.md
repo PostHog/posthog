@@ -1,5 +1,11 @@
 Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Use `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.
 
 # Workflow — follow this order every time
@@ -19,8 +25,6 @@ MANDATORY: Never call query-logs without setting `serviceNames` or at least one 
 
 MANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ "date_from": "-1h" }`). Omitting it fails with a 400 `parse_error` ("Input should be a valid dictionary or instance of DateRange") — the server does not fall back to a default window.
 
-All parameters must be nested inside a `query` object.
-
 # Data narrowing
 
 ## Property filters
@@ -30,7 +34,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Log property types are:
-  - `log` — filters the log body/message. Use key "message" for this type.
+  - `log` — filters the log body or a top-level log column. Use key "message" for the body text, or "pattern" and "pattern_version" (returned by `logs-patterns`), "severity_level", "service_name", "trace_id", "span_id".
   - `log_attribute` — filters log-level attributes (e.g. "k8s.container.name", "http.method").
   - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `logs-attributes-list` to discover available attribute keys** before building filters.
@@ -80,8 +84,6 @@ Use the `query.dateRange` field to control the time window — pass it on every 
 
 # Parameters
 
-All parameters go inside `query`.
-
 ## query.severityLevels
 
 Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.
@@ -122,6 +124,10 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 ## query.excludeAttributes
 
 Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
+
+## query.customColumns
+
+Expressions to evaluate per row, for example `attributes.team_id` or `body.user.id`. Each row carries the values under hashed keys such as `col_6c24016445c8`. The response `columns` list gives those keys in the same order as `customColumns`, so the first key in `columns` holds the first expression's value. Combine with `excludeAttributes: true` to read a few attributes without the full maps.
 
 # Examples
 

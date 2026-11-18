@@ -5,7 +5,7 @@ import {
 } from "@posthog/core/integrations/connectErrors";
 import { slackInvalidationKeys } from "@posthog/core/integrations/connectMachine";
 import { SLACK_DISCONNECT_DESCRIPTION } from "@posthog/core/integrations/disconnectCopy";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -19,6 +19,7 @@ import {
   type SlackConnectResult,
   useSlackConnect,
 } from "@posthog/ui/features/integrations/useSlackConnect";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -41,7 +42,7 @@ export function SlackWorkspaceConnection({
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-(--radius-3) border border-border bg-card px-3.5 py-3">
-        <Spinner />
+        <Spinner size="sm" />
         <Text size="xs" variant="muted">
           Loading Slack…
         </Text>

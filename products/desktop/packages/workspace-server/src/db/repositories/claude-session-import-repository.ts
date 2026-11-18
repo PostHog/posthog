@@ -5,8 +5,6 @@ import { claudeSessionImports } from "../schema";
 import type { DatabaseService } from "../service";
 
 export type ClaudeSessionImport = typeof claudeSessionImports.$inferSelect;
-export type NewClaudeSessionImport = typeof claudeSessionImports.$inferInsert;
-
 export interface RecordClaudeSessionImportData {
   sourceSessionId: string;
   importedSessionId: string;

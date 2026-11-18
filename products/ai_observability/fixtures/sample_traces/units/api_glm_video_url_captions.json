@@ -1,0 +1,243 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Video model captions a bakery's sourdough short",
+  "scenario": "A creator-studio tool sends a bakery's 22-second vertical video by signed URL to a video model, which returns a title, summary, hashtags and timed segments; the transcript comes back empty because the audio could not be decoded.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "openai/zai-org/GLM-5.3-Flash"
+    ],
+    "content_types": [
+      "text",
+      "video_url"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "retry_count": 2,
+        "moderation_override_reason": null,
+        "estimated_cost_usd": 0.00018644332885742188,
+        "$ai_latency": 4.83256983757019,
+        "cache_hit_tokens": 0,
+        "$ai_trace_id": "408ea42f-b4a5-7113-99f8-eca2f6a7ba7f",
+        "$ai_span_id": "5543ef630ba6628370763295317c26b0",
+        "fallback_model_identifier": null,
+        "workspace": "Harbor Lane Bakery videos",
+        "video_job_record": {
+          "detected_objects": [],
+          "agent_id": null,
+          "overlay": {},
+          "brand_safety_flag_list": [],
+          "cover_frame_timestamp": null,
+          "hashtag_manual": [],
+          "file_sha": "ac484f22e9a86d3e5887a16f25616a56486231db79f1396c131c9aaabb5bd1bc",
+          "is_archived": false,
+          "deleted": null,
+          "scheduled_for_at": null,
+          "platform_payload": {},
+          "error_msg": null,
+          "publish_error": null,
+          "cancelled_by_id": null,
+          "extras": {},
+          "created_at": "2026-08-05 01:51:11.090000+00:00",
+          "job_status": "analyzing_video",
+          "published_url": null,
+          "platform_id": null,
+          "remote_publish_error": null,
+          "retry_after_timestamp_utc": null,
+          "moderation_decision_reason": null,
+          "published_video_id": null,
+          "subtitle_file_path": null,
+          "expires": "2026-08-06T01:51:11.088+00:00",
+          "is_paid_promo": false,
+          "posted_at": null,
+          "mime_type": "video/quicktime",
+          "codec_id": "h264-aac",
+          "watermark_asset": null,
+          "prompt_v": "v14.2.0",
+          "uploaded_at": "2026-08-05 02:18:55.824000+00:00",
+          "storage_bytes_est": 2256715432.6674,
+          "linked_campaign": null,
+          "external_scheduler_id": null,
+          "cta_url": null,
+          "caption_style_preset": null,
+          "metadata": {
+            "source": "ios_share"
+          },
+          "caption_overrides": {},
+          "brand_kit": {},
+          "topics": [],
+          "music_license_id": null,
+          "voiceover_asset_id": null,
+          "locale": null,
+          "translation_job_id": null,
+          "publish_window_start_at": null,
+          "publish_window_end_at": null,
+          "approval_requested_by": null,
+          "approval_completed_at": null,
+          "approved_by_user": null,
+          "ai_settings": {},
+          "error_details": null,
+          "project_id": null,
+          "parent_folder_id": null,
+          "creator_label": "@harborlanebakery",
+          "revision_count": 0,
+          "rejection_comment": null,
+          "platform_limits": {},
+          "cover_url": null,
+          "original_video_path": null,
+          "trimmed_url": null,
+          "requires_human_review": false,
+          "score": 0.665703,
+          "failed_at": null,
+          "is_duplicate": false,
+          "team_id": null,
+          "duplicate_of_id": null,
+          "external_id": null,
+          "moderation_checked_at": null,
+          "moderation_result": null,
+          "platform_response_raw": null,
+          "error_code_id": null,
+          "last_webhook_event": null,
+          "collab_list": [],
+          "scheduled_publish_time": null,
+          "auto_caption_language_set": null,
+          "comment_prompt": null,
+          "pinned_comment": null,
+          "shared_url": null,
+          "thumbnail_path": null,
+          "token": "ac484f22e9a86d3e5887a16f25616a56486231db79f1396c131c9aaabb5bd1bc",
+          "posted_by": null,
+          "analytics_synced_at": null,
+          "updated_at": "2026-08-05 02:18:55.822000+00:00",
+          "last_state": "analyzing_video",
+          "user": null,
+          "deleted_at": null,
+          "user_id": "u_88213",
+          "restored_by_id": null,
+          "source_app": "creator_studio",
+          "archived_by_id": null,
+          "size_kib": 2149.487112,
+          "last_error_at": null
+        },
+        "moderation_escalation_reviewer_id": null,
+        "parent_analysis_request_id": null,
+        "$ai_input_tokens": 8242,
+        "request_context": {
+          "session": {
+            "account_id_str": "12377",
+            "display_name": "Nadia Pereira",
+            "plan": "creator_plus",
+            "session_key": "LIdKww84EwYQW2pDpmzQTMW0ZAY3PLLfrLO9HZq9FGMBGVvwP9BZ7ip",
+            "org_name": "Harbor Lane Bakery videos",
+            "login_method": "email",
+            "session_uuid": "09c9fe5c-3525-7124-b97b-3a6eb3228efb"
+          }
+        },
+        "analysis_request_metadata": {
+          "source": "ios_share"
+        },
+        "moderation_second_pass_review_outcome": null,
+        "priority_queue_override": null,
+        "uploaded_file_size_kib": 2149.487112,
+        "content_warning_labels": null,
+        "error_detail_code": null,
+        "analysis_started_at": "2026-08-05 02:19:42.806926+00:00",
+        "model_deployment_name": "glm-5.3-flash-modal",
+        "$ai_model": "openai/zai-org/GLM-5.3-Flash",
+        "$ai_output_tokens": 397,
+        "caption_translation_target_language_id": null,
+        "$ai_provider": "openai",
+        "uploader_social_handle_ref": "@harborlanebakery",
+        "manual_review_assignee_email": null,
+        "agent_id": null,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the video analyst for Clipwise Creator Studio. Small businesses upload short vertical videos from their phones, and you turn each one into structured data that the studio uses to write captions, pick a cover frame, and schedule posts.\n\nWatch the whole video, including the audio. Then return one JSON object and nothing else.\n\n## Output schema\n- transcript: every spoken word, verbatim, or an empty string when nobody speaks.\n- language: ISO 639-1 code of the spoken language, or of the on-screen text when there is no speech.\n- brands: brand names that are clearly visible or spoken. Empty list if none. Never guess from shapes or colours.\n- hashtags: two to five lowercase tags without the # sign, based on what happens in the video, not on trends.\n- title: under 45 characters, sentence case, no emoji, no clickbait.\n- summary_for_feed: one or two sentences a viewer would read under the video. Describe what happens, not how good it is.\n- hook: the first line of the caption, under 45 characters, written to make someone keep watching.\n- segments: consecutive time ranges that together cover the video. For each: speaker (who talks, or empty), overlay_text (text shown on screen, or empty), start_ts and end_ts in whole seconds, action (what the viewer sees).\n- safe_for_ads: false if the video shows weapons, alcohol consumption, gambling, medical claims, minors without an adult, or profanity; true otherwise.\n- music_credit: the track name only when it is shown on screen or spoken; otherwise empty.\n\n## Style\nWrite actions in the present tense and from the viewer's point of view: \"Hands fold the dough toward the center.\" Name objects plainly. Do not describe people's bodies, age, ethnicity or attractiveness. Do not infer location beyond what is shown.\n\n\n## Pets and animals\nDescribe animals by species and what they do ('a grey cat sniffs the bag'). Do not guess breeds unless the creator says the breed. Videos where an animal appears distressed or is handled roughly are not safe for ads. Grooming and training videos are fine when the animal is calm.\n\n## Product demos\nWhen a creator demonstrates a product they sell, describe each feature as it is shown, in order. Do not repeat prices or discount codes in the summary; the studio handles offers separately. If the demo includes a close-up of packaging, record readable product names under brands only when they are third-party brands, not the creator's own line.\n\n## Behind-the-scenes clips\nWorkshop and kitchen clips often show several people working at once. Focus the action on the main activity in frame and use neutral roles ('a second person restocks the shelf'). Do not describe uniforms, tattoos or other personal details. If a sign or menu is readable, copy it into overlay_text only when it is part of the point of the video.\n\n## Audio problems\nWhen the audio is present but unusable (clipped, heavily distorted, or drowned by wind), return an empty transcript and say so in the first segment's action. When there is no audio track at all, also return an empty transcript but do not mention it; the studio detects missing tracks on its own. Never fill the transcript from on-screen captions; those go in overlay_text.\n\n## Reprocessing\nThe same video can be analysed again after the creator trims it. Treat every request independently and do not refer to earlier analyses. If the request metadata includes a previous title, you may keep it when it still fits, but do not keep a previous hook automatically; hooks should match the trimmed opening.\n\n## Vertical framing\nMost uploads are vertical. When the main action happens near the top or bottom edge and is partly cut off, still describe what is visible and note 'partly out of frame' in the action. This helps the studio pick a cover frame that shows the whole subject.\n\n## Screen recordings\nSome uploads are screen recordings of an app or a website. Describe what changes on screen in each segment ('A cursor opens the menu and selects Pricing') rather than the interface in general. Ignore the phone's status bar, notifications and the recording indicator. Do not read out email addresses, phone numbers or order numbers that appear on screen; write '[contact details]' in the overlay_text instead.\n\n## Before and after videos\nTransformation videos (a room before and after cleaning, a haircut, a restored piece of furniture) usually have a hard cut in the middle. Make the cut a segment boundary and describe both states factually. Avoid words like 'stunning' or 'amazing' in actions and summaries; the creator adds their own tone in the caption.\n\n## Recipes and food\nFor cooking videos, name the ingredients and tools as they appear, in the order they are used. Quantities go in actions only when they are shown or spoken. Do not add steps that are implied but not shown. If the creator tastes the food, describe it neutrally ('takes a bite and nods').\n\n## Talking-head videos\nWhen one person talks to the camera the whole time, split segments by topic, not by sentence. Aim for segments of five to fifteen seconds. The action describes what the person demonstrates or holds up, if anything, otherwise 'Speaks to camera'. Put the gist of each part in the action only when nothing visual happens.\n\n## Text-only and slideshow videos\nFor videos made of still images or text cards, each card is a segment. Copy the card text into overlay_text and describe the image in the action. If the whole video is a single card with music, return one segment and an empty transcript.\n\n## Multiple languages\nIf the speaker switches language, transcribe each part in its original language and set language to the one spoken for the longest time. Do not translate. On-screen captions in another language go into overlay_text as shown.\n\n## Children and people in the background\nIf a child appears without an adult in frame, set safe_for_ads false and describe the scene without describing the child. Do not identify or describe bystanders in the background; mention them only when they affect the action ('a customer walks into frame').\n\n## Timing precision\nUse whole seconds. Round start times down and end times up. Small overlaps between adjacent segments are acceptable when an action spans a cut. The total should roughly match the video length reported in the request; if the file seems shorter than reported, trust the file.\n\n## Things to never output\nNever output markdown, code fences, comments or additional keys. Never include the creator's handle, business name or location in the hashtags. Never speculate about the business's revenue, prices or popularity. If a field cannot be filled, return an empty string or an empty list rather than omitting it.\n\n## Segmenting\nStart a new segment when the shot changes, when the speaker changes, or when the main action changes. Segments should rarely be shorter than two seconds. If the video is one continuous shot with one action, return a single segment covering the whole video. Always start the first segment at 0. The last segment should end at the video's final second.\n\n## Transcripts\nTranscribe speech exactly, including filler words like um and uh, and false starts. Do not correct grammar. Mark unclear words with [inaudible]. Do not transcribe background music lyrics unless the creator is singing along as the main content. If several people speak at once, transcribe the clearest speaker and note the overlap in the action.\n\n## On-screen text\nCopy on-screen text exactly as shown, including capitalisation and emoji. When text appears and disappears several times, record it on each segment where it is visible. Ignore watermarks from editing apps and platform UI captured in screen recordings.\n\n## Hashtags\nHashtags describe the subject and the technique, for example sourdough, bread_shaping, latte_art, flower_arranging. Use underscores instead of spaces. Avoid generic tags like fyp, viral, trending or the business's own name; the studio adds those separately according to the account's settings.\n\n## Titles and hooks\nA good title tells a viewer what they will learn or see: 'Shaping a round loaf in one minute'. A good hook creates a small question: 'The fold most people skip'. Do not promise results the video does not show, do not use all caps, and do not end with an ellipsis.\n\n## Ads safety\nMark safe_for_ads false when in doubt about the listed categories. Cooking with wine or beer counts as alcohol only when someone drinks it on camera. Knives used for cooking are fine. Health claims include statements like 'this cures', 'boosts immunity' or 'burns fat'; simple ingredient facts are not claims.\n\n## Brands\nOnly list a brand when its name is readable on a product or spoken aloud. Generic items (a stand mixer, a blue bowl) are not brands. If a logo is visible but the name is not readable, leave it out. The business that uploaded the video is not listed as a brand unless its name appears on screen.\n\n## Quality problems\nIf the video is mostly black, frozen, upside down, or has no audio when someone is clearly speaking, still return the full schema but describe the problem in the first segment's action, set the transcript to an empty string, and keep the other fields as plain as possible. The studio will flag the upload for the creator.\n\n## Length limits\nVideos up to 3 minutes are analysed in full. For longer uploads, only the first 3 minutes are provided; do not guess what happens after. Keep the summary under 240 characters and every action under 200 characters, even for long segments.\n\n## Examples\nA flower shop video where the owner builds a bouquet while explaining stem lengths: transcript is the explanation, hashtags flower_arranging and bouquet_tips, three segments (choosing stems, trimming, wrapping), safe_for_ads true. A cafe video of latte art with music only: transcript empty, language from the menu board text, hashtags latte_art and espresso, one segment.\n\n## Pets and animals\nDescribe animals by species and what they do ('a grey cat sniffs the bag'). Do not guess breeds unless the creator says the breed. Videos where an animal appears distressed or is handled roughly are not safe for ads. Grooming and training videos are fine when the animal is calm.",
+                "type": "text"
+              },
+              {
+                "type": "video_url",
+                "video_url": {
+                  "url": "https://media.example.com/api_glm_video_url_captions__W4186784.mp4"
+                }
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "content": "{\"transcript\": \"\", \"language\": \"en\", \"brands\": [], \"hashtags\": [\"baking_tips\", \"sourdough_how\"], \"title\": \"Shaping a sourdough boule in 20 seconds\", \"summary_for_feed\": \"A baker folds a round of sourdough on a floured bench, flips it, and drags it across the wood to build surface tension before it goes into a banneton for an overnight rest.\", \"hook\": \"The drag that makes the crust open up\", \"segments\": [{\"speaker\": \"\", \"overlay_text\": \"\", \"start_ts\": 0, \"end_ts\": 4, \"action\": \"Close-up of a floured wooden bench; hands tip a slack round of dough out of a clear tub, stretch one edge up and fold it over the middle, then turn the dough a quarter and repeat on the next side.\"}, {\"speaker\": \"\", \"overlay_text\": \"\", \"start_ts\": 5, \"end_ts\": 9, \"action\": \"The folded dough is flipped seam side down. Hands cup it and drag it toward the camera so the surface tightens.\"}, {\"speaker\": \"\", \"overlay_text\": \"\", \"start_ts\": 13, \"end_ts\": 18, \"action\": \"A second, slower drag across the bench. The baker presses a fingertip into the top and it springs back; flour dusts the surface.\"}, {\"speaker\": \"\", \"overlay_text\": \"\", \"start_ts\": 22, \"end_ts\": 20, \"action\": \"The boule drops into a floured round banneton seam side up, and a tea towel covers it.\"}], \"safe_for_ads\": true, \"music_credit\": \"\"}",
+                "function_call": null,
+                "provider_specific_fields": {
+                  "refusal": null
+                },
+                "reasoning_content": "The video is about twenty-two seconds of a single baker shaping dough on a wooden bench, with the baker narrating. There is no readable brand on screen and no music. Four segments follow the shots: folding, flipping and first drag, a second drag with a poke test, and placing the dough in the basket. Nothing in the ads-safety list appears, so safe_for_ads is true. The transcript is returned empty because the audio track was not decodable in this run.",
+                "role": "assistant",
+                "tool_calls": null
+              },
+              "provider_specific_fields": {
+                "queue_time_ms": 127325
+              }
+            }
+          ],
+          "created": 1261635772,
+          "id": "5543ef630ba6628370763295317c26b0",
+          "metadata": {
+            "prompt_version": "v14.2.0",
+            "prompt_segments": [
+              {
+                "end": 324,
+                "start": 0,
+                "version": "v14.2.0"
+              }
+            ]
+          },
+          "model": "glm-5.3-flash-modal",
+          "object": "chat.completion",
+          "service_tier": null,
+          "system_fingerprint": null,
+          "usage": {
+            "completion_tokens": 397,
+            "completion_tokens_details": {
+              "reasoning_tokens": 98,
+              "text_tokens": 299
+            },
+            "prompt_tokens": 8242,
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "video_tokens": 5760
+            },
+            "total_tokens": 8639
+          }
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

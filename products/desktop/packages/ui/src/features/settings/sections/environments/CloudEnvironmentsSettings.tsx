@@ -39,12 +39,17 @@ export function CloudEnvironmentsSettings() {
   const setFormMode = useSettingsPageStore((s) => s.setFormMode);
   const [editingEnv, setEditingEnv] = useState<SandboxEnvironment | null>(null);
   const [openImage, setOpenImage] = useState<SandboxCustomImage | null>(null);
-  const [setupFlow, setSetupFlow] = useState<SetupScope | null>(null);
+  const [setupFlow, setSetupFlow] = useState<{
+    scope: SetupScope;
+    imageId: string | null;
+  } | null>(null);
+  const openSetup = (scope: SetupScope, imageId: string | null = null) =>
+    setSetupFlow({ scope, imageId });
 
   useEffect(() => {
     const action = consumeInitialAction();
     if (action === "create") {
-      setSetupFlow("environment");
+      setSetupFlow({ scope: "environment", imageId: null });
     }
   }, [consumeInitialAction]);
 
@@ -68,8 +73,9 @@ export function CloudEnvironmentsSettings() {
   if (setupFlow) {
     return (
       <EnvironmentSetupFlow
-        scope={setupFlow}
+        scope={setupFlow.scope}
         defaultRepository={null}
+        defaultImageId={setupFlow.imageId}
         onDone={() => setSetupFlow(null)}
       />
     );
@@ -82,7 +88,7 @@ export function CloudEnvironmentsSettings() {
         onDone={() => setEditingEnv(null)}
         onBuildNewImage={() => {
           setEditingEnv(null);
-          setSetupFlow("image");
+          openSetup("image");
         }}
       />
     );
@@ -94,6 +100,10 @@ export function CloudEnvironmentsSettings() {
         image={openImage}
         usedBy={environmentsUsing(openImage.id)}
         onDone={() => setOpenImage(null)}
+        onUseInEnvironment={() => {
+          setOpenImage(null);
+          openSetup("environment", openImage.id);
+        }}
       />
     );
   }
@@ -108,7 +118,7 @@ export function CloudEnvironmentsSettings() {
             variant="outline"
             size="sm"
             data-attr="environment-new"
-            onClick={() => setSetupFlow("environment")}
+            onClick={() => openSetup("environment")}
           >
             <Plus size={12} />
             New environment
@@ -147,7 +157,7 @@ export function CloudEnvironmentsSettings() {
               variant="outline"
               size="sm"
               data-attr="custom-image-new"
-              onClick={() => setSetupFlow("image")}
+              onClick={() => openSetup("image")}
             >
               <Plus size={12} />
               New image

@@ -1,5 +1,10 @@
+import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import type { ResolvedWeeklyReportOffer } from '../notifications/weeklyReportOffer'
 import { buildActivitySummary } from './activitySummary'
-import { buildChecklist, EarlyStats } from './earlyDataChecklist'
+import { EarlyStats, buildNextSteps } from './nextSteps'
 
 const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     totalCalls: 0,
@@ -12,50 +17,205 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     ...overrides,
 })
 
+const HIDDEN: ResolvedWeeklyReportOffer = { state: 'hidden', reason: 'has-report' }
+const READY: ResolvedWeeklyReportOffer = { state: 'ready', email: 'me@example.com' }
+const CREATED: ResolvedWeeklyReportOffer = {
+    state: 'created',
+    report: {
+        id: 3,
+        target_value: 'me@example.com',
+        next_delivery_date: '2026-10-13T09:00:00Z',
+    } as SubscriptionApi,
+}
+
 describe('early data derivations', () => {
     it.each([
         // First calls get the celebratory copy, not a stats sentence.
-        [{ totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null }, /first tool call arrived/],
-        [{ totalCalls: 4, distinctClients: 1, errorCalls: 1, topTool: 'search' }, /first 4 tool calls arrived/],
-        // The full sentence composes favorite + failures with correct punctuation.
         [
-            { totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
-            /^42 tool calls from 3 clients so far — search_docs is the favorite, 4 failures worth a look$/,
+            { lifetimeCalls: 1, totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null },
+            /first tool call arrived/,
+            null,
+        ],
+        [
+            { lifetimeCalls: 4, totalCalls: 4, distinctClients: 1, errorCalls: 1, topTool: 'search' },
+            /first 4 tool calls arrived/,
+            '1 failure',
+        ],
+        [
+            { lifetimeCalls: 25_000_000, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
+            /^No tool calls in the last 30 days$/,
+            null,
+        ],
+        [
+            { lifetimeCalls: null, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
+            /^No tool calls in the last 30 days$/,
+            null,
+        ],
+        [
+            { lifetimeCalls: null, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^4 tool calls in the last 30 days from 1 client$/,
+            null,
+        ],
+        [
+            { lifetimeCalls: 3, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^Your first 4 tool calls arrived/,
+            null,
+        ],
+        // The failure count is its own phrase so the view can render it as a feed filter.
+        [
+            { lifetimeCalls: 25_000_000, totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
+            /^42 tool calls in the last 30 days from 3 clients\. search_docs is the favorite$/,
+            '4 failures',
         ],
         // Big client and failure counts get thousands separators, unlike the abbreviated call count.
         [
-            { totalCalls: 21_700_000, distinctClients: 1051, errorCalls: 533_638, topTool: 'execute-sql' },
-            /^21\.7M tool calls from 1,051 clients so far — execute-sql is the favorite, 533,638 failures worth a look$/,
+            {
+                lifetimeCalls: 25_000_000,
+                totalCalls: 21_700_000,
+                distinctClients: 1051,
+                errorCalls: 533_638,
+                topTool: 'execute-sql',
+            },
+            /^21\.7M tool calls in the last 30 days from 1,051 clients\. execute-sql is the favorite$/,
+            '533,638 failures',
         ],
-        // Failures read grammatically even without a favorite tool.
         [
-            { totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },
-            /^42 tool calls so far — 1 failure worth a look$/,
+            { lifetimeCalls: 42, totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },
+            /^42 tool calls in the last 30 days$/,
+            '1 failure',
         ],
-        [{ totalCalls: 42, distinctClients: 1, errorCalls: 0, topTool: null }, /^42 tool calls from 1 client so far$/],
-    ])('summarizes %j', (input, expected) => {
-        expect(buildActivitySummary(input)).toMatch(expected)
+    ])('summarizes %j', (input, headline, failures) => {
+        const summary = buildActivitySummary(input)
+        expect(summary.headline).toMatch(headline)
+        expect(summary.failures).toBe(failures)
     })
 
     it.each([
-        // Under 10 calls ratios are noise: hold judgment instead of warning.
-        [stats({ totalCalls: 5, callsWithIntent: 0, distinctSessions: 5 }), 'pending', 'pending'],
-        // Intent wired + sessions grouping: both healthy.
-        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8 }), 'ok', 'ok'],
-        // No intent + one session per call (stateless server): both warn.
-        [stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40 }), 'warning', 'warning'],
+        // Under 10 calls ratios are noise: no instrumentation nag yet.
+        [stats({ totalCalls: 5, callsWithIntent: 0, distinctSessions: 5 }), false, []],
+        // Everything wired and an alert in place: nothing to do, so the row disappears.
+        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), true, []],
+        // No intent + stateless sessions + failures without an alert: priority order.
+        [
+            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40, errorCalls: 3 }),
+            false,
+            ['intent', 'notification', 'sessions'],
+        ],
+        // Calls without any session ID need conversation IDs as much as one-session-per-call does.
+        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 0 }), true, ['sessions']],
         // 90% of calls being sessions is already degenerate, not just 100%.
-        [stats({ totalCalls: 100, callsWithIntent: 90, distinctSessions: 90 }), 'ok', 'warning'],
-    ])('checklist grades intent/sessions for %j as %s/%s', (input, intentStatus, sessionsStatus) => {
-        const checklist = buildChecklist(input)
-        expect(checklist.find((i) => i.key === 'intent')?.status).toBe(intentStatus)
-        expect(checklist.find((i) => i.key === 'sessions')?.status).toBe(sessionsStatus)
+        [stats({ totalCalls: 100, callsWithIntent: 90, distinctSessions: 90 }), true, ['sessions']],
+        // Failures never prompt an alert while the count is still unknown.
+        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), null, []],
+        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), false, ['notification']],
+    ])('picks next steps for %j with notification=%s', (input, hasFailureNotification, expectedKeys) => {
+        expect(
+            buildNextSteps({ stats: input, hasFailureNotification, weeklyReport: HIDDEN }).map((step) => step.key)
+        ).toEqual(expectedKeys)
     })
 
-    it('flips unmet-demand reporting to ok once any report exists', () => {
-        expect(buildChecklist(stats({})).find((i) => i.key === 'missing-capability')?.status).toBe('pending')
+    it.each([
+        ['leads from the first call', stats({ totalCalls: 1 }), false, READY, ['weekly-report']],
+        [
+            'leads ahead of instrumentation and pushes the last step out',
+            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40, errorCalls: 3 }),
+            false,
+            READY,
+            ['weekly-report', 'intent', 'notification'],
+        ],
+        [
+            'stays for a consent prompt',
+            stats({ totalCalls: 1 }),
+            false,
+            { state: 'needs-ai-consent', email: 'me@example.com' },
+            ['weekly-report'],
+        ],
+        ['stays once created', stats({ totalCalls: 1 }), false, CREATED, ['weekly-report']],
+    ] as const)('the weekly report %s', (_name, input, alert, offer, keys) => {
         expect(
-            buildChecklist(stats({ missingCapabilityReports: 2 })).find((i) => i.key === 'missing-capability')?.status
-        ).toBe('ok')
+            buildNextSteps({ stats: input, hasFailureNotification: alert, weeklyReport: offer }).map((step) => step.key)
+        ).toEqual(keys)
+    })
+
+    it.each([
+        [
+            READY,
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            undefined,
+        ],
+        [
+            { state: 'failed', email: 'me@example.com', message: 'Your plan is limited to 5 subscriptions.' },
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            'Your plan is limited to 5 subscriptions.',
+        ],
+        [
+            { state: 'needs-ai-consent', email: 'me@example.com' },
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            undefined,
+        ],
+        [
+            CREATED,
+            'Your weekly report is set up',
+            'The first one goes to me@example.com on Tuesday at 9:00 AM.',
+            undefined,
+        ],
+        [
+            { state: 'created', report: { id: 3, target_value: 'me@example.com', next_delivery_date: null } },
+            'Your weekly report is set up',
+            'It goes to me@example.com every week.',
+            undefined,
+        ],
+    ] as const)('writes the weekly report step for %j', (offer, title, detail, error) => {
+        const [step] = buildNextSteps({
+            stats: stats({ totalCalls: 1 }),
+            hasFailureNotification: false,
+            weeklyReport: offer as ResolvedWeeklyReportOffer,
+        })
+
+        expect(step).toMatchObject({
+            key: 'weekly-report',
+            title,
+            detail,
+            error,
+            action: { kind: 'weekly-report', offer },
+        })
+    })
+
+    it('hands instrumentation steps to an agent and product steps to a link', () => {
+        const steps = buildNextSteps({
+            stats: stats({ totalCalls: 40, callsWithIntent: 0, distinctSessions: 8, errorCalls: 1 }),
+            hasFailureNotification: false,
+            weeklyReport: HIDDEN,
+        })
+
+        expect(steps.map((step) => [step.key, step.action.kind])).toEqual([
+            ['intent', 'agent-prompt'],
+            ['notification', 'link'],
+        ])
+        expect(steps[0].action).toMatchObject({
+            prompt: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
+            docsUrl: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
+        })
+        expect(steps[1].action).toMatchObject({ to: '/mcp-analytics/notifications' })
+    })
+
+    describe('alert step copy', () => {
+        const alertStep = buildNextSteps({
+            stats: stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }),
+            hasFailureNotification: false,
+            weeklyReport: HIDDEN,
+        })[0]
+
+        // Hog function alerts can only go to the destinations the new-alert dialog lists.
+        it.each(DESTINATION_OPTIONS.map(({ label }) => label))('offers %s', (label) => {
+            expect(alertStep.detail.toLowerCase()).toContain(label.toLowerCase())
+        })
+
+        it('does not offer email', () => {
+            expect(alertStep.detail).not.toMatch(/email/i)
+        })
     })
 })

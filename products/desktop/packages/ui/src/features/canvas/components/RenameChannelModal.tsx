@@ -117,6 +117,7 @@ export function RenameChannelModal({
             <TextField.Slot>
               {channelGlyph(channel.name, {
                 personal: channel.channelType === "personal",
+                private: channel.channelType === "private",
                 size: 16,
                 space: spacesLayout,
               })}

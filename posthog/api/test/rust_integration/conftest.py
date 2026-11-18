@@ -114,8 +114,9 @@ class TestDB:
     """Thin wrapper around psycopg2 for inserting test entities.
 
     Manages two connections matching production topology:
-    - persons_conn: persons, distinct IDs, cohort people (persons database)
-    - main_conn: groups, group type mappings (main database)
+    - persons_conn: persons, distinct IDs, cohort people, groups, group type
+      mappings (persons database)
+    - main_conn: cohorts (main database)
 
     Raw SQL is appropriate here because these tables have stable, simple schemas
     and we specifically want to avoid the event ingestion pipeline.
@@ -155,28 +156,24 @@ class TestDB:
         group_key: str,
         group_properties: dict[str, Any],
     ) -> None:
-        # The Rust flags service reads groups from the persons database, so we
-        # insert into both databases: the main DB (for Django API visibility)
-        # and the persons DB (for Rust service queries).
-        for conn in [self.main_conn, self.persons_conn]:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-                """,
-                (self.team_id, self.team_id, group_type, group_type_index),
-            )
-            cur.execute(
-                """
-                INSERT INTO posthog_group (team_id, group_key, group_type_index,
-                                           group_properties, created_at,
-                                           properties_last_updated_at, properties_last_operation, version)
-                VALUES (%s, %s, %s, %s, now(), '{}', '{}', 0)
-                """,
-                (self.team_id, group_key, group_type_index, json.dumps(group_properties)),
-            )
+        cur = self.persons_conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (self.team_id, self.team_id, group_type, group_type_index),
+        )
+        cur.execute(
+            """
+            INSERT INTO posthog_group (team_id, group_key, group_type_index,
+                                       group_properties, created_at,
+                                       properties_last_updated_at, properties_last_operation, version)
+            VALUES (%s, %s, %s, %s, now(), '{}', '{}', 0)
+            """,
+            (self.team_id, group_key, group_type_index, json.dumps(group_properties)),
+        )
 
     def add_to_static_cohort(self, person_id: int, cohort_id: int, version: int = 0) -> None:
         cur = self.persons_conn.cursor()
@@ -209,11 +206,7 @@ class TestDB:
                 (cohort_ids,),
             )
 
-        for table in ["posthog_persondistinctid", "posthog_person"]:
-            persons_cur.execute(f"DELETE FROM {table} WHERE team_id = %s", (self.team_id,))  # noqa: S608
-
-        for table in ["posthog_group", "posthog_grouptypemapping"]:
-            main_cur.execute(f"DELETE FROM {table} WHERE team_id = %s", (self.team_id,))  # noqa: S608
+        for table in ["posthog_persondistinctid", "posthog_person", "posthog_group", "posthog_grouptypemapping"]:
             persons_cur.execute(f"DELETE FROM {table} WHERE team_id = %s", (self.team_id,))  # noqa: S608
 
 

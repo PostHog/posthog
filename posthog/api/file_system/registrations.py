@@ -7,6 +7,7 @@ from posthog.api.file_system.deletion import (
     DeletionContext,
     RestoreContext,
     register_file_system_type,
+    register_post_delete_batch_hook,
     register_post_delete_hook,
     register_post_restore_hook,
     register_pre_delete_hook,
@@ -16,6 +17,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.cdp.backend.internal_events import INTERNAL_EVENT_READ_SCOPES
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
 
@@ -107,24 +109,15 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
     )
 
 
-def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
-    _log_restore_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
-    )
+def _insights_post_delete(insights: list[Any]) -> None:
+    # The insight API's delete removes the insight's alerts too. Without this, an alert outlives its
+    # insight: the insight scheduler skips it, and it stays enabled with no check ever again.
+    # One call for the whole request, because each call starts a cleanup workflow after the commit.
+    # Imported here because these registrations load during django.setup(), and the alerts facade
+    # pulls the query and Temporal stacks onto every process's startup path.
+    from products.alerts.backend.facade.api import delete_insight_alerts  # noqa: PLC0415
 
-
-def _experiment_post_delete(context: DeletionContext, experiment: Any) -> None:
-    _log_deletion_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
-    )
+    delete_insight_alerts([insight.id for insight in insights])
 
 
 def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
@@ -148,17 +141,6 @@ def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
         or "Untitled insight",
         short_id=getattr(insight, "short_id", None),
         object_type="insight",
-    )
-
-
-def _link_post_delete(context: DeletionContext, link: Any) -> None:
-    ref = context.entry.ref
-    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or ref
-    _log_deletion_activity(
-        context,
-        scope="Link",
-        item_id=ref,
-        name=link_name,
     )
 
 
@@ -288,7 +270,11 @@ def _hog_function_pre_delete(context: DeletionContext, hog_function: Any) -> Non
 
 
 def _hog_function_pre_restore(context: RestoreContext, hog_function: Any) -> None:
-    hog_function.enabled = True
+    # A destination on a read-guarded internal event comes back disabled, so turning it on again goes through
+    # the destinations API, which checks the event's read access. This path checks only the destination.
+    events = (hog_function.filters or {}).get("events") or []
+    event_ids = {event.get("id") for event in events if isinstance(event, dict)}
+    hog_function.enabled = not (event_ids & INTERNAL_EVENT_READ_SCOPES.keys())
 
 
 def _hog_function_post_delete(context: DeletionContext, hog_function: Any) -> None:
@@ -323,6 +309,15 @@ def _feature_flag_post_delete(context: DeletionContext, feature_flag: Any) -> No
     )
 
 
+def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
+    from products.feature_flags.backend.facade.api import (
+        validate_flag_restorable,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    # The endpoint shows a ValidationError's message. It replaces a ValueError with its generic refusal.
+    validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+
+
 def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> None:
     _log_restore_activity(
         context,
@@ -331,16 +326,7 @@ def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> No
         name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
         or "Untitled feature flag",
         object_type="feature flag",
-        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)],
     )
-
-
-def _feature_flag_pre_delete(context: DeletionContext, feature_flag: Any) -> None:
-    feature_flag.active = False
-
-
-def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
-    feature_flag.active = True
 
 
 def register_core_file_system_types() -> None:
@@ -368,19 +354,9 @@ def register_core_file_system_types() -> None:
         "FeatureFlag",
         undo_message="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
     )
-    register_pre_delete_hook("feature_flag", _feature_flag_pre_delete)
-    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
+    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
-
-    register_file_system_type(
-        "experiment",
-        "experiments",
-        "Experiment",
-        undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
-    )
-    register_post_delete_hook("experiment", _experiment_post_delete)
-    register_post_restore_hook("experiment", _experiment_post_restore)
 
     register_file_system_type(
         "insight",
@@ -390,16 +366,8 @@ def register_core_file_system_types() -> None:
         undo_message="Send PATCH /api/projects/@current/insights/{id} with deleted=false.",
     )
     register_post_delete_hook("insight", _insight_post_delete)
+    register_post_delete_batch_hook("insight", _insights_post_delete)
     register_post_restore_hook("insight", _insight_post_restore)
-
-    register_file_system_type(
-        "link",
-        "links",
-        "Link",
-        allow_restore=False,
-        undo_message="Create a new link with the same details.",
-    )
-    register_post_delete_hook("link", _link_post_delete)
 
     register_file_system_type(
         "session_recording_playlist",

@@ -1,4 +1,4 @@
-import examples from './hogEvalExamples.json'
+import examples from '../../shared/hog_eval_examples.json'
 
 export interface HogEvalExample {
     key: string

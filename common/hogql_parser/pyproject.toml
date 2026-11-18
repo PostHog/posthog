@@ -9,6 +9,7 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
     "cp3*-manylinux_x86_64",
     "cp3*-manylinux_aarch64",
 ]
+skip = ["cp3*t-*", "cp315-*"]
 build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]

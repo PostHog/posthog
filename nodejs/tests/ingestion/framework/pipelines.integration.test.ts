@@ -16,7 +16,7 @@ import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { ProjectId, Team } from '~/types'
+import { FlagEvaluationsMode, ProjectId, Team } from '~/types'
 
 const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     id: 1,
@@ -33,6 +33,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     ingested_event: true,
     person_display_name_properties: null,
     minimal_flag_called_events: false,
+    flag_evaluations_mode: FlagEvaluationsMode.Events,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',

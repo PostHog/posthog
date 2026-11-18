@@ -6,6 +6,8 @@ Internal cross-module references and mock patches must target the defining submo
 directly (e.g. `posthog.models.integration.slack.SlackIntegration`), never this shim.
 """
 
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, integration_secret_decrypt_counter
+
 from .anthropic import (
     ANTHROPIC_CLIENT_TIMEOUT_SECONDS,
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -15,7 +17,18 @@ from .anthropic import (
     AnthropicIntegration,
     AnthropicIntegrationError,
 )
+from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
+from .auth_types import (
+    ANY,
+    DEFAULT,
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    KindAuthTypes,
+    register_kind_auth_types,
+)
 from .aws import (
+    AnyRedshiftIntegration,
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
@@ -23,15 +36,30 @@ from .aws import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     DuplicateNameError,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
     S3CompatibleIntegration,
     is_unique_aws_role_by_organization_id,
+    parse_redshift_host,
+    redshift_integration_from_record,
     validate_aws_credentials,
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
 from .clickup import ClickUpIntegration
-from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
+from .common import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    META_GRAPH_API_VERSION,
+    IntegrationError,
+    OauthClientCredentials,
+    dot_get,
+)
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
 from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
+from .external_issues import (
+    SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
+    external_issue_url,
+    is_supported_external_issue_provider,
+)
 from .github import (
     GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -44,27 +72,34 @@ from .github import (
     invalidate_github_repository_caches_for_installation,
 )
 from .gitlab import GitLabIntegration, GitLabIntegrationError
-from .google_ads import GoogleAdsIntegration, google_ads_hierarchy_level
+from .google_ads import (
+    GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
+    google_ads_hierarchy_level,
+)
 from .google_cloud import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     is_unique_service_account_by_organization_id,
 )
 from .jira import JiraIntegration
-from .linear import LinearIntegration
+from .linear import LinearIntegration, LinearIntegrationError, LinearRateLimitedError
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
+    PUBLIC_INTEGRATION_KIND_CHOICES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Integration,
-    IntegrationManager,
+    IntegrationModelManager,
     IntegrationQuerySet,
-    UndecryptedIntegrationSecretError,
     aget_integration_by_id,
     defer_repository_cache_fields,
-    integration_secret_decrypt_counter,
 )
+from .motherduck import MotherDuckIntegration, MotherDuckIntegrationError
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
+    OAUTH_CLIENT_CREDENTIAL_KEYS,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
@@ -75,6 +110,7 @@ from .oauth import (
     OauthConfig,
     OauthIntegration,
     posthog_connect_base_url,
+    resolve_aliased_oauth_kind,
 )
 from .postgres import (
     MISSING_CERT_PATH,
@@ -105,21 +141,21 @@ from .refresh_tracking import (
     REFRESH_FAILURE_REASON_OTHER,
     REFRESH_FAILURE_REASON_RATE_LIMITED,
     REFRESH_FAILURE_REASON_UNREADABLE_SECRET,
+    REFRESH_SUCCESS_PATCH,
     REFRESH_TERMINAL_FAILURE_COUNT,
     issuing_oauth_client_ids,
+    oauth_client_patch,
     oauth_refresh_counter,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
-    record_oauth_client_used,
-    record_refresh_failure,
-    record_refresh_success,
     refresh_backoff_active,
+    refresh_failure_patch,
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
-    SLACK_CHANNELS_MAX_PAGES,
     SLACK_CHANNELS_PAGE_SIZE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_REQUESTS,
     SlackIntegration,
     SlackIntegrationError,
     SlackRequestSignature,
@@ -131,10 +167,17 @@ from .stripe import STRIPE_POSTHOG_SECRET_NAMES, StripeIntegration
 from .twilio import TwilioIntegration
 
 __all__ = [
+    "ANY",
+    "DEFAULT",
+    "AuthRequirement",
+    "AuthTypeSelector",
+    "IntegrationAuthType",
+    "KindAuthTypes",
+    "register_kind_auth_types",
     "UndecryptedIntegrationSecretError",
     "integration_secret_decrypt_counter",
     "IntegrationQuerySet",
-    "IntegrationManager",
+    "IntegrationModelManager",
     "Integration",
     "defer_repository_cache_fields",
     "aget_integration_by_id",
@@ -156,9 +199,9 @@ __all__ = [
     "REFRESH_FAILURE_REASON_OTHER",
     "REFRESH_FAILURE_REASON_UNREADABLE_SECRET",
     "oauth_refresh_failure_reason",
-    "record_refresh_failure",
-    "record_refresh_success",
-    "record_oauth_client_used",
+    "refresh_failure_patch",
+    "REFRESH_SUCCESS_PATCH",
+    "oauth_client_patch",
     "issuing_oauth_client_ids",
     "refresh_backoff_active",
     "CONFIG_PUSH_IDENTITY_VERIFICATION",
@@ -169,8 +212,12 @@ __all__ = [
     "FirebaseIntegration",
     "ApplePushIntegration",
     "INSTAGRAM_OAUTH_SCOPE",
+    "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "PUBLIC_INTEGRATION_KIND_CHOICES",
+    "WAREHOUSE_SOURCE_TYPE_CONFIG_KEY",
+    "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
     "POSTHOG_CONNECT_ALLOWED_REGIONS",
@@ -178,18 +225,21 @@ __all__ = [
     "POSTHOG_CONNECT_IDENTITY_SCOPES",
     "POSTHOG_CONNECT_GRANTABLE_SCOPES",
     "posthog_connect_base_url",
+    "resolve_aliased_oauth_kind",
     "OauthIntegration",
     "PRIVATE_CHANNEL_WITHOUT_ACCESS",
     "SlackIntegrationError",
     "SLACK_INTEGRATION_KINDS",
     "SLACK_CHANNELS_PAGE_SIZE",
-    "SLACK_CHANNELS_MAX_PAGES",
+    "SLACK_LISTING_MAX_REQUESTS",
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
+    "GoogleAdsQuotaExhaustedError",
+    "GoogleAdsScopeInsufficientError",
     "is_unique_service_account_by_organization_id",
     "GoogleCloudServiceAccountIntegration",
     "GoogleCloudIntegration",
@@ -198,6 +248,11 @@ __all__ = [
     "EmailIntegration",
     "cleanup_ses_identity_on_integration_delete",
     "LinearIntegration",
+    "LinearIntegrationError",
+    "LinearRateLimitedError",
+    "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
+    "external_issue_url",
+    "is_supported_external_issue_provider",
     "JiraIntegration",
     "GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS",
     "GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS",
@@ -209,6 +264,9 @@ __all__ = [
     "GitHubIntegration",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "Assignee",
+    "AssigneeLookupFailed",
+    "ReconnectRequired",
     "GitLabIntegration",
     "MetaGraphIntegration",
     "MetaAdsIntegration",
@@ -225,6 +283,8 @@ __all__ = [
     "DatabricksIntegration",
     "AzureBlobIntegrationError",
     "AzureBlobIntegration",
+    "MotherDuckIntegrationError",
+    "MotherDuckIntegration",
     "DuplicateNameError",
     "is_unique_aws_role_by_organization_id",
     "validate_aws_credentials",
@@ -234,6 +294,11 @@ __all__ = [
     "AWSCredentialsIntegration",
     "AWSS3Integration",
     "AWSRedshiftIntegration",
+    "AnyRedshiftIntegration",
+    "RedshiftProvisionedCluster",
+    "RedshiftServerlessWorkgroup",
+    "parse_redshift_host",
+    "redshift_integration_from_record",
     "S3CompatibleIntegration",
     "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",

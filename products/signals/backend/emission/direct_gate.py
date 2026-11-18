@@ -18,8 +18,7 @@ Two properties keep the gate cheap and predictable:
   pipeline applies whether or not a team has steered. So writing a first rule filters what that rule
   describes, and nothing else.
 
-The gate fails open. A steering rule that never runs costs a team one noisy report; a gate that
-drops signals when the LLM is unreachable loses real ones.
+The gate fails open when its decision model is unavailable.
 """
 
 import asyncio
@@ -27,10 +26,16 @@ from typing import Any
 
 import structlog
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 
-from products.signals.backend.emission.pipeline import EMISSION_AI_PRODUCT, capture_pipeline_stage, check_actionability
+from products.signals.backend.emission.pipeline import (
+    ACTIONABILITY_SYSTEM_ONE_QUESTION,
+    EMISSION_AI_PRODUCT,
+    capture_pipeline_stage,
+    check_actionability,
+)
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.emission.steering import (
     SourceSteering,
@@ -38,6 +43,8 @@ from products.signals.backend.emission.steering import (
     apply_steering,
     steering_from_config,
 )
+from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
+from products.signals.backend.trial.policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
 
@@ -73,12 +80,14 @@ async def steering_filters_signal(
     description: str,
     weight: float,
     extra: dict[str, Any],
+    signal_id: str | None = None,
 ) -> bool:
     """Whether this team's steering says to drop the signal.
 
     Returns False without an LLM call when the team has written no steering for the source. A dropped
-    signal reports itself as ``signal_data_source_filtered`` with ``steering_applied``, the same stage
-    event the batch pipeline fires, so a filtered signal is distinguishable from one lost to a failure.
+    signal reports itself as ``signal_data_source_filtered`` with ``filter_reason`` ``steering_rejected``,
+    the same stage event the batch pipeline fires, so a filtered signal is distinguishable from one lost
+    to a failure.
     """
     # Text only, dropping any `default_not_actionable` the row carries. See the module docstring.
     steering = SourceSteering(
@@ -87,7 +96,17 @@ async def steering_filters_signal(
     if not steering.text:
         return False
 
+    system_one_prompt = current_prompt(
+        bundled_prompt(
+            "signals-actionability-direct",
+            DIRECT_SOURCE_ACTIONABILITY_PROMPT,
+            ACTIONABILITY_SYSTEM_ONE_QUESTION,
+            0.5,
+        )
+    )
+
     output = SignalEmitterOutput(
+        signal_id=signal_id,
         source_product=source_product,
         source_type=source_type,
         source_id=source_id,
@@ -106,14 +125,17 @@ async def steering_filters_signal(
                     client,
                     team.id,
                     output,
-                    apply_steering(DIRECT_SOURCE_ACTIONABILITY_PROMPT, steering),
+                    apply_steering(system_one_prompt.policy, steering),
                     gateway_mode=resolve_ai_gateway_config() is not None,
                     # Steering rules reference facts the description does not always carry (a host, a
                     # check kind), so the steered gate sees all of `extra`, as in the batch pipeline.
                     include_record_metadata=True,
+                    system_one_prompt=system_one_prompt,
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )
+    except (QuotaLimitExceeded, TrialRefused):
+        return True
     except Exception:
         logger.exception(
             "Source steering gate failed, keeping signal",
@@ -132,5 +154,11 @@ async def steering_filters_signal(
         signal_source_type=source_type,
         signal_source_id=source_id,
     )
-    capture_pipeline_stage("signal_data_source_filtered", team, organization, output, {"steering_applied": True})
+    capture_pipeline_stage(
+        "signal_data_source_filtered",
+        team,
+        organization,
+        output,
+        {"filter_reason": "steering_rejected", "steering_applied": True},
+    )
     return True

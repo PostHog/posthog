@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
@@ -14,6 +14,7 @@ import { mswDecorator } from '~/mocks/browser'
 import {
     ErrorTrackingIssueRelease,
     ErrorTrackingQueryResponse,
+    ErrorTrackingRelationalIssue,
     ErrorTrackingReleasesQueryResponse,
     NodeKind,
     TrendsQueryResponse,
@@ -24,6 +25,7 @@ import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
+import { manageFingerprintsLogic } from './components/FingerprintPreview/manageFingerprintsLogic'
 import {
     issueFilterPreviewLogic,
     IssueFilterPreview,
@@ -32,15 +34,23 @@ import {
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const FINGERPRINT_LIST_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
 const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
-const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
-    results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+const STORY_FINGERPRINT_SAMPLE_EXCEPTIONS = [
+    { type: 'TypeError', value: "Cannot read property 'billing' of undefined", lib: 'web' },
+    { type: 'TypeError', value: 'response.json is not a function', lib: 'posthog-node' },
+    { type: 'RangeError', value: 'Maximum call stack size exceeded', lib: 'web' },
+    { type: 'SyntaxError', value: 'Unexpected token < in JSON at position 0', lib: 'posthog-python' },
+    { type: 'ReferenceError', value: 'plan is not defined', lib: 'posthog-ruby' },
+    { type: 'NetworkError', value: 'Failed to fetch', lib: 'posthog-go' },
+]
+const STORY_FINGERPRINT_SAMPLES_RESPONSE = {
+    results: STORY_FINGERPRINTS.map((fingerprint, index) => [
         fingerprint,
-        x: Math.cos(index * 1.7) * (1 + (index % 3) * 0.4),
-        y: Math.sin(index * 1.7) * (1 + (index % 4) * 0.3),
-    })),
-    hasMore: false,
+        (index + 1) * 7,
+        [STORY_FINGERPRINT_SAMPLE_EXCEPTIONS[index % STORY_FINGERPRINT_SAMPLE_EXCEPTIONS.length]],
+    ]),
 }
 const STORY_STACK_FRAME_RESULTS = stackFrameResults.map((record) => ({
     ...record,
@@ -82,6 +92,13 @@ const STORY_PERSON = {
     created_at: '2024-07-01T10:00:00.000Z',
     properties: { email: 'developer@example.com' },
 }
+// The manage-fingerprints pane asks for one sample event per fingerprint, with its own column set.
+const STORY_FINGERPRINT_EVENT_RESPONSE = {
+    columns: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    hasMore: false,
+    results: [[STORY_EVENT_UUIDS[0], STORY_EVENT_PROPERTIES, STORY_TIMESTAMPS[0], STORY_PERSON.distinct_id]],
+}
+
 const STORY_EVENTS_RESPONSE = {
     columns: ['*', 'timestamp', 'person'],
     hasMore: false,
@@ -155,6 +172,21 @@ const STORY_BREAKDOWNS_RESPONSE = {
                 { value: 'https://example.com/billing', count: 21 },
                 { value: 'https://example.com/settings', count: 11 },
                 { value: 'https://example.com/dashboard', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $screen_name: {
+            values: [
+                { value: 'Checkout', count: 21 },
+                { value: 'Settings', count: 11 },
+                { value: 'Home', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $os_name: {
+            values: [
+                { value: 'iOS', count: 24 },
+                { value: 'Android', count: 14 },
             ],
             total_count: 38,
         },
@@ -346,13 +378,31 @@ const STORY_ASSIGNEE_ROLES = Array.from({ length: 16 }, (_, index) => {
         created_by: MOCK_DEFAULT_BASIC_USER,
     }
 })
-const STORY_ISSUE = {
+const STORY_ISSUE: ErrorTrackingRelationalIssue = {
     ...errorTrackingTypeIssue,
     id: ISSUE_ID,
     name: 'Non-OK response',
     description: 'The billing request returned an unsuccessful response.',
     first_seen: STORY_TIMESTAMPS.at(-1)!,
+    external_issues: [
+        {
+            id: '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a6c',
+            external_url: 'https://github.com/example/example/issues/42',
+            external_id: '#42',
+            title: 'Checkout failed for annual subscriptions',
+            integration: { id: 1, kind: 'github', display_name: 'Example' },
+        },
+    ],
 }
+
+type StoryQueryBody<Q> = { query?: Q & { source?: Q } }
+
+// The issue page wraps its exceptions list in an ErrorTrackingIssueEventsQuery, and that query
+// answers in the shape of its source EventsQuery, so the mocks answer for the source.
+function storyQuery<Q extends { kind?: string }>(body: StoryQueryBody<Q>): Q | undefined {
+    return body.query?.kind === NodeKind.ErrorTrackingIssueEventsQuery ? body.query.source : body.query
+}
+
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,
     results: [
@@ -450,6 +500,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
@@ -472,26 +526,36 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxReleases?: number }
-                    }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
+                            kind?: string
+                            issueId?: string
+                            select?: string[]
+                            where?: string[]
+                            maxReleases?: number
+                            query?: string
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingFingerprintProjectionQuery) {
-                        return [200, STORY_FINGERPRINT_PROJECTION_RESPONSE]
-                    }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        if (query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                            return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
+                        }
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
-                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
+                    if (query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(query.maxReleases ?? 5)]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    if (query?.kind === NodeKind.HogQLQuery) {
+                        return query.query?.includes('$exception_fingerprint')
+                            ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
+                            : [200, { results: [] }]
+                    }
+                    return [200, STORY_SUMMARY_RESPONSE]
                 },
                 '/api/environments/:team_id/error_tracking/stack_frames/batch_get/': [
                     200,
@@ -506,6 +570,75 @@ export default meta
 type Story = StoryObj<{}>
 export const ListPage: Story = {}
 
+// The eight day buckets the insights tab spans under the story's mocked date and default range.
+const STORY_INSIGHTS_BUCKETS = [
+    '2024-07-02 00:00:00',
+    '2024-07-03 00:00:00',
+    '2024-07-04 00:00:00',
+    '2024-07-05 00:00:00',
+    '2024-07-06 00:00:00',
+    '2024-07-07 00:00:00',
+    '2024-07-08 00:00:00',
+    '2024-07-09 00:00:00',
+]
+
+// exceptions, affected users, sessions, sessions with a crash, releases — per bucket.
+const STORY_INSIGHTS_SERIES: number[][] = [
+    [26, 14, 168, 9, 2],
+    [22, 12, 174, 8, 2],
+    [19, 11, 181, 7, 2],
+    [24, 13, 176, 9, 3],
+    [17, 9, 188, 6, 3],
+    [15, 8, 192, 5, 3],
+    [18, 10, 179, 6, 3],
+    [16, 9, 182, 6, 3],
+]
+
+const STORY_INSIGHTS_RELEASES: [string, string, string, [string, number][]][] = [
+    [
+        'web',
+        '2.4.0',
+        '',
+        [
+            ['2024-07-05 00:00:00', 9],
+            ['2024-07-06 00:00:00', 11],
+            ['2024-07-07 00:00:00', 13],
+            ['2024-07-08 00:00:00', 14],
+            ['2024-07-09 00:00:00', 12],
+        ],
+    ],
+    [
+        'web',
+        '2.3.1',
+        '',
+        [
+            ['2024-07-02 00:00:00', 18],
+            ['2024-07-03 00:00:00', 15],
+            ['2024-07-04 00:00:00', 12],
+            ['2024-07-05 00:00:00', 10],
+        ],
+    ],
+    [
+        'ios',
+        '4.1',
+        '881',
+        [
+            ['2024-07-03 00:00:00', 5],
+            ['2024-07-04 00:00:00', 5],
+            ['2024-07-06 00:00:00', 4],
+        ],
+    ],
+    [
+        '',
+        '',
+        '',
+        [
+            ['2024-07-02 00:00:00', 8],
+            ['2024-07-07 00:00:00', 5],
+        ],
+    ],
+]
+
 export const InsightsPage: Story = {
     parameters: { pageUrl: urls.errorTracking({ activeTab: 'insights' }) },
     decorators: [
@@ -515,12 +648,30 @@ export const InsightsPage: Story = {
                     const body = (await request.json()) as {
                         query?: {
                             kind?: string
+                            query?: string
                             series?: { custom_name?: string }[]
                             trendsFilter?: { formulaNodes?: { custom_name?: string }[] }
                         }
                     }
                     if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return [200, { results: [[157, 76, 1240, 42]] }]
+                        const hogql = body.query.query ?? ''
+                        // The three HogQL queries behind the tab return different shapes, so the mock
+                        // keys off a phrase unique to each rather than answering them all alike.
+                        if (hogql.includes('previous_exceptions')) {
+                            return [200, { results: [[157, 186, 76, 71, 1240, 1190, 42, 51, 3, 2]] }]
+                        }
+                        if (hogql.includes('groupArray')) {
+                            return [200, { results: STORY_INSIGHTS_RELEASES }]
+                        }
+                        return [
+                            200,
+                            {
+                                results: STORY_INSIGHTS_BUCKETS.map((bucket, index) => [
+                                    bucket,
+                                    ...STORY_INSIGHTS_SERIES[index],
+                                ]),
+                            },
+                        ]
                     }
                     const label =
                         body.query?.trendsFilter?.formulaNodes?.[0]?.custom_name ??
@@ -539,7 +690,7 @@ export const ListPageWithSourceMapsBanner: Story = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/error_tracking/recommendations': () => [
+                'api/projects/:team_id/error_tracking/recommendations': () => [
                     200,
                     {
                         results: [
@@ -568,6 +719,167 @@ export const ListPageWithSourceMapsBanner: Story = {
         }),
     ],
 }
+
+// A narrow window wraps the banner buttons below the text instead of squeezing the text
+export const ListPageWithSourceMapsBannerNarrow: Story = {
+    ...ListPageWithSourceMapsBanner,
+    parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
+}
+
+// With source maps fine, the alerts banner takes the single banner slot and names
+// only the alert types that are still missing
+export const ListPageWithAlertsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: true },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: true,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 3,
+                                    unresolved_pct: 0.03,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With source maps and alerts covered, the rate limit banner takes the single banner slot
+export const ListPageWithRateLimitsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With every check failing, the banners stack: source maps on top, the other two peeking out below
+export const ListPageWithStackedBanners: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 62,
+                                    unresolved_pct: 0.62,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: false },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
 function IssueScenePreviewStory({
@@ -576,20 +888,26 @@ function IssueScenePreviewStory({
     openBreakdown,
     propertyFilter,
     releasesViewMode,
+    manageFingerprintsOpen,
 }: {
     activePreview: IssueFilterPreview
     selectedEventProperties?: string
     openBreakdown?: BreakdownPreset
     propertyFilter?: { key: string; value: string }
     releasesViewMode?: IssueReleasesViewMode
+    manageFingerprintsOpen?: boolean
 }): JSX.Element {
     const { applyPropertyFilter, setActivePreview, setReleasesViewMode } = useActions(issueFilterPreviewLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
     const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId: FINGERPRINT_LIST_ISSUE_ID }))
 
     useLayoutEffect(() => {
         setActivePreview(activePreview)
         setReleasesViewMode(releasesViewMode ?? 'list')
+        if (manageFingerprintsOpen) {
+            openManage()
+        }
         if (selectedEventProperties) {
             selectEvent({
                 event: '$exception',
@@ -615,6 +933,8 @@ function IssueScenePreviewStory({
         applyPropertyFilter,
         openBreakdown,
         openBreakdownDetails,
+        manageFingerprintsOpen,
+        openManage,
         propertyFilter,
         releasesViewMode,
         selectEvent,
@@ -638,13 +958,14 @@ function IngestionWarningStory(): JSX.Element | null {
     return ready ? <App /> : null
 }
 
-// No exceptions ingested yet, but autocapture enabled — the ingestion warning banner
-// renders above the issue list without the sticky filters bar overlapping it
+// A banner renders above the issue list without the sticky filters bar overlapping it.
+// Issues have to exist, or the scene's setup empty state takes over and there is no list
+// to lay the banner out against.
 export const ListPageWithIngestionWarning: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: false }],
+                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: true }],
             },
         }),
     ],
@@ -653,6 +974,14 @@ export const ListPageWithIngestionWarning: Story = {
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+}
+
+export const GroupPageTodayRailNav: Story = {
+    name: 'Issue scene with new navigation',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
 }
 
 export const GroupPageManyAssignees: Story = {
@@ -709,30 +1038,30 @@ export const GroupPageCappedBreakdownPanel: Story = {
     ),
 }
 
-export const GroupPageFingerprintMap: Story = {
-    name: 'Issue scene with fingerprint map',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
-    },
+export const GroupPageFingerprintList: Story = {
+    name: 'Issue scene with fingerprint list',
+    parameters: { pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
+}
+
+export const GroupPageManageFingerprints: Story = {
+    name: 'Issue scene with manage fingerprints',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_SPLITTING],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" manageFingerprintsOpen />,
 }
 
 export const GroupPageReleases: Story = {
     name: 'Issue scene with releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" />,
 }
 
 export const GroupPageReleasesStacked: Story = {
     name: 'Issue scene with stacked releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" releasesViewMode="stacked" />,
 }
 
@@ -746,18 +1075,18 @@ export const GroupPageBreakdownLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -783,26 +1112,25 @@ export const GroupPageBreakdownModalLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxValuesPerProperty?: number }
-                    }
-                    if (
-                        body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery &&
-                        body.query.maxValuesPerProperty === 100
-                    ) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
+                            kind?: string
+                            select?: string[]
+                            maxValuesPerProperty?: number
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery && query.maxValuesPerProperty === 100) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -819,18 +1147,18 @@ export const GroupPageEmptyWithFilter: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EMPTY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -851,28 +1179,6 @@ export const GroupPageLoading: Story = {
             },
         }),
     ],
-}
-
-function selfDrivingReportsDecorator(count: number): Decorator {
-    return mswDecorator({
-        get: {
-            '/api/projects/:team_id/signals/reports/': () => [
-                200,
-                {
-                    next: null,
-                    results: Array.from({ length: count }, (_, index) => ({
-                        id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
-                        status: index % 2 === 0 ? 'ready' : 'resolved',
-                        title: `fix(replay): guard against a missing snapshot index (${index + 1})`,
-                        summary: 'The player throws when a recording ends on a snapshot the index never received.',
-                        implementation_pr_url: `https://github.com/PostHog/posthog/pull/${64772 + index}`,
-                        implementation_pr_merged: index % 2 === 1,
-                        updated_at: '2024-07-08T21:00:00Z',
-                    })),
-                },
-            ],
-        },
-    })
 }
 
 // Self-driving investigated this issue, so its section renders in the right pane above the exception
@@ -918,15 +1224,4 @@ export const GroupPageWithSelfDriving: Story = {
             },
         }),
     ],
-}
-
-// An issue the agent looked at many times. The section stops at half the pane and scrolls, so the
-// exception card and its stack trace stay on screen.
-export const GroupPageWithManySelfDrivingReports: Story = {
-    name: 'Issue scene with many self-driving reports',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        testOptions: { waitForLoadersToDisappear: false },
-    },
-    decorators: [selfDrivingReportsDecorator(12)],
 }

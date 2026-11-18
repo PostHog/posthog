@@ -7,7 +7,7 @@ const log = logger.scope("slack-integration-callback-hook");
 const DEFAULT_ERROR_MESSAGE =
   "Slack connection failed. Please try connecting again.";
 
-export interface SlackCallbackError {
+interface SlackCallbackError {
   message: string;
   code: string | null;
 }

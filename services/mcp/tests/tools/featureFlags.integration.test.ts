@@ -8,6 +8,7 @@ import {
     createTestClient,
     createTestContext,
     generateUniqueKey,
+    getToolByName,
     parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
@@ -64,7 +65,7 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
             expect(flagData.updated_at).toBeTruthy()
 
             createdResources.featureFlags.push(flagData.id)
@@ -150,7 +151,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(Array.isArray(response.results)).toBe(true)
             expect(response.results.some((flag: { id: number }) => flag.id === createdFlag.id)).toBe(true)
-            expect(response._posthogUrl).toContain('/feature_flags')
+            expect(response._posthogUrl).toContain('/feature-flags')
         })
 
         it('should support search by key and use returned ID for retrieval', async () => {
@@ -204,7 +205,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(createdFlag.key)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
         })
     })
 
@@ -230,7 +231,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(uniqueKey)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
             expect(flagData.found).toBe(true)
         })
 
@@ -271,7 +272,61 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(updatedFlag.id).toBe(createdFlag.id)
             expect(updatedFlag.name).toBe('Updated name')
             expect(updatedFlag.active).toBe(false)
-            expect(updatedFlag._posthogUrl).toContain('/feature_flags/')
+            expect(updatedFlag._posthogUrl).toContain('/feature-flags/')
+        })
+
+        it('keeps group targeting when partial filters omit the group fields', async () => {
+            // Resolved the way production does, so the hand-written override wins. Without
+            // the merge the untyped property below reaches the API as a person property.
+            const overrideUpdateTool = getToolByName('update-feature-flag')
+
+            const createResult = await createTool.handler(context, {
+                name: 'Group targeted flag',
+                key: generateUniqueKey('group-targeting'),
+                filters: {
+                    aggregation_group_type_index: 0,
+                    groups: [
+                        {
+                            aggregation_group_type_index: 0,
+                            properties: [
+                                {
+                                    key: 'plan',
+                                    type: 'group',
+                                    group_type_index: 0,
+                                    operator: 'exact',
+                                    value: 'enterprise',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            // The shape agents actually send: key, operator and value only.
+            const updateResult = await overrideUpdateTool.handler(context, {
+                id: createdFlag.id,
+                filters: {
+                    groups: [
+                        {
+                            properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            })
+            const updatedFlag = parseToolResponse(updateResult)
+
+            // Flag-level aggregation survives the backend's shallow merge on its own, so the
+            // property assertions below are what actually cover the fix.
+            expect(updatedFlag.filters.aggregation_group_type_index).toBe(0)
+            const updatedProperty = updatedFlag.filters.groups[0].properties[0]
+            expect(updatedProperty.value).toBe('pro')
+            expect(updatedProperty.type).toBe('group')
+            expect(updatedProperty.group_type_index).toBe(0)
         })
 
         it('should update feature flag filters', async () => {

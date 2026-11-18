@@ -2,11 +2,27 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Support',
+    globalModals: {
+        ComposeTicketModal: () =>
+            import('./frontend/components/ComposeTicket/ComposeTicketModalHost').then(
+                (module) => module.ComposeTicketModalHost
+            ),
+    },
+    activityDescribers: {
+        [ActivityScope.TICKET]: () =>
+            import('./frontend/activityDescriber').then((module) => module.ticketActivityDescriber),
+    },
     scenes: {
+        SupportOverview: {
+            name: 'Support overview',
+            import: () => import('./frontend/scenes/overview/SupportOverviewScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         SupportTickets: {
             name: 'Ticket list',
             description:
@@ -15,6 +31,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/tickets/SupportTicketsScene'),
             projectBased: true,
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/support',
         },
         SupportTicketDetail: {
             name: 'Ticket detail',
@@ -38,13 +55,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        '/support': ['SupportOverview', 'supportOverview'],
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
         '/my-tickets': ['MyTickets', 'myTickets'],
-    },
-    redirects: {
-        '/support': '/support/tickets',
     },
     urls: {
         supportDashboard: (): string => '/support',
@@ -60,8 +75,9 @@ export const manifest: ProductManifest = {
         {
             path: 'Support',
             intents: [ProductKey.CONVERSATIONS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.MONITORING,
             href: urls.supportTickets(),
+            searchKeywords: ['tickets', 'conversations', 'helpdesk', 'chat widget'],
             type: 'conversations',
             iconType: 'conversations',
             iconColor: [

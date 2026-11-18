@@ -1,8 +1,8 @@
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
+import { BlockCompression } from './block-compression'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -10,24 +10,14 @@ import { SessionConsoleLogStore } from './session-console-log-store'
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
     maxBatchSizeBytes: number
-    /** Maximum age of a batch in milliseconds before it should be flushed */
     maxBatchAgeMs: number
-    /** Maximum number of events per session per batch before rate limiting */
     maxEventsPerSessionPerBatch: number
-    /** Rollout percentage (0-100) for the per-session ML feature recorder */
-    featuresRolloutPercentage?: number
-    /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
-    /** Handles writing session batch files to storage */
     fileStorage: SessionBatchFileStorage
-    /** Manages storing session metadata */
     metadataStore: SessionMetadataSink
-    /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
-    /** Manages storing session features for ML scoring */
-    featureStore: SessionFeatureStore
-    /** Encryptor for session recording data */
     encryptor: RecordingEncryptor
+    compression?: BlockCompression // default Snappy
 }
 
 /**
@@ -66,41 +56,34 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
-    private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
-    private readonly featureStore: SessionFeatureStore
     private readonly encryptor: RecordingEncryptor
+    private readonly compression?: BlockCompression
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
-        this.featuresRolloutPercentage = config.featuresRolloutPercentage ?? 100
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
-        this.featureStore = config.featureStore
         this.encryptor = config.encryptor
+        this.compression = config.compression
     }
 
-    /**
-     * Mints a fresh, empty batch. The caller owns the returned recorder for one accumulation cycle and
-     * flushes it when due.
-     */
     public createBatch(): SessionBatchRecorder {
         return new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.featureStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
-            this.featuresRolloutPercentage
+            this.compression
         )
     }
 
@@ -119,10 +102,6 @@ export class SessionBatchManager {
     }
 
     /**
-     * Whether the given batch is due to flush, by size (bytes accumulated) or age (since it was minted):
-     * - Size of the batch exceeding maxBatchSizeBytes
-     * - Age of the batch exceeding maxBatchAgeMs
-     *
      * @param lastFlushTime - When the current accumulation cycle started (the last flush, or startup).
      */
     public shouldFlush(batch: SessionBatchRecorder, lastFlushTime: number): boolean {

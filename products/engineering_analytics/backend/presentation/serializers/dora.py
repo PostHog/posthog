@@ -1,12 +1,23 @@
 """Payloads for the DORA deploy-metrics read."""
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     DeploymentFrequencyBucket,
     DoraOverview,
-    MergeToDeployBucket,
+    LeadTimeBucket,
 )
+
+
+class DoraEnvironmentQuerySerializer(serializers.Serializer):
+    environment = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="Deploy environments to scope to. Names are trimmed and deduplicated; blank or unknown names "
+        "are rejected. Real transient environments are allowed. Omit to use the production default.",
+    )
 
 
 class DeploymentFrequencyBucketSerializer(DataclassSerializer):
@@ -23,9 +34,9 @@ class DeploymentFrequencyBucketSerializer(DataclassSerializer):
         }
 
 
-class MergeToDeployBucketSerializer(DataclassSerializer):
+class LeadTimeBucketSerializer(DataclassSerializer):
     class Meta:
-        dataclass = MergeToDeployBucket
+        dataclass = LeadTimeBucket
         extra_kwargs = {
             "bucket_start": {
                 "help_text": "Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). "
@@ -33,30 +44,41 @@ class MergeToDeployBucketSerializer(DataclassSerializer):
             },
             "deployed_pr_count": {
                 "help_text": "PRs whose first post-merge successful deployment landed in this bucket "
-                "(bots and drafts excluded; narrowed by github_team when given)."
+                "(bots and drafts excluded; narrowed by github_team when given). The same population "
+                "backs every lead-time series, so the stages compare bucket by bucket."
             },
             "min_seconds": {
-                "help_text": "Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.",
+                "help_text": "Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.",
+                "allow_null": True,
+            },
+            "p05_seconds": {
+                "help_text": "5th percentile of the stage's duration, in seconds: the lower whisker when "
+                "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
             "p25_seconds": {
-                "help_text": "25th percentile merge-to-deploy seconds. Null when nothing deployed.",
+                "help_text": "25th percentile of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median merge-to-deploy seconds. Null when nothing deployed.",
+                "help_text": "Median of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
             "mean_seconds": {
-                "help_text": "Mean merge-to-deploy seconds. Null when nothing deployed.",
+                "help_text": "Mean of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
             "p75_seconds": {
-                "help_text": "75th percentile merge-to-deploy seconds. Null when nothing deployed.",
+                "help_text": "75th percentile of the stage's duration, in seconds. Null when nothing deployed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th percentile of the stage's duration, in seconds: the upper whisker when "
+                "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
             "max_seconds": {
-                "help_text": "Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.",
+                "help_text": "Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
         }
@@ -68,11 +90,23 @@ class DoraOverviewSerializer(DataclassSerializer):
         help_text="Successful deployments per bucket across the window, oldest first, zero-filled, "
         "bucketed by series_granularity. Empty when the deploy tables aren't synced.",
     )
-    merge_to_deploy_series = MergeToDeployBucketSerializer(
+    merge_to_deploy_series = LeadTimeBucketSerializer(
         many=True,
-        help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
-        "series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, "
-        "or when github_team was passed without membership data synced.",
+        help_text="Merge-to-deploy distribution per bucket across the window, oldest first: the box-plot "
+        "series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't "
+        "synced, or when github_team was passed without membership data synced.",
+    )
+    open_to_merge_series = LeadTimeBucketSerializer(
+        many=True,
+        help_text="Open-to-merge distribution over the SAME deployed PRs and buckets as "
+        "merge_to_deploy_series, so the two stages compare bucket by bucket. Not the "
+        "all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series.",
+    )
+    open_to_deploy_series = LeadTimeBucketSerializer(
+        many=True,
+        help_text="Open-to-deploy distribution over the same deployed PRs and buckets: the full "
+        "open to first-successful-deploy span the two stages above compose into. Empty in the "
+        "same cases as merge_to_deploy_series.",
     )
 
     class Meta:
@@ -83,17 +117,18 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "selected repo; every other field is then empty or null, never a fake zero."
             },
             "environment_scope": {
-                "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), an exact environment name (the one passed, or the busiest persistent "
-                "environment when nothing is marked production), or 'persistent' (no persistent environment "
-                "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
-                "per-PR previews) never join a default scope. The scope resolves from deployments in the scan "
-                "window, so two different windows can resolve different scopes and are not always comparable."
+                "help_text": "Display label for the selected environments, comma-separated, 'persistent' when no "
+                "persistent environments were discovered. Use selected_environments for exact names."
             },
             "environments": {
-                "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
-                "first — the environment picker's options. Transient environments are omitted but stay "
-                "reachable by exact name."
+                "help_text": "Distinct persistent environments from the metric scan window or the 30 days before "
+                "its end, whichever starts earlier, most-deployed first. Transient environments are omitted."
+            },
+            "selected_environments": {
+                "help_text": "Exact environment names used for these metrics. Defaults to all persistent "
+                "environments marked production or named prod/production (including regional suffixes), "
+                "falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. "
+                "DRF rejects blank or unknown names; real transient names are allowed."
             },
             "has_membership_data": {
                 "help_text": "True when the optional team-membership snapshot is synced. When false, a "
@@ -101,7 +136,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "silently unfiltered."
             },
             "github_teams": {
-                "help_text": "Distinct GitHub team slugs from the membership snapshot, sorted — the team "
+                "help_text": "Distinct GitHub team slugs from the membership snapshot, sorted: the team "
                 "picker's options. Empty when membership isn't synced."
             },
             "deployment_count": {
@@ -129,8 +164,19 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "help_text": "Previous-window twin of median_merge_to_deploy_seconds.",
                 "allow_null": True,
             },
+            "median_open_to_deploy_seconds": {
+                "help_text": "Median seconds from a PR's open to the first successful deployment "
+                "containing it: the full open-to-deploy lead time over the same deployed-PR "
+                "population as median_merge_to_deploy_seconds. Null when nothing deployed in the "
+                "window.",
+                "allow_null": True,
+            },
+            "median_open_to_deploy_seconds_prev": {
+                "help_text": "Previous-window twin of median_open_to_deploy_seconds.",
+                "allow_null": True,
+            },
             "deployed_pr_count": {
-                "help_text": "PRs first deployed in the window — the population behind the merge-to-deploy "
+                "help_text": "PRs first deployed in the window: the population behind the merge-to-deploy "
                 "median and box plot."
             },
             "deployed_pr_count_prev": {"help_text": "Previous-window twin of deployed_pr_count."},
@@ -161,7 +207,7 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "merged_pr_count": {
                 "help_text": "PRs merged in the window (bots and drafts excluded; narrowed by github_team "
-                "when given) — the denominator behind unattributed_merged_pr_share."
+                "when given): the denominator behind unattributed_merged_pr_share."
             },
             "unattributed_merged_pr_share": {
                 "help_text": "Share of merged_pr_count no successful in-scope deployment attributed: recent "
@@ -170,11 +216,12 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "latest_deploy_status_at": {
-                "help_text": "The newest deployment status row synced, any environment — how fresh the deploy "
+                "help_text": "The newest deployment status row synced, any environment: how fresh the deploy "
                 "data is. Windows ending after this instant undercount. Null when the deploy tables are empty.",
                 "allow_null": True,
             },
             "series_granularity": {
-                "help_text": "Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'."
+                "help_text": "Bucket width of every series: the granularity param when given, else chosen to "
+                "fit the window: 'hour', 'day', or 'week'."
             },
         }

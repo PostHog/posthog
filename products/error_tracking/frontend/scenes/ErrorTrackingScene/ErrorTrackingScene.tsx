@@ -1,31 +1,33 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBadge, LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, CyclotronJobFiltersType } from '~/types'
 
-import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
-import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { errorTrackingEmptyState } from '../../emptyState/errorTrackingEmptyState'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
+import { ErrorTrackingBanners } from './banners/ErrorTrackingBanners'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -33,9 +35,6 @@ import {
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesList } from './tabs/issues/IssuesList'
-import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
-import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
-import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -46,13 +45,13 @@ const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
+    productKey: ProductKey.ERROR_TRACKING,
+    emptyState: errorTrackingEmptyState,
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
     // Same gate as the settings section: configuration endpoints require error tracking viewer access.
     const configurationAccessDeniedReason = getAccessControlDisabledReason(
         AccessControlResourceType.ErrorTracking,
@@ -80,14 +79,13 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <ErrorTrackingSetupPrompt>
-                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    <SourceMapsBanner />
+                <>
+                    <ErrorTrackingBanners />
                     <IssuesList />
                     {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
                         first:-mt-4 can detect whether a banner renders above it */}
                     <ErrorTrackingIssueFilteringTool />
-                </ErrorTrackingSetupPrompt>
+                </>
             ),
         },
         {
@@ -95,15 +93,6 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Insights',
             content: <ErrorTrackingInsights />,
         },
-        ...(hasRecommendations
-            ? [
-                  {
-                      key: 'recommendations' as const,
-                      label: <RecommendationsTabLabel />,
-                      content: <RecommendationsTab />,
-                  },
-              ]
-            : []),
         {
             key: 'configuration',
             label: 'Configuration',
@@ -113,15 +102,12 @@ export function ErrorTrackingScene(): JSX.Element {
                 // content must deny too — not just the tab button.
                 <AccessDenied reason={configurationAccessDeniedReason} />
             ) : (
-                <>
-                    <IntegrationsMovedBanner />
-                    <Settings
-                        logicKey={ERROR_TRACKING_LOGIC_KEY}
-                        sectionId="environment-error-tracking-configuration"
-                        settingId="error-tracking-alerting"
-                        handleLocally
-                    />
-                </>
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking-configuration"
+                    settingId="error-tracking-alerting"
+                    handleLocally
+                />
             ),
         },
     ]
@@ -140,23 +126,9 @@ export function ErrorTrackingScene(): JSX.Element {
     )
 }
 
-const RecommendationsTabLabel = (): JSX.Element => {
-    const { activeRecommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
-
-    return (
-        <span className="flex items-center gap-1.5">
-            Recommendations
-            {recommendationsLoading ? (
-                <LemonBadge size="small" content={<Spinner textColored />} />
-            ) : (
-                <LemonBadge.Number count={activeRecommendations.length} size="small" showZero />
-            )}
-        </span>
-    )
-}
-
 const Header = (): JSX.Element => {
     const { isDev } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const buildExceptionSteps = (): {
         $type: string
@@ -174,7 +146,7 @@ const Header = (): JSX.Element => {
             },
             {
                 $type: 'http',
-                $message: 'GET /api/environments/:team_id/error_tracking/issues/',
+                $message: 'GET /api/projects/:team_id/error_tracking/issues/',
                 $level: 'info',
                 $timestamp: new Date(now.getTime() - 1200).toISOString(),
             },
@@ -202,60 +174,75 @@ const Header = (): JSX.Element => {
                     type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
-                        {isDev ? (
-                            <>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => {
-                                        posthog.captureException(new Error('Kaboom !'), {
-                                            $exception_steps: buildExceptionSteps(),
-                                        })
-                                    }}
-                                >
-                                    Send an exception
-                                </LemonButton>
-                                <LemonButton size="small" onClick={onClick}>
-                                    Start exception loop
-                                </LemonButton>
-                            </>
-                        ) : null}
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconFeedback />}
-                            onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
-                        >
-                            Feedback
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            to="https://posthog.com/docs/error-tracking"
-                            type="secondary"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {isDev ? (
+                                <>
+                                    <Button
+                                        onClick={() => {
+                                            posthog.captureException(new Error('Kaboom !'), {
+                                                $exception_steps: buildExceptionSteps(),
+                                            })
+                                        }}
+                                    >
+                                        Send an exception
+                                    </Button>
+                                    <Button onClick={onClick}>Start exception loop</Button>
+                                </>
+                            ) : null}
+                            <Button
+                                variant="outline"
+                                onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                            >
+                                <IconFeedback />
+                                Feedback
+                            </Button>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to="https://posthog.com/docs/error-tracking" target="_blank" />}
+                            >
+                                Documentation
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            {isDev ? (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => {
+                                            posthog.captureException(new Error('Kaboom !'), {
+                                                $exception_steps: buildExceptionSteps(),
+                                            })
+                                        }}
+                                    >
+                                        Send an exception
+                                    </LemonButton>
+                                    <LemonButton size="small" onClick={onClick}>
+                                        Start exception loop
+                                    </LemonButton>
+                                </>
+                            ) : null}
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                            >
+                                Feedback
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                to="https://posthog.com/docs/error-tracking"
+                                type="secondary"
+                                targetBlank
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
         </>
-    )
-}
-
-const IngestionStatusCheck = (): JSX.Element | null => {
-    return (
-        <LemonBanner type="warning" className="my-2">
-            <p>
-                <strong>No Exception events have been detected!</strong>
-            </p>
-            <p>
-                To use the Error tracking product, please{' '}
-                <Link to="https://posthog.com/docs/error-tracking/installation">
-                    enable exception capture within the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
-            </p>
-        </LemonBanner>
     )
 }

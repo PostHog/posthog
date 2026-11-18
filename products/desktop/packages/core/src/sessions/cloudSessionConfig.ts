@@ -1,5 +1,11 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { Adapter, StoredLogEntry } from "@posthog/shared";
+import {
+  type Adapter,
+  getConfigOptionByCategory,
+  getReasoningEffortOptions,
+  type StoredLogEntry,
+} from "@posthog/shared";
+import { clampEffortToAvailable } from "../task-detail/previewConfig";
 import {
   getAvailableModesForAdapter,
   getDefaultExecutionModeForAdapter,
@@ -7,6 +13,40 @@ import {
 
 export function getCloudReasoningConfigOptionId(adapter: Adapter): string {
   return adapter === "codex" ? "reasoning_effort" : "effort";
+}
+
+/** A completed run has no agent to rebuild controls after a model change. */
+export function buildCloudResumeConfigOptions(
+  configOptions: SessionConfigOption[],
+  adapter: Adapter,
+  model: string,
+): SessionConfigOption[] {
+  const mode = getConfigOptionByCategory(configOptions, "mode")?.currentValue;
+  const effort = getConfigOptionByCategory(
+    configOptions,
+    "thought_level",
+  )?.currentValue;
+  const efforts = getReasoningEffortOptions(adapter, model);
+  const extras = configOptions.filter((option) => option.category === "model");
+  if (efforts?.length) {
+    extras.push({
+      id: getCloudReasoningConfigOptionId(adapter),
+      name: adapter === "codex" ? "Reasoning" : "Effort",
+      type: "select",
+      category: "thought_level",
+      currentValue:
+        clampEffortToAvailable(
+          typeof effort === "string" ? effort : "high",
+          efforts.map((option) => option.value),
+        ) ?? "high",
+      options: efforts,
+    });
+  }
+  return buildCloudDefaultConfigOptions(
+    typeof mode === "string" ? mode : undefined,
+    adapter,
+    extras,
+  );
 }
 
 /**

@@ -6,9 +6,10 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
-use capture::router::{router, BATCH_BODY_SIZE};
-use capture::sinks::Event;
+use capture::router::{router, AI_BODY_SIZE, BATCH_BODY_SIZE};
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
@@ -48,15 +49,17 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -79,7 +82,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis.clone(),
         None,
         CaptureQuotaLimiter::new(&cfg, redis, Duration::from_secs(60)),
@@ -105,10 +108,9 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         None, // ai_events_overflow_limiter
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
-        None, // v1_sink_router
         8,
+        true,
         None,
-        false,
         None,
     );
 
@@ -121,9 +123,9 @@ fn body_of_len(len: usize) -> String {
     named_body_of_len(len, "e")
 }
 
-/// The same, with the event name chosen. Capture-ai rejects any event outside the
-/// `AI_EVENT_NAMES` allowlist with a 400 before the size check is reached, so an
-/// AI-lane body has to carry a listed name to exercise the cap at all.
+/// The same, with the event name chosen. Capture-ai rejects any event without the
+/// `$ai_` prefix with a 400 before the size check is reached, so an AI-lane body
+/// has to carry an `$ai_` name to exercise the cap at all.
 fn named_body_of_len(len: usize, event: &str) -> String {
     let envelope = format!(
         r#"{{"token":"phc_test","event":"{event}","distinct_id":"d","properties":{{"big":""}}}}"#
@@ -199,20 +201,20 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
     }
 }
 
-/// `/i/v0/ai/batch` carries the same handler and the same cap, but it lives in
+/// `/i/v0/ai/batch` carries the same handler and the AI cap, but it lives in
 /// its own router group that only capture-ai registers. That split is what makes
 /// this worth pinning apart: a group added without the `WireBodyLimit` extension
 /// falls back to the decompressed budget and reverts the fix on this one route,
 /// and no Events-mode sweep would notice.
 #[tokio::test]
-async fn the_ai_batch_route_carries_the_same_wire_cap() {
+async fn the_ai_batch_route_carries_the_ai_wire_cap() {
     let (client, sink) = make_test_client(CaptureMode::Ai);
 
     let res = client
         .post("/i/v0/ai/batch")
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
-        .body(named_body_of_len(BATCH_BODY_SIZE + 1024, "$ai_span"))
+        .body(named_body_of_len(AI_BODY_SIZE + 1024, "$ai_span"))
         .send()
         .await;
     assert_eq!(
@@ -225,13 +227,13 @@ async fn the_ai_batch_route_carries_the_same_wire_cap() {
         .post("/i/v0/ai/batch")
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
-        .body(named_body_of_len(4 * 1024 * 1024, "$ai_span"))
+        .body(named_body_of_len(BATCH_BODY_SIZE + 1024, "$ai_span"))
         .send()
         .await;
     assert_eq!(
         StatusCode::OK,
         res.status(),
-        "/i/v0/ai/batch rejected a body inside the wire cap"
+        "/i/v0/ai/batch rejected a body over the analytics cap but inside its own"
     );
     assert_eq!(
         1,

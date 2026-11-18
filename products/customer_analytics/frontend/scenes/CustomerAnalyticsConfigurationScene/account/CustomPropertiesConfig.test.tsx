@@ -37,6 +37,7 @@ describe('CustomPropertiesConfig', () => {
         created_by: 1,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
     }
 
     beforeEach(() => {
@@ -74,6 +75,34 @@ describe('CustomPropertiesConfig', () => {
     })
 
     afterEach(cleanup)
+
+    it('shows workflow as the source without exposing a redacted workflow', () => {
+        ;(useValues as jest.Mock).mockImplementation((logic) => {
+            if (logic === featureFlagLogic) {
+                return { featureFlags: {} }
+            }
+            if (logic === customPropertyDefinitionsLogic) {
+                return {
+                    filteredDefinitions: [{ ...propertyDefinition, has_workflow_reference: true }],
+                    definitionsLoading: false,
+                    searchTerm: '',
+                    targetTypeFilter: 'all',
+                    runsBySourceId: {},
+                    runsCountBySourceId: {},
+                    runsOffsetBySourceId: {},
+                    runsSearchBySourceId: {},
+                    runsLoadingBySourceId: {},
+                    runsLoadFailedBySourceId: {},
+                }
+            }
+            throw new Error('Unexpected logic')
+        })
+
+        const { getAllByText, queryByText } = render(<CustomPropertiesConfig />)
+
+        expect(getAllByText('Workflow')).toHaveLength(2)
+        expect(queryByText('Visible workflow')).not.toBeInTheDocument()
+    })
 
     it('opens a confirmation dialog before deleting a custom property', () => {
         render(<CustomPropertiesConfig />)

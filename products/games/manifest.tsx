@@ -17,14 +17,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             activityScope: 'Games',
         },
+        ShipIt: {
+            name: 'Ship It',
+            import: () => import('./frontend/ShipIt/ShipIt'),
+            projectBased: true,
+            activityScope: 'Games',
+        },
     },
     routes: {
         '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
         '/games/flappyhog': ['FlappyHog', 'flappyHog'],
+        '/games/shipit': ['ShipIt', 'shipIt'],
     },
     urls: {
         game368hedgehogs: (): string => `/games/368hedgehogs`,
         flappyHog: (): string => `/games/flappyhog`,
+        shipIt: (): string => `/games/shipit`,
     },
     treeItemsGames: [
         {
@@ -34,6 +42,10 @@ export const manifest: ProductManifest = {
         {
             path: 'Flappy Hog',
             href: '/games/flappyhog',
+        },
+        {
+            path: 'Ship It',
+            href: urls.shipIt(),
         },
     ],
 }

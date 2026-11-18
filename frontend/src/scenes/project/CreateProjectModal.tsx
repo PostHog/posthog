@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
+import { isProjectNameTaken } from './isProjectNameTaken'
 
 const MOCK_PRODUCT_NAMES = [
     'Lemonify',
@@ -35,9 +36,7 @@ export function CreateProjectModal({
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
-    const isNameTaken = !!currentOrganization?.projects?.some(
-        (project) => project.name.trim().toLowerCase() === name.trim().toLowerCase()
-    )
+    const isNameTaken = isProjectNameTaken(name, currentOrganization?.projects)
 
     const closeModal: () => void = () => {
         if (onClose) {
@@ -83,7 +82,7 @@ export function CreateProjectModal({
                     <p>
                         <strong>Tip:</strong> We recommend using the same project for both your website and app to track
                         conversion fully.{' '}
-                        <Link to="https://posthog.com/docs/settings/projects" target="_blank" disableDocsPanel>
+                        <Link to="https://posthog.com/docs/settings/projects" target="_blank">
                             Learn more in PostHog docs.
                         </Link>
                     </p>

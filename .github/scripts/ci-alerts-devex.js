@@ -35,6 +35,8 @@
 // GitHub API rate-limit observability is handled by the separate
 // monitor-github-rate-limit workflow, which emits to PostHog as time series.
 
+const fs = require('node:fs')
+
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
 // Per-workflow links point at the engineering analytics workflow-detail page (not GitHub), scoped
@@ -62,6 +64,12 @@ const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
 const SCHEDULED_LANE_LABEL = '(scheduled)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
+// The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
+// alert thread, so dropping either from the payload leaves the agent's answer with nowhere to land.
+const INCIDENT_OPENED_EVENT = 'master_ci_incident_opened'
+const WEBHOOK_ATTEMPTS = 3
+const WEBHOOK_RETRY_DELAY_MS = 2000
+const WEBHOOK_TIMEOUT_MS = 10000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -90,9 +98,10 @@ function buildLanes(env) {
         // active hours.
         countNeedsActivity: false,
     }))
-    for (const workflowFile of list(env.SCHEDULED_GATING_WORKFLOWS)) {
+    const scheduled = list(env.SCHEDULED_GATING_WORKFLOWS).map((workflowFile) => ({ workflowFile }))
+    for (const source of scheduled) {
         lanes.push({
-            workflowFile,
+            ...source,
             event: 'schedule',
             label: SCHEDULED_LANE_LABEL,
             maxLagMinutes: SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES,
@@ -106,7 +115,43 @@ function buildLanes(env) {
             countNeedsActivity: true,
         })
     }
-    return lanes
+    // A workflow that runs on Depot CI has no GitHub runs to list. Each of its lanes reads the
+    // file that .github/scripts/depot_backend_runs.py wrote for that trigger, which holds the runs
+    // in GitHub's shape. A missing or unparseable file throws, so the lane reads as unreadable,
+    // never green.
+    const depotWorkflows = new Set(list(env.DEPOT_WORKFLOWS))
+    return lanes.map((lane) =>
+        depotWorkflows.has(lane.workflowFile)
+            ? { ...lane, ...depotRunSource(`${env.DEPOT_RUNS_DIR}/${lane.workflowFile}-${lane.event}.json`) }
+            : lane
+    )
+}
+
+function depotRunSource(file) {
+    return {
+        listRuns: (page) => {
+            if (page !== 1) {
+                return []
+            }
+            const runs = JSON.parse(fs.readFileSync(file, 'utf8'))
+            if (
+                !Array.isArray(runs) ||
+                runs.length === 0 ||
+                runs.some(
+                    (run) =>
+                        !run ||
+                        !['completed', 'in_progress'].includes(run.status) ||
+                        !Number.isFinite(Date.parse(run.created_at)) ||
+                        (run.status === 'completed' && !['success', 'failure', 'cancelled'].includes(run.conclusion))
+                )
+            ) {
+                throw new Error('Depot runs file contains invalid run data')
+            }
+            return runs
+        },
+        // GitHub has no run history for this lane, so the alert links its failing run.
+        linkFailingRun: true,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,11 +180,19 @@ async function fetchWorkflowRuns(
     repo,
     workflowFile,
     perPage,
-    { event = 'push', maxLagMinutes = RUN_INDEX_MAX_LAG_MINUTES, freshAsOf = null, sleep = defaultSleep } = {}
+    { event = 'push', maxLagMinutes = RUN_INDEX_MAX_LAG_MINUTES, freshAsOf = null, sleep = defaultSleep, listRuns } = {}
 ) {
+    // One raw page of the lane's runs, newest first. A lane brings its own source when its runs
+    // are not GitHub workflow runs.
+    const listPage =
+        listRuns ||
+        ((page) =>
+            github.rest.actions
+                .listWorkflowRuns({ owner, repo, workflow_id: workflowFile, branch: 'master', event, per_page: perPage, page })
+                .then(({ data }) => data.workflow_runs))
     for (let attempt = 0; ; attempt++) {
         try {
-            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf })
+            return await fetchSettledRuns(listPage, workflowFile, perPage, { event, maxLagMinutes, freshAsOf })
         } catch (err) {
             if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {throw err}
             await sleep(STALE_PAGE_RETRY_DELAY_MS)
@@ -147,23 +200,15 @@ async function fetchWorkflowRuns(
     }
 }
 
-async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf }) {
+async function fetchSettledRuns(listPage, workflowFile, perPage, { event, maxLagMinutes, freshAsOf }) {
     const MAX_PAGES = 5
     const settled = []
     for (let page = 1; page <= MAX_PAGES; page++) {
-        const { data } = await github.rest.actions.listWorkflowRuns({
-            owner,
-            repo,
-            workflow_id: workflowFile,
-            branch: 'master',
-            event,
-            per_page: perPage,
-            page,
-        })
+        const runs = await listPage(page)
         // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
         // page is the same anomaly — every lane has master run history.
         if (page === 1 && freshAsOf) {
-            const head = data.workflow_runs[0]
+            const head = runs[0]
             // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
             const lagMins = head
                 ? (new Date(freshAsOf).getTime() - new Date(head.created_at).getTime()) / 60000
@@ -176,12 +221,13 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { ev
                 throw err
             }
         }
-        for (const run of data.workflow_runs) {
+        for (const run of runs) {
             // In-progress/queued must neither count as nor break a failure streak (mirroring how
             // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
             if (run.status !== 'completed') {continue}
             if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') {continue}
             settled.push({
+                id: run.id,
                 name: run.name,
                 conclusion: run.conclusion,
                 sha: run.head_sha,
@@ -194,7 +240,7 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { ev
         // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
         // A short raw page means there are no older runs to fetch.
         const streakBounded = settled.some((r) => !isFailure(r))
-        if (streakBounded || data.workflow_runs.length < perPage) {break}
+        if (streakBounded || runs.length < perPage) {break}
     }
     return settled
 }
@@ -242,7 +288,10 @@ function buildFailingMap(laneRuns) {
                 lane,
                 since: oldest.updated_at, // detection (full streak)
                 displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
+                run_id: latest.id,
                 run_url: latest.run_url,
+                run_created_at: latest.created_at,
+                run_sha: latest.sha,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
             }
@@ -335,6 +384,33 @@ function defaultSlackClient(token, fetchImpl) {
             return data
         },
     }
+}
+
+// Only an incident's first tick calls this, so a start lost here is never retried by a later tick.
+async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
+    if (!url) {return false}
+    // The url is the only thing guarding the endpoint, and a variable is not masked in this public
+    // repo's logs, so register it before any code path can print it.
+    core.setSecret(url)
+    const doFetch = fetchImpl || fetch
+    let lastError = 'unknown'
+    for (let attempt = 1; attempt <= WEBHOOK_ATTEMPTS; attempt++) {
+        try {
+            const res = await doFetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+            })
+            if (res.ok) {return true}
+            lastError = `HTTP ${res.status}`
+        } catch (err) {
+            lastError = err.message
+        }
+        if (attempt < WEBHOOK_ATTEMPTS) {await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)}
+    }
+    core.setFailed(`Could not start the diagnosis agent after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
+    return false
 }
 
 // The bot's own open incident, identified purely by message metadata — no other
@@ -504,6 +580,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                           maxLagMinutes: lane.maxLagMinutes,
                           freshAsOf,
                           sleep,
+                          listRuns: lane.listRuns,
                       }).catch((err) => {
                           core.warning(`No usable ${lane.event} runs for ${lane.workflowFile}: ${err.message}`)
                           return null
@@ -527,7 +604,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
             return {
                 ...f,
-                runsUrl: runsUrlFor(owner, repo, f.workflowName),
+                runsUrl: f.lane.linkFailingRun ? f.run_url : runsUrlFor(owner, repo, f.workflowName),
                 redForMins, // detection: byDuration + open/resolve thresholds
                 displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
                 byCount: f.consecutive_failures >= f.lane.streakThreshold,
@@ -601,6 +678,30 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 thread_ts: posted.ts,
                 text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
             })
+            await startDiagnosisAgent(
+                { url: process.env.DIAGNOSIS_WEBHOOK_URL, fetchImpl: _fetch, sleep, core },
+                {
+                    event: INCIDENT_OPENED_EVENT,
+                    distinct_id: 'ci-alerts-devex',
+                    properties: {
+                        channel,
+                        ts: posted.ts,
+                        workflows: blocking.map((failure) => ({
+                            name: failure.name,
+                            workflow_file: failure.workflow_file,
+                            event: failure.lane.event,
+                            run_id: failure.run_id,
+                            run_url: failure.run_url,
+                            run_created_at: failure.run_created_at,
+                            head_sha: failure.run_sha,
+                        })),
+                        commit_streak: commitActive ? commitStreakCount : 0,
+                        since,
+                        latest_commit_sha: latestCommit?.sha || '',
+                        all_failing_runs_url: allFailingRunsUrl,
+                    },
+                }
+            )
             action = 'create'
         } else {
             await slack.update({ channel, ts: active.ts, ...message, metadata, unfurl_links: false })

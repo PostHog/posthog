@@ -16,12 +16,12 @@ jest.mock('html-to-image', () => ({
 
 const TARGET = { selector: '[data-attr="insights-graph"]', screenshotKey: 'test' }
 
-function renderButton(): void {
+function renderButton({ withEditor = true }: { withEditor?: boolean } = {}): void {
     render(
         <>
             <div data-attr="insights-graph">chart</div>
             <SceneCopyImageButton target={TARGET} dataAttrKey="insight" />
-            <ScreenShotEditor screenshotKey={TARGET.screenshotKey} />
+            {withEditor && <ScreenShotEditor screenshotKey={TARGET.screenshotKey} />}
             <ToastContainer />
         </>
     )
@@ -54,6 +54,15 @@ describe('SceneCopyImageButton', () => {
         await userEvent.click(screen.getByText('Edit image'))
 
         expect(await screen.findByText('Edit Screenshot')).toBeInTheDocument()
+    })
+
+    it('offers no editor button on a surface that mounts no editor', async () => {
+        renderButton({ withEditor: false })
+
+        await userEvent.click(screen.getByText('Copy as PNG'))
+
+        expect(await screen.findByText('Image copied to clipboard')).toBeInTheDocument()
+        expect(screen.queryByText('Edit image')).not.toBeInTheDocument()
     })
 
     it('points at Export when the clipboard write fails, and stays clickable', async () => {

@@ -102,4 +102,4 @@ The MCP-side filtering is presentation, not security: it exists so staff-only to
 The security boundary is the Django endpoint (`/api/managed_migrations_support/`), which requires an authenticated staff user plus the explicit scope, rejects wildcard keys, and audit-logs every read.
 See `products/managed_migrations/backend/api/support_batch_imports.py` and `services/mcp/src/lib/staff-only-tools.ts`.
 
-For testing changes to any of this locally, use the [testing-mcp-tools-locally](../skills/testing-mcp-tools-locally/SKILL.md) skill.
+For testing changes to any of this locally, use the [testing-mcp-tools-locally](../../../.agents/skills/testing-mcp-tools-locally/SKILL.md) skill.

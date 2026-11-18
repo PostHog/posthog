@@ -1,7 +1,10 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
+
+from posthog.metrics import pushed_metrics_registry
 
 logger = structlog.get_logger(__name__)
 
@@ -20,11 +23,25 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
+#   drained           — terminal run whose stream key already expired; ended immediately
 #   client_disconnect — client went away (GeneratorExit) before completion
 #   rotated           — per-connection cap reached; clean EOF, client resumes
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
+#   backlog_error     — run-log read for connect-time backlog failed; client retries
+#   backlog_busy      — worker at its in-flight replay byte budget; client retries
+StreamConnectionOutcome = Literal[
+    "completed",
+    "stream_error",
+    "unavailable",
+    "drained",
+    "client_disconnect",
+    "rotated",
+    "backlog_error",
+    "backlog_busy",
+]
+StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
+StreamTokenRoute = Literal["proxy", "django", "thin_tail_withheld"]
 _ALLOWED_MODES = {"background", "interactive"}
-_ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
+_ALLOWED_RUN_SOURCES = {"manual", "signal_report", "agent"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 _ALLOWED_TASK_RUNTIMES = {"acp", "pi"}
 
@@ -43,6 +60,38 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
+TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_refused_beside_live_run_total",
+    "Cloud TaskRuns refused because another cloud run of the same task was still live",
+    labelnames=["profile", "source"],
+)
+
+TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL = Counter(
+    "posthog_tasks_status_outside_transitions_total",
+    "Task status changes mirrored from a run that the task status transition table does not allow",
+    labelnames=["from_status", "to_status"],
+)
+
+TASK_CONTRACT_VIOLATION_TOTAL = Counter(
+    "posthog_tasks_contract_violation_total",
+    "Task profile checks that a call failed. A profile that enforces the check refuses the call. Any other profile only counts it.",
+    labelnames=["check", "profile"],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -57,6 +106,12 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "outcome",
         "reason",
     ],
+)
+
+SANDBOX_RUN_START_TOTAL = Counter(
+    "posthog_tasks_sandbox_run_start_total",
+    "Run starts requested by task sandboxes, by endpoint and outcome",
+    labelnames=["endpoint", "outcome"],
 )
 
 TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
@@ -86,6 +141,12 @@ WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
 WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
     "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
 )
+WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_rpc_duration_seconds",
+    "Temporal workflow start RPC duration",
+    labelnames=["kind"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 7.5, 10),
+)
 WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
 WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
     "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
@@ -100,12 +161,18 @@ WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
 WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
     "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
-
-AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
-    "posthog_tasks_agent_otel_telemetry_stamped_total",
-    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
-    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
-    labelnames=["enabled"],
+SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL = Counter(
+    "posthog_tasks_scheduled_task_run_materialization_total",
+    "Scheduled task runs processed by the due-run materializer",
+    labelnames=["outcome"],
+)
+SCHEDULED_TASK_RUN_DUE = Gauge(
+    "posthog_tasks_scheduled_task_run_due",
+    "Scheduled task runs whose requested start time has passed",
+)
+SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
+    "posthog_tasks_scheduled_task_run_oldest_due_age_seconds",
+    "Age of the oldest due scheduled task run",
 )
 
 RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
@@ -122,8 +189,9 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
 
 LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
     "posthog_tasks_log_append_unserialized_total",
-    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
-    "past the blocking timeout), where a concurrent append can still drop entries.",
+    "Task-run log appends that did not hold the per-object lock: refused on contention past the wait "
+    "(the agent retries them) or run unserialized while redis is unavailable.",
+    labelnames=["reason"],
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -154,6 +222,14 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+# Counted once per run on the terminal status write. TASK_RUN_FAILED_TOTAL only sees failures
+# that raise, so it misses runs the workflow fails directly, such as an agent lost mid-turn.
+TASK_RUN_TERMINAL_TOTAL = Counter(
+    "posthog_tasks_task_run_terminal_total",
+    "TaskRun terminal status transitions",
+    labelnames=["origin_product", "run_environment", "status", "error_type", "termination_reason"],
 )
 
 CUSTOM_IMAGE_BUILD_TOTAL = Counter(
@@ -214,6 +290,48 @@ TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_entries_total",
+    "Run-log entries served as connect-time backlog on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_GAP_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_gap_total",
+    "Thin-tail SSE connections whose first uncovered live entry was not contiguous with the log backlog",
+    labelnames=["origin_product"],
+)
+
+STREAM_BACKLOG_BYTES_BUCKETS = [
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    52_428_800.0,
+    134_217_728.0,
+    536_870_912.0,
+]
+
+TASK_RUN_STREAM_BACKLOG_BYTES = Histogram(
+    "posthog_tasks_task_run_stream_backlog_bytes",
+    "Run-log byte size measured before a connect-time backlog replay on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+    buckets=STREAM_BACKLOG_BYTES_BUCKETS,
+)
+
+TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_oversized_total",
+    "Thin-tail SSE connections whose run log exceeded the backlog byte cap and degraded to the Redis window",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_throttled_total",
+    "Thin-tail SSE connections refused a backlog replay because the worker's in-flight replay byte budget was full",
+    labelnames=["origin_product"],
+)
+
 TASK_RUN_STREAM_CONNECTIONS_CLOSED_TOTAL = Counter(
     "posthog_tasks_task_run_stream_connections_closed_total",
     "SSE task-run stream connections closed, labeled by how they ended",
@@ -239,6 +357,23 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_token_routed_total",
+    "Stream read tokens minted, labeled by the read leg the client was routed to and whether it asked to resync",
+    labelnames=["origin_product", "route", "resync_requested"],
+)
+
+TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_write_skipped_total",
+    "Task-run events not mirrored into Redis because presence gating found no attached reader",
+    labelnames=["path", "origin_product"],
+)
+
+TASK_RUN_SANDBOX_PROCESS_KILLED_TOTAL = Counter(
+    "posthog_tasks_sandbox_process_killed_notifications_total",
+    "Sandbox memory watchdog kills captured from the sequenced event ingest",
+)
+
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
     "posthog_tasks_agent_turn_failed_total",
     "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
@@ -249,6 +384,18 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     "posthog_tasks_followup_delivery_failed_total",
     "Follow-up user message deliveries to a live sandbox that failed",
     labelnames=["origin_product", "retryable"],
+)
+
+ACTIVE_SESSION_CAP_HITS_TOTAL = Counter(
+    "posthog_tasks_active_session_cap_hits_total",
+    "Run starts and warm claims refused because the user or organization already holds the max open cloud sandbox sessions",
+    labelnames=["origin_product", "scope"],
+)
+
+WARM_CHURN_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_warm_churn_throttled_total",
+    "Warm requests refused because the user ended too many unclaimed warm sandboxes in the last hour",
+    labelnames=["origin_product"],
 )
 
 SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
@@ -291,6 +438,12 @@ TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     labelnames=["status"],
 )
 
+TURN_COMPLETED_SUPPRESSED_TOTAL = Counter(
+    "posthog_tasks_turn_completed_suppressed_total",
+    "Interactive turn completion notifications and activity updates suppressed by ingest",
+    labelnames=["reason"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
@@ -303,14 +456,6 @@ PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
     labelnames=["kind", "outcome"],
 )
 
-# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
-# (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
-LOOP_FIRE_TOTAL = Counter(
-    "posthog_tasks_loop_fire_total",
-    "Loop trigger fire outcomes",
-    labelnames=["reason"],
-)
-
 # reason is one of: created, replayed, gate_blocked, rate_capped, team_rate_capped,
 # limit_reached, owner_ineligible, a fixed, code-defined set, safe as a label.
 WORKFLOW_TASK_CREATE_TOTAL = Counter(
@@ -319,24 +464,19 @@ WORKFLOW_TASK_CREATE_TOTAL = Counter(
     labelnames=["reason"],
 )
 
-LOOP_AUTO_PAUSED_TOTAL = Counter(
-    "posthog_tasks_loop_auto_paused_total",
-    "Loops auto-paused after exceeding the consecutive-failure threshold",
-)
-
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
     "allowed",
     "startup_plan",
     "prepaid_credits",
+    "signups_paused",
     "override",
     "resolution_failure",
 ]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
-# fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# fail_open when a gateway/token error let the run proceed unchecked (a degraded gateway must not silently remove the only cost backstop), org_deactivated when
 # the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",
@@ -356,56 +496,99 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
-# analytics_event: pr_created | pr_merged | pr_closed | pr_reviewed (bounded, code-defined).
-# reason: unresolved_installation (no Integration matched the delivery's installation id) or
-#         capture_exception (posthoganalytics.capture raised). Both paths were silent before,
-#         so a webhook-side event loss only showed up as a capture-rate dip in analytics.
-GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL = Counter(
-    "posthog_tasks_github_webhook_pr_event_dropped_total",
-    "GitHub PR webhook events that never reached PostHog capture, labeled by event and drop reason",
-    labelnames=["analytics_event", "reason"],
-)
+ComputeSettlementOutcome = Literal[
+    "settled",
+    "duplicate",
+    "settled_locally",
+    "conflict",
+    "retry",
+    "attempts_exhausted",
+    "contract_error",
+    "insufficient_credits",
+    "deployment_error",
+    "skipped",
+]
 
-# outcome: resolved | unresolved | timeout | error. timeout means the bounded org-member
-# lookup hit statement_timeout and was skipped so the delivery survives without attribution.
-GITHUB_WEBHOOK_ATTRIBUTION_TOTAL = Counter(
-    "posthog_tasks_github_webhook_attribution_total",
-    "Outcome of the org-member lookup that attributes a GitHub login on the pr_merged/pr_reviewed webhook path",
+COMPUTE_SETTLEMENTS_TOTAL = Counter(
+    "posthog_tasks_compute_settlements_total",
+    "Sandbox compute settlement attempts against the gateway ledger, by outcome",
     labelnames=["outcome"],
 )
 
+
+def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
+    COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
+
+
+def push_compute_settlement_sweep_gauges(
+    *, hogland_open_over_day: int, unsettled_over_hour: int, parked_by_reason: Mapping[str, int]
+) -> None:
+    with pushed_metrics_registry("tasks_compute_settlement") as registry:
+        Gauge(
+            "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+            "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+            registry=registry,
+        ).set(hogland_open_over_day)
+        Gauge(
+            "posthog_tasks_sandbox_sessions_unsettled_over_hour",
+            "Attributed sandbox sessions that ended more than an hour ago and are neither settled nor parked",
+            registry=registry,
+        ).set(unsettled_over_hour)
+        parked = Gauge(
+            "posthog_tasks_sandbox_sessions_parked",
+            "Sandbox sessions that are parked and not settled, by park reason",
+            labelnames=["reason"],
+            registry=registry,
+        )
+        for reason, rows in parked_by_reason.items():
+            parked.labels(reason=reason).set(rows)
+
+
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
-# TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
-# unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
-# shrink in production before considering anything stricter.
+# TaskRun lookup could ride the team_id index. "false" means no team links the installation,
+# so the lookup is skipped and the delivery matches no run.
 GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     "posthog_tasks_github_webhook_task_run_lookup_total",
     "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
     labelnames=["scoped"],
 )
 
-GitHubWebhookAnalyticsEvent = Literal["pr_created", "pr_merged", "pr_closed", "pr_reviewed"]
-GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
-GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
-
-
-def observe_github_webhook_pr_event_dropped(
-    *, analytics_event: GitHubWebhookAnalyticsEvent, reason: GitHubWebhookDropReason
-) -> None:
-    GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL.labels(analytics_event=analytics_event, reason=reason).inc()
-
-
-def observe_github_webhook_attribution(*, outcome: GitHubWebhookAttributionOutcome) -> None:
-    GITHUB_WEBHOOK_ATTRIBUTION_TOTAL.labels(outcome=outcome).inc()
-
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
+
+
+GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_lookup_total",
+    "GitHub webhook lookups by the leg that picked the run, and whether the task's pr_urls or head_branch named the task",
+    labelnames=["leg", "by_task_columns"],
+)
+
+
+def observe_github_webhook_task_lookup(*, leg: str, by_task_columns: bool) -> None:
+    GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL.labels(leg=leg, by_task_columns="true" if by_task_columns else "false").inc()
+
+
+MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
+    "posthog_tasks_mcp_exclude_tools_over_cap_total",
+    "Profiled runs refused because the profile and the run together hide more MCP tools than the sandbox cap",
+    labelnames=["profile"],
+)
+
+
+def observe_mcp_exclude_tools_over_cap(*, profile: str) -> None:
+    MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL.labels(profile=profile).inc()
 
 
 def _metric_label(value: object | None) -> str:
@@ -477,6 +660,47 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_refused_beside_live_run(*, profile: str, source: str) -> None:
+    TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL.labels(profile=profile, source=source).inc()
+
+
+def observe_task_status_outside_transitions(*, from_status: str, to_status: str) -> None:
+    TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
+
+
+TASK_DONE_TOTAL = Counter(
+    "posthog_tasks_done_total",
+    "Tasks moved to done, or that would move under shadow mode, by profile, reason and done mode",
+    labelnames=["profile", "reason", "mode"],
+)
+
+TASK_WAKE_REFUSED_TOTAL = Counter(
+    "posthog_tasks_wake_refused_total",
+    "Wakes refused because the task is done, or that would be refused under shadow mode",
+    labelnames=["profile", "source", "mode"],
+)
+
+
+def observe_task_done(*, profile: str, reason: str, mode: str) -> None:
+    TASK_DONE_TOTAL.labels(profile=profile, reason=reason, mode=mode).inc()
+
+
+def observe_task_wake_refused(*, profile: str, source: str, mode: str) -> None:
+    TASK_WAKE_REFUSED_TOTAL.labels(profile=profile, source=source, mode=mode).inc()
+
+
+def observe_contract_violation(*, check: str, profile: str) -> None:
+    TASK_CONTRACT_VIOLATION_TOTAL.labels(check=check, profile=profile).inc()
+
+
+def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
+    SANDBOX_RUN_START_TOTAL.labels(endpoint=endpoint, outcome=outcome).inc()
 
 
 def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
@@ -563,6 +787,27 @@ def observe_stream_connection_opened(origin_product: str) -> None:
     TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL.labels(origin_product=origin_product).inc()
 
 
+def observe_stream_backlog_served(origin_product: str, entries: int) -> None:
+    if entries > 0:
+        TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL.labels(origin_product=origin_product).inc(entries)
+
+
+def observe_stream_backlog_gap(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_bytes(origin_product: str, size_bytes: int) -> None:
+    TASK_RUN_STREAM_BACKLOG_BYTES.labels(origin_product=origin_product).observe(size_bytes)
+
+
+def observe_stream_backlog_oversized(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_throttled(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL.labels(origin_product=origin_product).inc()
+
+
 def observe_stream_connection_closed(
     origin_product: str, outcome: StreamConnectionOutcome, duration_seconds: float
 ) -> None:
@@ -578,6 +823,22 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_token_routed(origin_product: str, route: StreamTokenRoute, resync_requested: bool) -> None:
+    TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL.labels(
+        origin_product=_metric_label(origin_product),
+        route=route,
+        resync_requested="true" if resync_requested else "false",
+    ).inc()
+
+
+def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
+    TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
+
+
+def observe_sandbox_process_killed() -> None:
+    TASK_RUN_SANDBOX_PROCESS_KILLED_TOTAL.inc()
 
 
 def observe_task_run_failed(properties: dict[str, object]) -> None:
@@ -605,6 +866,17 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
 
 
 _WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_task_run_terminal(task_run: "TaskRun", *, error_type: str | None, termination_reason: str | None) -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_TERMINAL_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        run_environment=labels["run_environment"],
+        status=_metric_label(task_run.status),
+        error_type=_failure_metric_label(error_type),
+        termination_reason=_metric_label(termination_reason),
+    ).inc()
 
 
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
@@ -639,17 +911,29 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
     ).inc()
 
 
+def observe_active_session_cap_hit(origin_product: str, scope: str) -> None:
+    ACTIVE_SESSION_CAP_HITS_TOTAL.labels(origin_product=_metric_label(origin_product), scope=scope).inc()
+
+
+def observe_warm_churn_throttled(origin_product: str) -> None:
+    WARM_CHURN_THROTTLED_TOTAL.labels(origin_product=_metric_label(origin_product)).inc()
+
+
 _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}
 _SANDBOX_DEADLINE_REASONS = {
     "none",
     "no_sandbox",
     "flag_disabled",
     "agent_active",
+    "turn_open",
     "followup_in_flight",
     "run_completed",
     "snapshot_missing",
     "provision_failed",
     "snapshot_unused",
+    "agent_activity",
+    "activity_during_snapshot",
+    "activity_during_handoff",
 }
 
 
@@ -676,16 +960,8 @@ def observe_followup_denied_permission_stop(task_run: "TaskRun | None") -> None:
     FOLLOWUP_DENIED_PERMISSION_STOP_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
-def observe_loop_fire(*, reason: str) -> None:
-    LOOP_FIRE_TOTAL.labels(reason=reason).inc()
-
-
 def observe_workflow_task_create(*, reason: str) -> None:
     WORKFLOW_TASK_CREATE_TOTAL.labels(reason=reason).inc()
-
-
-def observe_loop_auto_paused() -> None:
-    LOOP_AUTO_PAUSED_TOTAL.inc()
 
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
@@ -694,3 +970,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

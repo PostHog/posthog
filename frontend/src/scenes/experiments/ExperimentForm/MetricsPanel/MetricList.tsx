@@ -1,9 +1,10 @@
 import { clsx } from 'clsx'
 
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
-import type { MetricContext } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
+
+import type { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { MetricCard } from './MetricCard'
 

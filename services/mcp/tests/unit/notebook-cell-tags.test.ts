@@ -128,7 +128,7 @@ describe('notebook cell tags', () => {
         expect(directDependents(cells, 'df', 'up')).toEqual([{ node_id: 'uses', dataframe_name: 'out' }])
     })
 
-    it('uniqueDataframeName suffixes past taken names case-insensitively', () => {
+    it('uniqueDataframeName suffixes past taken cell and variable names case-insensitively', () => {
         const cells = parseCellTags(
             [
                 '<SQLV2 nodeId="a" code="c" returnVariable="SQL_DF" />',
@@ -137,5 +137,6 @@ describe('notebook cell tags', () => {
         )
         expect(uniqueDataframeName('sql_df', cells)).toBe('sql_df_3')
         expect(uniqueDataframeName('fresh', cells)).toBe('fresh')
+        expect(uniqueDataframeName('fresh', cells, ['fresh'])).toBe('fresh_2')
     })
 })

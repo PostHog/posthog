@@ -5,9 +5,6 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -92,16 +89,19 @@ function renderCard(): void {
     )
 }
 
+// The header is on screen while the first read runs too, so waiting for it says nothing about
+// whether a verdict has landed.
+async function findGradedCard(): Promise<void> {
+    await expectLogic(instrumentationChecklistLogic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+    expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+}
+
 describe('InstrumentationChecklistCard', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         // Module state by design, so it outlives an unmount and would carry one case into the next.
         clearCachedChecklistVerdict()
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: true,
-        })
     })
 
     afterEach(() => {
@@ -118,7 +118,7 @@ describe('InstrumentationChecklistCard', () => {
         mockRetrieve.mockResolvedValue(buildChecklist(...statuses))
         renderCard()
 
-        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        await findGradedCard()
         expect(panel()).toHaveAttribute('aria-expanded', expanded)
     })
 
@@ -126,7 +126,7 @@ describe('InstrumentationChecklistCard', () => {
         mockRetrieve.mockResolvedValue(buildChecklist(Ok, Ok, Ok, Ok))
         renderCard()
 
-        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        await findGradedCard()
         expect(screen.queryByText('A sentence about Sessions.')).not.toBeInTheDocument()
 
         await userEvent.click(toggle() as HTMLElement)
@@ -135,19 +135,17 @@ describe('InstrumentationChecklistCard', () => {
         expect(panel()).toHaveAttribute('aria-expanded', 'true')
     })
 
-    const noVerdictCases: [string, () => void][] = [
-        [
-            'the feature flag is off',
-            () =>
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: false,
-                }),
-        ],
-        ['the read failed', () => mockRetrieve.mockRejectedValue({ status: 500 })],
-    ]
+    it('holds its header while the first read runs, rather than a skeleton', async () => {
+        mockRetrieve.mockReturnValue(new Promise(() => {}))
+        renderCard()
 
-    it.each(noVerdictCases)('renders nothing, not a skeleton, while %s', async (_, arrange) => {
-        arrange()
+        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        expect(screen.getByText('Checking your events')).toBeInTheDocument()
+        expect(document.querySelector('.LemonSkeleton')).not.toBeInTheDocument()
+    })
+
+    it('renders nothing, not a skeleton, when the read failed', async () => {
+        mockRetrieve.mockRejectedValue({ status: 500 })
         renderCard()
 
         await expectLogic(instrumentationChecklistLogic).toFinishAllListeners()
@@ -159,7 +157,7 @@ describe('InstrumentationChecklistCard', () => {
     it('offers a retry when a refresh fails under a checklist already on screen', async () => {
         mockRetrieve.mockResolvedValue(buildChecklist(Warning, Ok, Ok, Ok))
         renderCard()
-        await screen.findByText('Instrumentation checklist')
+        await findGradedCard()
 
         mockRetrieve.mockRejectedValue({ status: 500 })
         await userEvent.click(screen.getByText('Refresh'))
@@ -185,7 +183,7 @@ describe('InstrumentationChecklistCard', () => {
         mockDismiss.mockImplementation(() => new Promise(() => {}))
         renderCard()
 
-        await screen.findByText('Instrumentation checklist')
+        await findGradedCard()
         expect(actionButtons()).toHaveLength(4)
         expect(actionButtons().map((button) => button.getAttribute('aria-disabled'))).toEqual([
             'false',

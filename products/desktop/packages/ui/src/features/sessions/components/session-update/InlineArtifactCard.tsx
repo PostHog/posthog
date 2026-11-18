@@ -1,6 +1,6 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { groupRunArtifactVersions } from "@posthog/core/canvas/runArtifactSchemas";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -18,6 +18,7 @@ import {
   stopCardOpen,
 } from "@posthog/ui/primitives/ArtifactCard";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMemo } from "react";

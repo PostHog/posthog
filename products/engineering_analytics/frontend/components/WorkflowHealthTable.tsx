@@ -1,5 +1,3 @@
-// Per-workflow CI health table, shared by the Workflows tab and the repo hub.
-
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -14,11 +12,11 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { rowNavigationProps } from '../lib/rowNavigation'
+import { isGatingWorkflow, orderWorkflowHealthRows } from '../lib/runHealth'
 import { withScope } from '../lib/scope'
 import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
-import { DeltaBadge, pointChange } from './MetricTile'
 
 function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
@@ -28,8 +26,8 @@ function formatRate(rate: number | null): string {
     return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
 }
 
-/** Color only what needs attention — red rare, amber occasional, everything else plain. A low rate
- *  without any decisive failure (skip/cancel-heavy workflows) stays plain: nothing is broken. */
+/** Only a rate backed by a decisive failure in the visible buckets gets a color, so color means
+ *  "needs attention", not "below a number". */
 function successRateClass(rate: number | null, hasFailures: boolean): string {
     if (rate == null) {
         return 'text-secondary'
@@ -46,7 +44,6 @@ function successRateClass(rate: number | null, hasFailures: boolean): string {
     return ''
 }
 
-/** Sort key so a Status sort surfaces failing workflows first. */
 function statusRank(failed: boolean | null): number {
     if (failed === true) {
         return 2
@@ -56,7 +53,7 @@ function statusRank(failed: boolean | null): number {
 
 function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion: string | null }): JSX.Element {
     if (failed === null) {
-        // Nothing has completed in the window — no pass/fail signal to show.
+        // Nothing has completed in the window, so there is no pass/fail signal to show.
         return <span className="text-xs text-secondary">—</span>
     }
     if (failed) {
@@ -65,35 +62,28 @@ function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion:
     if (conclusion === 'success' || conclusion == null) {
         return <LemonTag type="success">Passing</LemonTag>
     }
-    // Latest run neither a decisive failure nor a clean success — show the raw outcome muted, not a
-    // misleading green "Passing".
+    // The latest run is neither a decisive failure nor a clean success, so show the raw outcome muted
+    // instead of a misleading green "Passing".
     return <LemonTag type="muted">{capitalizeFirstLetter(conclusion.replace('_', ' '))}</LemonTag>
 }
 
 export interface WorkflowHealthTableProps {
     rows: WorkflowHealthRow[]
     loading?: boolean
-    /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Column sort override. Default (null) keeps the rows' failing-first-then-name order — the one
-     *  convention shared with the PR page; pass a column to sort by it instead. */
+    /** Null keeps the order the rows arrive in. */
     defaultSorting?: { columnKey: string; order: 1 | -1 } | null
-    /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
-    /** Rows per page — the shared 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
-    /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
+    /** Drops the table's own border inside a LemonCard, to avoid a double frame. */
     embedded?: boolean
-    /** Hub preview variant: a focused column set (status · pass rate · Δ · cost · health) with the health
-     *  sparkline given room. The full run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
     compact?: boolean
 }
 
-// The compact (hub preview) column set, in display order: the health-and-cost story with pass rate next
-// to its own trend (Δ). Cost only appears when showCost adds it. Headers stay intact.
-const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'successRateDelta', 'cost', 'trend']
+// Display order. Cost appears only when showCost adds the column.
+const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'cost', 'trend']
 
 export function WorkflowHealthTable({
     rows,
@@ -108,24 +98,18 @@ export function WorkflowHealthTable({
     compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Each row opens the workflow's runs page, carrying the active window/branch scope + source so the
-    // drill-down doesn't silently widen to all branches.
     const rowUrl = (row: WorkflowHealthRow): string =>
         withScope(
             urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
             searchParams,
             sourceId
         )
-    // Failing workflows first — the order a reviewer triages in — then everything else alphabetically by
-    // name. The one convention shared with the PR page; a passed defaultSorting still overrides on click.
-    const orderedRows = [...rows].sort(
-        (a, b) =>
-            Number(b.latestRunFailed === true) - Number(a.latestRunFailed === true) ||
-            a.workflowName.localeCompare(b.workflowName)
-    )
+    const orderedRows = orderWorkflowHealthRows(rows)
+    const hasGatingRow = orderedRows.some(isGatingWorkflow)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
+            tooltip: 'Workflows that run in the merge queue come first. Other workflows are muted.',
             key: 'workflowName',
             sorter: (a, b) => a.workflowName.localeCompare(b.workflowName),
             render: (_, row) => (
@@ -140,7 +124,6 @@ export function WorkflowHealthTable({
             title: 'Status',
             key: 'status',
             width: 90,
-            // Failing first when sorted: failing (2) > unknown (1) > passing (0).
             sorter: (a, b) => statusRank(a.latestRunFailed) - statusRank(b.latestRunFailed),
             render: (_, row) => <StatusTag failed={row.latestRunFailed} conclusion={row.latestRunConclusion} />,
         },
@@ -157,6 +140,8 @@ export function WorkflowHealthTable({
             key: 'successRate',
             width: 96,
             align: 'right',
+            tooltip:
+                'Successful runs out of runs that passed, failed, timed out, failed to start, or went stale. Skipped, canceled, neutral, and action-required runs are left out.',
             sorter: (a, b) => (a.successRate ?? -1) - (b.successRate ?? -1),
             render: (_, row) => (
                 <span
@@ -189,29 +174,12 @@ export function WorkflowHealthTable({
               ]
             : []) as LemonTableColumns<WorkflowHealthRow>),
         {
-            title: 'Δ',
-            key: 'successRateDelta',
-            width: 76,
-            align: 'right',
-            tooltip: 'Success-rate change in percentage points vs the equal-length window before this one.',
-            sorter: (a, b) =>
-                (pointChange(a.successRate, a.successRatePrev) ?? -Infinity) -
-                (pointChange(b.successRate, b.successRatePrev) ?? -Infinity),
-            render: (_, row) => {
-                const delta = pointChange(row.successRate, row.successRatePrev)
-                return delta == null ? (
-                    <span className="text-xs text-secondary">—</span>
-                ) : (
-                    <DeltaBadge value={delta} unit="pp" />
-                )
-            },
-        },
-        {
             title: 'P50',
             key: 'p50Seconds',
             width: 88,
             align: 'right',
-            tooltip: 'Median run duration (wall-clock) over completed runs.',
+            tooltip:
+                'Median duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50Seconds)}</span>
@@ -222,7 +190,8 @@ export function WorkflowHealthTable({
             key: 'p95Seconds',
             width: 88,
             align: 'right',
-            tooltip: '95th-percentile run duration (wall-clock) over completed runs.',
+            tooltip:
+                '95th-percentile duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
@@ -251,6 +220,8 @@ export function WorkflowHealthTable({
         {
             title: 'Health',
             key: 'trend',
+            tooltip:
+                'Completed runs over the window, one bar per period, with failed runs in red. Health is per workflow, not per job.',
             // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
             width: 132,
             render: function RenderTrend(_, row) {
@@ -284,7 +255,6 @@ export function WorkflowHealthTable({
         },
     ]
 
-    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER) and lets the health sparkline breathe.
     const displayColumns = compact
         ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key))
               .filter((column): column is (typeof columns)[number] => column !== undefined)
@@ -299,8 +269,14 @@ export function WorkflowHealthTable({
             columns={displayColumns}
             dataSource={orderedRows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
-            // De-emphasize workflows with nothing settled — no pass/fail signal to read.
-            rowClassName={(row) => cn('cursor-pointer', row.successRate === null && 'opacity-60')}
+            // De-emphasize a workflow with nothing settled (no pass/fail signal to read) and, once the repo
+            // has gating workflows, every workflow that does not gate a merge.
+            rowClassName={(row) =>
+                cn(
+                    'cursor-pointer',
+                    (row.successRate === null || (hasGatingRow && !isGatingWorkflow(row))) && 'opacity-60'
+                )
+            }
             onRow={(row) => rowNavigationProps(rowUrl(row))}
             loading={loading}
             useURLForSorting={false}

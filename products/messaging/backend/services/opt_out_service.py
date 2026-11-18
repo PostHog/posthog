@@ -54,9 +54,9 @@ class _Echo:
 class OptOutService:
     """Reads and writes opt-out lists in bulk, so recipients can be moved in and out of PostHog."""
 
-    def __init__(self, team_id: int, user: Optional[Any] = None):
+    def __init__(self, team_id: int, created_by_id: Optional[int] = None):
         self.team_id = team_id
-        self.user = user
+        self.created_by_id = created_by_id
 
     def _category_key_to_id(self) -> dict[str, str]:
         """Map every usable category key to the ID stored in a recipient's preferences blob."""
@@ -187,7 +187,7 @@ class OptOutService:
                         MessageRecipientPreference(
                             team_id=self.team_id,
                             identifier=identifier,
-                            created_by=self.user,
+                            created_by_id=self.created_by_id,
                             preferences=dict.fromkeys(category_ids, PreferenceStatus.OPTED_OUT.value),
                         )
                     )

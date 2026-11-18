@@ -7,7 +7,7 @@ from pathlib import Path
 # find the posthog package.
 _REPO_ROOT = Path(__file__).parents[4]
 
-# The skills build (products/posthog_ai/scripts/build_skills.py) imports the query runners
+# The skills build (products/posthog_ai/scripts/build_skills/) imports the query runners
 # in a cold interpreter, before anything has touched the error_tracking api package. If a
 # runner imports from api.*, that executes api/__init__.py, whose viewsets import the
 # runners right back (api/query.py -> ErrorTrackingQueryRunner) and the import blows up

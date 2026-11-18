@@ -15,12 +15,31 @@ from rest_framework.relations import PKOnlyObject
 from rest_framework.utils import model_meta
 
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
 from posthog.models.project import Project
 
 tracer = trace.get_tracer(__name__)
+
+
+class ImageSizeSerializer(serializers.Serializer):
+    width = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=320,
+        max_value=4000,
+        help_text="Output width in pixels, from 320 to 4000. Omit or use null for automatic width.",
+    )
+    height = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=200,
+        max_value=5000,
+        help_text="Output height in pixels, from 200 to 5000. Omit or use null for automatic height. "
+        "Content fits inside the requested size without stretching or cropping.",
+    )
 
 
 # Adds the read-only `search_match_type` field to a saved-list serializer whose viewset runs
@@ -120,6 +139,13 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
     )
+    # Project-only: tags label a Project, which environments do not have, so this is not mirrored
+    # onto TeamBasicSerializer.
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=True,
+        help_text="Labels applied to this project.",
+    )
 
     class Meta:
         model = Project
@@ -136,8 +162,9 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             "is_demo",  # Compat with TeamSerializer
             "timezone",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
+            "tags",
         )
-        read_only_fields = fields
+        read_only_fields = tuple(field for field in fields if field != "tags")
         team_passthrough_fields = {
             "uuid",
             "api_token",
@@ -219,6 +246,17 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             else:
                 ret[field.field_name] = field.to_representation(attribute)
 
+        # Tags live in a join table rather than on the model, so the loop above skips them.
+        # This method does not delegate to Serializer.to_representation, so nothing else can add them.
+        if instance.pk:
+            ret["tags"] = (
+                [tagged_item.tag.name for tagged_item in instance.prefetched_tags]
+                if hasattr(instance, "prefetched_tags")
+                else list(instance.tagged_items.values_list("tag__name", flat=True))
+            )
+        else:
+            ret["tags"] = []
+
         return ret
 
 
@@ -298,21 +336,76 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):
+        request = self.context.get("request")
+        if request is not None and str(instance.id) in get_ip_blocked_organization_ids(request):
+            return {
+                "id": str(instance.id),
+                "name": instance.name,
+                "slug": instance.slug,
+                "membership_level": self.get_membership_level(instance),
+            }
         return super().to_representation(instance)
 
 
-class FilterBaseSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["events", "actions"])
-    id = serializers.CharField(required=False)
-    name = serializers.CharField(required=False, allow_null=True)
-    order = serializers.IntegerField(required=False)
-    properties = serializers.ListField(child=serializers.DictField(), default=[])
+# These mirror the TypedDicts in posthog/hogql_queries/serialized_actors.py, so a field added
+# there needs adding here. Only the Optional[...] ones are nullable; the rest are always-set keys.
+#
+# `type` is a const string rather than a single-value ChoiceField, because a ChoiceField emits an
+# enum component and `type` collides as a component name under --fail-on-warn. The decorator must
+# annotate a field class, not a field instance: DRF rebuilds each field from its stored kwargs when
+# the serializer binds, which drops an instance-level annotation and the discriminator with it.
+@extend_schema_field({"type": "string", "const": "person"})
+class _PersonActorTypeField(serializers.CharField):
+    pass
 
 
-class FiltersSerializer(serializers.Serializer):
-    events = FilterBaseSerializer(many=True, required=False)
-    actions = FilterBaseSerializer(many=True, required=False)
-    filter_test_accounts = serializers.BooleanField(required=False)
+@extend_schema_field({"type": "string", "const": "group"})
+class _GroupActorTypeField(serializers.CharField):
+    pass
+
+
+class SerializedMatchedRecordingEventSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField(help_text="UUID of the matched event.")
+    timestamp = serializers.DateTimeField(help_text="When the matched event happened.")
+    window_id = serializers.CharField(help_text="ID of the browser window the event was captured in.")
+
+
+class SerializedMatchedRecordingSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="ID of the session recording.")
+    events = SerializedMatchedRecordingEventSerializer(
+        many=True, help_text="Events of the recording that matched the query."
+    )
+
+
+class SerializedActorSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The person's UUID, or the group's key.")
+    properties = serializers.DictField(child=serializers.JSONField(), help_text="The actor's properties.")
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When the actor was first seen.")
+    matched_recordings = SerializedMatchedRecordingSerializer(
+        many=True,
+        help_text="Recordings that matched the query. Empty unless the endpoint asks for them.",
+    )
+    value_at_data_point = serializers.FloatField(
+        allow_null=True,
+        help_text="The actor's value at the data point it was queried for. Null unless the query computes one.",
+    )
+
+
+class SerializedPersonActorSerializer(SerializedActorSerializer):
+    type = _PersonActorTypeField(help_text="Marks this actor as a person.")
+    uuid = serializers.UUIDField(help_text="The person's UUID. Same value as `id`.")
+    name = serializers.CharField(help_text="Display name, resolved from the person's properties or distinct IDs.")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="The person's distinct IDs, newest first."
+    )
+    last_seen_at = serializers.DateTimeField(allow_null=True, help_text="When the person was last seen.")
+    is_identified = serializers.BooleanField(help_text="Whether the person has been identified.")
+
+
+class SerializedGroupActorSerializer(SerializedActorSerializer):
+    type = _GroupActorTypeField(help_text="Marks this actor as a group.")
+    group_key = serializers.CharField(help_text="Key identifying the group within its group type.")
+    group_type_index = serializers.IntegerField(help_text="Index of the group type this group belongs to.")
 
 
 class OrganizationNotificationLockSerializer(serializers.Serializer):

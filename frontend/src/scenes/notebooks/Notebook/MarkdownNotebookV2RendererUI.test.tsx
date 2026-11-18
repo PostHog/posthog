@@ -4,13 +4,12 @@ import { expectLogic } from 'kea-test-utils'
 import { useState } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { NotebookType } from '../types'
+import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { Notebook } from './Notebook'
@@ -54,10 +53,7 @@ describe('MarkdownNotebookV2Renderer UI', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOK_PYTHON], {
-            [FEATURE_FLAGS.NOTEBOOK_PYTHON]: true,
-        })
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
         logic = notebookLogic(logicProps)
@@ -75,6 +71,35 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         logic?.unmount()
         settingsLogic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([
+        [`${window.location.origin}/embed`, `${window.location.origin}/embed`],
+        ['https://example.com/embed', 'https://example.com/embed'],
+        ['HTTPS://example.com/embed', 'https://example.com/embed'],
+        ['  https://example.com/embed  ', 'https://example.com/embed'],
+        ['https://example.com/a b', null],
+        ['javascript:void(0)', null],
+        ['data:text/html,example', null],
+    ])('validates and isolates the production embed for %s', (src, expectedSrc) => {
+        const { ViewComponent } = NOTEBOOK_MARKDOWN_REGISTRY.components.Embed
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logic.props}>
+                <ViewComponent
+                    node={{ id: 'embed-test', type: 'component', tagName: 'Embed', props: { src } }}
+                    mode="view"
+                    updateProps={jest.fn()}
+                    deleteNode={jest.fn()}
+                />
+            </BindLogic>
+        )
+        const iframe = container.querySelector('iframe')
+        if (expectedSrc === null) {
+            expect(iframe).toBeNull()
+        } else {
+            expect(iframe?.getAttribute('src')).toBe(expectedSrc)
+            expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts allow-popups allow-forms')
+        }
     })
 
     it('opens kernel info from the header control and closes markdown source', () => {

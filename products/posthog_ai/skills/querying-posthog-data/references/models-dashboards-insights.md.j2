@@ -1,0 +1,30 @@
+# Dashboards, Tiles & Insights
+
+## Dashboard (`system.dashboards`)
+
+Dashboards are collections of insights that provide a unified view of analytics data.
+
+### Columns
+
+{{ schema_columns('system.dashboards') }}
+
+### Important Notes
+
+- Soft-deleted dashboards are excluded by default; filter with `NOT deleted`
+- Use `filters` to store dashboard-level date ranges and property filters
+
+---
+
+## Insight (`system.insights`)
+
+Insights are saved analytics queries that visualize data.
+
+### Columns
+
+{{ schema_columns('system.insights') }}
+
+### Important Notes
+
+- `short_id` is unique per team and used in URLs: `/insights/{short_id}`
+- Only saved insights appear in the insights list; filter with `saved`
+- Soft-deleted insights are excluded by default; filter with `NOT deleted`

@@ -22,12 +22,34 @@ describe("deriveReportVerdict", () => {
   it.each([
     // Non-ready lifecycle states speak for themselves, whatever the artefacts say.
     [{ status: "resolved" }, false, "Resolved", "info"],
+    [{ status: "monitoring" }, false, "Monitoring", "info"],
+    [{ status: "monitoring" }, true, "Monitoring", "info"],
+    [{ status: "closed" }, false, "Closed", "info"],
+    [{ status: "closed" }, true, "Closed", "info"],
     [{ status: "suppressed" }, false, "Archived", "info"],
     [{ status: "deleted" }, false, "Archived", "info"],
     [{ status: "failed" }, false, "Run failed", "danger"],
     [{ status: "pending_input" }, false, "Waiting on you", "decision"],
-    [{ status: "potential" }, false, "Agent investigating", "progress"],
-    [{ status: "candidate" }, false, "Agent investigating", "progress"],
+    [{ status: "potential" }, false, "Waiting for new signals", "info"],
+    [
+      { status: "potential", dismissal_reason: "already_fixed" },
+      false,
+      "Dismissed until new signals",
+      "info",
+    ],
+    [
+      { status: "potential", dismissal_reason: "already_fixed" },
+      true,
+      "Dismissed until new signals",
+      "info",
+    ],
+    [{ status: "candidate" }, false, "Waiting to investigate", "info"],
+    [
+      { status: "in_progress", dismissal_reason: "already_fixed" },
+      false,
+      "Agent investigating",
+      "progress",
+    ],
     [{ status: "in_progress" }, false, "Agent investigating", "progress"],
     // Ready: an existing PR outranks actionability, which outranks nothing.
     [

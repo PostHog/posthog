@@ -1007,16 +1007,6 @@
                 "dark": "dark/primitives-item--default.png"
             }
         },
-        "primitives-item--pressable": {
-            "id": "primitives-item--pressable",
-            "title": "Primitives/Item",
-            "name": "Pressable",
-            "importPath": "../../packages/primitives/src/item.stories.tsx",
-            "screenshots": {
-                "light": "light/primitives-item--pressable.png",
-                "dark": "dark/primitives-item--pressable.png"
-            }
-        },
         "primitives-item--group": {
             "id": "primitives-item--group",
             "title": "Primitives/Item",
@@ -1025,16 +1015,6 @@
             "screenshots": {
                 "light": "light/primitives-item--group.png",
                 "dark": "dark/primitives-item--group.png"
-            }
-        },
-        "primitives-item--group-list": {
-            "id": "primitives-item--group-list",
-            "title": "Primitives/Item",
-            "name": "Group List",
-            "importPath": "../../packages/primitives/src/item.stories.tsx",
-            "screenshots": {
-                "light": "light/primitives-item--group-list.png",
-                "dark": "dark/primitives-item--group-list.png"
             }
         },
         "primitives-item--dropdown-in-item": {

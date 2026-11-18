@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.db.utils import IntegrityError
 
@@ -8,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import BounceRatePageViewMode, HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.sessions_v1 import (
     get_lazy_session_table_properties_v1,
     get_lazy_session_table_values_v1,
@@ -359,6 +361,25 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v1(None)
         for prop in results:
             get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)
+
+    @parameterized.expand([(None,), ("tub",)])
+    def test_values_query_samples_raw_rows(self, search_term):
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            self.capture_select_queries() as queries,
+        ):
+            get_lazy_session_table_values_v1(key="$entry_utm_source", team=self.team, search_term=search_term)
+
+        assert len(queries) == 1
+        sql = " ".join(queries[0].split())
+        assert "FROM sessions" in sql
+        assert "finalizeAggregation(sessions.initial_utm_source)" in sql
+        assert "ORDER BY sessions.session_id DESC" in sql
+        assert "LIMIT 100000" in sql
+        # The `sessions` lazy table would merge every row of the team first.
+        assert "argMinMerge" not in sql
+        assert sql.count("GROUP BY") == 1
+        assert ("ilike(" in sql) == (search_term is not None)
 
     def test_custom_channel_types(self):
         results = get_lazy_session_table_values_v1(key="$channel_type", team=self.team, search_term=None)

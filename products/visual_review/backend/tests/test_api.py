@@ -5,6 +5,8 @@ from uuid import UUID, uuid4
 import pytest
 from unittest.mock import patch
 
+from posthog.paging import PageRequest
+
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import (
     ApproveRunInput,
@@ -47,25 +49,29 @@ class TestProjectAPI:
         api.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
         api.create_repo(team_id=team.id, repo_external_id=222, repo_full_name="org/second")
 
-        result = api.list_repos(team.id)
+        first_page = api.list_repos(team.id, PageRequest(limit=1))
+        second_page = api.list_repos(team.id, PageRequest(limit=1, offset=1))
 
-        assert len(result) == 2
-        names = {p.repo_full_name for p in result}
+        assert first_page.count == 2
+        names = {p.repo_full_name for p in first_page.results + second_page.results}
         assert names == {"org/first", "org/second"}
 
-    def test_update_repo_sets_baseline_paths(self, team):
+    def test_update_repo_sets_the_fields_it_is_given(self, team):
         created = api.create_repo(team_id=team.id, repo_external_id=333, repo_full_name="org/test")
         assert created.baseline_file_paths == {}
+        assert created.debt_digest_enabled is False
 
         result = api.update_repo(
             UpdateRepoInput(
                 repo_id=created.id,
                 baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
+                debt_digest_enabled=True,
             ),
             team_id=team.id,
         )
 
         assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
+        assert result.debt_digest_enabled is True
         assert result.repo_full_name == "org/test"  # unchanged
 
 
@@ -126,6 +132,7 @@ class TestRunAPI:
                     "github_comment_id": 99999,
                     "baseline_commit_sha": "deadbeef",
                     "baseline_healed_from_merge_base": 1,
+                    "baseline": {"candidate_approval_ids": ["0190a1b2-0000-7000-8000-000000000001"]},
                     "github_check_run_id": "72855643533",
                 },
             ),
@@ -276,9 +283,9 @@ class TestRunAPI:
             run_type=RunType.PLAYWRIGHT,
         )
 
-        runs = api.list_runs(repo.team_id, **filters)
+        runs = api.list_runs(repo.team_id, **filters, page=PageRequest(limit=100))
 
-        assert {r.commit_sha for r in runs} == expected_commits
+        assert {r.commit_sha for r in runs.results} == expected_commits
 
     @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")

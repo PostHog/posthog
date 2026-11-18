@@ -68,6 +68,10 @@ import {
   TASK_SERVICE,
   TaskService,
 } from "@posthog/core/task-detail/taskService";
+import {
+  WARM_TASK_SERVICE,
+  WarmTaskService,
+} from "@posthog/core/task-detail/warmTaskService";
 import { WorkspaceSetupSaga } from "@posthog/core/task-detail/workspaceSetupSaga";
 import {
   TASK_DELETION_HOST,
@@ -90,6 +94,14 @@ import { HOST_TRPC_CLIENT } from "@posthog/host-router/client";
 import { TrpcCloudTaskClient } from "@posthog/host-router/cloud-task-client";
 import { TrpcPiRunner } from "@posthog/host-router/pi-runner";
 import { TrpcPiSessionFactory } from "@posthog/host-router/pi-session-factory";
+import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
+  type IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
 import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
@@ -123,10 +135,6 @@ import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
-import {
-  QUICK_ASK_SETTINGS_CLIENT,
-  type QuickAskSettingsClient,
-} from "@posthog/ui/features/quick-ask/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
@@ -180,6 +188,18 @@ container.bind(HOST_LOGGER).toConstantValue(hostLog);
 container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+
+container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
+  captureRegion: (region) =>
+    hostTrpcClient.screenCapture.captureRegion.query(region),
+} satisfies IScreenCapture);
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () =>
+    hostTrpcClient.feedbackContext.captureScreenshot.query(),
+  readRecentLogs: () => hostTrpcClient.feedbackContext.readRecentLogs.query(),
+  submitFeedback: (input) =>
+    hostTrpcClient.feedbackContext.submitFeedback.mutate(input),
+} satisfies IFeedbackContext);
 
 container.bind(UPDATES_CLIENT).toConstantValue(updatesClient);
 
@@ -242,24 +262,6 @@ const discordPresenceClient: DiscordPresenceClient = {
   },
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
-
-const quickAskSettingsClient: QuickAskSettingsClient = {
-  getState: () => trpcClient.quickAsk.getState.query(),
-  setShortcut: (accelerator) =>
-    trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
-  setSettings: (patch) =>
-    trpcClient.quickAsk.setSettings.mutate({
-      ...patch,
-      defaultAdapter: patch.defaultAdapter as
-        | ""
-        | "claude"
-        | "codex"
-        | undefined,
-    }),
-};
-container
-  .bind(QUICK_ASK_SETTINGS_CLIENT)
-  .toConstantValue(quickAskSettingsClient);
 
 // mission control overlay client
 const missionControlClient: MissionControlClient = {
@@ -348,6 +350,7 @@ container.load(piRuntimeModule);
 container.bind(TASK_CREATION_EFFECTS).toConstantValue(taskCreationEffects);
 container.bind<TaskService>(RENDERER_TASK_SERVICE).to(TaskService);
 container.bind<TaskService>(TASK_SERVICE).toService(RENDERER_TASK_SERVICE);
+container.bind(WARM_TASK_SERVICE).to(WarmTaskService).inSingletonScope();
 container
   .bind<WorkspaceSetupSaga>(WORKSPACE_SETUP_SAGA)
   .to(WorkspaceSetupSaga)
@@ -489,7 +492,3 @@ container.bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT).toConstantValue({
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(logger.scope("title-generator"));
-
-export function get<T>(token: symbol): T {
-  return container.get<T>(token);
-}

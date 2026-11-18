@@ -4,15 +4,16 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 
-import { isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
+import { columnExpression, isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -31,6 +32,8 @@ import { VirtualizedTableColumn } from 'products/logs/frontend/components/Virtua
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
+
+import { MobileLogRow } from './MobileLogRow'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -56,6 +59,8 @@ interface VirtualizedLogsListProps {
 }
 
 interface LogsListRowProps {
+    mobileLayout: boolean
+    tzLabelFormat: VirtualizedLogsListProps['tzLabelFormat']
     dataSource: ParsedLogMessage[]
     columns: VirtualizedTableColumn<ParsedLogMessage>[]
     cursorIndex: number | null
@@ -78,6 +83,8 @@ interface LogsListRowProps {
 }
 
 function LogsListRow({
+    mobileLayout,
+    tzLabelFormat,
     index,
     style,
     dataSource,
@@ -115,29 +122,39 @@ function LogsListRow({
 
     return (
         <div ref={rowRef} style={style} data-index={index} data-row-key={log.uuid}>
-            <LogRow
-                log={log}
-                logIndex={index}
-                columns={columns}
-                isAtCursor={!disableCursor && index === cursorIndex}
-                isExpanded={!!expandedLogIds[log.uuid]}
-                pinned={!!pinnedLogs[log.uuid]}
-                showPinnedWithOpacity={showPinnedWithOpacity}
-                wrapBody={wrapBody}
-                hasMessageColumn={hasMessageColumn}
-                onTogglePin={togglePinLog}
-                onClick={() => handleLogRowClick(log, index)}
-                rowWidth={rowWidth}
-                isSelected={!!selectedLogIds[log.uuid]}
-                onShiftClick={(clickedIndex) => {
-                    const anchorIndex = cursorIndex ?? 0
-                    selectLogRange(anchorIndex, clickedIndex)
-                    userSetCursorIndex(clickedIndex)
-                }}
-                isPrettified={prettifiedLogIds.has(log.uuid)}
-                onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
-                isNew={newLogUuids?.has(log.uuid) ?? false}
-            />
+            {mobileLayout ? (
+                <MobileLogRow
+                    log={log}
+                    tzLabelFormat={tzLabelFormat}
+                    pinned={!!pinnedLogs[log.uuid]}
+                    onTogglePin={togglePinLog}
+                    onClick={() => handleLogRowClick(log, index)}
+                />
+            ) : (
+                <LogRow
+                    log={log}
+                    logIndex={index}
+                    columns={columns}
+                    isAtCursor={!disableCursor && index === cursorIndex}
+                    isExpanded={!!expandedLogIds[log.uuid]}
+                    pinned={!!pinnedLogs[log.uuid]}
+                    showPinnedWithOpacity={showPinnedWithOpacity}
+                    wrapBody={wrapBody}
+                    hasMessageColumn={hasMessageColumn}
+                    onTogglePin={togglePinLog}
+                    onClick={() => handleLogRowClick(log, index)}
+                    rowWidth={rowWidth}
+                    isSelected={!!selectedLogIds[log.uuid]}
+                    onShiftClick={(clickedIndex) => {
+                        const anchorIndex = cursorIndex ?? 0
+                        selectLogRange(anchorIndex, clickedIndex)
+                        userSetCursorIndex(clickedIndex)
+                    }}
+                    isPrettified={prettifiedLogIds.has(log.uuid)}
+                    onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
+                    isNew={newLogUuids?.has(log.uuid) ?? false}
+                />
+            )}
         </div>
     )
 }
@@ -159,6 +176,7 @@ export function VirtualizedLogsList({
     onChangeOrderBy,
     newLogUuids,
 }: VirtualizedLogsListProps): JSX.Element {
+    const mobileLayout = useApmMobileLayout()
     const {
         id,
         pinnedLogs,
@@ -168,6 +186,7 @@ export function VirtualizedLogsList({
         columns: columnConfigs,
         selectedLogIds,
         prettifiedLogIds,
+        showSessionErrors,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -202,12 +221,19 @@ export function VirtualizedLogsList({
 
     const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
 
-    // Server aliases are keyed by the expression that produced them, so map each custom column
-    // to its alias by expression. This stays correct when columns are reordered without a re-fetch.
-    const aliasById = useMemo(() => {
-        const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
-        return new Map(customConfigs.map((config) => [config.id, customColumnAliases?.[config.expression!.trim()]]))
-    }, [columnConfigs, customColumnAliases])
+    // Server aliases are keyed by the expression that produced them, so map each server-computed
+    // column to its alias by expression. This stays correct when columns are reordered without a
+    // re-fetch.
+    const aliasById = useMemo(
+        () =>
+            new Map(
+                columnConfigs.flatMap((config) => {
+                    const expression = columnExpression(config)
+                    return expression ? [[config.id, customColumnAliases?.[expression]] as const] : []
+                })
+            ),
+        [columnConfigs, customColumnAliases]
+    )
 
     // Columns memoized on structural deps only — per-row state (selection,
     // expansion, prettify) is read from kea inside cell components. Everything after the
@@ -217,7 +243,7 @@ export function VirtualizedLogsList({
         // Move bounds range over movable columns only — pinned columns sort last and never swap
         const movable = columnConfigs.filter((config) => !isPinnedColumn(config))
         return [
-            createControlsColumn({ dataSourceRef }),
+            createControlsColumn({ dataSourceRef, showSessionErrors }),
             ...columnConfigs.map((config) =>
                 createConfiguredColumn({
                     config,
@@ -240,9 +266,10 @@ export function VirtualizedLogsList({
         moveColumn,
         wrapBody,
         prettifyJson,
+        showSessionErrors,
     ])
 
-    const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
+    const minRowWidth = useMemo(() => (mobileLayout ? 0 : getColumnsMinRowWidth(columns)), [columns, mobileLayout])
 
     // Scroll to cursor when requested (subscription fires when cursorIndex changes)
     useEffect(() => {
@@ -300,6 +327,8 @@ export function VirtualizedLogsList({
 
     const createRowProps = useCallback(
         (rowWidth?: number): LogsListRowProps => ({
+            mobileLayout,
+            tzLabelFormat,
             dataSource,
             columns,
             cursorIndex,
@@ -321,6 +350,8 @@ export function VirtualizedLogsList({
             newLogUuids,
         }),
         [
+            mobileLayout,
+            tzLabelFormat,
             dataSource,
             columns,
             columnConfigs,
@@ -387,7 +418,21 @@ export function VirtualizedLogsList({
 
                         return (
                             <div className="overflow-y-hidden overflow-x-auto" style={{ width, height: fixedHeight }}>
-                                <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
+                                {mobileLayout ? (
+                                    <LemonButton
+                                        size="small"
+                                        fullWidth
+                                        onClick={() =>
+                                            onChangeOrderBy?.(orderBy === 'earliest' ? 'latest' : 'earliest')
+                                        }
+                                        data-attr="logs-mobile-sort"
+                                        loading={loading}
+                                    >
+                                        {orderBy === 'earliest' ? 'Oldest first' : 'Newest first'}
+                                    </LemonButton>
+                                ) : (
+                                    <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
+                                )}
                                 <List<LogsListRowProps>
                                     style={{ height: fixedHeight - LOG_ROW_HEADER_HEIGHT, width: rowWidth }}
                                     overscanCount={5}
@@ -426,7 +471,19 @@ export function VirtualizedLogsList({
 
                     return height && width ? (
                         <div className="overflow-y-hidden overflow-x-auto" style={{ width, height }}>
-                            <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
+                            {mobileLayout ? (
+                                <LemonButton
+                                    size="small"
+                                    fullWidth
+                                    onClick={() => onChangeOrderBy?.(orderBy === 'earliest' ? 'latest' : 'earliest')}
+                                    data-attr="logs-mobile-sort"
+                                    loading={loading}
+                                >
+                                    {orderBy === 'earliest' ? 'Oldest first' : 'Newest first'}
+                                </LemonButton>
+                            ) : (
+                                <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
+                            )}
                             <List<LogsListRowProps>
                                 style={{ height: height - LOG_ROW_HEADER_HEIGHT, width: rowWidth }}
                                 overscanCount={10}

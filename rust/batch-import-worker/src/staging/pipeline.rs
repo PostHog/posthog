@@ -18,8 +18,8 @@ const CHANNEL_CAPACITY: usize = 16;
 ///
 /// This reuses the exact producers behind [`crate::extractor::StreamingReader`]
 /// (`run_plain_gzip_producer` / `run_zip_gzip_json_producer`), so the emitted plaintext is
-/// byte-identical to what the streaming read path decodes — same single-member
-/// `GzDecoder` semantics, same natural-sort member ordering, same trailing-newline
+/// byte-identical to what the streaming read path decodes — same gzip decoder
+/// semantics, same natural-sort zip-entry ordering, same trailing-newline
 /// normalization — by construction, not by parallel implementation. That identity is what
 /// keeps a part's byte offsets valid across staging backends.
 ///

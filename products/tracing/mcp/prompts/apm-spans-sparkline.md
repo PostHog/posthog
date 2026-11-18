@@ -1,5 +1,11 @@
 Span counts over time — a zero-filled time series for trend and spike analysis.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per `(time bucket, service)` pair:
 
 - `time` — ISO 8601 bucket start (UTC)
@@ -17,8 +23,6 @@ Use to answer:
 
 For a single aggregate number per operation, use `apm-spans-aggregate` instead. For latency distribution, use `apm-spans-duration-histogram`.
 
-All parameters must be nested inside a `query` object.
-
 # Error-trend workflow
 
 Two calls, then divide per bucket:
@@ -29,8 +33,6 @@ Two calls, then divide per bucket:
 Error rate per bucket = errors / total. The bucket where the ratio jumps is when the spike started.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 
@@ -51,7 +53,7 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 Property filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 

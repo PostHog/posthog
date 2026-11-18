@@ -28,10 +28,7 @@ export function WorkspacesSettings() {
 
   const { data: worktreeLocation } = useQuery({
     queryKey: ["settings", "worktreeLocation"],
-    queryFn: async () =>
-      (await hostClient.secureStore.getItem.query({
-        key: "worktreeLocation",
-      })) ?? null,
+    queryFn: () => hostClient.os.getWorktreeLocation.query(),
   });
 
   useEffect(() => {
@@ -43,9 +40,8 @@ export function WorkspacesSettings() {
   const handleWorktreeLocationChange = async (newLocation: string) => {
     setLocalWorktreeLocation(newLocation);
     try {
-      await hostClient.secureStore.setItem.query({
-        key: "worktreeLocation",
-        value: newLocation,
+      await hostClient.os.setWorktreeLocation.mutate({
+        location: newLocation,
       });
     } catch (error) {
       log.error("Failed to set worktree location:", error);
@@ -97,7 +93,7 @@ export function WorkspacesSettings() {
             <FolderPicker
               value={localWorktreeLocation}
               onChange={handleWorktreeLocationChange}
-              placeholder="~/.posthog-code"
+              placeholder="~/.posthog-desktop/worktrees"
             />
           </div>
         </SettingsCardRow>

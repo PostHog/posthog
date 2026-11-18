@@ -259,6 +259,7 @@ Dashboard 123
         [NotebookNodeType.Action, 'Action'],
         [NotebookNodeType.Workflow, 'Workflow'],
         [NotebookNodeType.ErrorTrackingIssue, 'ErrorTrackingIssue'],
+        [NotebookNodeType.GeneratedWidget, 'Widget'],
     ])('converts the %s widget node to its markdown component', (nodeType, tagName) => {
         expect(
             convertNotebookContentToMarkdown({
@@ -614,7 +615,7 @@ after`)
                                     attrs: { level: 2 },
                                     content: [{ type: 'text', text: 'Where to improve' }],
                                 },
-                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                                { type: NotebookNodeType.PythonV2, attrs: { code: 'print(1)', hideFilters: true } },
                             ],
                         },
                     ],
@@ -627,14 +628,14 @@ after`)
         expect(markdown).toContain('> Quoted context')
         expect(markdown).toContain('\n\n<Query ')
         expect(markdown).toContain('> ## Where to improve')
-        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).toContain('\n\n<PythonV2 ')
         expect(markdown).not.toContain('> <')
 
         const parsed = parseMarkdownNotebook(markdown)
         expect(parsed.errors).toEqual([])
         expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
             'Query',
-            'Python',
+            'PythonV2',
         ])
         const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
         expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)
@@ -875,10 +876,10 @@ Body`)
         // Entity links drag with only their href; this mapping is what turns a dropped link
         // into the resource's component node instead of a plain link.
         it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
-            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            ['feature flag', '/feature-flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
             [
                 'feature flag with project prefix',
-                '/project/1/feature_flags/123',
+                '/project/1/feature-flags/123',
                 { tagName: 'FeatureFlag', props: { id: 123 } },
             ],
             ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
@@ -911,7 +912,7 @@ Body`)
                 '/person/user%40example.com',
                 { tagName: 'Person', props: { distinctId: 'user@example.com' } },
             ],
-            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new flag form (no entity yet)', '/feature-flags/new', null],
             ['new insight form (no entity yet)', '/insights/new', null],
             ['unrecognized path', '/settings/project', null],
         ])('%s', (_name, path, expected) => {

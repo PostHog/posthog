@@ -57,7 +57,6 @@ export function draftInsightListItem(draft: DraftInsightQuery, currentUser: User
         deleted: false,
         saved: false,
         is_sample: false,
-        dashboards: null,
         dashboard_tiles: null,
         last_refresh: null,
         created_at: timestamp,

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -12,14 +12,15 @@ import { DateFilter } from './DateFilter'
 
 describe('DateFilter', () => {
     let onChange = jest.fn()
+    let rerender: ReturnType<typeof render>['rerender']
     beforeEach(() => {
         initKeaTests()
         onChange = jest.fn()
-        render(
+        rerender = render(
             <Provider>
                 <DateFilter onChange={onChange} dateOptions={dateMapping} />
             </Provider>
-        )
+        ).rerender
     })
 
     afterEach(() => {
@@ -34,6 +35,28 @@ describe('DateFilter', () => {
         await userEvent.click(yesterdayButton)
 
         expect(onChange).toHaveBeenCalledWith('-1dStart', '-1dEnd', false)
+    })
+
+    it('can set a future relative date', async () => {
+        rerender(
+            <Provider>
+                <DateFilter
+                    onChange={onChange}
+                    dateOptions={dateMapping}
+                    isFixedDateMode
+                    allowFutureRelativeDateOptions
+                />
+            </Provider>
+        )
+        await userEvent.click(screen.getByTestId('date-filter'))
+
+        const futureFilter = screen.getByTestId('future-rolling-date-range-filter')
+        const futureInput = within(futureFilter).getByTestId('rolling-date-range-input')
+        await userEvent.clear(futureInput)
+        await userEvent.type(futureInput, '10')
+        await userEvent.click(futureFilter)
+
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith('+10d', null, false))
     })
 
     it('can set a custom rolling date range', async () => {

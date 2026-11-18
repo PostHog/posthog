@@ -14,6 +14,7 @@ export * from './schema-assistant-error-tracking'
 export * from './schema-assistant-queries'
 export * from './schema-assistant-replay'
 export * from './schema-assistant-web-analytics'
+export * from './schema-business-intelligence'
 export * from './schema-general'
 export * from './schema-surveys'
 // Must be kept after schema-general.

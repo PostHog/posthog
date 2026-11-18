@@ -3,7 +3,7 @@ from typing import cast
 import structlog
 
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notifications.backend.facade.enums import TargetType
@@ -34,7 +34,9 @@ class RecipientsResolver:
             return list(
                 RoleMembership.objects.filter(
                     role_id=target_id,
-                ).values_list("user_id", flat=True)
+                )
+                .valid_for_authorization()
+                .values_list("user_id", flat=True)
             )
 
         raise ValueError(f"Unknown target type: {target_type}")

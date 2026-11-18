@@ -13,8 +13,9 @@ import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-v
 import type { LogRecord } from '../log-record-avro'
 import {
     LogTransformationGlobals,
-    buildLogRecordGlobals,
+    buildLogRecordGlobalsRecord,
     executeLogTransformation,
+    refreshLogRecordGlobalsRecord,
     resolveLogTransformationInputs,
 } from './hog-log-exec'
 
@@ -110,8 +111,8 @@ interface FunctionAggregates {
     errorLogs: LogEntry[]
 }
 
-const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
-const ATTR_TRANSFORMATIONS_SKIPPED = '$transformations_skipped'
+const ATTR_TRANSFORMATIONS_FAILED = 'posthog.transformations_failed'
+const ATTR_TRANSFORMATIONS_SKIPPED = 'posthog.transformations_skipped'
 
 /**
  * Runs a team's enabled log transformations over the records of one Kafka message,
@@ -162,7 +163,8 @@ export class LogsTransformerService {
     public async transformRecords(
         teamId: number,
         records: LogRecord[],
-        batchBudget?: TransformationBatchBudget
+        batchBudget?: TransformationBatchBudget,
+        sentAsInternalLogs = false
     ): Promise<{ recordsDropped: number; recordsDroppedByFunctionId: Map<string, number> }> {
         const recordsDroppedByFunctionId = new Map<string, number>()
         let recordsDropped = 0
@@ -269,7 +271,7 @@ export class LogsTransformerService {
         }
 
         transformationVmDurationHistogram.observe(messageVmMs / 1000)
-        this.queueAggregates(teamId, aggregates)
+        this.queueAggregates(teamId, aggregates, sentAsInternalLogs)
         return { recordsDropped, recordsDroppedByFunctionId }
     }
 
@@ -288,10 +290,24 @@ export class LogsTransformerService {
             addVmMs: (ms: number) => void
         }
     ): boolean {
+        // Built once per record, not per function: the decoded maps change only when a
+        // function transforms the record, so globals are refreshed from the record
+        // between functions instead of rebuilt.
+        const globals: LogTransformationGlobals = {
+            project,
+            record: buildLogRecordGlobalsRecord(record),
+            inputs: {},
+        }
+        // Refreshed only after a function actually wrote to the record (a mutation or a
+        // failure annotation): most functions leave most records untouched.
+        let recordDirty = false
         for (const fn of functions) {
             const agg = this.getAggregates(ctx.aggregates, fn.id)
 
-            const globals = buildLogRecordGlobals(record, project, {})
+            if (recordDirty) {
+                refreshLogRecordGlobalsRecord(globals.record, record)
+                recordDirty = false
+            }
 
             // Input templates are customer-owned bytecode — a failing template is an
             // invocation failure (fail open, annotate, surface in function logs), not a
@@ -305,6 +321,7 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 this.captureErrorLogs(
                     fn,
                     ctx.teamId,
@@ -333,6 +350,7 @@ export class LogsTransformerService {
                     error: String(error),
                 })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 continue
@@ -345,6 +363,7 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 this.captureErrorLogs(
                     fn,
                     ctx.teamId,
@@ -366,6 +385,7 @@ export class LogsTransformerService {
 
             agg.succeeded++
             transformationRecordsCounter.inc({ result: 'succeeded' })
+            recordDirty = true
         }
 
         return false
@@ -476,7 +496,11 @@ export class LogsTransformerService {
         return agg
     }
 
-    private queueAggregates(teamId: number, aggregates: Map<string, FunctionAggregates>): void {
+    private queueAggregates(
+        teamId: number,
+        aggregates: Map<string, FunctionAggregates>,
+        sentAsInternalLogs: boolean
+    ): void {
         for (const [functionId, agg] of aggregates) {
             if (agg.succeeded > 0) {
                 this.monitoring.queueAppMetric(
@@ -527,7 +551,7 @@ export class LogsTransformerService {
                 )
             }
             if (agg.errorLogs.length > 0) {
-                this.monitoring.queueLogs(agg.errorLogs, 'hog_function')
+                this.monitoring.queueLogs(agg.errorLogs, 'hog_function', { aboutInternalLogs: sentAsInternalLogs })
             }
         }
     }

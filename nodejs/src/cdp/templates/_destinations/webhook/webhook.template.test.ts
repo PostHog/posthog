@@ -1,4 +1,7 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
+import { createHmac } from 'node:crypto'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './webhook.template'
@@ -48,6 +51,63 @@ describe('webhook template', () => {
 
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it.each([
+        [undefined, 'standard_webhooks'],
+        ['standard_webhooks', 'standard_webhooks'],
+        ['hmac_sha256', 'hmac_sha256'],
+    ] as const)(
+        'signs the delivery as format %s names, keeping the secret out of the queue payload',
+        async (signingFormat, signer) => {
+            const secret = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+            const standardWebhooksKey = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
+
+            const response = await tester.invoke({
+                url: 'https://example.com',
+                signing_secret: secret,
+                signing_format: signingFormat,
+            })
+            expect(response.error).toBeUndefined()
+            expect(JSON.stringify(response.invocation.queueParameters)).not.toContain(secret)
+
+            const delivery = await tester.executeFetch(response.invocation)
+
+            expect(delivery.error).toBeUndefined()
+            const [url, { headers, body }] = mockFetch.mock.calls[0] as [string, any]
+            expect(url).toBe('https://example.com')
+            const standardWebhooksContent = `${headers['webhook-id']}.${headers['webhook-timestamp']}.${body}`
+            expect({
+                'webhook-signature': headers['webhook-signature'],
+                'x-hub-signature-256': headers['x-hub-signature-256'],
+            }).toEqual(
+                signer === 'standard_webhooks'
+                    ? {
+                          'webhook-signature': `v1,${createHmac('sha256', standardWebhooksKey).update(standardWebhooksContent).digest('base64')}`,
+                          'x-hub-signature-256': undefined,
+                      }
+                    : {
+                          'webhook-signature': undefined,
+                          'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`,
+                      }
+            )
+        }
+    )
+
+    it('passes a secret headers reference, not the values, to the fetch queue', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            headers: { 'Content-Type': 'application/json' },
+            secret_headers: { Authorization: 'Bearer sk_test_token' },
+            debug: true,
+        })
+
+        expect(response.error).toBeUndefined()
+        const params = response.invocation.queueParameters as any
+        expect(params.secret_headers_input).toEqual('secret_headers')
+        expect(params.headers).toEqual({ 'Content-Type': 'application/json' })
+        expect(JSON.stringify(params)).not.toContain('Authorization')
+        expect(response.logs.map((l) => l.message).join('\n')).not.toContain('Authorization')
     })
 
     it('should log details of given', async () => {

@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "claim_id": {
+            "description": "Active claim ID returned by an earlier call. Stale claims are rejected.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "pr_url": {
+            "description": "Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
+            "format": "uri",
+            "type": "string"
+        },
+        "pull_requests": {
+            "description": "GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.",
+            "items": {
+                "format": "uri",
+                "maxLength": 2048,
+                "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+        },
+        "release": {
+            "default": false,
+            "description": "Release ownership while preserving any attached pull request.",
+            "type": "boolean"
+        },
+        "takeover": {
+            "default": false,
+            "description": "Explicitly end another actor's claim and take ownership.",
+            "type": "boolean"
+        },
+        "takeover_claim_id": {
+            "description": "With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. Required to take over a claim that another person holds, directly or through their agent. That person is notified.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

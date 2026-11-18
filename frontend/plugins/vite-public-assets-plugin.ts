@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from 'fs'
+import {
+    copyFileSync,
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    readdirSync,
+    rmdirSync,
+    unlinkSync,
+    writeFileSync,
+} from 'fs'
 import { dirname, join, relative, resolve } from 'path'
 import type { Plugin } from 'vite'
 
@@ -113,6 +122,17 @@ function copyPublicAssets(): void {
     } else {
         console.warn('⚠️ Hedgehog-mode assets directory does not exist')
     }
+
+    // EmojiPickerPanel loads frimousse's emoji data from /static/emoji. build.mjs copies the same files for production.
+    // A missing file leaves the picker on "Loading…" with no error in the UI, so a failed copy stops the dev server
+    // rather than logging a warning that is easy to miss.
+    const emojibaseSrc = resolve('.', 'node_modules', 'emojibase-data', 'en')
+    const emojibaseDest = resolve('.', 'dist', 'emoji', 'en')
+    mkdirSync(emojibaseDest, { recursive: true })
+    for (const file of ['data.json', 'messages.json']) {
+        copyFileSync(join(emojibaseSrc, file), join(emojibaseDest, file))
+    }
+    console.info('✅ Copied emojibase data to dist/emoji/en')
 }
 
 export function publicAssetsPlugin(): Plugin {

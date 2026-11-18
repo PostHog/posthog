@@ -1,6 +1,8 @@
+from django.db.models import Prefetch
+
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 
 class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
@@ -65,3 +67,23 @@ class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(deleted_change)
         assert deleted_change is not None
         self.assertEqual(deleted_change["after"], True)
+
+    def test_saving_a_source_does_not_diff_its_jobs_or_schemas(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="source", connection_id="connection", status="Completed", source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name="Customer", deleted=True)
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status="Completed", rows_synced=0)
+        request_copy = (
+            ExternalDataSource.objects.filter(pk=source.pk)
+            .prefetch_related("jobs", Prefetch("schemas", queryset=ExternalDataSchema.objects.exclude(deleted=True)))
+            .get()
+        )
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status="Running", rows_synced=0)
+        self.clear_activity_logs()
+
+        request_copy.status = "Running"
+        request_copy.save()
+
+        [log_entry] = self.get_activity_logs_for_item("ExternalDataSource", str(source.id))
+        assert [change["field"] for change in log_entry.detail["changes"]] == ["status"]

@@ -7,6 +7,7 @@ import {
     isCommentComponentNode,
     isDiscussionCommentNode,
     isDividerComponentNode,
+    isMermaidCodeBlock,
     isPromptComponentNode,
 } from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
@@ -22,8 +23,8 @@ import {
     TextSelectionPointerStartEvent,
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
-import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
-import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
+import { NotebookMermaidBlock } from './NotebookMermaidBlock'
+import { NotebookBlockNode, NotebookComponentBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({
     node,
@@ -44,6 +45,9 @@ export function renderNode({
     setListItemRef,
     setTableCellRef,
     updateNode,
+    onBtw,
+    askAIDisabledReason,
+    copyNode,
     replaceNodeWithNodes,
     deleteNode,
     deleteNodeAndFocusAdjacent,
@@ -72,6 +76,7 @@ export function renderNode({
     submitAIPrompt,
     handleSelectionChange,
     startTextSelectionPointer,
+    onInteractionStateChange,
     restoreSelectionRef,
     rootEditableInputHtmlByNodeIdRef,
 }: {
@@ -93,6 +98,9 @@ export function renderNode({
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    onBtw?: () => void
+    askAIDisabledReason?: string
+    copyNode?: (node: NotebookComponentBlockNode) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
     deleteNodeAndFocusAdjacent: () => void
@@ -121,6 +129,7 @@ export function renderNode({
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
+    onInteractionStateChange: ((isInteractionActive: boolean) => void) | undefined
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
     rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
@@ -192,6 +201,9 @@ export function renderNode({
                 rememberComponentPanels={rememberComponentPanels}
                 setBlockRef={setBlockRef}
                 updateNode={updateNode}
+                onBtw={onBtw}
+                askAIDisabledReason={askAIDisabledReason}
+                copyNode={copyNode}
                 deleteNode={deleteNode}
                 deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                 insertParagraphAfterNode={insertParagraphAfterNode}
@@ -223,6 +235,7 @@ export function renderNode({
                 setBlockRef={setBlockRef}
                 setTableCellRef={setTableCellRef}
                 updateNode={updateNode}
+                deleteNode={deleteNodeAndFocusAdjacent}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}
@@ -231,9 +244,20 @@ export function renderNode({
     }
 
     if (node.type === 'code') {
-        // Render mermaid fences as diagrams in view mode; edit mode keeps the source editable.
-        if (mode === 'view' && isMermaidCodeBlock(node)) {
-            return <NotebookMermaidBlock node={node} setBlockRef={setBlockRef} />
+        if (isMermaidCodeBlock(node)) {
+            return (
+                <NotebookMermaidBlock
+                    node={node}
+                    mode={mode}
+                    setBlockRef={setBlockRef}
+                    updateNode={updateNode}
+                    deleteNode={deleteNode}
+                    deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
+                    insertParagraphAfterNode={insertParagraphAfterNode}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                    onInteractionStateChange={onInteractionStateChange}
+                />
+            )
         }
 
         return (

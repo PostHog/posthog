@@ -13,6 +13,8 @@ jest.mock('lib/components/TZLabel', () => ({
 function makeSignal(payload: Record<string, unknown>, title: string, content: string): SignalNode {
     return {
         signal_id: 'signal-1',
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content,
         source_product: 'health_checks',
         source_type: 'health_issue',
@@ -53,7 +55,6 @@ describe('HealthCheckSignalCard', () => {
         const { container } = render(<HealthCheckSignalCard signal={signal} />)
 
         expect(screen.getByText('SDK migration recommended')).toBeInTheDocument()
-        expect(screen.getByText('Outdated SDK')).toBeInTheDocument()
         expect(container).toHaveTextContent('Health checks · Instrumentation issue · 2026-07-13T00:00:00Z')
         expect(screen.getAllByText('2026-07-13T00:00:00Z')).toHaveLength(1)
         expect(container).toHaveTextContent('com.posthog.java:posthog → com.posthog:posthog-server')

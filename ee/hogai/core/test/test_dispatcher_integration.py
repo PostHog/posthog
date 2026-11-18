@@ -6,8 +6,9 @@ These tests ensure that the dispatcher pattern works correctly end-to-end in rea
 
 from typing import cast
 
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from langchain_core.runnables import RunnableConfig
 
@@ -47,7 +48,7 @@ class MockAssistantNode(BaseAssistantNode[AssistantState, PartialAssistantState]
         return PartialAssistantState(messages=[AssistantMessage(content="Final result")])
 
 
-class TestDispatcherIntegration(BaseTest):
+class TestDispatcherIntegration(SimpleTestCase):
     """Test dispatcher integration with BaseAssistantNode."""
 
     def setUp(self):

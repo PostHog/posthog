@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
@@ -8,18 +10,15 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
+import { claimedReports, mockSourceMetadata, pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { DEFAULT_OPEN_SECTIONS, inboxReportSectionsLogic } from '../../logics/inboxReportSectionsLogic'
-import { INBOX_REPORT_SECTION_KEYS, SignalReport, SignalRun } from '../../types'
-import { PullRequestsTab } from './PullRequestsTab'
+import { SignalReport, SignalRun } from '../../types'
 import { ReportsTab } from './ReportsTab'
-import { ReportsTabLegacy } from './ReportsTabLegacy'
 import { RunsTab } from './RunsTab'
 
-// Stories for the inbox tab bodies. The Reports tab loads each section via `reportListLogic`, so it
-// gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven and
-// receives mock runs directly. Use these to polish section density and the run-card design.
+// Stories for the inbox tab bodies. The Reports tab loads each report state via `reportListLogic`,
+// so it gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven
+// and receives mock runs directly. Use these to polish list density and the run-card design.
 
 const SAMPLE_RUNS: SignalRun[] = [
     {
@@ -52,29 +51,31 @@ const SAMPLE_RUNS: SignalRun[] = [
 function reportsListDecorator(reports: SignalReport[]): Decorator {
     return mswDecorator({
         get: {
-            '/api/projects/:id/signals/reports': () => [
-                200,
-                { results: reports, count: reports.length, next: null, previous: null },
-            ],
+            // Mirrors the server's `assignee=mine` filter so the Claimed by you scope narrows the rows.
+            '/api/projects/:id/signals/reports': ({ request }) => {
+                const claimedByMe = new URL(request.url).searchParams.get('assignee') === 'mine'
+                const results = claimedByMe
+                    ? reports.filter((report) => report.assignee?.responsible_user?.uuid === MOCK_USER_UUID)
+                    : reports
+                return [200, { results, count: results.length, next: null, previous: null }]
+            },
             '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
             '/api/projects/:id/signals/scout/configs': () => [200, []],
+        },
+        post: {
+            '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(reports),
         },
     })
 }
 
-// One mocked endpoint feeds every section, so each renders the same rows — enough to judge the
-// section rhythm, which is what these stories are for.
-function ReportsTabStory({ expandAll = false }: { expandAll?: boolean }): JSX.Element {
+// One mocked endpoint feeds every report state, so the same rows come back for each state's
+// request and the flat list deduplicates them — enough to judge the list rhythm, which is what
+// these stories are for.
+function ReportsTabStory({ searchParams }: { searchParams?: Record<string, string> }): JSX.Element {
     useMountedLogic(inboxSceneLogic)
-    const sectionsLogic = useMountedLogic(inboxReportSectionsLogic)
     useEffect(() => {
-        router.actions.push(urls.inbox('reports'))
-        if (expandAll) {
-            INBOX_REPORT_SECTION_KEYS.filter((key) => !DEFAULT_OPEN_SECTIONS[key]).forEach((key) =>
-                sectionsLogic.actions.toggleSection(key)
-            )
-        }
-    }, [expandAll, sectionsLogic])
+        router.actions.push(urls.inbox('reports'), searchParams ?? {})
+    }, [searchParams])
     return (
         <div className="bg-primary min-h-screen">
             <ReportsTab />
@@ -88,7 +89,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
 }
@@ -96,19 +97,31 @@ export default meta
 
 type Story = StoryObj
 
-// The default arrangement: Needs a PR and Review and merge open, Resolved collapsed.
+// The default view: one flat list over the default-selected open-work states.
 export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
     render: () => <ReportsTabStory />,
 }
 
-// Every section open, including the ones that start collapsed.
-export const ReportsAllSectionsExpanded: Story = {
+// The state filter narrowing the list to one state via the shared `state` URL param.
+export const ReportsStateFiltered: Story = {
     decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => <ReportsTabStory expandAll />,
+    render: () => <ReportsTabStory searchParams={{ state: 'monitoring' }} />,
 }
 
-// Nothing anywhere: the whole-list empty state rather than a per-section one.
+// Claim tags on the rows: the user's own claim, their agent's claim, a teammate's claim, and unclaimed reports.
+export const ReportsWithClaims: Story = {
+    decorators: [reportsListDecorator(claimedReports)],
+    render: () => <ReportsTabStory searchParams={{ scope: 'entire-project' }} />,
+}
+
+// The Claimed by you scope narrows the same rows to the claims of the user and their agents.
+export const ReportsClaimedByYou: Story = {
+    decorators: [reportsListDecorator(claimedReports)],
+    render: () => <ReportsTabStory searchParams={{ scope: 'claimed-by-you' }} />,
+}
+
+// Nothing anywhere: the whole-list empty state.
 export const ReportsEmpty: Story = {
     decorators: [reportsListDecorator([])],
     render: () => <ReportsTabStory />,
@@ -134,27 +147,6 @@ export const RunsEmpty: Story = {
     render: () => (
         <div className="bg-primary min-h-screen">
             <RunsTab runs={[]} loading={false} />
-        </div>
-    ),
-}
-
-// The flat tabs with the redesign flag off: one list per tab under the search and filter bar.
-export const ReportsLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    decorators: [reportsListDecorator(reportTabReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTabLegacy />
-        </div>
-    ),
-}
-
-export const PullRequestsLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
         </div>
     ),
 }

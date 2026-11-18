@@ -63,6 +63,7 @@ const BREAKDOWN_TYPE_MAP: Partial<Record<WebStatsBreakdown, PropertyFilterType.E
     [WebStatsBreakdown.ExitPage]: PropertyFilterType.Session,
     [WebStatsBreakdown.Page]: PropertyFilterType.Event,
     [WebStatsBreakdown.Browser]: PropertyFilterType.Event,
+    [WebStatsBreakdown.InAppBrowser]: PropertyFilterType.Event,
     [WebStatsBreakdown.OS]: PropertyFilterType.Event,
     [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
@@ -85,6 +86,7 @@ const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
     [WebStatsBreakdown.ExitPage]: '$end_pathname',
     [WebStatsBreakdown.Page]: '$pathname',
     [WebStatsBreakdown.Browser]: '$browser',
+    [WebStatsBreakdown.InAppBrowser]: '$webview_app',
     [WebStatsBreakdown.OS]: '$os',
     [WebStatsBreakdown.InitialChannelType]: '$channel_type',
     [WebStatsBreakdown.InitialReferringDomain]: '$entry_referring_domain',
@@ -146,6 +148,7 @@ export const ReplayButton = ({
         <div onClick={handleClick}>
             <ViewRecordingsPlaylistButton
                 filters={filters}
+                label={<span className="@max-[28rem]/page-report-tile:hidden">View recordings</span>}
                 type="tertiary"
                 size="xsmall"
                 tooltip="View session recordings for this segment"

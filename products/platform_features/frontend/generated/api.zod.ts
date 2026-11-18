@@ -11,6 +11,16 @@ import * as zod from 'zod'
 
 export const createBodyNameMax = 64
 
+export const createBodyMemberNoticeOneMessageMax = 1000
+
+export const createBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const createBodyIpRestrictionsItemMax = 64
+
+export const createBodyIpRestrictionsMax = 100
+
 export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
@@ -42,32 +52,71 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(createBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(createBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(createBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(createBodyIpRestrictionsItemMax))
+        .max(createBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const updateBodyNameMax = 64
+
+export const updateBodyMemberNoticeOneMessageMax = 1000
+
+export const updateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const updateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const updateBodyIpRestrictionsItemMax = 64
+
+export const updateBodyIpRestrictionsMax = 100
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
@@ -100,32 +149,71 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(updateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(updateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(updateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(updateBodyIpRestrictionsItemMax))
+        .max(updateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const partialUpdateBodyNameMax = 64
+
+export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
+
+export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
@@ -158,29 +246,58 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(partialUpdateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
@@ -197,6 +314,15 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+export const OrganizationPersonalApiKeysRollAllBody = /* @__PURE__ */ zod.object({
+    skip_rolled_since: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            "Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned."
+        ),
+})
+
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */
@@ -209,13 +335,17 @@ export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
  */
-export const proxyRecordsPartialUpdateBodyRootRedirectUrlMax = 1024
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax = 1024
+
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax = 0
 
 export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
     root_redirect_url: zod
-        .url()
-        .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax).nullable(),
+            zod.string().max(proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax),
+        ])
+        .optional()
         .describe(
             'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
         ),
@@ -270,7 +400,7 @@ export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
 export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
 
-export const advancedActivityLogsExportCreateBodyClientMax = 32
+export const advancedActivityLogsExportCreateBodyClientMax = 256
 
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
 
@@ -477,7 +607,7 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
  */
 export const commentsSendToSlackCreateBodyChannelIdMax = 255
 

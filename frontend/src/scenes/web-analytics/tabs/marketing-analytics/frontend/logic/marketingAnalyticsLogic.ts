@@ -1,11 +1,26 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl } from 'kea-router'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils/dateFilters'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -17,11 +32,15 @@ import {
     CurrencyCode,
     DataWarehouseNode,
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaQueryResponse,
     DateRange,
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState,
+    MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -35,12 +54,15 @@ import { ChartDisplayType } from '~/types'
 
 import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { marketingAnalyticsSourceValidationRetrieve } from 'products/marketing_analytics/frontend/generated/api'
+import type { SourceValidationApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
+import { validateConversionGoals } from '../components/MarketingAnalyticsValidationWarningBanner'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
-import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
@@ -48,6 +70,10 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    getEnabledNativeMarketingSources,
+    getSourceMapId,
+    nativeSourceDisplayLabel,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
@@ -68,6 +94,7 @@ export type NativeSourceHierarchyStatus = {
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
+    SEARCH_PERFORMANCE = 'search-performance',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
@@ -92,6 +119,52 @@ export enum SetupSection {
 
 export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
 
+export interface DashboardGoalsConfigured {
+    customerGoal: boolean
+    revenueGoal: boolean
+}
+
+export type RecommendationsShownState =
+    | 'recommendations'
+    | 'empty'
+    | 'error'
+    | 'no_selected_source'
+    | 'no_connected_source'
+
+export interface RecommendationsShownProperties {
+    state: RecommendationsShownState
+    recommendation_count: number
+    rule_count: number
+    rules: MarketingAnalyticsRecommendationRule[]
+    has_save_impact: boolean
+    has_gain_impact: boolean
+    has_invest_impact: boolean
+    source_types: string[]
+    data_gap_count: number
+    resolved_count: number
+    intro_shown: boolean
+}
+
+export type RecommendationsEntryPoint = 'button' | 'intro'
+
+export type RecommendationsAction =
+    | 'connect_google_ads'
+    | 'manage_source'
+    | 'view_instructions'
+    | 'open_step_link'
+    | 'show_resolved'
+    | 'undo'
+
+export type RecommendationsActionLocation =
+    | 'section_empty'
+    | 'section_campaigns'
+    | 'section_data_gaps'
+    | 'modal_data_gaps'
+    | 'rule_banner'
+    | 'instructions'
+    | 'modal'
+    | 'toast'
+
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
  * real tab and resolves on its own. */
@@ -115,11 +188,29 @@ export enum MarketingSourceStatus {
 
 export type SourceStatus = ExternalDataSchemaStatus | MarketingSourceStatus
 
+/** How the cost chart splits its lines. Campaign needs the precomputed cost table, which carries campaign names. */
+export type MarketingChartBreakdown = 'platform' | 'campaign'
+
+const SETUP_WARNING_STATUSES: SourceStatus[] = [
+    ExternalDataSchemaStatus.Failed,
+    ExternalDataSchemaStatus.Cancelled,
+    MarketingSourceStatus.Error,
+    MarketingSourceStatus.Warning,
+]
+
 function getSourceStatus(
     source: { id: string; name: string; type: string; prefix?: string },
     nativeSources: ExternalDataSource[],
-    validExternalTables: ExternalTable[]
+    validExternalTables: ExternalTable[],
+    validationErrors: SourceValidationApi['errors_by_source']
 ): { status: SourceStatus; message: string } {
+    const errors = validationErrors[source.id]
+    const validationWarning = errors?.length
+        ? {
+              status: MarketingSourceStatus.Warning,
+              message: `${errors.join(' ')} This source is excluded from the campaign table. ${source.type === 'native' ? 'Review its settings and fully resync the affected tables.' : 'Review its column mapping and table configuration.'}`,
+          }
+        : null
     const nativeSource = nativeSources.find((s) => s.id === source.id)
     if (nativeSource) {
         const requiredFields =
@@ -130,36 +221,50 @@ function getSourceStatus(
             findSchemaByFieldName(nativeSource.schemas, fieldName, nativeSource.source_type)
         )
 
-        // Check for tables not selected for sync (should_sync=false) or missing entirely
+        const tableMessages = requiredFields.flatMap((fieldName, index) => {
+            const schema = schemas[index]
+            if (!schema) {
+                return [`${fieldName}: not found. Check the source configuration.`]
+            }
+            if (!schema.should_sync) {
+                return [`${schema.name}: import disabled. Enable this table in the source's Schemas tab.`]
+            }
+            switch (schema.status) {
+                case ExternalDataSchemaStatus.Completed:
+                    return []
+                case ExternalDataSchemaStatus.Failed:
+                    return [`${schema.name}: sync failed. Review the error in the source's Schemas tab.`]
+                case ExternalDataSchemaStatus.Running:
+                    return [`${schema.name}: syncing. Wait for the sync to finish.`]
+                case ExternalDataSchemaStatus.Paused:
+                    return [`${schema.name}: sync paused. Review the table in the source's Schemas tab.`]
+                case ExternalDataSchemaStatus.Cancelled:
+                    return [`${schema.name}: sync canceled. Review the table in the source's Schemas tab.`]
+                default:
+                    return [`${schema.name}: waiting for a completed sync. Check the source's Schemas tab.`]
+            }
+        })
+        const message = tableMessages.join(' ')
         const disabledTables = schemas.filter((s) => s && !s.should_sync)
         const missingTables = schemas.filter((s) => !s)
         if (disabledTables.length > 0 || missingTables.length > 0) {
-            return {
-                status: MarketingSourceStatus.Warning,
-                message:
-                    'Some required tables are not selected for import. Enable them in the data warehouse source settings.',
-            }
+            return { status: MarketingSourceStatus.Warning, message }
         }
 
         const schemaStatuses = schemas.map((s) => s?.status).filter(Boolean)
 
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Failed)) {
-            return { status: ExternalDataSchemaStatus.Failed, message: 'One or more required tables failed to sync' }
-        }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Running)) {
-            return {
-                status: ExternalDataSchemaStatus.Running,
-                message: 'One or more required tables are still syncing',
+        for (const status of [
+            ExternalDataSchemaStatus.Failed,
+            ExternalDataSchemaStatus.Running,
+            ExternalDataSchemaStatus.Paused,
+            ExternalDataSchemaStatus.Cancelled,
+        ]) {
+            if (schemaStatuses.includes(status)) {
+                return { status, message }
             }
         }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Paused)) {
-            return { status: ExternalDataSchemaStatus.Paused, message: 'One or more required tables sync is paused' }
-        }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Cancelled)) {
-            return {
-                status: ExternalDataSchemaStatus.Cancelled,
-                message: 'One or more required tables sync is cancelled',
-            }
+        if (validationWarning) {
+            return validationWarning
         }
         if (
             schemaStatuses.length === requiredFields.length &&
@@ -170,7 +275,7 @@ function getSourceStatus(
                 message: 'Ready to use! All required fields have synced.',
             }
         }
-        return { status: MarketingSourceStatus.Warning, message: 'Some required tables need to be synced' }
+        return { status: MarketingSourceStatus.Warning, message: message || 'Some required tables need to be synced' }
     }
 
     const externalTable = validExternalTables.find((t) => t.source_map_id === source.id)
@@ -179,13 +284,13 @@ function getSourceStatus(
         const hasMapping = externalTable.source_map && Object.keys(externalTable.source_map).length > 0
 
         if (!hasMapping) {
-            return { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
+            return validationWarning ?? { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
         }
 
         // For sources with schema_status (managed sources like BigQuery)
         if (externalTable.schema_status) {
             if (externalTable.schema_status === ExternalDataSchemaStatus.Completed) {
-                return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
+                return validationWarning ?? { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
             }
             if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
                 return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
@@ -201,8 +306,7 @@ function getSourceStatus(
             }
         }
 
-        // For self-managed sources having a mapping means it's ready
-        return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
+        return validationWarning ?? { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
     }
 
     return { status: MarketingSourceStatus.Error, message: 'Unknown source status' }
@@ -239,14 +343,19 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface marketingAnalyticsLogicValues {
+    databaseFieldsComplete: boolean // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
+    setupEntryPoint: SetupEntryPoint | null // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
+    database: Required<DatabaseSchemaQueryResponse> | null // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
+    _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
     allAvailableSources: {
         id: string
@@ -258,11 +367,11 @@ export interface marketingAnalyticsLogicValues {
     allAvailableSourcesWithStatus: {
         id: string
         name: string
-        prefix?: string | undefined
+        prefix: string | undefined
         source_type: string
         status: SourceStatus
         statusMessage: string
-        type: string
+        type: DataWarehouseSettingsTab | 'native'
     }[]
     allExternalTablesWithStatus: {
         columns: {
@@ -284,6 +393,8 @@ export interface marketingAnalyticsLogicValues {
         statusMessage: string
         url_pattern: string
     }[]
+    canToggleConversionGoals: boolean
+    chartBreakdown: MarketingChartBreakdown
     chartDisplayType: ChartDisplayType
     columnConfigModalVisible: boolean
     compareFilter: CompareFilter
@@ -300,14 +411,34 @@ export interface marketingAnalyticsLogicValues {
     externalTables: ExternalTable[]
     hasNoConfiguredSources: boolean
     hasSources: boolean
+    hasSyncedMarketingSources: boolean
+    includeConversionGoals: boolean
     initialized: boolean
     integrationFilter: IntegrationFilter
+    isPerformanceTab: boolean
     loading: boolean
+    marketingChartSourceIds: string[]
+    marketingDataWarehouseSeries: {
+        node: DataWarehouseNode
+        sourceId: string
+    }[]
+    marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
+    setupEnabled: boolean
     setupSection: SetupSection
+    setupWarningCount: number
+    shouldFilterTestAccounts: boolean
+    showConversionGoals: boolean
+    sourceValidation: SourceValidationApi
+    sourceValidationError: string | null
+    sourceValidationErrors: SourceValidationApi['errors_by_source']
+    sourceValidationLoading: boolean
+    sourcesInitialLoading: boolean
     tileColumnSelection: validColumnsForTiles
+    unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
     validNativeSources: NativeSource[]
@@ -321,6 +452,12 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
+    } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
@@ -386,11 +523,114 @@ export interface marketingAnalyticsLogicActions {
     loadConversionGoal: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
     }
+    loadSourceValidation: (_: void) => void
+    loadSourceValidationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceValidationSuccess: (
+        sourceValidation: SourceValidationApi,
+        payload?: void
+    ) => {
+        sourceValidation: SourceValidationApi
+        payload?: void
+    }
+    openSetup: (
+        section: SetupSection,
+        entryPoint: SetupEntryPoint
+    ) => {
+        entryPoint: SetupEntryPoint
+        section: SetupSection
+    }
+    reportDashboardControlUsed: (
+        section: string,
+        control: string,
+        value?: boolean | string
+    ) => {
+        control: string
+        section: string
+        value: boolean | string | undefined
+    }
+    reportDashboardSectionViewed: (
+        section: string,
+        configured: DashboardGoalsConfigured
+    ) => {
+        configured: DashboardGoalsConfigured
+        section: string
+    }
+    reportRecommendationResolved: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
+        rule: MarketingAnalyticsRecommendationRule
+    }
+    reportRecommendationRestored: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
+        rule: MarketingAnalyticsRecommendationRule
+    }
+    reportRecommendationsActionClicked: (
+        action: RecommendationsAction,
+        location: RecommendationsActionLocation,
+        rule?: MarketingAnalyticsRecommendationRule
+    ) => {
+        action: RecommendationsAction
+        location: RecommendationsActionLocation
+        rule: MarketingAnalyticsRecommendationRule | undefined
+    }
+    reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => {
+        rule: MarketingAnalyticsRecommendationRule | null
+    }
+    reportRecommendationsIntroDismissed: () => {
+        value: true
+    }
+    reportRecommendationsOpened: (
+        entryPoint: RecommendationsEntryPoint,
+        recommendationCount: number
+    ) => {
+        entryPoint: RecommendationsEntryPoint
+        recommendationCount: number
+    }
+    reportRecommendationsRuleSelected: (
+        rule: MarketingAnalyticsRecommendationRule,
+        ruleRecommendationCount: number
+    ) => {
+        rule: MarketingAnalyticsRecommendationRule
+        ruleRecommendationCount: number
+    }
+    reportRecommendationsShown: (properties: RecommendationsShownProperties) => {
+        properties: RecommendationsShownProperties
+    }
+    reportSearchNewTagShown: () => {
+        value: true
+    }
+    reportTabSelected: (
+        tab: MarketingAnalyticsTab,
+        previousTab: MarketingAnalyticsTab,
+        searchNewTagVisible: boolean
+    ) => {
+        previousTab: MarketingAnalyticsTab
+        searchNewTagVisible: boolean
+        tab: MarketingAnalyticsTab
+    }
     saveConversionGoal: () => {
         value: true
     }
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
+    }
+    setChartBreakdown: (chartBreakdown: MarketingChartBreakdown) => {
+        chartBreakdown: MarketingChartBreakdown
     }
     setChartDisplayType: (chartDisplayType: ChartDisplayType) => {
         chartDisplayType: ChartDisplayType
@@ -432,8 +672,14 @@ export interface marketingAnalyticsLogicActions {
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
     }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
+    }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
+    }
+    setShowConversionGoals: (include: boolean) => {
+        include: boolean
     }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
@@ -451,6 +697,7 @@ export interface marketingAnalyticsLogicActions {
         dateFrom?: string | null
         dateTo?: string | null
         drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        includeNonIntegrated?: boolean
         integrationSourceIds?: string[]
         interval?: IntervalType
         tileColumnSelection?: string
@@ -462,6 +709,7 @@ export interface marketingAnalyticsLogicActions {
             dateFrom?: string | null | undefined
             dateTo?: string | null | undefined
             drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
+            includeNonIntegrated?: boolean | undefined
             integrationSourceIds?: string[] | undefined
             interval?: IntervalType | undefined
             tileColumnSelection?: string | undefined
@@ -472,6 +720,29 @@ export interface marketingAnalyticsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface marketingAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        setupEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        isPerformanceTab: (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet) => boolean
+        canToggleConversionGoals: (
+            activeTab: MarketingAnalyticsTab,
+            isPerformanceTab: boolean,
+            conversion_goals: ConversionGoalFilter[],
+            draftConversionGoal: ConversionGoalFilter | null
+        ) => boolean
+        setupWarningCount: (
+            allAvailableSourcesWithStatus: {
+                id: string
+                name: string
+                prefix: string | undefined
+                source_type: string
+                status: SourceStatus
+                statusMessage: string
+                type: DataWarehouseSettingsTab | 'native'
+            }[],
+            sourceValidationError: string | null,
+            conversion_goals: ConversionGoalFilter[]
+        ) => number
+        includeConversionGoals: (canToggleConversionGoals: boolean, showConversionGoals: boolean) => boolean
+        integrationFilter: (_integrationFilter: IntegrationFilter) => IntegrationFilter
         drillDownLevel: (
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
             featureFlags: FeatureFlagsSet
@@ -479,8 +750,12 @@ export interface marketingAnalyticsLogicMeta {
         validSourcesMap: (sources_map: Record<string, SourceMap>) => {
             [x: string]: SourceMap
         } | null
+        marketingDataWarehouseTables: (
+            database: Required<DatabaseSchemaQueryResponse> | null,
+            databaseFieldsComplete: boolean
+        ) => DatabaseSchemaDataWarehouseTable[] | null
         externalTables: (
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null,
             sources_map: Record<string, SourceMap>,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
         ) => ExternalTable[]
@@ -490,17 +765,28 @@ export interface marketingAnalyticsLogicMeta {
                 [x: string]: SourceMap
             } | null
         ) => ExternalTable[]
-        nativeSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        nativeSources: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            featureFlags: FeatureFlagsSet
+        ) => ExternalDataSource[]
         validNativeSources: (
             nativeSources: ExternalDataSource[],
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
         ) => NativeSource[]
+        unconfiguredNativeSources: (
+            nativeSources: ExternalDataSource[],
+            validNativeSources: NativeSource[]
+        ) => ExternalDataSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
         ) => string
         nativeSourcesHierarchyStatus: (validNativeSources: NativeSource[]) => NativeSourceHierarchyStatus[]
         loading: (dataWarehouseSourcesLoading: boolean) => boolean
+        sourcesInitialLoading: (
+            dataWarehouseSourcesLoading: boolean,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+        ) => boolean
         allAvailableSources: (
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[]
@@ -511,35 +797,49 @@ export interface marketingAnalyticsLogicMeta {
             source_type: string
             type: string
         }[]
+        sourceValidationErrors: (sourceValidation: SourceValidationApi) => SourceValidationApi['errors_by_source']
         allAvailableSourcesWithStatus: (
-            allAvailableSources: {
+            allExternalTablesWithStatus: {
+                columns: {
+                    name: string
+                    type: string
+                }[]
+                dw_source_type: string
+                external_type: DataWarehouseSettingsTab
                 id: string
                 name: string
-                prefix?: string | undefined
+                schema_name: string
+                schema_status?: string | undefined
+                source_map: SourceMap | null
+                source_map_id: string
+                source_prefix: string
                 source_type: string
-                type: string
-            }[],
-            nativeSources: ExternalDataSource[],
-            validExternalTables: ExternalTable[]
+                sourceUrl: string
+                status: SourceStatus
+                statusMessage: string
+                url_pattern: string
+            }[]
         ) => {
             id: string
             name: string
-            prefix?: string | undefined
+            prefix: string | undefined
             source_type: string
             status: SourceStatus
             statusMessage: string
-            type: string
+            type: DataWarehouseSettingsTab | 'native'
         }[]
         hasNoConfiguredSources: (
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[],
             loading: boolean,
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
         ) => boolean
+        hasSyncedMarketingSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         hasSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
-            nativeSources: ExternalDataSource[]
+            nativeSources: ExternalDataSource[],
+            sourceValidationErrors: import('products/marketing_analytics/frontend/generated/api.schemas').SourceValidationApiErrorsBySource
         ) => {
             columns: {
                 name: string
@@ -560,13 +860,29 @@ export interface marketingAnalyticsLogicMeta {
             statusMessage: string
             url_pattern: string
         }[]
-        createMarketingDataWarehouseNodes: (
+        marketingDataWarehouseSeries: (
             validExternalTables: ExternalTable[],
             baseCurrency: CurrencyCode,
             validNativeSources: NativeSource[],
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
+        ) => {
+            node: DataWarehouseNode
+            sourceId: string
+        }[]
+        createMarketingDataWarehouseNodes: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
         ) => DataWarehouseNode[]
+        marketingChartSourceIds: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
+        ) => string[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
@@ -575,7 +891,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -594,9 +911,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts', 'setupEntryPoint'],
             sourceManagementLogic,
-            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+            ['database', 'dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+            databaseTableListLogic,
+            ['databaseFieldsComplete'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -606,14 +925,72 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts', 'setSetupEntryPoint'],
             teamLogic,
             ['addProductIntent'],
         ],
     })),
+    loaders(() => ({
+        sourceValidation: [
+            { errors_by_source: {} } as SourceValidationApi,
+            {
+                loadSourceValidation: async (_: void, breakpoint) => {
+                    await breakpoint(100)
+                    const result = await marketingAnalyticsSourceValidationRetrieve(
+                        String(teamLogic.values.currentTeamId)
+                    )
+                    breakpoint()
+                    return result
+                },
+            },
+        ],
+    })),
     actions({
+        setShowConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
+        openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
+        reportDashboardSectionViewed: (section: string, configured: DashboardGoalsConfigured) => ({
+            section,
+            configured,
+        }),
+        reportDashboardControlUsed: (section: string, control: string, value?: string | boolean) => ({
+            section,
+            control,
+            value,
+        }),
+        reportRecommendationsShown: (properties: RecommendationsShownProperties) => ({ properties }),
+        reportRecommendationsOpened: (entryPoint: RecommendationsEntryPoint, recommendationCount: number) => ({
+            entryPoint,
+            recommendationCount,
+        }),
+        reportRecommendationsIntroDismissed: true,
+        reportRecommendationsRuleSelected: (
+            rule: MarketingAnalyticsRecommendationRule,
+            ruleRecommendationCount: number
+        ) => ({ rule, ruleRecommendationCount }),
+        reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
+        reportRecommendationResolved: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
+        reportRecommendationRestored: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
+        reportRecommendationsActionClicked: (
+            action: RecommendationsAction,
+            location: RecommendationsActionLocation,
+            rule?: MarketingAnalyticsRecommendationRule
+        ) => ({ action, location, rule }),
+        reportTabSelected: (
+            tab: MarketingAnalyticsTab,
+            previousTab: MarketingAnalyticsTab,
+            searchNewTagVisible: boolean
+        ) => ({ tab, previousTab, searchNewTagVisible }),
+        reportSearchNewTagShown: true,
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -634,6 +1011,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -642,6 +1020,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             compare?: boolean
             compare_to?: string
             integrationSourceIds?: string[]
+            includeNonIntegrated?: boolean
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
             drillDownLevel?: MarketingAnalyticsDrillDownLevel
@@ -651,6 +1030,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         showConversionGoalModal: true,
         hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
+        setChartBreakdown: (chartBreakdown: MarketingChartBreakdown) => ({ chartBreakdown }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
@@ -659,6 +1039,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const persistConfig = buildTeamScopedPersistenceConfig()
 
         return {
+            sourceValidationError: [
+                null as string | null,
+                {
+                    loadSourceValidationSuccess: () => null,
+                    loadSourceValidationFailure: (_, { error }) => error,
+                },
+            ],
+            showConversionGoals: [true, { setShowConversionGoals: (_, { include }) => include }],
             activeTab: [
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
                 {
@@ -710,13 +1098,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
-            integrationFilter: [
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
+            _integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
-                persistConfig,
+                // pinned: localStorage key. Kea derives it from the reducer name, so the rename above
+                // would otherwise point it at a fresh key. That resets a selection someone already made,
+                // and strands the unreadable value under the old key for a rollback to find again.
+                { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
                     setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                    syncFromUrl: (state, { params }) =>
-                        params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
+                    syncFromUrl: (state, { params }) => {
+                        if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
+                            return state
+                        }
+                        return {
+                            integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
+                        }
+                    },
                 },
             ],
             dateFilter: [
@@ -774,7 +1173,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             return state
                         }
                         const dateFrom = params.dateFrom ?? state.dateFrom
-                        const dateTo = params.dateTo ?? state.dateTo
+                        const dateTo = params.dateTo !== undefined ? params.dateTo : state.dateTo
                         const interval = params.interval ?? state.interval
                         return { dateFrom, dateTo, interval }
                     },
@@ -794,8 +1193,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     hideConversionGoalModal: () => false,
                 },
             ],
+            chartBreakdown: [
+                'platform' as MarketingChartBreakdown,
+                persistConfig,
+                {
+                    setChartBreakdown: (_, { chartBreakdown }) => chartBreakdown,
+                },
+            ],
             chartDisplayType: [
-                ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+                ChartDisplayType.ActionsLineGraph as ChartDisplayType,
                 persistConfig,
                 {
                     setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
@@ -826,12 +1232,48 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
     }),
     selectors({
+        setupEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
+        ],
+        isPerformanceTab: [
+            (s) => [s.activeTab, s.featureFlags],
+            (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
+                activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
+                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+        ],
+        canToggleConversionGoals: [
+            (s) => [s.activeTab, s.isPerformanceTab, s.conversion_goals, s.draftConversionGoal],
+            (
+                activeTab: MarketingAnalyticsTab,
+                isPerformanceTab: boolean,
+                goals: ConversionGoalFilter[],
+                draft: ConversionGoalFilter | null
+            ): boolean =>
+                (isPerformanceTab || activeTab === MarketingAnalyticsTab.DASHBOARD) && (goals.length > 0 || !!draft),
+        ],
+        setupWarningCount: [
+            (s) => [s.allAvailableSourcesWithStatus, s.sourceValidationError, s.conversion_goals],
+            (
+                sources: { status: SourceStatus }[],
+                sourceValidationError: string | null,
+                goals: ConversionGoalFilter[]
+            ): number =>
+                sources.filter(({ status }) => SETUP_WARNING_STATUSES.includes(status)).length +
+                (sourceValidationError ? 1 : 0) +
+                validateConversionGoals(goals).length,
+        ],
+        includeConversionGoals: [
+            (s) => [s.canToggleConversionGoals, s.showConversionGoals],
+            (canToggle: boolean, include: boolean): boolean => !canToggle || include,
+        ],
+        integrationFilter: [
+            (s) => [s._integrationFilter],
+            (stored: IntegrationFilter): IntegrationFilter => sanitizeIntegrationFilter(stored),
+        ],
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
                 if (
                     EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
@@ -871,10 +1313,25 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return validSourcesMap
             },
         ],
-        externalTables: [
-            (s) => [s.dataWarehouseTables, s.sources_map, s.dataWarehouseSources],
+        // `dataWarehouseTables` is empty during every schema load, including the reloads after a sync.
+        // The loader keeps the previous schema meanwhile, so read it directly. Null until the first one lands.
+        marketingDataWarehouseTables: [
+            (s) => [s.database, s.databaseFieldsComplete],
             (
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                database: Required<DatabaseSchemaQueryResponse> | null,
+                databaseFieldsComplete: boolean
+            ): DatabaseSchemaDataWarehouseTable[] | null =>
+                database?.tables && databaseFieldsComplete
+                    ? Object.values(database.tables).filter(
+                          (table): table is DatabaseSchemaDataWarehouseTable => table.type === 'data_warehouse'
+                      )
+                    : null,
+            { resultEqualityCheck: objectsEqual },
+        ],
+        externalTables: [
+            (s) => [s.marketingDataWarehouseTables, s.sources_map, s.dataWarehouseSources],
+            (
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null,
                 sources_map: Record<string, SourceMap>,
                 dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
             ) => {
@@ -893,14 +1350,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         const tableType = isDataWarehouse
                             ? DataWarehouseSettingsTab.Managed
                             : DataWarehouseSettingsTab.SelfManaged
-                        const sourceMap = sources_map?.[table.schema?.id || ''] ?? sources_map?.[table.id] ?? null
+                        const sourceMapId = getSourceMapId(table, sources_map)
 
                         externalTables.push({
                             ...table,
                             name: table.name,
                             url_pattern: table.url_pattern || '',
+                            // An adopted table reads PostHog's storage, so only its source names the provider.
                             source_type: table.source?.source_type || mapUrlToProvider(table.url_pattern),
-                            source_map_id: table.schema?.id || table.source?.id || table.id,
+                            source_map_id: sourceMapId,
                             source_prefix: table.source?.prefix || '',
                             columns: Object.keys(table.fields).map((field) => ({
                                 name: table.fields[field].hogql_value,
@@ -910,7 +1368,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
-                            source_map: sourceMap,
+                            source_map: sources_map?.[sourceMapId] ?? null,
                             schema_name: table.schema?.name || table.name,
                             dw_source_type: tableType,
                             schema_status: table.schema?.status,
@@ -932,19 +1390,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         nativeSources: [
-            (s) => [s.dataWarehouseSources],
+            (s) => [s.dataWarehouseSources, s.featureFlags],
             (
-                dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
-            ): ExternalDataSource[] =>
-                dataWarehouseSources?.results.filter((source) =>
-                    VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
-                ) ?? [],
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                featureFlags: FeatureFlagsSet
+            ): ExternalDataSource[] => {
+                const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+                return (
+                    dataWarehouseSources?.results.filter((source) =>
+                        enabledSources.includes(source.source_type as NativeMarketingSource)
+                    ) ?? []
+                )
+            },
         ],
         validNativeSources: [
-            (s) => [s.nativeSources, s.dataWarehouseTables],
+            (s) => [s.nativeSources, s.marketingDataWarehouseTables],
             (
                 nativeSources: ExternalDataSource[],
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
             ): NativeSource[] => {
                 return nativeSources.reduce((validNativeSources: NativeSource[], source) => {
                     const requiredFields =
@@ -970,6 +1433,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                     return validNativeSources
                 }, [])
+            },
+        ],
+        unconfiguredNativeSources: [
+            (s) => [s.nativeSources, s.validNativeSources],
+            (nativeSources: ExternalDataSource[], validNativeSources: NativeSource[]): ExternalDataSource[] => {
+                const validIds = new Set(validNativeSources.map(({ source }) => source.id))
+                return nativeSources.filter((source) => !validIds.has(source.id))
             },
         ],
         uniqueConversionGoalName: [
@@ -1024,6 +1494,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
         ],
+        // `loading` is also true while sources refresh in the background (window focus, sync
+        // polling). Views that would unmount their content on `loading` should gate on this
+        // instead, so only the first load shows a placeholder and refreshes keep the data in place.
+        sourcesInitialLoading: [
+            (s) => [s.dataWarehouseSourcesLoading, s.dataWarehouseSources],
+            (
+                dataWarehouseSourcesLoading: boolean,
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+            ): boolean => dataWarehouseSourcesLoading && !dataWarehouseSources,
+        ],
         allAvailableSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => {
@@ -1053,72 +1533,57 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return sources
             },
         ],
+        sourceValidationErrors: [
+            (s) => [s.sourceValidation],
+            (sourceValidation: SourceValidationApi): SourceValidationApi['errors_by_source'] =>
+                sourceValidation.errors_by_source,
+        ],
         allAvailableSourcesWithStatus: [
-            (s) => [s.allAvailableSources, s.nativeSources, s.validExternalTables],
-            (
-                allAvailableSources: {
-                    id: string
-                    name: string
-                    prefix?: string | undefined
-                    source_type: string
-                    type: string
-                }[],
-                nativeSources: ExternalDataSource[],
-                validExternalTables: ExternalTable[]
-            ) => {
-                const sourcesWithStatus = allAvailableSources.map((source) => {
-                    const status = getSourceStatus(source, nativeSources, validExternalTables)
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-
-                // Also include native sources not in allAvailableSources (those with
-                // disabled/missing tables) so the banner can surface warnings for them
-                const includedIds = new Set(allAvailableSources.map((s) => s.id))
-                nativeSources.forEach((source) => {
-                    if (!includedIds.has(source.id)) {
-                        const status = getSourceStatus(
-                            {
-                                id: source.id,
-                                name: source.source_type,
-                                type: 'native',
-                                prefix: source.prefix ?? undefined,
-                            },
-                            nativeSources,
-                            validExternalTables
-                        )
-                        sourcesWithStatus.push({
-                            id: source.id,
-                            name: source.source_type,
-                            type: 'native',
-                            source_type: source.source_type,
-                            prefix: source.prefix ?? undefined,
-                            status: status.status,
-                            statusMessage: status.message,
-                        })
-                    }
-                })
-
-                return sourcesWithStatus
-            },
+            (s) => [s.allExternalTablesWithStatus],
+            (tables: (ExternalTable & { status: SourceStatus; statusMessage: string; isNativeSource?: boolean })[]) =>
+                tables
+                    .filter((table) => table.isNativeSource || table.source_map !== null)
+                    .map((table) => ({
+                        id: table.source_map_id,
+                        name: table.schema_name,
+                        type: table.isNativeSource ? 'native' : table.external_type,
+                        source_type: table.source_type,
+                        prefix: table.source_prefix || undefined,
+                        status: table.status,
+                        statusMessage: table.statusMessage,
+                    })),
         ],
         hasNoConfiguredSources: [
-            (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.dataWarehouseTables],
+            (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.marketingDataWarehouseTables],
             (
                 validExternalTables: ExternalTable[],
                 validNativeSources: NativeSource[],
                 loading: boolean,
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+                marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
             ): boolean => {
                 // Don't show error banner while data is loading or if tables haven't been fetched yet
-                if (loading || dataWarehouseTables === null) {
+                if (loading || marketingDataWarehouseTables === null) {
                     return false
                 }
                 return validExternalTables.length === 0 && validNativeSources.length === 0
             },
+        ],
+        hasSyncedMarketingSources: [
+            (s) => [s.validExternalTables, s.validNativeSources],
+            (externalTables: ExternalTable[], nativeSources: NativeSource[]): boolean =>
+                externalTables.some(
+                    (table) =>
+                        table.external_type === DataWarehouseSettingsTab.SelfManaged ||
+                        table.schema_status === ExternalDataSchemaStatus.Completed
+                ) ||
+                nativeSources.some(({ source }) => {
+                    const requiredFields =
+                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+                    return requiredFields.every((fieldName) => {
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
+                        return schema?.should_sync && !!schema.last_synced_at
+                    })
+                }),
         ],
         hasSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
@@ -1126,8 +1591,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validExternalTables.length > 0 || validNativeSources.length > 0,
         ],
         allExternalTablesWithStatus: [
-            (s) => [s.externalTables, s.nativeSources],
-            (externalTables: ExternalTable[], nativeSources: ExternalDataSource[]) => {
+            (s) => [s.externalTables, s.nativeSources, s.sourceValidationErrors],
+            (
+                externalTables: ExternalTable[],
+                nativeSources: ExternalDataSource[],
+                validationErrors: SourceValidationApi['errors_by_source']
+            ) => {
                 // Filter out tables that belong to native sources (to avoid duplicates)
                 // Only include BigQuery, self-managed, and other non-native sources
                 // For example a native source could have multiple external tables.
@@ -1145,7 +1614,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             prefix: table.source_prefix,
                         },
                         [],
-                        nonNativeTables
+                        nonNativeTables,
+                        validationErrors
                     )
                     return {
                         ...table,
@@ -1159,7 +1629,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     const status = getSourceStatus(
                         { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix ?? undefined },
                         nativeSources,
-                        []
+                        [],
+                        validationErrors
                     )
 
                     // Convert native source to ExternalTable format for unified handling
@@ -1187,7 +1658,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return result
             },
         ],
-        createMarketingDataWarehouseNodes: [
+        marketingDataWarehouseSeries: [
             (s) => [
                 s.validExternalTables,
                 s.baseCurrency,
@@ -1201,7 +1672,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validNativeSources: NativeSource[],
                 tileColumnSelection: validColumnsForTiles,
                 integrationFilter: IntegrationFilter
-            ): DataWarehouseNode[] => {
+            ): { sourceId: string; node: DataWarehouseNode }[] => {
                 const selectedIds = integrationFilter.integrationSourceIds || []
                 const hasFilter = selectedIds.length > 0
 
@@ -1213,19 +1684,55 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     ? validNativeSources.filter((source) => selectedIds.includes(source.source.id))
                     : validNativeSources
 
-                const nonNativeNodeList: DataWarehouseNode[] = filteredExternalTables
-                    .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
-                    .filter(Boolean) as DataWarehouseNode[]
-
-                const nativeNodeList: DataWarehouseNode[] = filteredNativeSources
-                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection, baseCurrency))
-                    .filter(Boolean) as DataWarehouseNode[]
-
+                // Chart tooltips read the series name, and the metric is already in the chart title,
+                // so name each line after its platform instead of its warehouse table.
+                const platformCounts = new Map<string, number>()
+                for (const source of filteredNativeSources) {
+                    platformCounts.set(
+                        source.source.source_type,
+                        (platformCounts.get(source.source.source_type) ?? 0) + 1
+                    )
+                }
+                const nonNativeNodeList = filteredExternalTables.flatMap((table) => {
+                    const node = externalAdsCostTile(table, baseCurrency, tileColumnSelection)
+                    return node
+                        ? [{ sourceId: table.source_map_id, node: { ...node, custom_name: table.schema_name } }]
+                        : []
+                })
+                const nativeNodeList = filteredNativeSources.flatMap((source) => {
+                    const node = MarketingDashboardMapper(source, tileColumnSelection, baseCurrency)
+                    const platform = nativeSourceDisplayLabel(source.source.source_type)
+                    const label =
+                        (platformCounts.get(source.source.source_type) ?? 0) > 1 && source.source.prefix
+                            ? `${platform} (${source.source.prefix})`
+                            : platform
+                    return node ? [{ sourceId: source.source.id, node: { ...node, custom_name: label } }] : []
+                })
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): DataWarehouseNode[] =>
+                series.map(({ node }) => node),
+        ],
+        marketingChartSourceIds: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): string[] =>
+                series.map(({ sourceId }) => sourceId),
+        ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
+        ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1234,7 +1741,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1243,14 +1751,22 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),
         ],
     }),
     actionToUrl(({ values }) => {
-        const buildUrl = (): [string, string] => {
+        const buildCurrentUrl = (): [string, string] => {
             const searchParams = new URLSearchParams()
+            const currentSearchParams = new URLSearchParams(router.values.location.search)
+            for (const key of ['select', 'order_column', 'order_direction', 'pinned_columns']) {
+                const value = currentSearchParams.get(key)
+                if (value !== null) {
+                    searchParams.set(key, value)
+                }
+            }
 
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
@@ -1266,9 +1782,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.set('date_to', values.dateFilter.dateTo)
-            }
+            searchParams.set('date_to', values.dateFilter.dateTo ?? '')
             if (values.dateFilter.interval) {
                 searchParams.set('interval', values.dateFilter.interval)
             }
@@ -1284,6 +1798,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             // Integration filter
             if (values.integrationFilter?.integrationSourceIds?.length) {
                 searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
+            }
+            // Only the cleared state travels: absent means included, which is the default.
+            if (values.integrationFilter?.includeNonIntegrated === false) {
+                searchParams.set('include_non_integrated', 'false')
             }
 
             // Chart display type
@@ -1301,26 +1819,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('drill_down_level', values.drillDownLevel)
             }
 
-            return [window.location.pathname, searchParams.toString()]
+            return [router.values.location.pathname, searchParams.toString()]
         }
 
         return {
-            setActiveTab: buildUrl,
-            setSetupSection: buildUrl,
-            setDates: buildUrl,
-            setDateInterval: buildUrl,
-            setDatesAndInterval: buildUrl,
-            setCompareFilter: buildUrl,
-            setIntegrationFilter: buildUrl,
-            setChartDisplayType: buildUrl,
-            setTileColumnSelection: buildUrl,
-            setDrillDownLevel: buildUrl,
+            setActiveTab: buildCurrentUrl,
+            setSetupSection: buildCurrentUrl,
+            setDates: buildCurrentUrl,
+            setDateInterval: buildCurrentUrl,
+            setDatesAndInterval: buildCurrentUrl,
+            setCompareFilter: buildCurrentUrl,
+            setIntegrationFilter: buildCurrentUrl,
+            setChartDisplayType: buildCurrentUrl,
+            setTileColumnSelection: buildCurrentUrl,
+            setDrillDownLevel: buildCurrentUrl,
             // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
         }
     }),
-    // Note: We don't use urlToAction here to avoid sync loops.
-    // URL params are read once on mount in afterMount instead.
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
             if (!values.initialized) {
@@ -1333,15 +1849,81 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            openSetup: ({ section, entryPoint }) => {
+                actions.setSetupEntryPoint(entryPoint)
+                posthog.capture('marketing analytics dashboard setup opened', { entry_point: entryPoint, section })
+                actions.setSetupSection(section)
+                actions.setActiveTab(MarketingAnalyticsTab.SETUP)
+            },
+            setActiveTab: ({ tab }) => {
+                if (tab !== MarketingAnalyticsTab.SETUP && values.setupEntryPoint) {
+                    actions.setSetupEntryPoint(null)
+                }
+            },
+            reportDashboardSectionViewed: ({ section, configured }) => {
+                posthog.capture('marketing analytics dashboard section viewed', {
+                    section,
+                    customer_goal_configured: configured.customerGoal,
+                    revenue_goal_configured: configured.revenueGoal,
+                })
+            },
+            reportDashboardControlUsed: ({ section, control, value }) => {
+                posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
+            reportRecommendationsShown: ({ properties }) => {
+                posthog.capture('marketing analytics recommendations shown', properties)
+            },
+            reportRecommendationsOpened: ({ entryPoint, recommendationCount }) => {
+                posthog.capture('marketing analytics recommendations opened', {
+                    entry_point: entryPoint,
+                    recommendation_count: recommendationCount,
+                })
+            },
+            reportRecommendationsIntroDismissed: () => {
+                posthog.capture('marketing analytics recommendations intro dismissed')
+            },
+            reportRecommendationsRuleSelected: ({ rule, ruleRecommendationCount }) => {
+                posthog.capture('marketing analytics recommendations rule selected', {
+                    rule,
+                    rule_recommendation_count: ruleRecommendationCount,
+                })
+            },
+            reportRecommendationsClosed: ({ rule }) => {
+                posthog.capture('marketing analytics recommendations closed', { rule })
+            },
+            reportRecommendationResolved: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation resolved', { rule, level, resolution })
+            },
+            reportRecommendationRestored: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation restored', { rule, level, resolution })
+            },
+            reportRecommendationsActionClicked: ({ action, location, rule }) => {
+                posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })
+            },
+            reportTabSelected: ({ tab, previousTab, searchNewTagVisible }) => {
+                // LemonTabs calls onChange when the open tab is clicked again.
+                if (tab === previousTab) {
+                    return
+                }
+                posthog.capture('marketing analytics dashboard tab selected', {
+                    tab,
+                    previous_tab: previousTab,
+                    search_new_tag_visible: searchNewTagVisible,
+                })
+            },
+            reportSearchNewTagShown: () => {
+                posthog.capture('marketing analytics search tab new tag shown')
+            },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
             setDateInterval: trackDashboardInteraction,
             setCompareFilter: trackDashboardInteraction,
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,
+            setChartBreakdown: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
             setDrillDownLevel: trackDashboardInteraction,
-            reloadAll: trackDashboardInteraction,
+            reloadAll: [trackDashboardInteraction, () => actions.loadSourceValidation()],
             applyConversionGoal: [
                 () => {
                     const goal = {
@@ -1394,19 +1976,53 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Clean up integrationFilter if it contains IDs of sources that no longer exist
                 const currentFilter = values.integrationFilter
                 if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
-                    const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                    const availableSourceIds = [
+                        ...values.allAvailableSources.map((s) => s.id),
+                        ...(values.dataWarehouseSources?.results ?? [])
+                            .filter((source) => source.source_type === 'GoogleSearchConsole')
+                            .map((source) => source.id),
+                    ]
                     const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
                         availableSourceIds.includes(id)
                     )
 
                     if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
-                        actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                        actions.setIntegrationFilter({ ...currentFilter, integrationSourceIds: validFilterIds })
                     }
                 }
 
-                // Refresh warehouse tables to pick up new source tables, then reload queries.
-                actions.loadDatabase()
-                actions.reloadAll()
+                const sourceConfigurationKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.source_type,
+                        source.prefix,
+                        source.schemas.map((schema) => [
+                            schema.id,
+                            schema.name,
+                            schema.should_sync,
+                            !!schema.last_synced_at,
+                            schema.table?.name,
+                            schema.table?.hogql_name,
+                        ]),
+                    ])
+                )
+                const sourceSyncKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.status,
+                        source.schemas.map((schema) => [schema.id, schema.last_synced_at]),
+                    ])
+                )
+                // Health polling must not force every dashboard query while only sync status changes.
+                if (cache.sourceConfigurationKey !== sourceConfigurationKey) {
+                    cache.sourceConfigurationKey = sourceConfigurationKey
+                    actions.loadDatabase()
+                    actions.loadSourceValidation()
+                } else if (cache.sourceSyncKey !== sourceSyncKey) {
+                    actions.loadDatabase()
+                    actions.loadSourceValidation()
+                }
+                cache.sourceSyncKey = sourceSyncKey
 
                 // Mark as initialized after initial data load to enable interaction tracking
                 if (!values.initialized) {
@@ -1415,15 +2031,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         }
     }),
+    beforeUnmount(({ actions }) => {
+        actions.setSetupEntryPoint(null)
+    }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)
-        const searchParams = new URLSearchParams(window.location.search)
+        const searchParams = new URLSearchParams(router.values.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
-        const rawTab = searchParams.get('tab')
-        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
-            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
-        }
+        // Links and stored return URLs from before the Search tab still say "ad-performance".
+        const rawTab =
+            searchParams.get('tab') === 'ad-performance'
+                ? MarketingAnalyticsTab.SEARCH_PERFORMANCE
+                : searchParams.get('tab')
 
         const section = searchParams.get('section') as SetupSection | null
         if (section && Object.values(SetupSection).includes(section)) {
@@ -1434,9 +2054,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (dateFrom) {
             params.dateFrom = dateFrom
         }
+        // Web analytics writes an open-ended range as an empty `date_to`, which must clear a saved end date.
         const dateTo = searchParams.get('date_to')
-        if (dateTo) {
-            params.dateTo = dateTo
+        if (dateTo !== null) {
+            params.dateTo = dateTo || null
         }
         const interval = searchParams.get('interval') as IntervalType | null
         if (interval) {
@@ -1454,6 +2075,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (integrationSources) {
             params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
         }
+        if (searchParams.get('include_non_integrated') === 'false') {
+            params.includeNonIntegrated = false
+        }
         const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
         if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
             params.chartDisplayType = chartDisplayType
@@ -1470,6 +2094,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         // Apply URL params if any were found
         if (Object.keys(params).length > 0) {
             actions.syncFromUrl(params)
+        }
+
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
         }
 
         actions.loadSources()

@@ -35,6 +35,7 @@ import {
   listRepoCheckoutsInput,
   listRepoCheckoutsOutput,
   markActivityInput,
+  markUnreadInput,
   markViewedInput,
   reconcileCloudWorkspacesInput,
   reconcileCloudWorkspacesOutput,
@@ -203,6 +204,12 @@ export const workspaceRouter = router({
     .input(markViewedInput)
     .mutation(({ ctx, input }) =>
       getMetadata(ctx.container).markViewed(input.taskId),
+    ),
+
+  markUnread: publicProcedure
+    .input(markUnreadInput)
+    .mutation(({ ctx, input }) =>
+      getMetadata(ctx.container).markUnread(input.taskId, input.activityAt),
     ),
 
   markActivity: publicProcedure

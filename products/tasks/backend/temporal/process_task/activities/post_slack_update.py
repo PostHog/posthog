@@ -24,6 +24,23 @@ SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
+SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
+
+# Checked before the connect-then-replan markers, because a rejected personal credential needs
+# the person to authorize again rather than a re-plan against the connections already there.
+_RECONNECT_GITHUB_MARKERS = (
+    "github user integration for this run requires reauthorization",
+    "github user integration requires reauthorization",
+)
+
+_RECONNECT_GITHUB_CONNECT_LABEL = "Connect your GitHub in PostHog settings"
+_RECONNECT_GITHUB_PROMPT = (
+    "Your personal GitHub connection stopped working, so this run could not use it. "
+    "{connect} to authorize it again, or to connect it for the first time. "
+    "Then reply in this thread and I'll pick up the new credentials."
+)
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -70,12 +87,25 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_CANCELLED: (
         "Reply in this thread when you want to resume, and include any new direction I should follow."
     ),
+    SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
+        "Wait for this run's spend limit to reset before replying in the thread."
+    ),
+    SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
-SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+_NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
+_QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
+_IN_PROGRESS_STAGES = (
+    "Paws on the keyboard",
+    "Nose in the code",
+    "Digging through the code",
+    "Building, one quill at a time",
+)
+
+SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
 
 
-@dataclass
+@dataclass(frozen=False)
 class PostSlackUpdateInput:
     run_id: str
     slack_thread_context: dict[str, Any]
@@ -86,7 +116,6 @@ class PostSlackUpdateInput:
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
-    from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
 
@@ -98,24 +127,24 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        footer = load_run_footer(task_run.id)
-        handler = SlackThreadHandler(context, footer)
-        # The buttons lead where the footer's links do, so they answer to the same reader.
+        handler = SlackThreadHandler.for_run(context, task_run.id)
+        if handler.proactive_notifications_muted():
+            handler.delete_progress()
+            return
+        # The buttons lead where the footer's link does.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
             if pr_url:
-                handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
-                _post_cancelled_once(task_run, handler, task_url)
+                _post_cancelled_once(task_run, handler)
             elif task_run.status == TaskRun.Status.FAILED:
                 _post_failure_or_timeout(task_run, handler, task_url)
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            handler.update_reaction("hedgehog")
             if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
@@ -124,7 +153,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             else:
                 handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            _post_cancelled_once(task_run, handler, task_url)
+            _post_cancelled_once(task_run, handler)
         elif task_run.status == TaskRun.Status.FAILED:
             _post_failure_or_timeout(task_run, handler, task_url)
         else:
@@ -134,7 +163,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
                 return
-            stage = _get_stage_from_status(task_run.status, task_run.stage)
+            stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
@@ -163,26 +192,26 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     still deserve an error card.
     """
     if _has_timeout_marker(task_run):
-        handler.update_reaction("hedgehog")
         handler.delete_progress()
         return
     error = task_run.error_message or "Unknown error"
     _post_error_once(task_run, handler, error, task_url)
 
 
-def _get_stage_from_status(status: str, stage: str | None = None) -> str:
+def _get_stage_from_status(status: str, stage: str | None = None, run_id: str | None = None) -> str:
     """Map task run status to human-readable stage. Uses the run's stage field when available."""
     if stage:
         return stage
 
+    from products.slack_app.backend.slack_thread import pick_variant
     from products.tasks.backend.models import TaskRun
 
-    status_map: dict[str, str] = {
-        TaskRun.Status.NOT_STARTED: "Starting up...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.IN_PROGRESS: "In progress...",
+    status_map: dict[str, tuple[str, ...]] = {
+        TaskRun.Status.NOT_STARTED: _NOT_STARTED_STAGES,
+        TaskRun.Status.QUEUED: _QUEUED_STAGES,
+        TaskRun.Status.IN_PROGRESS: _IN_PROGRESS_STAGES,
     }
-    return status_map.get(status, "In progress...")
+    return pick_variant(status_map.get(status, _IN_PROGRESS_STAGES), run_id)
 
 
 def _post_pr_opened_notification_once(
@@ -192,28 +221,18 @@ def _post_pr_opened_notification_once(
     task_url: str | None,
 ) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
 
     if _is_pr_opened_notified(task_run, pr_url):
         # Skip the repost but still clear any lingering progress marker.
         handler.delete_progress()
         return
 
-    # Tag the user whose request drove this run, falling back to the original
-    # mentioner. ``slack_actor_slack_user_id`` is the resolved acting user — set at
-    # task creation and re-stamped on resume — so a run someone else picked up pings
-    # them, not the original creator. We deliberately do not consult the mapping's
-    # ``latest_actor_slack_user_id``: this ping is asynchronous (it can fire long
-    # after the PR opened, once the CI follow-up loop settles), so the last person to
-    # touch the thread is often a casual joiner rather than the person who owns the work.
-    reply_target_slack_user_id = (task_run.state or {}).get("slack_actor_slack_user_id")
-    if not reply_target_slack_user_id:
-        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-        reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
-
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     handler.post_pr_opened(
         pr_url,
         task_url,
-        reply_target_slack_user_id=reply_target_slack_user_id,
+        reply_target_slack_user_id=pr_card_reply_target(task_run, mapping),
         bot_authored=_is_bot_authored_fallback(task_run),
     )
 
@@ -252,7 +271,7 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
         updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
         recovery_strategy = _classify_failure_recovery(error or "")
         updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
-        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _recovery_prompt(recovery_strategy, task_run.team_id)
     elif status == TaskRun.Status.CANCELLED:
         updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
         updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
@@ -262,6 +281,10 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
 
 def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
+    if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
+        return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
+    if any(marker in normalized for marker in _RECONNECT_GITHUB_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
@@ -269,8 +292,19 @@ def _classify_failure_recovery(error: str) -> str:
     return SLACK_RECOVERY_STRATEGY_RETRY
 
 
-def _failure_recovery_prompt(error: str) -> str:
-    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
+def _failure_recovery_prompt(error: str, team_id: int | None = None) -> str:
+    return _recovery_prompt(_classify_failure_recovery(error), team_id)
+
+
+def _recovery_prompt(strategy: str, team_id: int | None) -> str:
+    if strategy == SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB and team_id is not None:
+        # The settings page offers Reconnect for a flagged connection and Connect when there is none,
+        # so a single link serves a person whose credentials expired and a person who never connected.
+        from products.slack_app.backend.services.slack_messages import personal_integrations_url
+
+        link = f"<{personal_integrations_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
+        return _RECONNECT_GITHUB_PROMPT.format(connect=link)
+    return _RECOVERY_PROMPTS[strategy]
 
 
 def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
@@ -286,23 +320,21 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         return
 
     if _is_suppressed_permission_rejection_error(task_run, error):
-        handler.update_reaction("hedgehog")
         handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
-        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error, task_run.team_id))
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
-def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> None:
+def _post_cancelled_once(task_run: Any, handler: Any) -> None:
     from products.tasks.backend.models import TaskRun
 
     if _is_terminal_notified(task_run, TaskRun.Status.CANCELLED):
         handler.delete_progress()
         return
 
-    handler.update_reaction("hedgehog")
-    handler.post_cancelled(task_url, recovery_hint=_RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED])
+    handler.delete_progress()
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 
 

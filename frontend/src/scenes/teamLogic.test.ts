@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -28,6 +29,112 @@ describe('teamLogic', () => {
         it('currentProjectId returns the project id', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             expect(logic.values.currentProjectId).toBe(MOCK_DEFAULT_TEAM.project_id)
+        })
+
+        it.each([
+            ['a rename', { name: 'Renamed project' }, 'Renamed project'],
+            ['a logo-only change', { logo_media_id: 'media-id' }, MOCK_DEFAULT_TEAM.name],
+        ])('syncs the team name after a project update with %s', async (_, payload, expectedTeamName) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/projects/:id': async ({ request }) => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_PROJECT,
+                            name: 'Name on the project row',
+                            ...((await request.json()) as Record<string, any>),
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                projectLogic.actions.updateCurrentProject(payload)
+            })
+                .toDispatchActions([projectLogic.actionTypes.updateCurrentProjectSuccess])
+                .toFinishAllListeners()
+
+            expect(logic.values.currentTeam?.name).toBe(expectedTeamName)
+        })
+
+        it('sends blocklist counts, not entries, to analytics', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.updateCurrentTeam({
+                        feature_flag_policy_config: {
+                            require_tags: true,
+                            blocked_hosts: ['example.com', 'example.org'],
+                            blocked_ips: ['203.0.113.7'],
+                        },
+                    })
+                }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+                expect(capture).toHaveBeenCalledWith('feature_flag_policy_config team setting updated', {
+                    setting: 'feature_flag_policy_config',
+                    value: { require_tags: true, blocked_hosts_count: 2, blocked_ips_count: 1 },
+                })
+            } finally {
+                capture.mockRestore()
+            }
+        })
+    })
+
+    describe('when the team id differs from its project id', () => {
+        const refreshedFilters = [{ key: 'email', type: 'person', value: 'example.com', operator: 'not_icontains' }]
+        const tabTeam = { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 10 }
+
+        beforeEach(() => {
+            initKeaTests(true, tabTeam)
+            useMocks({
+                get: {
+                    '/api/projects/@current': () => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1, project_id: MOCK_TEAM_ID + 1 },
+                    ],
+                    '/api/projects/:id': ({ params }) =>
+                        params.id === String(MOCK_TEAM_ID)
+                            ? [200, { ...tabTeam, test_account_filters: refreshedFilters }]
+                            : [404, {}],
+                },
+            })
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('loadCurrentTeam reloads the tab project after another tab changes the current project', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadCurrentTeam()
+            }).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.project_id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.currentTeam?.test_account_filters).toEqual(refreshedFilters)
+        })
+
+        it('refreshCurrentTeam reloads the tab project without a team reload', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshCurrentTeam()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadCurrentTeamSuccess'])
+                .toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.project_id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.currentTeam?.test_account_filters).toEqual(refreshedFilters)
         })
     })
 
@@ -57,15 +164,24 @@ describe('teamLogic', () => {
         })
 
         it('renames the parent project and syncs it into projectLogic', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
-            expect(projectLogic.values.currentProject).toBeNull()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            try {
+                await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+                expect(projectLogic.values.currentProject).toBeNull()
 
-            await expectLogic(logic, () => {
-                logic.actions.updateCurrentTeam({ name: 'Renamed project' })
-            }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
+                await expectLogic(logic, () => {
+                    logic.actions.updateCurrentTeam({ name: 'Renamed project' })
+                }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
 
-            expect(logic.values.currentTeam?.name).toBe('Renamed project')
-            expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+                expect(logic.values.currentTeam?.name).toBe('Renamed project')
+                expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+                expect(capture).toHaveBeenCalledWith('name team setting updated', {
+                    setting: 'name',
+                    value: 'Renamed project',
+                })
+            } finally {
+                capture.mockRestore()
+            }
         })
     })
 
@@ -73,9 +189,6 @@ describe('teamLogic', () => {
         beforeEach(() => {
             initKeaTests()
             useMocks({
-                get: {
-                    '/api/environments/:id/user_product_list': () => [200, { results: [], count: 0 }],
-                },
                 patch: {
                     // Simulates the race hit in production: `complete_product_onboarding` serializes
                     // the team from a snapshot taken before the concurrent onboarding-completion

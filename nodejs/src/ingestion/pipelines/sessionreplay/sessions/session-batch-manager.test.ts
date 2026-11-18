@@ -1,5 +1,4 @@
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { createMockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -19,7 +18,6 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
-    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
@@ -32,6 +30,7 @@ describe('SessionBatchManager', () => {
         }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     const config = (overrides: Partial<SessionBatchManagerConfig> = {}): SessionBatchManagerConfig => ({
+        compression: { codec: 'snappy' as const },
         maxBatchSizeBytes: 100,
         maxBatchAgeMs: 1000,
         maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
@@ -39,7 +38,6 @@ describe('SessionBatchManager', () => {
         fileStorage: mockFileStorage,
         metadataStore: mockMetadataStore,
         consoleLogStore: mockConsoleLogStore,
-        featureStore: mockFeatureStore,
         encryptor: mockEncryptor,
         ...overrides,
     })
@@ -69,10 +67,6 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        mockFeatureStore = {
-            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFeatureStore>
-
         mockEncryptor = createMockEncryptor()
 
         manager = new SessionBatchManager(config())
@@ -90,10 +84,9 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER,
-                100
+                { codec: 'snappy' }
             )
         })
 
@@ -114,10 +107,9 @@ describe('SessionBatchManager', () => {
                     mockFileStorage,
                     mockMetadataStore,
                     mockConsoleLogStore,
-                    mockFeatureStore,
                     mockEncryptor,
                     maxEventsPerSessionPerBatch,
-                    100
+                    { codec: 'snappy' }
                 )
             }
         )

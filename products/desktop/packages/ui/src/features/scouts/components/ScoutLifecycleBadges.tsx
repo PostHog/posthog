@@ -1,14 +1,19 @@
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
-import { deriveScoutLifecycle } from "@posthog/core/scouts/scoutPresentation";
+import type { ScoutDetailTab } from "@posthog/core/scouts/scoutDetailTabs";
+import {
+  deriveScoutLifecycle,
+  scoutHealthNotice,
+} from "@posthog/core/scouts/scoutPresentation";
 import {
   Badge,
-  Text,
+  Button,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 
 /**
  * Why a scout is stopped, or about to be. Renders nothing for the healthy
@@ -40,32 +45,82 @@ export function ScoutLifecycleBadge({ config }: { config: ScoutConfig }) {
 }
 
 /**
- * The full lifecycle story for surfaces with room for a sentence: what the
- * system did and what gets the scout running again. The fleet list makes do
- * with `ScoutLifecycleBadge`'s tooltip; this is for the scout detail screen.
+ * The banner on the agent page: what the system did, when, and the buttons
+ * that resolve it. Renders nothing when the agent is healthy.
  */
-export function ScoutLifecycleNotice({ config }: { config: ScoutConfig }) {
-  const lifecycle = deriveScoutLifecycle(config);
-  if (!lifecycle.explanation) return null;
+export function ScoutHealthBanner({
+  config,
+  onUpdate,
+  onShowTab,
+}: {
+  config: ScoutConfig;
+  onUpdate: (configId: string, updates: ScoutConfigUpdate) => void;
+  onShowTab: (tab: ScoutDetailTab) => void;
+}) {
+  const notice = scoutHealthNotice(config);
+  if (!notice) return null;
+  const changedAt = deriveScoutLifecycle(config).changedAt;
+  const destructive = notice.tone === "destructive";
   return (
     <div
-      className={`flex flex-wrap items-center gap-2 rounded-(--radius-2) border px-3 py-2 ${
-        lifecycle.isSystemPaused
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--radius-md) border px-3.5 py-2.5 ${
+        destructive
           ? "border-(--red-6) bg-(--red-2)"
           : "border-(--amber-6) bg-(--amber-2)"
       }`}
+      data-attr="scout-health-banner"
     >
-      <Text
-        size="xs"
-        className={`leading-snug ${
-          lifecycle.isSystemPaused ? "text-(--red-11)" : "text-(--amber-11)"
+      <p
+        className={`min-w-0 flex-1 text-[12.5px] leading-snug ${
+          destructive ? "text-(--red-11)" : "text-(--amber-11)"
         }`}
       >
-        {lifecycle.explanation}
-      </Text>
-      {lifecycle.changedAt ? (
-        <RelativeTimestamp timestamp={lifecycle.changedAt} />
-      ) : null}
+        {notice.text}
+        {changedAt ? (
+          <>
+            {" "}
+            <RelativeTimestamp
+              timestamp={changedAt}
+              className={`text-[12px] ${destructive ? "text-(--red-10)" : "text-(--amber-10)"}`}
+            />
+          </>
+        ) : null}
+      </p>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {notice.action === "resume" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() => onUpdate(config.id, { enabled: true })}
+            data-attr="scout-health-resume"
+          >
+            Resume
+          </Button>
+        ) : null}
+        {notice.action === "keep_running" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() => onUpdate(config.id, { auto_pause_exempt: true })}
+            data-attr="scout-health-keep-running"
+          >
+            Keep running
+          </Button>
+        ) : null}
+        {notice.link ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() => onShowTab(notice.link as ScoutDetailTab)}
+            data-attr="scout-health-open-tab"
+          >
+            {notice.link === "output" ? "Open output" : "Open runs"}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -42,9 +42,8 @@ const noopLogger = {
 
 function make(settings: Partial<{ enabled: boolean; voiceId?: string }> = {}) {
   const speech = new ControllableSpeech();
-  const settingsProvider: SpeechSettingsProvider = {
-    get: () => ({ enabled: true, ...settings }),
-  };
+  const current = { enabled: true, ...settings };
+  const settingsProvider: SpeechSettingsProvider = { get: () => current };
   const userName: UserNameProvider = { getFirstName: () => "Jon" };
   const service = new SpeechQueueService(
     speech,
@@ -52,7 +51,7 @@ function make(settings: Partial<{ enabled: boolean; voiceId?: string }> = {}) {
     userName,
     noopLogger as never,
   );
-  return { speech, service };
+  return { speech, service, settings: current };
 }
 
 // let the queued microtasks (drain loop) run
@@ -85,6 +84,26 @@ describe("SpeechQueueService", () => {
     service.enqueue({ text: "one", taskTitle: "a", taskId: "1" });
     await tick();
     expect(speech.spoken).toEqual([]);
+  });
+
+  it("drops queued lines when narration turns off mid-queue", async () => {
+    const { speech, service, settings } = make();
+    service.enqueue({ text: "one", taskTitle: "a", taskId: "1" });
+    service.enqueue({ text: "two", taskTitle: "b", taskId: "2" });
+    await tick();
+
+    settings.enabled = false;
+    speech.finishOne();
+    await tick();
+    expect(speech.spoken).toEqual(["PostHog task 'a' — one"]);
+
+    settings.enabled = true;
+    service.enqueue({ text: "three", taskTitle: "c", taskId: "3" });
+    await tick();
+    expect(speech.spoken).toEqual([
+      "PostHog task 'a' — one",
+      "PostHog task 'c' — three",
+    ]);
   });
 
   it("coalesces a newer line for the same queued task", async () => {

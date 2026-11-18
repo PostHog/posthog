@@ -25,6 +25,8 @@ describe("SideQuestionCard", () => {
           id: "q-1",
           question: "what changed?",
           taskRunId: "run-1",
+          kind: "side_question",
+          askedAt: 1_700_000_000_000,
           status: "pending",
         },
       },
@@ -47,6 +49,8 @@ describe("SideQuestionCard", () => {
           id: "q-1",
           question: "what changed?",
           taskRunId: "run-1",
+          kind: "side_question",
+          askedAt: 1_700_000_000_000,
           status: "done",
           answer: "The function parses JSONL.",
         },
@@ -69,6 +73,8 @@ describe("SideQuestionCard", () => {
           id: "q-1",
           question: "what changed?",
           taskRunId: "run-1",
+          kind: "side_question",
+          askedAt: 1_700_000_000_000,
           status: "error",
           error: "Side question timed out",
         },
@@ -84,6 +90,31 @@ describe("SideQuestionCard", () => {
     expect(screen.getByText("Side question timed out")).toBeInTheDocument();
   });
 
+  it("leaves a session summary to its own panel", () => {
+    useSideQuestionStore.setState({
+      byTaskId: {
+        "task-1": {
+          id: "q-1",
+          question: "write a handoff",
+          taskRunId: "run-1",
+          kind: "summary",
+          label: "Session summary",
+          askedAt: 1_700_000_000_000,
+          status: "done",
+          answer: "The goal is to ship the parser.",
+        },
+      },
+    });
+
+    const { container } = render(
+      <Theme>
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
+      </Theme>,
+    );
+
+    expect(container.firstElementChild).toBeEmptyDOMElement();
+  });
+
   it("renders nothing when the entry belongs to a prior run", () => {
     useSideQuestionStore.setState({
       byTaskId: {
@@ -91,6 +122,8 @@ describe("SideQuestionCard", () => {
           id: "q-1",
           question: "what changed?",
           taskRunId: "run-1",
+          kind: "side_question",
+          askedAt: 1_700_000_000_000,
           status: "done",
           answer: "The function parses JSONL.",
         },
@@ -113,6 +146,8 @@ describe("SideQuestionCard", () => {
           id: "q-1",
           question: "what changed?",
           taskRunId: "run-1",
+          kind: "side_question",
+          askedAt: 1_700_000_000_000,
           status: "pending",
         },
       },

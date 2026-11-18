@@ -1,43 +1,10 @@
-import {
-  ArrowsClockwise,
-  ArrowsLeftRight,
-  Brain,
-  ChatCircle,
-  Command,
-  FileText,
-  Globe,
-  type Icon,
-  MagnifyingGlass,
-  Minus,
-  PencilSimple,
-  Plus,
-  Terminal,
-  Trash,
-  Wrench,
-} from "@phosphor-icons/react";
-import { cn } from "@posthog/quill";
+import { Command, type Icon, MagnifyingGlass } from "@phosphor-icons/react";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
-import { Box, Text } from "@radix-ui/themes";
-import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
-
-/** Tool icon by `ToolCall.kind`. Shared by the per-tool views and the tool-group icon strip. */
-export const kindIcons: Record<CodeToolKind, Icon> = {
-  read: FileText,
-  edit: PencilSimple,
-  delete: Trash,
-  move: ArrowsLeftRight,
-  search: MagnifyingGlass,
-  execute: Terminal,
-  think: Brain,
-  fetch: Globe,
-  switch_mode: ArrowsClockwise,
-  question: ChatCircle,
-  other: Wrench,
-};
+import type { ToolCall, ToolCallContent } from "../../types";
+import { iconForToolKind } from "./toolIcons";
 
 /** Tool icon by agent tool name, for tools without a generic `kind`. */
-export const toolNameIcons: Record<string, Icon> = {
+const toolNameIcons: Record<string, Icon> = {
   ToolSearch: MagnifyingGlass,
   Skill: Command,
 };
@@ -49,8 +16,7 @@ export function iconForToolCall(
 ): Icon {
   return (
     (agentToolName && toolNameIcons[agentToolName]) ||
-    (toolCall.kind && kindIcons[toolCall.kind]) ||
-    Wrench
+    iconForToolKind(toolCall.kind)
   );
 }
 
@@ -61,13 +27,13 @@ export function ToolTitle({
   children: React.ReactNode;
   className?: string;
 }) {
-  // New thread (ChatX marker chrome) uses the muted, truncating title; the legacy thread keeps its
-  // original styling so toggling the chat thread off leaves ConversationView pixel-identical.
-  const chatChrome = useChatThreadChrome();
-  const base = chatChrome
-    ? "text-sm text-muted-foreground truncate min-w-0"
-    : "text-[13px] text-gray-11";
-  return <Text className={cn(base, className)}>{children}</Text>;
+  return (
+    <span
+      className={`min-w-0 truncate text-muted-foreground text-sm ${className ?? ""}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export function StatusIndicators({
@@ -80,14 +46,14 @@ export function StatusIndicators({
   return (
     <>
       {isFailed && (
-        <Text className="shrink-0 whitespace-nowrap text-[13px] text-gray-10">
+        <span className="shrink-0 whitespace-nowrap text-[13px] text-gray-10">
           (Failed)
-        </Text>
+        </span>
       )}
       {wasCancelled && (
-        <Text className="shrink-0 whitespace-nowrap text-[13px] text-gray-10">
+        <span className="shrink-0 whitespace-nowrap text-[13px] text-gray-10">
           (Cancelled)
-        </Text>
+        </span>
       )}
     </>
   );
@@ -161,11 +127,6 @@ export function getReadToolContent(
   text = text.trim();
 
   return text || undefined;
-}
-
-export function getLineCount(content: ToolCall["content"]): number | null {
-  const text = getContentText(content);
-  return text ? text.split("\n").length : null;
 }
 
 const INPUT_PREVIEW_MAX_LENGTH = 60;
@@ -264,76 +225,39 @@ export function LoadingIcon({
   return <IconComponent size={ICON_SIZE} className={className} />;
 }
 
-export function ExpandableIcon({
-  icon: IconComponent,
-  isLoading,
-  isExpandable,
-  isExpanded,
+/** Expandable body for a generic tool call: its formatted input, then its text output. */
+export function toolCallDetails({
+  rawInput,
+  content,
+  isComplete,
+  isFailed,
 }: {
-  icon: Icon;
-  isLoading: boolean;
-  isExpandable: boolean;
-  isExpanded: boolean;
-}) {
-  if (isLoading) return <Spinner />;
-  if (!isExpandable) {
-    return <IconComponent size={ICON_SIZE} className={ICON_CLASS} />;
-  }
+  rawInput: unknown;
+  content: ToolCall["content"];
+  isComplete: boolean;
+  isFailed: boolean;
+}): React.ReactNode | undefined {
+  const fullInput = formatInput(rawInput);
+  const output = stripCodeFences(getContentText(content) ?? "");
+  // A failed call keeps its output because the error text lives in `content`.
+  const showOutput = (isComplete || isFailed) && output.trim().length > 0;
+  if (!fullInput && !showOutput) return undefined;
   return (
     <>
-      <IconComponent
-        size={ICON_SIZE}
-        className={`${ICON_CLASS} group-hover:hidden`}
-      />
-      {isExpanded ? (
-        <Minus
-          size={ICON_SIZE}
-          className={`hidden ${ICON_CLASS} group-hover:block`}
-        />
-      ) : (
-        <Plus
-          size={ICON_SIZE}
-          className={`hidden ${ICON_CLASS} group-hover:block`}
-        />
-      )}
+      {fullInput && <ContentPre>{fullInput}</ContentPre>}
+      {showOutput && <ContentPre>{output}</ContentPre>}
     </>
   );
 }
 
 export function ContentPre({ children }: { children: React.ReactNode }) {
-  // New thread wraps output in a bordered, muted box (it sits inside a ChatMarker panel); the legacy
-  // thread keeps the original borderless scroll box so ConversationView is unchanged when toggled off.
-  const chatChrome = useChatThreadChrome();
-  if (chatChrome) {
-    return (
-      <Box className="max-h-64 rounded-sm border border-border">
-        <Box className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
-          <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
-            {children}
-          </pre>
-        </Box>
-      </Box>
-    );
-  }
   return (
-    <Box className="scroll-mask-2 max-h-64 overflow-auto px-3 py-2">
-      <Text asChild className="text-[13px] text-gray-11">
-        <pre className="m-0 whitespace-pre-wrap break-all font-mono">
+    <div className="max-h-64 rounded-sm border border-border">
+      <div className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
+        <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
           {children}
         </pre>
-      </Text>
-    </Box>
-  );
-}
-
-export function ExpandedContentBox({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <Box className="mt-2 ml-5 max-w-4xl overflow-hidden rounded-lg border border-gray-6">
-      <ContentPre>{children}</ContentPre>
-    </Box>
+      </div>
+    </div>
   );
 }

@@ -16,12 +16,13 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { retryWithBackoff } from 'lib/utils/async'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 
@@ -30,10 +31,14 @@ const DEFAULT_INTERVAL = 'day'
 export type AppMetricsCommonParams = {
     appSource?: string
     appSourceId?: string
+    /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
+    appSourceIdPrefix?: string
     instanceId?: string
+    /** Match any of these instance IDs. */
+    instanceIds?: string[]
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
@@ -46,12 +51,16 @@ export type AppMetricsLogicProps = {
     loadOnChanges?: boolean
     /** If true, loads data immediately when logic mounts. Default: false */
     loadOnMount?: boolean
+    /** Set false when the caller never shows the previous-period comparison. Default: true */
+    loadPreviousPeriod?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
 
 export type AppMetricsTimeSeriesResponse = {
     labels: string[]
+    interval: NonNullable<AppMetricsCommonParams['interval']>
+    timezone: string
     series: {
         name: string
         values: number[]
@@ -79,6 +88,21 @@ export type AppMetricsTotalsResponse = Record<
     }
 >
 
+const CONCURRENCY_RETRY_MAX_WAIT_MS = 10_000
+
+const concurrencyRetryWaitMs = (error: unknown): number | undefined => {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return undefined
+    }
+    const waitMs = Number(error.headers?.get('Retry-After')) * 1000
+    return waitMs > 0 && waitMs <= CONCURRENCY_RETRY_MAX_WAIT_MS ? waitMs : undefined
+}
+
+const appSourceIdPrefixPattern = (prefix: string): string => {
+    // Escape LIKE wildcards so the prefix matches literally.
+    return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
+}
+
 export const loadAppMetricsTotals = async (
     request: AppMetricsTotalsRequest,
     timezone: string
@@ -96,8 +120,15 @@ export const loadAppMetricsTotals = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
+    }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -121,10 +152,18 @@ export const loadAppMetricsTotals = async (
 ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
     }
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'force_blocking' }
+    const response = await retryWithBackoff(
+        () =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+                { refresh: 'force_blocking' }
+            ),
+        {
+            maxAttempts: 2,
+            shouldRetry: (error) => concurrencyRetryWaitMs(error) !== undefined,
+            getDelayMs: concurrencyRetryWaitMs,
+        }
     )
 
     const res: AppMetricsTotalsResponse = {}
@@ -141,7 +180,7 @@ ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
     return res
 }
 
-const loadAppMetricsTimeSeries = async (
+export const loadAppMetricsTimeSeries = async (
     request: AppMetricsTimeSeriesRequest,
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
@@ -205,8 +244,15 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
+    }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -241,19 +287,10 @@ const loadAppMetricsTimeSeries = async (
         { refresh: 'force_blocking' }
     )
 
-    const labels = response.results?.[0]?.[0].map((label: string) => {
-        switch (interval) {
-            case 'day':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD')
-            case 'hour':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-            case 'minute':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-        }
-    })
-
     return {
-        labels: labels || [],
+        labels: (response.results?.[0]?.[0] as string[] | undefined) ?? [],
+        interval,
+        timezone,
         series:
             response.results?.map((result) => ({
                 name: result[1],
@@ -449,7 +486,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     }
 
                     return {
-                        labels: targetTrend.labels,
+                        ...targetTrend,
                         series: [series],
                     }
                 },
@@ -514,7 +551,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         // Auto-load data immediately on mount if explicitly requested
         if (props.loadOnMount) {
             actions.loadAppMetricsTrends()
-            actions.loadAppMetricsTrendsPreviousPeriod()
+            if (props.loadPreviousPeriod ?? true) {
+                actions.loadAppMetricsTrendsPreviousPeriod()
+            }
         }
     }),
 
@@ -531,7 +570,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
-                    actions.loadAppMetricsTrendsPreviousPeriod()
+                    if (props.loadPreviousPeriod ?? true) {
+                        actions.loadAppMetricsTrendsPreviousPeriod()
+                    }
                 }
             }
         },

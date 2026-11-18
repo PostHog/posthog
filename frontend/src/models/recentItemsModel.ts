@@ -91,7 +91,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
         recordView: (type: string, ref: string) => ({ type, ref }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         recents: [
             [] as FileSystemEntry[],
             {
@@ -122,7 +122,8 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         }
                         // Recents are a non-essential homepage widget — transient failures (offline,
                         // aborted navigation, blocked requests) shouldn't surface as captured exceptions.
-                        return []
+                        // A failed reload keeps the list it already has. A team switch clears that list first.
+                        return values.recents
                     }
                 },
             },
@@ -160,7 +161,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         recents: [

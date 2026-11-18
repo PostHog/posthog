@@ -7,17 +7,15 @@ import {
   trpcClient,
   useTRPC,
 } from "@renderer/trpc/client";
-import {
-  QueryClientProvider,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { QueryClientProvider, useMutation } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { queryClient } from "@utils/queryClient";
 import type React from "react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { HotkeysProvider } from "react-hotkeys-hook";
+
+const getWorkspaceConnection = () =>
+  trpcClient.workspaceServer.getConnection.query();
 
 function WorkspaceServerErrorBanner({
   onRetry,
@@ -50,50 +48,28 @@ function ConnectedWorkspaceProvider({
   children: React.ReactNode;
 }) {
   const trpc = useTRPC();
-  const rqClient = useQueryClient();
-  const [serverStatus, setServerStatus] = useState<string>("ready");
-  const { data: connection } = useQuery(
-    trpc.workspaceServer.getConnection.queryOptions(undefined, {
-      staleTime: 30_000,
-    }),
-  );
-
-  const invalidateConnection = useCallback(() => {
-    rqClient.invalidateQueries({
-      queryKey: trpc.workspaceServer.getConnection.queryKey(),
-    });
-  }, [rqClient, trpc]);
+  const [serverStatus, setServerStatus] = useState<string>("idle");
 
   const restartServer = useMutation(
     trpc.workspaceServer.restart.mutationOptions(),
   );
 
   useSubscription(
-    trpc.workspaceServer.onConnectionLost.subscriptionOptions(undefined, {
-      onData: invalidateConnection,
-    }),
-  );
-
-  useSubscription(
     trpc.workspaceServer.onStatusChanged.subscriptionOptions(undefined, {
       onData: (data) => {
         setServerStatus(data.status);
-        if (data.status === "ready") {
-          invalidateConnection();
-        }
       },
     }),
   );
 
   return (
-    <WorkspaceClientProvider connection={connection} queryClient={queryClient}>
+    <WorkspaceClientProvider
+      getConnection={getWorkspaceConnection}
+      queryClient={queryClient}
+    >
       {serverStatus === "failed" ? (
         <WorkspaceServerErrorBanner
-          onRetry={() =>
-            restartServer.mutate(undefined, {
-              onSettled: () => invalidateConnection(),
-            })
-          }
+          onRetry={() => restartServer.mutate()}
           disabled={restartServer.isPending}
         />
       ) : null}

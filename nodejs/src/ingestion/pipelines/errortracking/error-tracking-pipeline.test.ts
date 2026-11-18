@@ -6,15 +6,20 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
-import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { cond } from '~/ingestion/common/event-filters/test-helpers'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -22,12 +27,24 @@ import { InternalPerson } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
-import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import {
+    ErrorTrackingHogTransformer,
+    ErrorTrackingPipeline,
     ErrorTrackingPipelineConfig,
     createErrorTrackingPipeline,
-    runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+
+/** Drives a batch through the pipeline the way the common consumer's batch handler does. */
+async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, messages: Message[]): Promise<void> {
+    const batch = messages.map((message) => createOkContext({ message }, { message }))
+    const feedResult = await pipeline.feed(batch, {})
+    if (!feedResult.ok) {
+        throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
+    }
+    while ((await pipeline.next()) !== null) {
+        // Drain all results
+    }
+}
 
 // Skip retry sleeps so tests run instantly
 jest.mock('~/common/utils/utils', () => ({
@@ -53,6 +70,7 @@ describe('ErrorTrackingPipeline', () => {
     let mockCymbalClient: jest.Mocked<CymbalClient>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
+    let mockEventFilterManager: jest.Mocked<EventFilterManager>
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
     let pipelineConfig: ErrorTrackingPipelineConfig
@@ -142,7 +160,7 @@ describe('ErrorTrackingPipeline', () => {
             partition: 0,
             offset: 0,
             size: 0,
-            key: Buffer.from(distinctId),
+            key: Buffer.from(`${token}:${distinctId}`),
         } as Message
     }
 
@@ -176,26 +194,25 @@ describe('ErrorTrackingPipeline', () => {
         return getProducedMessagesForTopic('error_tracking_overflow')
     }
 
-    /**
-     * Helper to get ingestion warnings that were queued.
-     * Ingestion warnings are sent via queueMessages to the ingestion_warnings topic.
-     */
-    const getIngestionWarnings = (): any[] => {
+    const getQueuedMessages = (topicFragment: string): any[] => {
         return mockKafkaProducer.queueMessages.mock.calls
             .filter((call) => {
                 const arg = call[0]
-                // queueMessages can receive a single TopicMessage or an array
                 const topicMessages = Array.isArray(arg) ? arg : [arg]
-                return topicMessages.some((tm: any) => tm.topic?.includes('ingestion_warnings'))
+                return topicMessages.some((tm: any) => tm.topic?.includes(topicFragment))
             })
             .flatMap((call) => {
                 const arg = call[0]
                 const topicMessages = Array.isArray(arg) ? arg : [arg]
                 return topicMessages
-                    .filter((tm: any) => tm.topic?.includes('ingestion_warnings'))
+                    .filter((tm: any) => tm.topic?.includes(topicFragment))
                     .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
             })
     }
+
+    const getIngestionWarnings = (): any[] => getQueuedMessages('ingestion_warnings')
+
+    const getAppMetrics = (): any[] => getQueuedMessages('app_metrics')
 
     /**
      * Creates a Cymbal response that includes enriched properties.
@@ -227,6 +244,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -237,6 +255,7 @@ describe('ErrorTrackingPipeline', () => {
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
+            handleOversizedPersonProperties: jest.fn(),
             updatePersonAssertVersion: jest.fn(),
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
@@ -248,12 +267,11 @@ describe('ErrorTrackingPipeline', () => {
 
         // HogTransformer mock that passes through events unchanged by default
         mockHogTransformer = {
-            start: jest.fn().mockResolvedValue(undefined),
-            stop: jest.fn().mockResolvedValue(undefined),
             transformEventAndProduceMessages: jest
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {
@@ -271,6 +289,11 @@ describe('ErrorTrackingPipeline', () => {
             getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
             forceRefresh: jest.fn(),
         } as unknown as jest.Mocked<EventIngestionRestrictionManager>
+
+        mockEventFilterManager = {
+            getFilter: jest.fn().mockReturnValue(null),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
+        } as unknown as jest.Mocked<EventFilterManager>
 
         // Passthrough: non-cookieless events round-trip unchanged. The apply step
         // extracts `.value.event` from each result and reuses the original input
@@ -311,15 +334,19 @@ describe('ErrorTrackingPipeline', () => {
             }),
             promiseScheduler,
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,
             groupTypeManager: mockGroupTypeManager,
             cookielessManager: mockCookielessManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
+            eventFilterManager: mockEventFilterManager,
             overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
     })
 
@@ -366,8 +393,9 @@ describe('ErrorTrackingPipeline', () => {
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline, [message])
 
-            // Verify Hog transformations were run
+            // Verify Hog transformations were run and their invocation results drained once per batch
             expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
 
             // Verify event was emitted to Kafka
             const producedEvents = getProducedEvents()
@@ -577,6 +605,30 @@ describe('ErrorTrackingPipeline', () => {
             expect(getOverflowMessages()).toHaveLength(0)
         })
 
+        it('drops events matching a live event filter before Cymbal and records the drop', async () => {
+            mockEventFilterManager.getFilter.mockReturnValue({
+                id: 'filter-1',
+                team_id: team.id,
+                mode: 'live',
+                filter_tree: cond('distinct_id', 'exact', 'user-123'),
+            })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+
+            expect(mockCymbalClient.processExceptions).not.toHaveBeenCalled()
+            expect(getProducedEvents()).toHaveLength(0)
+            expect(getAppMetrics()).toEqual([
+                expect.objectContaining({
+                    team_id: team.id,
+                    app_source: 'event_filter',
+                    app_source_id: 'filter-1',
+                    metric_name: 'dropped',
+                    count: 1,
+                }),
+            ])
+        })
+
         it('redirects events to overflow when FORCE_OVERFLOW restriction is set', async () => {
             mockEventIngestionRestrictionManager.getAppliedRestrictions.mockReturnValue(
                 new Set([RestrictionType.FORCE_OVERFLOW])
@@ -656,12 +708,11 @@ describe('ErrorTrackingPipeline', () => {
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 10 times (pipeline default), then propagate
-            // so Kafka doesn't commit and retries the batch
+            // Cymbal errors propagate once the retries are exhausted, so Kafka
+            // doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 3 times (initial + 2 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(5)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 
@@ -986,50 +1037,10 @@ describe('ErrorTrackingPipeline', () => {
             expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
         })
 
-        it('passes cookieless events through skip-cookieless rate limit even when service flags the sentinel', async () => {
-            // The skip-cookieless step keys on headers.distinct_id. For cookieless events
-            // the header is the sentinel, and the step explicitly passes them through —
-            // they are handled by the only-cookieless step post-rewrite. This test proves
-            // the sentinel-keyed flag does not redirect.
-            const person = createTestPerson({ distinct_id: 'hashed-distinct-id' })
-            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
-
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
+        it('redirects cookieless events to overflow when their message key is flagged', async () => {
+            // The rate limit step keys on the Kafka message key, so a flagged
+            // cookieless event goes to overflow before Cymbal runs.
             const flagging = createMockOverflowRedirectService(new Set([`test-token-123:${COOKIELESS_SENTINEL_VALUE}`]))
-            const configWithOverflow: ErrorTrackingPipelineConfig = {
-                ...pipelineConfig,
-                overflowMode: 'redirect',
-                overflowRedirectService: flagging,
-            }
-
-            const message = createKafkaMessage({ distinctId: COOKIELESS_SENTINEL_VALUE })
-            const pipeline = createErrorTrackingPipeline(configWithOverflow)
-            await runErrorTrackingPipeline(pipeline, [message])
-
-            expect(getOverflowMessages()).toHaveLength(0)
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
-            const producedEvents = getProducedEvents()
-            expect(producedEvents).toHaveLength(1)
-            expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
-        })
-
-        it('redirects cookieless events to overflow via only-cookieless rate limit on the hashed distinct_id', async () => {
-            // The only-cookieless step keys on event.distinct_id (the value after the
-            // cookieless step rewrites it). This test proves a flag on the hashed key
-            // sends the cookieless event to overflow rather than Cymbal.
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
-            const flagging = createMockOverflowRedirectService(new Set(['test-token-123:hashed-distinct-id']))
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
                 overflowMode: 'redirect',

@@ -51,6 +51,12 @@ export interface ManagedMigrationForm {
     end_date?: string
     // EU region support for amplitude/mixpanel
     is_eu_region?: boolean
+    // Mixpanel-specific auth: a service account (username, secret and project ID) or a project secret
+    mixpanel_auth_method?: 'service_account' | 'project_secret'
+    mixpanel_service_account_username?: string
+    mixpanel_service_account_secret?: string
+    mixpanel_project_id?: number
+    mixpanel_project_secret?: string
     // Amplitude-specific options
     import_events?: boolean
     generate_identify_events?: boolean
@@ -62,6 +68,20 @@ export interface ManagedMigrationForm {
 
 export const TRIAL_RECORD_LIMIT_DEFAULT = 1000
 export const TRIAL_RECORD_LIMIT_MAX = 50000
+
+// The API takes the Mixpanel credentials in its generic access_key / secret_key fields
+function mixpanelCredentials(
+    values: ManagedMigrationForm
+): Pick<ManagedMigrationForm, 'access_key' | 'secret_key' | 'mixpanel_project_id'> {
+    if (values.mixpanel_auth_method === 'service_account') {
+        return {
+            access_key: values.mixpanel_service_account_username,
+            secret_key: values.mixpanel_service_account_secret,
+            mixpanel_project_id: values.mixpanel_project_id,
+        }
+    }
+    return { access_key: '', secret_key: values.mixpanel_project_secret }
+}
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     source_type: 's3',
@@ -79,6 +99,11 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     start_date: '',
     end_date: '',
     is_eu_region: false,
+    mixpanel_auth_method: 'service_account',
+    mixpanel_service_account_username: '',
+    mixpanel_service_account_secret: '',
+    mixpanel_project_id: undefined,
+    mixpanel_project_secret: '',
     import_events: true,
     generate_identify_events: true,
     generate_group_identify_events: true,
@@ -304,7 +329,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             {
                 loadMigrations: async () => {
                     const projectId = ApiConfig.getCurrentProjectId()
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use managedMigrationsList() from 'products/managed_migrations/frontend/generated/api' instead.
                     const response = await api.get(`api/projects/${projectId}/managed_migrations`)
                     return response.results
                 },
@@ -353,6 +378,11 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 s3_bucket,
                 start_date,
                 end_date,
+                mixpanel_auth_method,
+                mixpanel_service_account_username,
+                mixpanel_service_account_secret,
+                mixpanel_project_id,
+                mixpanel_project_secret,
                 import_events,
                 generate_identify_events,
                 generate_group_identify_events,
@@ -361,13 +391,23 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             }: ManagedMigrationForm) => {
                 const usesIamRole = (source_type === 's3' || source_type === 's3_gzip') && s3_auth_method === 'iam_role'
 
-                const errors: Record<string, string | null> = {
-                    secret_key:
-                        !secret_key && !usesIamRole
-                            ? source_type === 'mixpanel'
-                                ? 'Project secret is required'
-                                : 'Secret key is required'
-                            : null,
+                const errors: Record<string, string | null> = {}
+
+                if (source_type === 'mixpanel') {
+                    if (mixpanel_auth_method === 'service_account') {
+                        errors.mixpanel_service_account_username = !mixpanel_service_account_username
+                            ? 'Service account username is required'
+                            : null
+                        errors.mixpanel_service_account_secret = !mixpanel_service_account_secret
+                            ? 'Service account secret is required'
+                            : null
+                        errors.mixpanel_project_id = !mixpanel_project_id ? 'Project ID is required' : null
+                    } else {
+                        errors.mixpanel_project_secret = !mixpanel_project_secret ? 'Project secret is required' : null
+                    }
+                } else if (!usesIamRole) {
+                    errors.access_key = !access_key ? 'Access key is required' : null
+                    errors.secret_key = !secret_key ? 'Secret key is required' : null
                 }
 
                 if (is_trial) {
@@ -375,11 +415,6 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         !trial_record_limit || trial_record_limit < 1 || trial_record_limit > TRIAL_RECORD_LIMIT_MAX
                             ? `Number of records must be between 1 and ${TRIAL_RECORD_LIMIT_MAX}`
                             : null
-                }
-
-                // Mixpanel authenticates with the project secret alone — no access key.
-                if (source_type !== 'mixpanel' && !usesIamRole) {
-                    errors.access_key = !access_key ? 'Access key is required' : null
                 }
 
                 if (usesIamRole) {
@@ -442,7 +477,9 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     ...(values.is_trial ? { is_trial: true, trial_record_limit: values.trial_record_limit } : {}),
                     ...(usesIamRole
                         ? { role_arn: values.role_arn }
-                        : { access_key: values.access_key, secret_key: values.secret_key }),
+                        : values.source_type === 'mixpanel'
+                          ? mixpanelCredentials(values)
+                          : { access_key: values.access_key, secret_key: values.secret_key }),
                 }
                 if (values.source_type === 's3' || values.source_type === 's3_gzip') {
                     payload = {
@@ -474,7 +511,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     }
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use managedMigrationsCreate() from 'products/managed_migrations/frontend/generated/api' instead.
                     const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
                     return response
                 } catch (error: any) {
@@ -511,7 +548,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         pauseMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. managedMigrationsPauseCreate() from 'products/managed_migrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
                 lemonToast.success('Migration paused successfully')
                 actions.loadMigrations()
@@ -522,7 +559,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         resumeMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. managedMigrationsResumeCreate() from 'products/managed_migrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
                 lemonToast.success('Migration resumed successfully')
                 actions.loadMigrations()

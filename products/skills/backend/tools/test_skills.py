@@ -20,7 +20,7 @@ from products.skills.backend.tools.skills import (
     UpdateSkillArgs,
 )
 
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 
 def _run(tool, **kwargs):
@@ -200,13 +200,21 @@ class TestCreateLLMSkillTool(BaseTest):
         assert first_file is not None
         assert first_file.path == "scripts/mandelbrot.py"
 
-    def test_reserved_name_raises_fatal(self):
+    @parameterized.expand(
+        [
+            ("route_name", "community", "reserved name"),
+            # A name PostHog bundles: the tool writes through create_skill, which runs no name
+            # validation of its own, so the check has to sit on the tool.
+            ("bundled_skill_name", "signals-scout-logs", "already ships a skill"),
+        ]
+    )
+    def test_unusable_name_raises_fatal(self, _label, name, expected_error):
         tool = CreateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "reserved name"):
-            _run(tool, name="community", description="d", body="b")
+        with self.assertRaisesRegex(MaxToolFatalError, expected_error):
+            _run(tool, name=name, description="d", body="b")
 
-        assert not LLMSkill.objects.filter(team=self.team, name="community").exists()
+        assert not LLMSkill.objects.filter(team=self.team, name=name).exists()
 
     def test_duplicate_name_raises_fatal(self):
         LLMSkill.objects.create(team=self.team, name="dup", description="d", body="b")
@@ -259,16 +267,22 @@ class TestUpdateLLMSkillTool(BaseTest):
         assert "Do the better thing." in latest.body
         assert "Do a thing." not in latest.body
 
-    def test_version_conflict_raises(self):
+    @parameterized.expand(
+        [
+            ("version_conflict", 5, {"body": "new body"}, "modified"),
+            ("edit_not_found", 0, {"edits": [{"old": "Missing text.", "new": "x"}]}, "not found"),
+        ]
+    )
+    def test_input_errors_are_retryable(self, _name, version_offset, update_kwargs, expected_error):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "modified"):
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
             _run(
                 tool,
                 skill_name="make-fractals",
-                base_version=existing.version + 5,
-                body="new body",
+                base_version=existing.version + version_offset,
+                **update_kwargs,
             )
 
     def test_body_and_edits_are_mutually_exclusive(self):

@@ -13,7 +13,7 @@ export interface ResponderAgentDefinition {
   alpha?: boolean;
 }
 
-export interface ResponderAgentGroup {
+interface ResponderAgentGroup {
   label: string;
   agents: ResponderAgentDefinition[];
 }
@@ -46,15 +46,6 @@ export const RESPONDER_AGENT_GROUPS: ResponderAgentGroup[] = [
           "Instrumentation problems — missing events, proxy gaps, outdated SDKs.",
         docsUrl: "https://posthog.com/docs/sdk-health",
         docsLabel: "Health checks",
-      },
-      {
-        source: "session_replay",
-        sourceProduct: "session_replay",
-        label: "Session Replay",
-        description: "UX problems found in session recordings.",
-        docsUrl: "https://posthog.com/docs/session-replay",
-        docsLabel: "Session Replay",
-        alpha: true,
       },
       {
         source: "llm_analytics",

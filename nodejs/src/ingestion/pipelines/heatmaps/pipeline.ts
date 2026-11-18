@@ -18,12 +18,12 @@ import {
     createApplyCookielessProcessingStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 
@@ -43,6 +43,7 @@ export interface HeatmapsPipelineConfig {
     cookielessManager: CookielessManager
     promiseScheduler: PromiseScheduler
     topHog: TopHogRegistry
+    teamsPrefetchEnabled: boolean
 }
 
 interface HeatmapsPipelineInput {
@@ -64,6 +65,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         cookielessManager,
         promiseScheduler,
         topHog,
+        teamsPrefetchEnabled,
     } = config
 
     return (
@@ -78,9 +80,9 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             .parseHeaders()
             .pipe(createAllowEventsStep(['$$heatmap']))
             .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
-            .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateEventMetadataStep())
             .pipe(createValidateEventPropertiesStep())
             .pipe(createApplyEventFiltersStep(eventFilterManager))

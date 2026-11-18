@@ -35,7 +35,10 @@ Check, in order: the source's `is_enabled`, whether the underlying table is stil
 **`last_sync_error` is set, or `consecutive_failures` is climbing.**
 Read the error text on the source and on the most recent run. Treat a failing underlying warehouse sync as
 the first suspect, because the property update rides off that sync. Diagnose that with
-`diagnosing-failed-warehouse-syncs` before touching the mapping.
+`diagnosing-failed-warehouse-syncs` before touching the mapping. After five consecutive failures, PostHog
+disables the source and notifies the person who configured it. If Customer analytics tasks are available to
+that person, PostHog also assigns them a task due by the end of the next business day. The task enters an email
+digest only when that person has enabled task digests.
 
 **"Sync now" is rejected with a monthly sync limit message.**
 `custom-property-sources-sync` runs a real, billable import, so it honors the team's sync pause the same way

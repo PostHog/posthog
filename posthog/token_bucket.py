@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import time
+from typing import TYPE_CHECKING
 
 import structlog
 from redis.commands.core import Script
@@ -31,6 +32,9 @@ from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from redis import Redis
 
 logger = structlog.get_logger(__name__)
 
@@ -150,11 +154,13 @@ def _scripts() -> _Scripts:
     return _registered_scripts
 
 
-def consume(key: str, budget: Budget, cost: int = 1) -> BucketDecision | BucketUnavailable:
+def consume(
+    key: str, budget: Budget, cost: int = 1, *, client: Redis | None = None
+) -> BucketDecision | BucketUnavailable:
     """Atomically refill the bucket and take ``cost`` tokens if available."""
     if cost < 1 or cost > budget.burst:
         raise ValueError(f"cost must be between 1 and burst ({budget.burst}), got {cost}")
-    consume_script = _scripts().consume
+    consume_script = client.register_script(_CONSUME_LUA) if client is not None else _scripts().consume
     try:
         allowed, remaining, retry_after_ms, reset_ms = consume_script(
             keys=[key],

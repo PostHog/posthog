@@ -17,7 +17,7 @@ pytestmark = [
 def test_debugger_loads_batch_exports_for_team(team):
     batch_exports = []
     destination = BatchExportDestination(
-        type=BatchExportDestination.Destination.S3,
+        type=BatchExportDestination.Destination.AWS_S3,
         config={
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -50,7 +50,7 @@ def test_debugger_loads_empty_batch_export_for_team(team):
 def test_debugger_sets_working_batch_export_with_name(team):
     batch_exports = {}
     destination = BatchExportDestination(
-        type=BatchExportDestination.Destination.S3,
+        type=BatchExportDestination.Destination.AWS_S3,
         config={
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -80,7 +80,7 @@ def test_debugger_sets_working_batch_export_with_name(team):
 def test_debugger_sets_working_batch_export_with_uuid(team):
     batch_exports = {}
     destination = BatchExportDestination(
-        type=BatchExportDestination.Destination.S3,
+        type=BatchExportDestination.Destination.AWS_S3,
         config={
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -110,7 +110,7 @@ def test_debugger_can_load_different_sets_of_batch_exports(team):
     batch_exports = []
 
     destination_s3 = BatchExportDestination(
-        type=BatchExportDestination.Destination.S3,
+        type=BatchExportDestination.Destination.AWS_S3,
         config={},
     )
     destination_bigquery = BatchExportDestination(
@@ -148,11 +148,11 @@ def test_debugger_can_load_different_sets_of_batch_exports(team):
     assert bedbg.loaded_batch_exports == loaded
     assert all(batch_export.paused is True for batch_export in loaded)
 
-    loaded = bedbg.load_batch_exports(destination="S3", deleted=None)
+    loaded = bedbg.load_batch_exports(destination="AwsS3", deleted=None)
 
     assert len(loaded) == 4
     assert bedbg.loaded_batch_exports == loaded
-    assert all(batch_export.destination.type == BatchExportDestination.Destination.S3 for batch_export in loaded)
+    assert all(batch_export.destination.type == BatchExportDestination.Destination.AWS_S3 for batch_export in loaded)
 
     loaded = bedbg.load_batch_exports(destination="bigquery", deleted=None)
 
@@ -160,16 +160,16 @@ def test_debugger_can_load_different_sets_of_batch_exports(team):
     assert bedbg.loaded_batch_exports == loaded
     assert all(batch_export.destination.type == BatchExportDestination.Destination.BIGQUERY for batch_export in loaded)
 
-    loaded = bedbg.load_batch_exports(name="test-batch-export-S3-False-False")
+    loaded = bedbg.load_batch_exports(name="test-batch-export-AwsS3-False-False")
 
     assert len(loaded) == 1
     assert bedbg.loaded_batch_exports == loaded  # type: ignore[comparison-overlap]
-    assert all(batch_export.name == "test-batch-export-S3-False-False" for batch_export in loaded)  # type: ignore[unreachable]
+    assert all(batch_export.name == "test-batch-export-AwsS3-False-False" for batch_export in loaded)  # type: ignore[unreachable]
 
 
 def test_debugger_get_latest_run(team):
     destination = BatchExportDestination(
-        type=BatchExportDestination.Destination.S3,
+        type=BatchExportDestination.Destination.AWS_S3,
         config={
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

@@ -1,6 +1,6 @@
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -30,11 +30,6 @@ from products.warehouse_sources.backend.tasks.tasks import (
     sweep_stopped_schema_syncs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
-)
 from products.warehouse_sources.backend.tests.management.test_manage_warehouse_queue import (
     _create_pipeline,
     _failed_status_counts_by_run,
@@ -42,8 +37,16 @@ from products.warehouse_sources.backend.tests.management.test_manage_warehouse_q
     _lease_count,
     _seed_active_run,
 )
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+    truncate_queue_tables as _truncate_tables,
+)
 
 pytestmark = [pytest.mark.django_db]
+
+# A fixed stop time: these tests compare it as stored and never against the clock.
+HALTED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
 TASK_DELAY = "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
 
@@ -152,6 +155,125 @@ class TestDisableChokepointDispatch:
             reason="Your account does not have access to this table",
             exclude_workflow_id=job.workflow_id,
         )
+
+    @pytest.mark.parametrize(
+        "halted_by_posthog",
+        [False, True],
+        ids=["user_switched_it_off", "posthog_halted_it"],
+    )
+    def test_disable_records_who_stopped_the_sync(self, halted_by_posthog, team, django_capture_on_commit_callbacks):
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            if halted_by_posthog:
+                update_should_sync(
+                    schema_id=str(schema.id),
+                    team_id=team.pk,
+                    should_sync=False,
+                    disable_error_message="Your account does not have access to this table",
+                )
+            else:
+                schema.should_sync = False
+                schema.save()
+
+        schema.refresh_from_db()
+        assert (schema.auto_disabled_at is not None) is halted_by_posthog
+
+    def test_re_enabling_clears_the_record_of_an_earlier_halt(self, team):
+        # A record left behind by an earlier halt must not outlive the re-enable, or a later
+        # disable puts a schema nobody halted back into the failure digest.
+        schema, _job = _create_schema_with_running_job(team)
+        with patch(TASK_DELAY):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=timezone.now())
+            schema.refresh_from_db()
+
+            schema.should_sync = True
+            schema.save()
+            schema.refresh_from_db()
+            assert schema.auto_disabled_at is None
+
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at is None
+
+    def test_bulk_disable_clears_the_record_of_an_earlier_halt(self, team, django_capture_on_commit_callbacks):
+        # `disable_cdc` turns schemas off with a bulk update, which bypasses save(). A halt
+        # recorded before it would survive, and keep the failure digest emailing the team
+        # about a sync they switched off themselves.
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_should_sync(
+                schema_id=str(schema.id),
+                team_id=team.pk,
+                should_sync=False,
+                disable_error_message="Your account does not have access to this table",
+            )
+            schema.refresh_from_db()
+            assert schema.auto_disabled_at is not None
+
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(sync_type=None, should_sync=False)
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at is None
+
+    @pytest.mark.parametrize(
+        "disable_error_message,stamp_kept",
+        [(None, False), ("Your account does not have access to this table", True)],
+        ids=["decision_to_keep_off", "another_halt"],
+    )
+    def test_disable_of_a_halted_schema_keeps_the_halt_only_for_another_error(
+        self, disable_error_message, stamp_kept, team
+    ):
+        # Staff tools re-enable only halted schemas. A later disable that is not a halt is a decision to
+        # keep the schema off, so the earlier halt must not keep it eligible.
+        schema, _job = _create_schema_with_running_job(team)
+        halted_at = HALTED_AT
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=halted_at)
+            update_should_sync(
+                schema_id=str(schema.id),
+                team_id=team.pk,
+                should_sync=False,
+                disable_error_message=disable_error_message,
+            )
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at == (halted_at if stamp_kept else None)
+
+    def test_a_deleted_schema_cannot_be_turned_back_on(self, team):
+        schema, _job = _create_schema_with_running_job(team)
+        with patch(TASK_DELAY):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(
+                should_sync=False, auto_disabled_at=HALTED_AT, deleted=True
+            )
+
+            with pytest.raises(ValueError, match="is deleted"):
+                update_should_sync(schema_id=str(schema.id), team_id=team.pk, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.should_sync is False
 
 
 class TestSweepStoppedSchemaSyncs:

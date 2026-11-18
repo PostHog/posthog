@@ -7,9 +7,12 @@ import typing
 import datetime as dt
 import itertools
 
+from django.conf import settings
+
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -167,6 +170,38 @@ async def insert_event_values_in_clickhouse(
             )
             for event in events
         ],
+    )
+    if table == "sharded_events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        await mirror_events_into_native_json_table(client, [str(event["uuid"]) for event in events])
+
+
+async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: list[str]) -> None:
+    """Copy rows just written to sharded_events into sharded_events_json.
+
+    Native-JSON reads (HogQL models, backfills) target the JSON table. The ingest cleaners are executable
+    UDFs, which a VALUES insert cannot call, so the rows go through a SELECT like bulk_create_events does.
+    """
+    uuid_list = ", ".join(f"'{event_uuid}'" for event_uuid in uuids)
+    await execute_query(
+        client,
+        f"""
+    INSERT INTO sharded_events_json (
+        uuid, event, timestamp, _timestamp, person_id, team_id,
+        properties, temporary_properties, properties_null_keys, temporary_properties_null_keys,
+        elements_chain, distinct_id, inserted_at, created_at, person_properties, person_properties_null_keys
+    )
+    SELECT
+        uuid, event, timestamp, _timestamp, person_id, team_id,
+        cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys, cleaned.temporary_properties_null_keys,
+        elements_chain, distinct_id, inserted_at, created_at, cleaned.person_properties, cleaned.person_properties_null_keys
+    FROM
+    (
+        SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+        FROM sharded_events
+        WHERE uuid IN ({uuid_list})
+    )
+    SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
+    """,
     )
 
 

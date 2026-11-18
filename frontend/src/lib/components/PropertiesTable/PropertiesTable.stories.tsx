@@ -34,6 +34,21 @@ export const Basic: Story = {
     },
 }
 
+export const ExternalSourceProperties: Story = {
+    render: () => {
+        const properties = {
+            'eas/account': 'pineapple-labs',
+            'eas/build_id': '2f9a1c74-6f0b-4a4e-9a1e-8c2b7d5f0a31',
+            'eas/channel': 'production',
+            'eas/project_id': 'c81b3d02-77e4-4b6a-9f3e-1d0a5c8b2467',
+            'eas/runtime_version': '1.4.0',
+            'eas/update_id': '7d4e9b18-3c52-4f8a-b0d6-9e1f2a7c4b85',
+            'eas/workflow_id': 'a3c6f291-58d7-4e0b-8c4a-6b2d9f13e057',
+        }
+        return <PropertiesTableComponent type={PropertyDefinitionType.Event} properties={properties} />
+    },
+}
+
 export const DollarPropertiesOnEvent: Story = {
     render: () => {
         const properties = {

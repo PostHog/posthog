@@ -5,16 +5,21 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qsl
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.models import Organization, ProxyRecord
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 from products.surveys.backend.models import Survey
 
 EXTERNAL_SITE_URL = "https://app.posthog-test.example"
+OWN_PROXY_DOMAIN = "surveys.own-org.example.com"
+OTHER_PROXY_DOMAIN = "surveys.other-org.example.com"
 
 
 class TestExternalSurveys(APIBaseTest):
@@ -32,6 +37,13 @@ class TestExternalSurveys(APIBaseTest):
         assert script_match is not None
 
         return json.loads(script_match.group(1))
+
+    def get_html_lang(self, content: str) -> str | None:
+        html_tag = re.search(r"<html\b[^>]*>", content, re.DOTALL)
+        assert html_tag is not None
+
+        lang = re.search(r'\blang="([^"]*)"', html_tag.group(0))
+        return lang.group(1) if lang else None
 
     def create_external_survey(self, **kwargs):
         """Helper method to create external surveys for testing"""
@@ -86,6 +98,43 @@ class TestExternalSurveys(APIBaseTest):
 
         assert xss_payload not in content
         assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
+
+    @parameterized.expand(
+        [
+            (
+                "null_appearance",
+                None,
+                None,
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "team_header_html_is_sanitized",
+                None,
+                {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks"},
+            ),
+            (
+                "team_appearance_not_an_object",
+                None,
+                {"appearance": "dark"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            ("saved_opt_out", {"displayThankYouMessage": False}, None, {"displayThankYouMessage": False}),
+            ("saved_partial", {"backgroundColor": "#1d4ed8"}, None, {"backgroundColor": "#1d4ed8"}),
+        ]
+    )
+    def test_hosted_page_shows_confirmation_screen_for_unset_appearance(
+        self, _name: str, appearance: dict | None, survey_config: dict | None, expected: dict
+    ) -> None:
+        if survey_config:
+            self.team.survey_config = survey_config
+            self.team.save(update_fields=["survey_config"])
+        survey = self.create_external_survey(appearance=appearance)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+
+        assert response.status_code == 200
+        assert response.context["survey_data"]["appearance"] == expected
 
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
@@ -158,10 +207,46 @@ class TestExternalSurveys(APIBaseTest):
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 200
 
+        csp = response["Content-Security-Policy"]
+        csp_directives = csp.split("; ")
+        sandbox_tokens = csp_directives[0].split()
+        assert sandbox_tokens[0] == "sandbox"
+        assert "allow-scripts" in sandbox_tokens
+        assert "allow-same-origin" not in sandbox_tokens
+        assert "allow-popups-to-escape-sandbox" not in sandbox_tokens
+        assert "allow-top-navigation" not in sandbox_tokens
+        assert "script-src-attr 'none'" in csp_directives
+        assert "unsafe-inline" not in csp
+        assert response["Referrer-Policy"] == "no-referrer"
+
         # Check security headers - iframe embedding disabled by default
         assert response["X-Frame-Options"] == "DENY"
         assert "Cache-Control" in response
         assert "Vary" in response
+
+    def test_uses_memory_persistence_in_opaque_origin_sandbox(self) -> None:
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "persistence: 'memory'" in content
+        assert "persistence: 'sessionStorage'" not in content
+
+    @parameterized.expand(
+        [
+            ("invalid_id", "not-a-uuid", 400),
+            ("missing_survey", str(uuid.uuid4()), 404),
+        ]
+    )
+    def test_error_responses_are_sandboxed(self, _name: str, survey_id: str, expected_status: int) -> None:
+        response = self.client.get(f"/external_surveys/{survey_id}/")
+
+        assert response.status_code == expected_status
+        sandbox_tokens = response["Content-Security-Policy"].split("; ", 1)[0].split()
+        assert sandbox_tokens[0] == "sandbox"
+        assert "allow-same-origin" not in sandbox_tokens
 
     def test_iframe_embedding_enabled_removes_x_frame_options(self):
         """Test that X-Frame-Options is removed when iframe embedding is enabled"""
@@ -243,11 +328,17 @@ class TestExternalSurveys(APIBaseTest):
 
     # FUNCTIONALITY TESTS
 
+    def test_organization_ip_restrictions_do_not_block_public_survey(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        survey = self.create_external_survey()
+        self.assertEqual(self.client.get(f"/external_surveys/{survey.id}/").status_code, 200)
+
     def test_successful_survey_rendering(self):
         """Test that a valid external survey renders correctly"""
         survey = self.create_external_survey()
 
-        response = self.client.get(f"/external_surveys/{survey.id}/")
+        response = self.client.get(f"/external_surveys/{survey.id}/", REMOTE_ADDR="198.51.100.7")
         assert response.status_code == 200
 
         # Check that essential elements are present
@@ -294,46 +385,158 @@ class TestExternalSurveys(APIBaseTest):
         assert config_match is not None
 
         project_config = json.loads(config_match.group(1))
-        assert "api_host" in project_config
         assert "token" in project_config
 
-    @override_settings(SITE_URL=EXTERNAL_SITE_URL)
-    def test_assets_load_from_app_origin_behind_reverse_proxy(self):
+    @parameterized.expand(
+        [
+            ("app_host", "testserver"),
+            ("proxy_host", "surveys.proxy-domain.example.com"),
+        ]
+    )
+    @override_settings(SITE_URL=EXTERNAL_SITE_URL, USE_X_FORWARDED_HOST=True)
+    def test_pages_load_no_external_assets_on_any_host(self, _name, host):
         survey = self.create_external_survey()
 
-        # Simulate serving the page through a reverse-proxy domain
-        response = self.client.get(f"/external_surveys/{survey.id}/", HTTP_HOST="surveys.proxy-domain.example.com")
-        assert response.status_code == 200
+        page = self.client.get(
+            f"/external_surveys/{survey.id}/",
+            HTTP_HOST=host,
+            HTTP_X_FORWARDED_HOST="forwarded.proxy-domain.example.com",
+        )
+        error_page = self.client.get("/external_surveys/not-a-uuid/", HTTP_HOST=host)
 
-        content = response.content.decode()
-        # Proxy domains route /static/* to the SDK asset CDN, which doesn't serve Django
-        # staticfiles — asset URLs must point at the app origin, not the serving host.
-        assert f'<link rel="stylesheet" href="{EXTERNAL_SITE_URL}/static/surveys/hosted-survey.css' in content
-        assert 'href="/static/' not in content
-        # Capture must keep following the request host so events route through the proxy
-        project_config = self.get_json_script_value(content, "project-config")
-        assert isinstance(project_config, dict)
-        assert project_config["api_host"] == "http://surveys.proxy-domain.example.com"
+        assert page.status_code == 200
+        assert error_page.status_code == 400
+        page_content = page.content.decode()
+        error_content = error_page.content.decode()
+        assert ".PostHogHostedSurvey {" in page_content
+        for content in (page_content, error_content):
+            assert not re.search(r'(?:href|src)="[^"]*/static/', content)
+            assert '<link rel="stylesheet"' not in content
+            assert EXTERNAL_SITE_URL not in content
+        # The page script takes the capture host from the browser URL. A client can set these
+        # headers, so neither may reach the page and choose where the SDK loads from.
+        assert "proxy-domain.example.com" not in page_content
+        assert "api_host: window.location.origin," in page_content
 
-        # Error pages are served through proxies too and must not emit relative asset links
-        error_response = self.client.get("/external_surveys/not-a-uuid/", HTTP_HOST="surveys.proxy-domain.example.com")
-        assert error_response.status_code == 400
-        error_content = error_response.content.decode()
-        assert f'href="{EXTERNAL_SITE_URL}/static/icons/favicon-32x32.png' in error_content
-        assert 'href="/static/' not in error_content
+    @parameterized.expand(
+        [
+            ("survey_domain", "posthogsurveys.com", True, "?q0=5", 200, None),
+            (
+                "survey_domain_missing_survey",
+                "posthogsurveys.com",
+                False,
+                "?q0=5",
+                302,
+                "https://eu.posthogsurveys.com/{id}?q0=5",
+            ),
+            ("eu_survey_domain_missing_survey", "eu.posthogsurveys.com", False, "", 404, None),
+            ("us_survey_domain_missing_survey", "us.posthogsurveys.com", False, "", 404, None),
+        ]
+    )
+    def test_survey_domain_sends_surveys_it_does_not_have_to_eu(
+        self,
+        _name: str,
+        host: str,
+        survey_exists: bool,
+        query: str,
+        expected_status: int,
+        expected_location: str | None,
+    ) -> None:
+        survey_id = self.create_external_survey().id if survey_exists else uuid.uuid4()
 
-    @override_settings(SITE_URL="http://localhost:8010")
-    def test_localhost_site_url_falls_back_to_relative_asset_urls(self):
-        survey = self.create_external_survey()
+        response = self.client.get(f"/external_surveys/{survey_id}/{query}", HTTP_HOST=host)
 
-        # A localhost SITE_URL (the unset default) isn't reachable by external browsers —
-        # the page must degrade to host-relative asset paths instead of emitting it.
-        response = self.client.get(f"/external_surveys/{survey.id}/")
-        assert response.status_code == 200
+        assert response.status_code == expected_status
+        assert response.get("Location") == (expected_location and expected_location.format(id=survey_id))
 
-        content = response.content.decode()
-        assert '<link rel="stylesheet" href="/static/surveys/hosted-survey.css' in content
-        assert "http://localhost:8010" not in content
+    @parameterized.expand(
+        [
+            ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
+            ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
+            (
+                "other_org_record_for_posthog_survey_domain",
+                "posthogsurveys.com",
+                {"domain": "posthogsurveys.com", "status": ProxyRecord.Status.TIMED_OUT},
+                {},
+                200,
+                "Quarterly feedback",
+            ),
+            (
+                "other_org_record_for_posthog_eu_survey_domain",
+                "eu.posthogsurveys.com",
+                {"domain": "eu.posthogsurveys.com"},
+                {},
+                200,
+                "Quarterly feedback",
+            ),
+            ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
+            (
+                "other_org_domain_stored_mixed_case",
+                OTHER_PROXY_DOMAIN,
+                {"domain": "Surveys.Other-Org.example.com"},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_being_deleted",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.DELETING},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_retrying",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.WAITING},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_proxy_domain_archived_survey",
+                OTHER_PROXY_DOMAIN,
+                {},
+                {"archived": True},
+                404,
+                "Survey not available",
+            ),
+        ]
+    )
+    @override_settings(USE_X_FORWARDED_HOST=True)
+    def test_managed_proxy_domain_serves_only_its_own_organization_surveys(
+        self,
+        _name: str,
+        host: str,
+        other_record_overrides: dict,
+        survey_overrides: dict,
+        expected_status: int,
+        expected_text: str,
+    ) -> None:
+        survey = self.create_external_survey(name="Quarterly feedback", **survey_overrides)
+        ProxyRecord.objects.create(
+            organization=self.organization,
+            domain=OWN_PROXY_DOMAIN,
+            target_cname="own.proxy.example.com",
+            status=ProxyRecord.Status.VALID,
+        )
+        ProxyRecord.objects.create(
+            **{
+                "organization": Organization.objects.create(name="Other organization"),
+                "domain": OTHER_PROXY_DOMAIN,
+                "target_cname": "other.proxy.example.com",
+                "status": ProxyRecord.Status.VALID,
+                **other_record_overrides,
+            }
+        )
+
+        response = self.client.get(
+            f"/external_surveys/{survey.id}/", HTTP_HOST=host, HTTP_X_FORWARDED_HOST="testserver"
+        )
+
+        assert response.status_code == expected_status
+        assert expected_text in response.content.decode()
 
     @parameterized.expand(
         [
@@ -351,7 +554,7 @@ class TestExternalSurveys(APIBaseTest):
         assert response.status_code == 200
 
         content = response.content.decode()
-        assert f'<html lang="{expected_display_language}">' in content
+        assert self.get_html_lang(content) == expected_display_language
         assert self.get_json_script_value(content, "display-language") == expected_display_language
         assert "config.override_display_language = displayLanguage" in content
 
@@ -371,7 +574,7 @@ class TestExternalSurveys(APIBaseTest):
         assert response.status_code == 200
 
         content = response.content.decode()
-        assert '<html lang="en">' in content
+        assert self.get_html_lang(content) == "en"
         assert self.get_json_script_value(content, "display-language") is None
 
     def test_display_language_query_param_is_not_added_to_survey_event_properties(self):
@@ -450,17 +653,17 @@ class TestExternalSurveys(APIBaseTest):
         assert response.status_code == 200
 
 
-class TestExternalSurveysURLs(TestCase):
+class TestExternalSurveysURLs(SimpleTestCase):
     """Test URL routing for external surveys"""
 
-    def test_survey_url_pattern(self):
+    @patch("products.surveys.backend.api.survey.Survey.objects.select_related")
+    def test_survey_url_pattern(self, mock_select_related: MagicMock) -> None:
         """Test that survey URLs are properly routed"""
-        from django.test import Client
-
         survey_id = str(uuid.uuid4())
-        client = Client()
+        mock_select_related.return_value.get.side_effect = Survey.DoesNotExist
 
         # Test that the URL pattern matches correctly (should return 404 for non-existent survey)
-        response = client.get(f"/external_surveys/{survey_id}/")
+        response = self.client.get(f"/external_surveys/{survey_id}/")
         # We expect 404 since survey doesn't exist, but URL should be routed correctly
         assert response.status_code == 404
+        assert "Survey not available" in response.content.decode()

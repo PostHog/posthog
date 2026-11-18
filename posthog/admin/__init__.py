@@ -1,16 +1,28 @@
 # Lazy load admin classes to avoid loading all at startup.
 # Admin classes are loaded when Django admin site is first accessed
 
+_registered_all_admin = False
+
 
 def register_all_admin():
     """Trigger every admin registration. Called lazily on first
-    `admin.site._registry` access via `LazyAdminRegistry`.
+    `admin.site._registry` access via `LazyAdminRegistry`, and directly from the
+    admin URL conf in `ee/urls.py`. Runs its body at most once per process.
 
     `INSTALLED_APPS` uses `SimpleAdminConfig` so Django doesn't autodiscover at
     `django.setup()` — we run the same primitive ourselves here, deferred. That
     keeps every admin module out of `django.setup()` and out of every shell,
     worker, and management command that doesn't touch the admin.
     """
+    global _registered_all_admin
+    if _registered_all_admin:
+        return
+    # The guard is set before the body, not after it. `django.contrib.auth.admin`
+    # registers `Group` while it is still importing, which re-enters here through
+    # `LazyAdminRegistry`. The early return lets `auth.admin` finish, so
+    # `admins/user_admin.py` can take `UserAdmin` from a complete module below.
+    _registered_all_admin = True
+
     from django.contrib import admin
     from django.utils.module_loading import autodiscover_modules
 

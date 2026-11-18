@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -10,7 +9,12 @@ import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
 import { FORM_MODES } from './experimentLogic'
-import { DEFAULT_EXPERIMENT_TAB, experimentSceneLogic, getAvailableExperimentTabs } from './experimentSceneLogic'
+import {
+    DEFAULT_EXPERIMENT_TAB,
+    canSeeHealthDebugTab,
+    experimentSceneLogic,
+    getAvailableExperimentTabs,
+} from './experimentSceneLogic'
 
 const LEGACY_EXPERIMENT = {
     id: 123,
@@ -28,7 +32,6 @@ type ExperimentLogicMock = {
         __logic: {
             mount: jest.Mock<any, any>
             actions: {
-                setEditExperiment: jest.Mock
                 resetExperiment: jest.Mock
                 loadExperiment: jest.Mock
                 loadExposures: jest.Mock
@@ -44,7 +47,6 @@ jest.mock('./experimentLogic', () => {
     const logicInstance = {
         mount: jest.fn(() => jest.fn()),
         actions: {
-            setEditExperiment: jest.fn(),
             resetExperiment: jest.fn(),
             loadExperiment: jest.fn(),
             loadExposures: jest.fn(),
@@ -262,29 +264,48 @@ describe('experimentSceneLogic', () => {
 
     describe('getAvailableExperimentTabs', () => {
         it('reduces legacy experiments to metrics and variants', () => {
-            expect(getAvailableExperimentTabs(LEGACY_EXPERIMENT, {})).toEqual(['metrics', 'variants'])
+            expect(getAvailableExperimentTabs(LEGACY_EXPERIMENT)).toEqual(['metrics', 'variants'])
         })
 
         it.each([
             ['launched experiments', LAUNCHED_EXPERIMENT, true],
             ['draft experiments', DRAFT_EXPERIMENT, false],
         ])('offers the code tab only for %s', (_label, experiment, expected) => {
-            expect(getAvailableExperimentTabs(experiment, {}).includes('code')).toBe(expected)
+            expect(getAvailableExperimentTabs(experiment).includes('code')).toBe(expected)
         })
 
         it('offers the feedback tab only when a feature flag is linked', () => {
-            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('feedback')).toBe(false)
+            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT).includes('feedback')).toBe(false)
             const withFlag = { ...DRAFT_EXPERIMENT, feature_flag: { id: 1 } } as Experiment
-            expect(getAvailableExperimentTabs(withFlag, {}).includes('feedback')).toBe(true)
+            expect(getAvailableExperimentTabs(withFlag).includes('feedback')).toBe(true)
         })
 
-        it('offers the recordings tab only when the feature flag is enabled', () => {
-            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('recordings')).toBe(false)
-            expect(
-                getAvailableExperimentTabs(DRAFT_EXPERIMENT, {
-                    [FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]: true,
-                }).includes('recordings')
-            ).toBe(true)
+        it.each([
+            [
+                'staff with the flag',
+                { superpowersEnabled: true, isImpersonated: false, healthFindingsEnabled: true },
+                true,
+            ],
+            [
+                'staff impersonating a customer without the flag',
+                { superpowersEnabled: false, isImpersonated: true, healthFindingsEnabled: false },
+                true,
+            ],
+            [
+                'staff without the flag',
+                { superpowersEnabled: true, isImpersonated: false, healthFindingsEnabled: false },
+                false,
+            ],
+            [
+                'a customer with the flag',
+                { superpowersEnabled: false, isImpersonated: false, healthFindingsEnabled: true },
+                false,
+            ],
+        ])('offers the health debug tab to %s: %s', (_label, gate, expected) => {
+            const tabs = getAvailableExperimentTabs(LAUNCHED_EXPERIMENT, {
+                canSeeHealthDebug: canSeeHealthDebugTab(gate),
+            })
+            expect(tabs.includes('health-debug')).toBe(expected)
         })
     })
 

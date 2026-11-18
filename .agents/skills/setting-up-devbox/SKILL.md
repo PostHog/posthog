@@ -1,156 +1,254 @@
 ---
 name: setting-up-devbox
-description: Guide a PostHog engineer through spinning up, connecting to, running commands on, and mirroring local code to a remote devbox (a Coder workspace running the full PostHog stack). Use when asked to set up a devbox, start or connect to a devbox, configure remote dev, get gh CLI / Claude Code authed on a devbox, run a command on a devbox, sync a local checkout so you can edit locally while the stack runs remotely (devbox:sync), or diagnose why a devbox command fails. Covers the tailnet prerequisite, hogli devbox commands, Coder user secrets for auth, one-way local->remote sync via mutagen, and verifying with devbox:exec. How each dev personalizes their box is left to them.
+description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), give each git worktree its own box (devbox:worktree), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
 ---
 
 # Setting up a PostHog devbox
 
-A devbox is a Coder workspace running the full PostHog stack on an EC2 instance, managed through `hogli devbox:*` (the only supported interface — drive those commands, don't reimplement them). It ships ready to use: the repo cloned at `~/posthog`, the stack pre-warmed, and Claude Code installed. This skill gets a dev connected and working; how they personalize beyond that is their choice, not something to push.
+A devbox is a Coder workspace on EC2 for PostHog development.
+Drive it through `hogli devbox:*` and don't reimplement what those commands do.
+A new box has the repo at `~/posthog` on `master`, prewarmed dependencies, and Claude Code installed.
+`hogli devbox:<command> --help` has the current flags.
+This skill covers the order of operations and what the help text leaves out.
 
-## Prerequisite: tailnet access (the thing people miss)
+People use a box in different ways: a shell or editor for general development, a remote target for a local checkout, or a host for the running PostHog app.
+Work out which one the user wants, and don't start the PostHog stack unless they ask for the app.
 
-The devbox control plane lives inside a private VPC reachable only over Tailscale. Two things have to be true, and they fail in ways that look identical at the reachability check — _every_ `hogli devbox:*` command dies there, and it is neither an auth nor an install problem, so no amount of re-running `devbox:setup` fixes it:
+## Choosing an environment
 
-1. **You are signed into the `posthog.com` tailnet.** PostHog has several tailnets — `dev`, `prod-us`, `prod-eu` and `internal` exist for CI runners and subnet routers, and none of them route you to devboxes. Humans want `posthog.com` and nothing else.
-2. **Your email is in `group:engineering`** in [`tailnet-policy.hujson`](https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson) (`posthog-cloud-infra`), the ACL that grants the route to the Coder control plane (`10.70.0.1:443`).
+When the user asks whether a devbox is the right place for the work, compare it with the other two options:
 
-Check the tailnet first — it's cheap, and it's the more common of the two:
+|                        | Local worktree                                                               | Devbox                                                                                                    | Tasks sandbox                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persistence after stop | Everything stays on the user's machine.                                      | `devbox:stop` keeps the disk, including `/home`. Only `devbox:destroy` deletes it.                        | The sandbox is destroyed after an idle timeout: 30 minutes for background runs, 1 hour for user-created runs, 10 minutes for PostHog AI runs, and at most 2 hours with a per-task override. Interactive Modal runs snapshot `/tmp/workspace` before cleanup so a follow-up can restore it. Files outside `/tmp/workspace` are lost. |
+| Context reset          | The user decides.                                                            | The user decides. Agent sessions on the box stay on its disk.                                             | Each task starts a new agent session. A follow-up on the same task resumes that session from the snapshot or the run log.                                                                                                                                                                                                           |
+| Provisioning steps     | Create a worktree. Install dependencies or start the stack only when needed. | `devbox:doctor` and `devbox:setup` once per machine, then `devbox:start`.                                 | One message creates the task. The backend provisions the sandbox, clones the repository, and starts the agent.                                                                                                                                                                                                                      |
+| MCP reach              | The MCP servers configured on the user's machine.                            | The MCP servers the user configures in Claude Code on the box.                                            | MCP Store installations: shared team installations, plus the user's personal installations for tasks they create. Built-in agent tasks get only the connections granted to that agent. PostHog Desktop can import or relay its own servers into a run.                                                                              |
+| Preview URL            | `localhost:8010`                                                             | Stable and PostHog-internal: `https://app--<workspace>--<coder-user>.<coder-host>`.                       | One URL per run, `/api/projects/<team>/tasks/<task>/runs/<run>/preview/`, on the dev-stack image. It works only while the sandbox runs.                                                                                                                                                                                             |
+| Cost                   | The user's machine.                                                          | An EC2 instance. Billing stops on `devbox:stop`.                                                          | Sandbox time is metered per run and counts against the team's PostHog Desktop usage limit.                                                                                                                                                                                                                                          |
+| Best for               | Work that does not need the running stack.                                   | Long-lived state, MCP servers outside the MCP Store, a stable preview link, and agent history on the box. | Bounded one-off work that benefits from a fresh context.                                                                                                                                                                                                                                                                            |
 
-```bash
-tailscale switch --list                 # the active tailnet is marked; you want posthog.com
-tailscale switch posthog.com            # if you've signed into it before
-tailscale logout && tailscale login     # otherwise — pick posthog.com at the tailnet picker
-# on macOS when `tailscale` isn't on PATH:
-/Applications/Tailscale.app/Contents/MacOS/Tailscale switch --list
+A stopped box keeps its state, and `hogli devbox:start` (with `-n <label>` for a labeled box) resumes it.
+
+## Get a box
+
+Copy this checklist and track it:
+
+```text
+- [ ] 1. hogli devbox:doctor: the tailnet and control plane checks are ok
+- [ ] 2. hogli devbox:setup has run on this machine
+- [ ] 3. hogli devbox:start: the box is running
+- [ ] 4. The user is connected the way they asked for
+- [ ] 5. hogli devbox:stop when the user is done
 ```
 
-Being on the wrong tailnet is sticky and invisible: the picker only appears at first sign-in, so someone who clicked past it a year ago has been on `dev` ever since and was never asked again. In the GUI it's **Add account** → sign in as usual → select `posthog.com`. Suspect this whenever a dev says "it used to work on my other laptop" or is on a new machine.
+### 1. Check access
 
-If the tailnet is right and `hogli devbox:doctor` still reports the control plane unreachable, the fix is a PR adding the user to `group:engineering` in `tailnet-policy.hujson` (then ask Team DevEx if still blocked). Diagnose both of these before touching anything else.
+`hogli devbox:doctor` is read-only: it never prompts or changes host config.
+Commands that reach a box run the same reachability check first, so fix a failure here before anything else.
 
-### Control plane unreachable with a DNS cause?
+- The active tailnet must be `posthog.com`. Doctor prints it and names a wrong tailnet as the cause.
+- Every PostHog employee has the route to the Coder control plane through `group:employees` in the tailnet policy. Nobody needs a PR to get access.
+- If doctor reports the control plane unreachable, read [references/access-troubleshooting.md](references/access-troubleshooting.md) before changing anything.
+- `[missing] Commit signing agent` does not block starting or using a box. It matters only for signed commits made on the box.
 
-When doctor shows `[ok] Tailscale connected` but fails reachability with a **DNS** cause (`DNS lookup for coder.dev.posthog.dev failed`), the name is never reaching the internal resolver. In order:
+### 2. Set up this machine once
 
-1. **Wrong tailnet** (above). The other tailnets have no route to `dev.posthog.dev`, and this is what it looks like. Rule it out first.
-2. **MagicDNS off.** "Use Tailscale DNS" in the client's DNS settings is what points the machine at the internal resolver; without it nothing internal resolves.
-3. **Stale resolver upstream.** MagicDNS on and names still failing, but `tailscale ping <internal-ip>` pongs and the service loads over its raw IP? That's the machine's router/ISP resolver. Adding `8.8.8.8` or `1.1.1.1` to the host's DNS settings has fixed this for several people.
+`hogli devbox:setup` is interactive, so ask the user to run it in their own terminal.
+Without a terminal, login and every runtime command work when `CODER_SESSION_TOKEN` and `CODER_URL` are exported, because the Coder CLI uses that token before any stored login.
+Setup still prompts for each configuration step that has no saved value, so pass `--skip-configure-<step>` for those.
+Read the token from a file into the variable. Never put it on a command line or in the conversation.
+SSH from a shell that has the variable works. When setup says no working login is stored on disk, programs that start without the variable, such as an editor or a mutagen daemon, cannot reach the box.
+It installs the Coder CLI at the server's version into `~/.hogli/bin`, logs in, installs the pinned mutagen binary for `devbox:sync`, and writes the `coder.*` SSH host entries that `devbox:ssh` and `devbox:exec` use.
+`~/.hogli/bin` is not on `PATH`, so call that CLI as `~/.hogli/bin/coder` when a step needs `coder` directly.
+Each optional step has a `--configure-<step>` and `--skip-configure-<step>` flag: `ssh`, `git-identity`, `git-signing`, `region`, `dotfiles`, `claude`.
+Run it again when a command prints `Coder CLI vX does not match server vY`, because it reinstalls the matching CLI.
 
-To confirm it's resolution rather than the grant: `dig coder.dev.posthog.dev @10.90.0.2` answering while the system resolver fails proves the name exists and only the resolution path is missing.
+On Linux, the reachability check can run `sudo tailscale set --accept-routes` and prompt for a password.
+Run setup interactively once before an agent drives devbox commands unattended.
 
-**Do not reach for an exit node.** Devboxes are reached as tailnet peers, so an exit node is not required for devbox access — it just routes all of the dev's traffic through infra, which is noticeably slower, and it masks whichever of the three causes above is the real one. Don't suggest `/etc/hosts` or `/etc/resolver` workarounds either: they hardcode internal ELB IPs that rotate.
-
-Full write-up, kept current by Team Cloud Foundations: [wiki.posthog.com/access/vpn](https://wiki.posthog.com/access/vpn#which-tailnet).
-
-## Workflow
-
-### 1. Check state — `hogli devbox:doctor`
-
-```bash
-hogli devbox:doctor          # read-only: tailnet access, reachability, auth, ssh config, saved setup
-```
-
-A safe probe — it never prompts or mutates host config (unlike `devbox:setup`). It names the active tailnet on its own line (`Tailnet: … (need posthog.com)`) and, when that's the problem, says so outright (`Cause: Signed into the 'dev' tailnet, not 'posthog.com'.`) — trust that over any other symptom. If it flags the control plane unreachable, resolve the tailnet (and then the ACL grant) before anything else. For more detail: `hogli devbox:list` (your boxes), `hogli devbox:status` (state, template freshness), `hogli devbox:secret:list` (secret names only).
-
-### 2. One-time local setup — `hogli devbox:setup`
-
-Interactive: checks Tailscale + Coder reachability, installs and authenticates the `coder` CLI (plus the pinned mutagen binary that backs `devbox:sync`), and writes the SSH host entries that `devbox:ssh`/`devbox:exec` rely on. It then _offers_ git identity, git signing, a dotfiles repo, and your Claude token — all optional; `--skip-*` anything you don't want. Re-run one step with its flag, e.g. `hogli devbox:setup --configure-git-signing`.
-
-### 3. Start and connect — `hogli devbox:start`
+### 3. Start the box
 
 ```bash
-hogli devbox:start           # create or resume your box
-hogli devbox:ssh             # shell in
-hogli devbox:open --vscode   # or --cursor / --web
-hogli devbox:stop            # when done — preserves disk, stops billing
+hogli devbox:start
 ```
 
-### 4. Fast QA and agent resume
+This creates the box on first use and resumes it after a stop.
+It returns once the box's startup scripts finish, so the box is ready to connect to. `devbox:restart`, `devbox:update` and `devbox:clone` wait the same way. If a script fails or the wait gives up, the box still runs and hogli prints a warning that points to `hogli devbox:logs`.
+It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
+`--disk` (`100` or `200` GiB) applies only when the box is created.
+When AWS has no capacity for the box's instance type in its zone (`InsufficientInstanceCapacity`), hogli starts the box on the template's other instance types by itself and keeps the disk. There is nothing to pass.
+`--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
+A box's region can't change.
 
-Before recreating sync, restarting PostHog, or making a new devbox, check whether the existing box is already usable:
+The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-user>-<label>`.
+Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
+`hogli devbox:list` shows the exact names.
+Target a labeled box with `-n <label>` on commands that act on a box.
+Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`, print the box they picked on stderr, and stop when that box was deleted; rerun `devbox:worktree` to create it again. An explicit `-n <label>` or `@user` still wins, `-n @<coder-user>` targets your default box, and `devbox:clone` without a source still copies the default box.
+
+### 4. Connect
+
+Match what the user asked for:
+
+- **Shell:** `hogli devbox:ssh`.
+- **Editor:** `hogli devbox:open --vscode`, `--cursor`, or `--web`.
+- **Commands from an agent:** `hogli devbox:exec`, described in [Run commands on the box](#run-commands-on-the-box).
+- **Edit locally, run on the box:** read [references/sync.md](references/sync.md) before using `hogli devbox:sync`.
+- **The running app:** follow [Run the PostHog app](#run-the-posthog-app).
+- **A box per git worktree:** follow [One devbox per worktree](#one-devbox-per-worktree).
+
+### 5. Stop when done
+
+`hogli devbox:stop` keeps the disk and stops billing.
+It also pauses the box's `devbox:sync` mirror, and `devbox:start` resumes it.
+Stops, starts, and `devbox:update` keep `/home`.
+`hogli devbox:destroy` deletes it, so don't keep anything irreplaceable only on a box.
+
+## Run commands on the box
+
+`hogli devbox:exec -- <command>` runs one command over SSH and returns its exit code.
+Without `--flox`, wrap the command in `bash -lc '...'`.
+A non-login shell doesn't reliably load the shell profile, so tools on a login-shell `PATH` such as `~/.local/bin` report "command not found".
+Project tools such as `pnpm`, `pytest` and the Python venv are on `PATH` only inside PostHog's flox environment.
+For those, add `--flox`, which runs the command in `~/posthog` inside `flox activate`: `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.
+Use `bash -c '...'` after `--flox` when the command needs shell syntax such as `&&`.
+Put `--` between hogli's flags and the command's own.
+`devbox:exec` and `devbox:ssh` fail to connect until `devbox:setup` has written the SSH config.
+
+## Run the PostHog app
+
+Use this section only when the user wants the app, for example to QA a change or share a link.
+
+### Start the stack
+
+- **New box:** `hogli devbox:start --start-app`. The setting stays on the workspace, so every later start brings the stack up in the background. The flag applies only when hogli creates the box; on an existing box hogli refuses it, because the Coder CLI keeps a parameter's last-build value. Change it on an existing box in the Coder dashboard under the workspace's parameters.
+- **Running box:** `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'`.
+
+### Wait for it
+
+The stack keeps booting after the start command returns.
+Poll in a bounded loop until this prints `200` or `302`.
+A `000` or `502` means the stack is still booting.
+
+```bash
+hogli devbox:exec -- bash -lc "curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8010/"
+```
+
+When resuming QA on an existing box, check it before recreating sync, restarting the stack, or making a new box:
 
 ```bash
 hogli devbox:status
 hogli devbox:exec -- bash -lc 'cd ~/posthog && git status --short --branch && git rev-parse --short HEAD'
-hogli devbox:sync --status
-hogli devbox:exec -- bash -lc "curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/"
+hogli devbox:sync --json
 ```
 
-Use `-n <name>` on each command for a labeled box. If the forwarded app serves the intended branch/SHA, the target route loads, and route-critical APIs work, keep going and note unrelated degraded units rather than chasing perfect all-process health. When startup time matters, record rough timings for devbox start/resume, sync readiness, first route response, and first target-route load.
+Keep going when the app serves the intended branch and SHA, the target route loads, and its APIs work.
+Note unrelated degraded processes instead of chasing full health.
 
-For agent-managed startup, `hogli devbox:start --start-app` is the supported path for new/stopped boxes. The flag is sticky and starts the regular PostHog stack in the background. If the box is already running without the app, start it inside the box:
+### Give the user the URL
+
+The template exposes the app as a Coder subdomain app that only the box owner can open:
+
+```text
+https://app--<workspace>--<coder-user>.<coder-host>
+```
+
+`<coder-host>` is the host of `Coder URL` in `hogli devbox:doctor`, and `hogli devbox:list` shows the workspace name.
+`hogli devbox:status` prints this URL on the `App:` line, with the app's health check status, for a box the user owns.
+For example, `devbox-jane-d` owned by `jane-d` on `coder.dev.posthog.dev` is `https://app--devbox-jane-d--jane-d.coder.dev.posthog.dev`.
+The user must be on the tailnet, and the browser goes through Coder sign-in first.
+Each box has its own URL, so prefer it over forwarding when the user runs several boxes.
+
+Verify the link before handing it over.
+Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token.
+`hogli devbox:status` shows it, or read it directly:
 
 ```bash
-hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'
+~/.hogli/bin/coder list --output json | jq -r '.[] | select(.name=="<workspace>") | .latest_build.resources[]?.agents[]?.apps[]? | select(.slug=="app") | .health'
 ```
 
-Use the target route, route-critical APIs, and process-specific phrocs checks as the readiness gate.
+`healthy` means Coder routes the URL to a working app.
+`initializing` means the check hasn't passed yet, and `unhealthy` means it keeps failing.
 
-### 5. Auth, if you want it (optional)
+`hogli devbox:forward` is the alternative when the user wants `localhost`.
+It tunnels box port 8010 to a local port and holds the terminal until stopped.
+The default box gets `localhost:8010` while that port is free.
+Every other box, and the default box when 8010 is taken, gets a port in 18000-18999 derived from the box name, so the same box gets the same port on each run.
+When that port is taken, the next free one is used.
+Pass `--port <port>` to choose the port yourself; the command then fails if that port is in use.
 
-To have `gh` or Claude Code authenticated on the box, store the token once as a Coder user secret. It's injected as an env var into every box you start, so you set it once rather than per box:
+## One devbox per worktree
+
+Use this when the user runs several local git worktrees and wants each one to run its stack on its own box.
+Run `hogli devbox:worktree` from inside the linked worktree, never through `devbox:exec`.
 
 ```bash
-hogli devbox:secret:set GH_TOKEN --env GH_TOKEN
-hogli devbox:secret:set CLAUDE_CODE_OAUTH_TOKEN --env CLAUDE_CODE_OAUTH_TOKEN
-# also supported: ANTHROPIC_API_KEY, OPENAI_API_KEY, OP_SERVICE_ACCOUNT_TOKEN, AWS_CREDENTIALS (--file)
+hogli devbox:worktree --dry-run                 # print the box and sync plan
+hogli devbox:worktree                           # start or create the box, then create the mirror
+hogli devbox:worktree --clone-from default -y   # create the box as a clone of a running box
+hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
 ```
 
-Authing `gh` / Claude on a devbox is fine — that's what these are for. Set the value from `--file` or the hidden prompt; never paste a token into a command line or into this conversation. Restart a running box to pick up a newly set secret.
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-`, `worktree/` or `<coder-user>/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
+- A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
+- It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
+- `--clone-from` uses `devbox:clone`, so the source must be running and the clone asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file, and skips a box that was recreated under the same name. A box it leaves alone is dropped from the record file, so a later run never touches it. `--dry-run` lists the boxes, and the confirmation prompt counts them.
+- A box whose worktree was already removed gets the same action on the next `worktrees:clean` run, within that run's `--repo` and `--source` selection. A moved or unmounted worktree does not count as removed.
+- `hogli devbox:worktree:prune` acts only on those boxes of removed worktrees, without removing any worktree. It uses the saved action, or stops the boxes when none is saved. Pass `--stop` or `--delete` to choose, `--path <worktree>` to limit it to one worktree, and `--dry-run` to list them. Use it after t3code, herdr or a plain `git worktree remove` deleted a worktree.
+- Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
 
-### 6. Make it yours — your call
+### Run worktree boxes on Hogland
 
-The box is usable as shipped; personalize it however suits you, or not at all. Two supported paths, neither required, don't push one over the other:
+`hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox, restored from the `devbox-golden` snapshot, instead of a Coder workspace.
 
-- **Tweak the box directly** — `devbox:ssh` in and install tools, add aliases, clone repos. Changes under `/home` survive stop/start and template updates, but a `devbox:destroy` (or a brand-new box) starts fresh.
-- **A dotfiles repo** — if you'd rather keep portable, version-controlled config that re-applies to every box: `hogli devbox:setup --configure-dotfiles` points the box at your `dotfiles_uri`, and Coder clones it (running an executable `~/dotfiles/install.sh` if present) on each start.
+- It needs the `hogland` CLI, installed and signed in. A missing CLI fails with the install command.
+- The box is named `wt-<label>`, and Hogland caps the name at 32 characters.
+- hogli writes an SSH entry for `hogland.wt-<label>` under `~/.hogli/hogland-ssh/`, and the mirror goes to `/home/hog/posthog`. Open a shell with `hogland devbox ssh wt-<label>`, and start the stack there with `hogli start -d`.
+- Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
+- `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
+- A worktree that still has a box on the other provider is refused until that box is removed.
+- `--clone-from <label>` clones the running Hogland devbox `wt-<label>`, or `default` for the devbox named `default`. It runs `hogland devbox clone`, so it needs a `hogland` CLI that has that command; an older one fails with the upgrade command. The clone copies the whole box, including secrets, so it asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `--start-app` saves the setting on a new box as the file `~/.config/hogli/start-app`. Every later `devbox:worktree` run on that box then waits for the mirror to catch up and runs `hogli up -d`. A clone keeps the source's setting. On an existing box the flag is ignored, so delete or create that file on the box to change it.
 
-### 7. Run commands on the box — `hogli devbox:exec`
+### Provision a box for every new worktree
 
-`devbox:exec` runs one command over SSH and propagates its exit code — handy for scripts, agents, and quick checks without opening a shell:
+`hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `paseo`, and `other` for a plain `git worktree add`.
+It only saves the setting, so run it from any checkout.
+Two triggers start `hogli devbox:worktree -y` in the background, and the first one for a worktree wins:
 
-```bash
-hogli devbox:exec -- bash -lc 'gh auth status'
-hogli devbox:exec -- bash -lc 'cd ~/posthog && git status'
-hogli devbox:exec -n api -- bash -lc 'uname -a'    # -n targets a labeled box
-```
+- The husky `post-checkout` hook, for `claude`, `codex`, `posthog-code` and `phw`, which it recognizes by their worktree folders, and for `other`.
+- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. Conductor would let a checked-in script replace each user's own scripts, so `--auto conductor` writes its hooks to the main checkout's uncommitted `.conductor/settings.local.toml` instead, and leaves an existing file for you to edit. t3code does not run `t3.json` by itself: each user imports it once from **Import from t3.json** in the project's scripts menu or in Settings → Projects → Actions. t3code runs only the first script set to run on worktree creation, so a project that already has its own setup script skips this one. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once. Paseo has no checked-in hook either: put an untracked `paseo.json` in the main checkout whose `worktree.setup` runs `bin/devbox-worktree-hook created paseo` and whose `worktree.teardown` runs `bin/devbox-worktree-hook removing`. Paseo copies it into each new worktree.
 
-Wrap commands in `bash -lc '...'`: a non-login shell doesn't reliably source `~/.bashrc`/`~/.zshrc`, so a bare `gh auth status` can report "command not found" for anything on a login-shell `PATH` (e.g. `~/.local/bin`) — a false negative. The login shell also keeps the exit code trustworthy, so `&&` chaining and `if` checks work. Use `--` to separate hogli's flags from the command's own.
+The script runs the main checkout's hogli, so pull the main checkout after a change to these commands.
 
-`devbox:exec` is not side-effect-free: like every `devbox:*` command it runs the reachability check first, which on Linux may `sudo tailscale set --accept-routes` and prompt for a password. Run `hogli devbox:setup` once interactively so routes and SSH config are in place before an agent drives `devbox:exec` unattended.
+- Claude subagent worktrees (`.claude/worktrees/agent-*`) never get a box, so a fan-out of agents doesn't create one box per agent.
+- The hook returns at once. Output goes to `hogli-devbox-worktree.log` in the worktree's git directory. Read it with `cat "$(git rev-parse --git-dir)/hogli-devbox-worktree.log"`.
+- The hook skips the box when the main checkout has no Python environment to borrow, or when this worktree's `uv.lock` differs from the main checkout's.
+- Turn it off with `hogli devbox:worktree --auto off` or `hogli devbox:config:rm worktree-auto`.
+- Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`. `hogli devbox:worktree --auto claude --on-clean delete` saves both settings, from any checkout. `hogli devbox:setup` shows `off` when no source is enabled.
+- Superset, Orca and worktrunk run `bin/devbox-worktree-hook removing` before they delete a worktree. It runs `hogli devbox:worktree:teardown --background`, which stops the mirror while the files still exist and then stops the box in the background (log: `~/.config/posthog/hogli-devbox-teardown.log`). The box's record is then dropped, so the box no longer belongs to any worktree.
+- Emdash and Conductor run `bin/devbox-worktree-hook archiving` instead, because they keep an archived worktree on disk. It adds `--keep-record`, so when the app restores the worktree, its create hook starts the same box again.
+- herdr reports a removal only after the folder is gone, so its plugin runs `devbox:worktree:prune --path <worktree>`.
+- Claude Code and t3code have no removal hook. With an `--on-clean` action saved, every new worktree runs `devbox:worktree:prune` in the background, which acts on the boxes of worktrees removed since. Run it by hand to clean up sooner.
+- Claude Code deletes a worktree's folder but leaves its admin directory under `.git/worktrees/`. Prune counts a worktree as removed when `git worktree prune` would delete that directory, so a worktree on an unmounted drive counts as removed unless `git worktree lock` locks it.
+- herdr has two ways to use devboxes. With `--auto herdr`, agents run on the laptop and each herdr worktree gets its own box. With `hogli devbox:open --herdr`, the box is a herdr machine, and agents and worktrees run on it with no mirror. `devbox:open --herdr <label>` on a worktree's box gives terminals for the stack and tests. Edit files in the local worktree, because files edited on a mirrored box conflict with the mirror. Deleting a box also removes its herdr machine.
+- A t3code worktree restored from a cleaned-up thread skips setup scripts, so it gets a box only when `other` is enabled.
 
-## Editing locally, running on the box — `hogli devbox:sync`
+## Other tasks
 
-When you want your fast local checkout to stay the place you edit but the heavy stack (`hogli up`) to run on the box, `hogli devbox:sync` mirrors your repo onto the box over [mutagen](https://mutagen.io), one-way: local is the source of truth, nothing comes back. Reach for this in an agentic loop — edit with your normal local tools, let the mirror carry each change, and drive the remote stack with `devbox:exec` — instead of committing and pushing every iteration or editing over Remote-SSH.
-
-```bash
-hogli devbox:start                                   # the box must be running first
-hogli devbox:sync                                    # create the mirror (idempotent: re-run just reports status)
-# edit files locally — changes propagate within seconds
-hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
-hogli devbox:sync --status                           # watching / paused / conflicts
-hogli devbox:sync --terminate                        # tear the mirror down when done
-```
-
-Before relying on sync, verify the remote branch/SHA and `devbox:sync --status`. If the box already matches and sync is watching without source-file conflicts, do not recreate it for cleanliness. Source-file conflicts block reliable QA until resolved; box-local config conflicts such as `.env` can be acceptable when the tracked source is clean.
-
-The non-obvious parts:
-
-- **It runs on your machine and pushes to the box — not the reverse.** Don't invoke it through `devbox:exec`. It mirrors whichever checkout you run it from (it walks up from the cwd for `hogli.yaml` + `.git`), so run it from the repo root you are editing — including a `/wt` worktree.
-- **`one-way-safe` preserves remote-only files.** The AMI's prewarmed `node_modules`, venv, and `target/` are never deleted — they aren't in your local checkout and the mode leaves remote-only content alone. Lockfiles _do_ sync, so the box reconciles deps on its next start.
-- **The first sync of a feature branch conflicts per diverged file.** The AMI is always on `master`; every file your branch changed relative to the box's `master` surfaces as a conflict in `--status`. That is expected one-way-safe behavior, and it is per-path — non-conflicting files (including brand-new ones) still sync. Resolve a path, or check the matching branch out on the box, only if you specifically need that file mirrored.
-- **Don't also edit those files on the box.** Editing over Remote-SSH while the mirror is live fights the local source of truth; `devbox:open --vscode|--cursor` warns when a sync is active for exactly this reason.
-
-The packaged ignore defaults are seeded once to `~/.hogli/mutagen.yml` and never overwritten — it is yours to tweak. If a newer hogli ships updated ignore defaults, `rm ~/.hogli/mutagen.yml` and re-run `devbox:setup` to pick them up.
-
-## Persistence & multiple boxes
-
-- `devbox:stop` → `devbox:start` and template/AMI updates preserve `/home` (the instance is stopped, not terminated). A `devbox:destroy` wipes it — intentional, so don't keep anything irreplaceable only inside a box.
-- You can run more than one box. Box-local changes don't carry between them; user secrets do (user-scoped), and a dotfiles repo does if you use one. That's the practical reason to reach for those if you find yourself re-doing setup — but it's a choice, not a requirement.
+- **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
+- **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk, including any secrets on it, into `devbox-<coder-user>-<label>` in the source box's region. Stop the stack on the source first for a consistent copy. It asks for confirmation, so pass `-y` only after the user agrees. Only the owner can clone a box.
+- **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated. `devbox:start` also updates an outdated box when it starts it. Boxes that `devbox:start` and `devbox:clone` create have Coder's automatic updates on, so they also move to the latest template when they start from the web UI or autostart, and on `hogli devbox:restart`. Coder never updates a box while it keeps running, but a restart of an outdated box is a full template update and can trigger the one-time dependency re-install that `devbox:update` warns about.
+- **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
+- **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
+- **Build and agent logs:** `hogli devbox:logs -f`.
+- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A saved repo URL applies to boxes hogli creates. To change it on an existing box, edit the workspace's parameters in the Coder dashboard.
 
 ## Gotchas
 
-- **Never echo secret values** into the transcript, logs, a PR, or a command line. `devbox:secret:set` reads from a hidden prompt or `--file`; `secret:list` shows names only. Keep it that way.
-- **Secrets need a restart.** A new or changed secret only reaches boxes started afterward — `hogli devbox:restart` to pick it up on a running box.
-- **`devbox:exec`/`devbox:ssh` need `devbox:setup` to have run** (it writes the `coder.*` SSH host config). Without it they fail at connection; `devbox:doctor` shows whether SSH access is configured.
-- **`code-server` (browser IDE) has no SSH agent forwarding**, so commit signing via a forwarded key won't work there — use VS Code Desktop / Cursor / JetBrains (SSH-based) when you need to sign.
+- Never echo a secret value into the transcript, logs, a PR, or a command line.
+- `code-server` (`devbox:open --web`) has no SSH agent forwarding, so commit signing fails there. Use VS Code Desktop, Cursor, or JetBrains over SSH to sign commits.

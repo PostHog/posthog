@@ -1215,10 +1215,10 @@ export function defineToolBehaviorTests(
             expect(decodeText(orgResult.content)).toContain(harness.orgId)
         })
 
-        // ?projectId=N in the URL pins the active project for the whole
-        // session — agents pass this to avoid needing a switch-project
-        // tool call first. The state resolver writes it to the cache on
-        // every request, so a project-scoped tool should resolve it
+        // ?projectId=N in the URL pins the session's default active project,
+        // so agents pass this to avoid needing a switch-project tool call
+        // first. The state resolver asserts the pin (unless an in-session
+        // switch overrides it), so a project-scoped tool should resolve it
         // without an explicit switch.
         it('reads the active project pinned via ?projectId= URL param', async ({ skip }) => {
             if (!harness.projectId) {
@@ -1253,8 +1253,8 @@ export function defineToolBehaviorTests(
         // `SELECT 1 AS one` doesn't depend on any ingested data, so it works
         // against a freshly-booted local stack with no seed data.
         //
-        // The tool is gated by `query:read` + `insight:read` scopes — if the
-        // test API key doesn't carry them, execute-sql won't be in the
+        // The tool is gated by the `query:read` scope — if the
+        // test API key doesn't carry it, execute-sql won't be in the
         // catalog and we skip rather than fail (a different test would
         // catch the scope-filter regression).
         it('execute-sql runs a trivial HogQL query against the upstream', async ({ skip }) => {
@@ -1264,7 +1264,7 @@ export function defineToolBehaviorTests(
             }
             const { tools } = await client.listTools()
             if (!tools.some((t) => t.name === 'execute-sql')) {
-                skip('execute-sql not in catalog for this token — needs query:read + insight:read scopes.')
+                skip('execute-sql not in catalog for this token — needs the query:read scope.')
                 return
             }
             await client.callTool({
@@ -1378,10 +1378,10 @@ export function defineCatalogFilterTests(
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
             // `always_available` utility tools (e.g. agent-feedback, gated by its
-            // own feature flag) bypass feature filtering by design, so an unknown
-            // feature yields only those — assert no feature-gated tool leaked,
-            // rather than a hard-empty list.
-            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            // own feature flag) and the tools-mode `learn` tool bypass feature
+            // filtering by design, so an unknown feature yields only those — assert
+            // no feature-gated tool leaked, rather than a hard-empty list.
+            const featureGated = tools.filter((t) => !['agent-feedback', 'learn'].includes(t.name))
             expect(featureGated).toHaveLength(0)
         })
 
@@ -1555,6 +1555,55 @@ export function defineResourceCatalogTests(
             const cmRead = await client.readResource({ uri: cm.uri })
             expect(uiRead.contents[0]?.uri).toBe(ui.uri)
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
+        })
+
+        const emailImageSources = [
+            'https://us-media.posthog.com/uploaded_media/',
+            'https://eu-media.posthog.com/uploaded_media/',
+            'https://us.posthog.com/uploaded_media/',
+            'https://eu.posthog.com/uploaded_media/',
+            'https://assets.unlayer.com/projects/275430/',
+            'https://cdn.tools.unlayer.com/social/icons/',
+        ]
+
+        const resourceSources = (meta: unknown): { ui: string[]; openai: string[] } => {
+            const csp = meta as {
+                ui: { csp: { resourceDomains: string[] } }
+                'openai/widgetCSP': { resource_domains: string[] }
+            }
+            return { ui: csp.ui.csp.resourceDomains, openai: csp['openai/widgetCSP'].resource_domains }
+        }
+
+        it.each(['ui://posthog/email-template.html', 'ui://posthog/render-ui.html'])(
+            'lets %s load every image the email editor stores',
+            async (uri) => {
+                const { resources } = await client.listResources()
+                const read = await client.readResource({ uri })
+
+                for (const meta of [resources.find((r) => r.uri === uri)?._meta, read.contents[0]?._meta]) {
+                    const { ui, openai } = resourceSources(meta)
+                    expect(ui).toEqual(expect.arrayContaining(emailImageSources))
+                    expect(openai).toEqual(expect.arrayContaining(emailImageSources))
+                }
+            }
+        )
+
+        it('adds only the email image sources to render-ui', async () => {
+            const renderUi = await client.readResource({ uri: 'ui://posthog/render-ui.html' })
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+            const appSources = new Set(resourceSources(debug.contents[0]?._meta).ui)
+
+            const added = resourceSources(renderUi.contents[0]?._meta).ui.filter((source) => !appSources.has(source))
+
+            expect([...added].sort()).toEqual([...emailImageSources].sort())
+        })
+
+        it('keeps the email image sources out of apps that do not render emails', async () => {
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+
+            const { ui } = resourceSources(debug.contents[0]?._meta)
+
+            expect(ui.filter((source) => emailImageSources.includes(source))).toEqual([])
         })
 
         // The prompts list may be empty on some manifest revisions (the
@@ -1785,7 +1834,10 @@ export function defineStatelessProtocolTests(
             // conforming modern client would select one via `_meta` and be
             // served a dialect we can't speak statelessly.
             expect(result.supportedVersions).toEqual([STATELESS_VERSION])
-            expect(result.capabilities).toMatchObject({ tools: { listChanged: false } })
+            expect(result.capabilities).toMatchObject({
+                tools: { listChanged: false },
+                extensions: { 'io.modelcontextprotocol/enterprise-managed-authorization': {} },
+            })
             // DiscoverResult requires top-level serverInfo (not just result _meta).
             expect(result.serverInfo).toMatchObject({ name: 'PostHog' })
             expect(typeof result.instructions).toBe('string')

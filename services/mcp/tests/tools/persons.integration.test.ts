@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { serverDetailOf } from '@/lib/errors'
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -96,7 +97,7 @@ describe('Persons', { concurrent: false }, () => {
             expect(retrieved.uuid).toBe(person.uuid)
             expect(retrieved.distinct_ids).toBeTruthy()
             expect(retrieved.properties).toBeTruthy()
-            expect(retrieved._posthogUrl).toContain('/persons/')
+            expect(retrieved._posthogUrl).toMatch(new RegExp(`/persons/${person.uuid}$`))
         })
     })
 
@@ -191,7 +192,7 @@ describe('Persons', { concurrent: false }, () => {
                 })
                 expect(result).toBeTruthy()
             } catch (error: any) {
-                expect(error.message).toMatch(/Unable to delete property|500/)
+                expect(`${error.message}\n${serverDetailOf(error) ?? ''}`).toMatch(/Unable to delete property|500/)
             }
         })
     })

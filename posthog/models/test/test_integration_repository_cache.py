@@ -1,6 +1,7 @@
 import base64
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
@@ -10,15 +11,22 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.integration_repository_cache import (
+    ACTIVITY_REFRESH_INTERVAL,
     GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS,
     SYNC_LOCK_KEY_PREFIX,
     GitHubRepositoryFullCache,
     IntegrationRepositoryCacheEntry,
+    RepositoryActivity,
     SyncFullCacheTimeoutError,
+    TreeSummary,
+    parse_repository_activity,
+    summarize_tree,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -29,6 +37,12 @@ class TestGitHubRepositoryFullCache(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+        # The sweep falls back to the patched cached listing, as it does when a refresh fails.
+        refresh = patch.object(
+            GitHubIntegration, "sync_repository_cache", side_effect=RuntimeError("no listing refresh")
+        )
+        refresh.start()
+        self.addCleanup(refresh.stop)
 
     def _create_integration(self) -> Integration:
         return Integration.objects.create(
@@ -64,7 +78,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         }
 
     def _patch_gh_api_get(self, responses: dict):
-        def _side_effect(self_, path, *, endpoint=None, timeout=10):
+        def _side_effect(self_, path, *, endpoint=None, timeout=10, priority=None):
             if path not in responses:
                 raise AssertionError(f"unexpected path {path}")
             return responses[path]
@@ -74,7 +88,9 @@ class TestGitHubRepositoryFullCache(BaseTest):
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
-        return GitHubRepositoryFullCache(GitHubIntegration(integration))
+        return GitHubRepositoryFullCache(
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL), priority=Priority.BATCH
+        )
 
     def test_sync_full_cache_entry_populates_all_fields(self):
         integration = self._create_integration()
@@ -95,6 +111,8 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert entry.readme == "# Hello"
         assert entry.tree_paths == "README.md\nsrc/app.py"
         assert entry.tree_truncated is False
+        assert (entry.file_count, entry.top_extensions) == (2, ["md", "py"])
+        assert entry.tree_hash is not None
 
     def test_sync_full_cache_entry_returns_cached_within_ttl_without_api_calls(self):
         integration = self._create_integration()
@@ -195,6 +213,71 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert entry.readme == "# New README"
         assert entry.tree_paths == "README.md\nsrc/app.py"
 
+    @parameterized.expand(
+        [
+            ("pushed_long_before_sync", "main", -60, "SHA1"),
+            ("pushed_after_sync", "main", 30, "SHA2"),
+            ("pushed_within_margin_of_sync", "main", -2, "SHA2"),
+            ("default_branch_renamed", "trunk", -60, "SHA2"),
+            ("no_pushed_at", "main", None, "SHA2"),
+        ]
+    )
+    def test_sync_full_cache_entry_skips_github_only_when_listing_shows_no_push(
+        self, _name: str, listed_branch: str, pushed_minutes_from_sync: int | None, expected_sha: str
+    ) -> None:
+        integration = self._create_integration()
+        existing = IntegrationRepositoryCacheEntry.objects.create(
+            integration=integration,
+            team=self.team,
+            full_name="posthog/posthog",
+            default_branch="main",
+            default_branch_sha="SHA1",
+            readme="old readme",
+            tree_paths="old/path",
+        )
+        synced_at = timezone.now() - timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS + 60)
+        IntegrationRepositoryCacheEntry.objects.filter(pk=existing.pk).update(updated_at=synced_at)
+        listed: dict = {"full_name": "posthog/posthog", "default_branch": listed_branch}
+        if pushed_minutes_from_sync is not None:
+            listed["pushed_at"] = (synced_at + timedelta(minutes=pushed_minutes_from_sync)).isoformat()
+        responses = self._default_gh_api_responses(sha="SHA2")
+        responses["/repos/posthog/posthog/branches/trunk"] = {"commit": {"sha": "SHA2"}}
+        responses["/repos/posthog/posthog"] = {**responses["/repos/posthog/posthog"], "default_branch": listed_branch}
+
+        with self._patch_gh_api_get(responses) as mock_gh_api_get:
+            entry = async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)(
+                "posthog/posthog", listed=listed
+            )
+
+        assert entry.default_branch_sha == expected_sha
+        assert (mock_gh_api_get.call_count == 0) == (expected_sha == "SHA1")
+
+    def test_sync_full_cache_entry_takes_archived_from_listing_without_github_calls(self) -> None:
+        integration = self._create_integration()
+        existing = IntegrationRepositoryCacheEntry.objects.create(
+            integration=integration,
+            team=self.team,
+            full_name="posthog/posthog",
+            default_branch="main",
+            default_branch_sha="SHA1",
+        )
+        synced_at = timezone.now() - timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS + 60)
+        IntegrationRepositoryCacheEntry.objects.filter(pk=existing.pk).update(updated_at=synced_at)
+        listed = {
+            "full_name": "posthog/posthog",
+            "default_branch": "main",
+            "pushed_at": (synced_at - timedelta(hours=1)).isoformat(),
+            "archived": True,
+        }
+
+        with patch("posthog.models.integration.github.GitHubIntegration._gh_api_get", autospec=True) as mock_gh_api_get:
+            async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog", listed=listed)
+
+        existing.refresh_from_db()
+        assert mock_gh_api_get.call_count == 0
+        assert existing.archived is True
+        assert existing.updated_at == synced_at
+
     def test_sync_full_cache_entry_handles_readme_fetch_failure_gracefully(self):
         integration = self._create_integration()
         responses = self._default_gh_api_responses()
@@ -202,7 +285,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
 
         call_log: list[str] = []
 
-        def _side_effect(self_, path, *, endpoint=None, timeout=10):
+        def _side_effect(self_, path, *, endpoint=None, timeout=10, priority=None):
             call_log.append(path)
             if path.startswith("/repos/posthog/posthog/readme"):
                 raise GitHubIntegrationError("readme missing", status_code=404)
@@ -227,7 +310,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         integration = self._create_integration()
         responses = self._default_gh_api_responses()
 
-        def _side_effect(self_, path, *, endpoint=None, timeout=10):
+        def _side_effect(self_, path, *, endpoint=None, timeout=10, priority=None):
             if path.startswith("/repos/posthog/posthog/readme"):
                 raise GitHubRateLimitError("secondary rate limit on /readme", retry_after=60)
             return responses[path]
@@ -247,7 +330,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         integration = self._create_integration()
         responses = self._default_gh_api_responses()
 
-        def _side_effect(self_, path, *, endpoint=None, timeout=10):
+        def _side_effect(self_, path, *, endpoint=None, timeout=10, priority=None):
             if path.startswith("/repos/posthog/posthog/readme"):
                 raise GitHubIntegrationError("upstream 502 on /readme", status_code=502)
             return responses[path]
@@ -317,7 +400,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         in_flight = 0
         lock = asyncio.Lock()
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             nonlocal in_flight
             async with lock:
                 in_flight += 1
@@ -345,7 +428,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
     def test_sync_full_cache_returns_exceptions_inline(self):
         integration = self._create_integration()
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             if full_name == "posthog/broken":
                 raise GitHubIntegrationError("boom")
             return MagicMock(full_name=full_name)
@@ -363,6 +446,54 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert len(results) == 2
         broken = next(r for r in results if isinstance(r, GitHubIntegrationError))
         assert str(broken) == "boom"
+
+    @parameterized.expand([("listing_refreshed", True), ("listing_refresh_failed", False)])
+    def test_sync_full_cache_checks_pushes_only_against_a_recent_listing(self, _name: str, refreshed: bool) -> None:
+        integration = self._create_integration()
+        listing = [{"full_name": "posthog/posthog", "pushed_at": "2026-01-01T00:00:00Z"}]
+        received: list[dict | None] = []
+
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
+            received.append(listed)
+            return MagicMock(full_name=full_name)
+
+        async def fake_list():
+            return listing
+
+        repo_cache = self._cache_for(integration)
+        refresh = {"return_value": listing} if refreshed else {"side_effect": RuntimeError("down")}
+        with (
+            patch.object(repo_cache.github, "sync_repository_cache", **refresh),
+            patch.object(repo_cache, "sync_full_cache_entry_async", side_effect=fake_entry_async),
+            patch.object(repo_cache.github, "list_all_cached_repositories_async", side_effect=fake_list),
+        ):
+            asyncio.run(repo_cache.sync_full_cache())
+
+        assert received == [listing[0] if refreshed else None]
+
+    @patch("posthog.models.integration_repository_cache.github_installation_pace_seconds", return_value=0.01)
+    def test_sync_full_cache_retries_a_call_the_egress_budget_shed(self, _mock_pace: MagicMock) -> None:
+        integration = self._create_integration()
+        attempts: list[str] = []
+
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
+            attempts.append(full_name)
+            if len(attempts) == 1:
+                raise GitHubEgressBudgetExhausted("shed", scope="INSTALL")
+            return MagicMock(full_name=full_name)
+
+        async def fake_list():
+            return [{"full_name": "posthog/posthog"}]
+
+        repo_cache = self._cache_for(integration)
+        with (
+            patch.object(repo_cache, "sync_full_cache_entry_async", side_effect=fake_entry_async),
+            patch.object(repo_cache.github, "list_all_cached_repositories_async", side_effect=fake_list),
+        ):
+            results = asyncio.run(repo_cache.sync_full_cache())
+
+        assert attempts == ["posthog/posthog", "posthog/posthog"]
+        assert not any(isinstance(r, BaseException) for r in results)
 
     def test_sync_full_cache_evicts_orphans_not_in_light_cache(self):
         integration = self._create_integration()
@@ -384,7 +515,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             readme="cached",
         )
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             return MagicMock(full_name=full_name)
 
         async def fake_list():
@@ -449,7 +580,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             readme="cached",
         )
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             return MagicMock(full_name=full_name)
 
         async def fake_list():
@@ -488,7 +619,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
 
         integration = self._create_integration()
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             return MagicMock(full_name=full_name)
 
         async def fake_list():
@@ -526,7 +657,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
 
         integration = self._create_integration()
 
-        async def fake_entry_async(full_name, *, path_log=None):
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
             return MagicMock(full_name=full_name)
 
         async def fake_list():
@@ -540,6 +671,133 @@ class TestGitHubRepositoryFullCache(BaseTest):
             async_to_sync(repo_cache.sync_full_cache)()
 
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=other_team_row.pk).exists()
+
+    def _activity_row(self, integration: Integration, full_name: str, **fields) -> IntegrationRepositoryCacheEntry:
+        return IntegrationRepositoryCacheEntry.objects.create(
+            integration=integration,
+            team=self.team,
+            full_name=full_name,
+            default_branch="main",
+            default_branch_sha="SHA",
+            tree_paths="a.py\nb.py",
+            **fields,
+        )
+
+    @parameterized.expand(
+        [
+            ("answered", None, 2),
+            ("failed_batch_moves_on", {"data": None, "errors": [{"type": "FORBIDDEN", "message": "no"}]}, 2),
+            # GitHub answers an exhausted GraphQL point budget with a 200, not a 403 or 429.
+            ("rate_limit_stops", {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}, 1),
+        ]
+    )
+    @patch("posthog.models.integration_repository_cache.ACTIVITY_BATCH_SIZE", 1)
+    def test_refresh_activity_stores_figures_and_skips_failures(
+        self, _name: str, error_body: dict | None, batches: int
+    ) -> None:
+        integration = self._create_integration()
+        due = self._activity_row(integration, "posthog/posthog")
+        missing = self._activity_row(integration, "posthog/gone")
+        fresh = self._activity_row(
+            integration,
+            "posthog/fresh",
+            file_count=2,
+            activity_updated_at=timezone.now() - ACTIVITY_REFRESH_INTERVAL / 2,
+            merged_pull_request_count=7,
+        )
+        synced_at = IntegrationRepositoryCacheEntry.objects.get(pk=due.pk).updated_at
+        queried: list[list[str]] = []
+
+        def api_request(self_, method, path, *, json_body, **kwargs):
+            variables = json_body["variables"]
+            names = [f"{variables[f'o{i}']}/{variables[f'n{i}']}" for i in range(len(variables) // 2)]
+            queried.append(names)
+            node = {
+                "merged": {"totalCount": 120},
+                "defaultBranchRef": {
+                    "target": {
+                        "recent": {"totalCount": 30},
+                        "authors": {"nodes": [{"author": {"name": "A", "user": {"login": "a"}}}]},
+                    }
+                },
+            }
+            data = {f"r{i}": node if name == "posthog/posthog" else None for i, name in enumerate(names)}
+            body = error_body if error_body is not None else {"data": data}
+            return SimpleNamespace(status_code=200, json=lambda: body, headers={}, text="")
+
+        with patch.object(GitHubIntegration, "api_request", autospec=True, side_effect=api_request):
+            self._cache_for(integration).refresh_activity()
+
+        assert queried == [["posthog/gone"], ["posthog/posthog"]][:batches]
+        due.refresh_from_db()
+        missing.refresh_from_db()
+        fresh.refresh_from_db()
+        assert (due.file_count, due.top_extensions) == (2, ["py"])
+        assert due.updated_at == synced_at
+        assert fresh.merged_pull_request_count == 7
+        figures = (due.commits_last_30_days, due.recent_author_count, due.merged_pull_request_count)
+        if error_body is None:
+            assert figures == (30, 1, 120)
+            assert due.activity_updated_at is not None
+            assert missing.activity_updated_at is not None and missing.merged_pull_request_count is None
+        else:
+            assert figures == (None, None, None)
+            assert due.activity_updated_at is None and missing.activity_updated_at is None
+
+
+@parameterized.expand(
+    [
+        ("empty", "", TreeSummary(file_count=0, top_extensions=(), tree_hash=None)),
+        (
+            "dotfiles_and_unsafe_extensions_are_not_extensions",
+            ".gitignore\nsrc/.eslintrc.json\nMakefile\nnotes.ignore_previous_instructions\na.PY\nb.py\nc.ts",
+            TreeSummary(file_count=7, top_extensions=("py", "json", "ts"), tree_hash="hash"),
+        ),
+    ]
+)
+def test_summarize_tree(_name: str, tree_paths: str, expected: TreeSummary) -> None:
+    summary = summarize_tree(tree_paths)
+    assert (summary.file_count, summary.top_extensions) == (expected.file_count, expected.top_extensions)
+    assert (summary.tree_hash is None) == (expected.tree_hash is None)
+
+
+def test_summarize_tree_hash_ignores_path_order() -> None:
+    assert summarize_tree("a.py\nb.py").tree_hash == summarize_tree("b.py\na.py").tree_hash
+    assert summarize_tree("a.py\nb.py").tree_hash != summarize_tree("a.py\nc.py").tree_hash
+
+
+@parameterized.expand(
+    [
+        ("not_returned", None, None),
+        (
+            "empty_repository",
+            {"merged": {"totalCount": 0}, "defaultBranchRef": None},
+            RepositoryActivity(commits_last_30_days=0, recent_author_count=0, merged_pull_request_count=0),
+        ),
+        (
+            "authors_by_login_else_name",
+            {
+                "merged": {"totalCount": 5},
+                "defaultBranchRef": {
+                    "target": {
+                        "recent": {"totalCount": 4},
+                        "authors": {
+                            "nodes": [
+                                {"author": {"name": "Ada L", "user": {"login": "ada"}}},
+                                {"author": {"name": "Ada Lovelace", "user": {"login": "Ada"}}},
+                                {"author": {"name": "build bot", "user": None}},
+                                {"author": {"name": "", "user": None}},
+                            ]
+                        },
+                    }
+                },
+            },
+            RepositoryActivity(commits_last_30_days=4, recent_author_count=2, merged_pull_request_count=5),
+        ),
+    ]
+)
+def test_parse_repository_activity(_name: str, node: dict | None, expected: RepositoryActivity | None) -> None:
+    assert parse_repository_activity(node) == expected
 
 
 class TestSyncFullCacheLock(BaseTest):
@@ -558,7 +816,9 @@ class TestSyncFullCacheLock(BaseTest):
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
-        return GitHubRepositoryFullCache(GitHubIntegration(integration))
+        return GitHubRepositoryFullCache(
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL), priority=Priority.BATCH
+        )
 
     # In TEST mode `posthog.redis.get_client()` and `get_async_client()` return separate
     # fakeredis instances with no shared state, so these tests use the async client throughout.

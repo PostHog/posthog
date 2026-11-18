@@ -24,7 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -166,7 +166,7 @@ def _build_vision_alert(team: Team, user: User, model_cls: type[models.Model]) -
         name=f"pbt-scanner-{next(_unique_counter)}",
         scanner_type="monitor",
         scanner_config={},
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
     )
     manager: Any = model_cls._default_manager
     if hasattr(manager, "for_team"):
@@ -242,7 +242,11 @@ def build_instance(model_cls: type[models.Model], team: Team, user: User, _depth
         elif isinstance(field, models.IntegerField | models.FloatField | models.DecimalField):
             kwargs[field.name] = 0
         elif isinstance(field, models.CharField | models.TextField):
-            kwargs[field.name] = f"pbt-{field.name}-{next(_unique_counter)}"
+            if field.choices:
+                kwargs[field.name] = field.choices[0][0]
+            else:
+                value = f"pbt-{field.name}-{next(_unique_counter)}"
+                kwargs[field.name] = value[: field.max_length] if field.max_length else value
         else:
             raise ValueError(f"Cannot generically fill {model_cls.__name__}.{field.name} ({type(field).__name__})")
 
@@ -348,22 +352,27 @@ membership_levels_st = st.one_of(st.just(OrganizationMembership.Level.MEMBER), s
 
 
 def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
-    # Mirrors get_user_access_level(obj, explicit=True): member/role rows on the
-    # object win over resource-level rows, which win over object rows including
-    # team defaults. Note the shadowing this implies: a self_member "none" row
-    # beats a team_default "admin" row even though it is lower.
+    # Mirrors get_user_access_level: member/role rows on the object win first. With no such
+    # row, an object-level default of "none" is final, because a broader resource-level
+    # grant must not widen a private object (the list filter blocks the same object).
+    # Otherwise resource-level rows win over the object's remaining default rows. Note the
+    # shadowing this implies: a self_member "none" row beats a team_default "admin" row even
+    # though it is lower.
     matching = [s for s in specs if s.target in MATCHING]
     specific: list[AccessControlLevel] = [
         s.level for s in matching if s.scope == "object" and s.target != "team_default"
     ]
     if specific:
         return _max_level(specific, order)
+    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
+    object_default = _max_level(object_rows, order)
+    if object_rows and object_default == NO_ACCESS_LEVEL:
+        return NO_ACCESS_LEVEL
     resource_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "resource"]
     if resource_rows:
         return _max_level(resource_rows, order)
-    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
     if object_rows:
-        return _max_level(object_rows, order)
+        return object_default
     return None
 
 
@@ -431,11 +440,14 @@ def _most_specific_tier(
 def oracle_most_specific_object_level(
     specs: list[RowSpec], order: list[AccessControlLevel]
 ) -> Optional[AccessControlLevel]:
-    # Mirrors resolve_most_specific_object_access, restated from the rules rather than the code:
-    # the nearest scope with any rule decides (object rows before resource rows), and inside a
-    # scope the most specific subject decides: member -> max(roles) -> the everyone-row. A more
-    # specific rule wins even when it gives a lower level. None when no rule matches.
-    return _most_specific_tier(specs, "object", order) or _most_specific_tier(specs, "resource", order)
+    explicit_object_rules = [s for s in specs if s.target != "team_default"]
+    explicit_level = _most_specific_tier(explicit_object_rules, "object", order)
+    if explicit_level is not None:
+        return explicit_level
+    resource_level = _most_specific_tier(specs, "resource", order)
+    if resource_level == NO_ACCESS_LEVEL:
+        return NO_ACCESS_LEVEL
+    return _most_specific_tier(specs, "object", order) or resource_level
 
 
 def oracle_most_specific_object_access(
@@ -515,6 +527,8 @@ def oracle_can_modify(
 
 
 class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
+    self_member_id: uuid.UUID
+    other_member_id: uuid.UUID
     other_user: User
     role_a: "Role"
     role_b: "Role"
@@ -528,6 +542,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
+        # The oracles in this suite model the legacy resolution, so the org must stay on it
+        cls.organization.uses_most_specific_access_resolution = False
         cls.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -535,13 +551,17 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         cls.organization.save()
 
         cls.other_user = User.objects.create_and_join(cls.organization, "other-pbt@posthog.com", "testtest")
+        cls.self_member_id = OrganizationMembership.objects.get(user=cls.user, organization=cls.organization).pk
+        cls.other_member_id = OrganizationMembership.objects.get(user=cls.other_user, organization=cls.organization).pk
         cls.role_a = Role.objects.create(name="PBT Role A", organization=cls.organization)
         cls.role_b = Role.objects.create(name="PBT Role B", organization=cls.organization)
         RoleMembership.objects.create(user=cls.user, role=cls.role_a)
         RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
         # A second organization self.user also belongs to, holding a role there
-        cls.other_organization = Organization.objects.create(name="PBT other organization")
+        cls.other_organization = Organization.objects.create(
+            name="PBT other organization", uses_most_specific_access_resolution=False
+        )
         cls.other_organization_membership = OrganizationMembership.objects.create(
             organization=cls.other_organization, user=cls.user, level=OrganizationMembership.Level.MEMBER
         )
@@ -554,17 +574,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
     def _set_membership_level(self, level: OrganizationMembership.Level) -> None:
-        membership = self._membership(self.user)
-        membership.level = level
-        membership.save()
+        # Permission resolution needs the row value, not membership save side effects.
+        OrganizationMembership.objects.filter(pk=self.self_member_id).update(level=level)
 
     def _row_kwargs(self, target: str) -> dict:
         if target == "team_default":
             return {}
         if target == "self_member":
-            return {"organization_member": self._membership(self.user)}
+            return {"organization_member_id": self.self_member_id}
         if target == "other_member":
-            return {"organization_member": self._membership(self.other_user)}
+            return {"organization_member_id": self.other_member_id}
         if target == "role_a":
             return {"role": self.role_a}
         if target == "role_other_org":
@@ -604,11 +623,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         return UserAccessControl(self.user, self.team)
 
     def _set_role_based_access(self, enabled: bool) -> None:
+        self._set_entitlements(access_control=True, role_based_access=enabled)
+
+    def _set_entitlements(self, *, access_control: bool, role_based_access: bool) -> None:
         # Written on every example (not just when disabling) so the class-level in-memory
         # organization, which hypothesis's per-example rollback does not restore, can't drift
         # from the row the resolvers read
-        features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
-        if enabled:
+        features = []
+        if access_control:
+            features.append({"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL})
+        if role_based_access:
             features.append({"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS})
         self.organization.available_product_features = features
         self.organization.save()
@@ -645,6 +669,23 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             is_creator=own and model_has_created_by(model_cls),
             is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
         )
+        assert self._fresh_uac().get_user_access_level(obj) == expected
+
+    def test_object_default_deny_is_final_over_resource_grant(self):
+        # The random strategy does not reliably draw an object default rule and a resource rule
+        # together, so the security interaction is pinned here: a private object (object default
+        # "none") stays denied even when the org grants a broader resource-level level.
+        resource: APIScopeObject = "dashboard"
+        model_cls = next(model for r, model in OBJECT_MODELS if r == resource)
+        obj = build_instance(model_cls, self.team, self.other_user)
+        specs = [
+            RowSpec(target="team_default", scope="object", level="none"),
+            RowSpec(target="team_default", scope="resource", level="editor"),
+        ]
+        self._materialize(specs, resource, obj)
+
+        expected = oracle_object_access_level(resource, specs, is_creator=False, is_org_admin=False)
+        assert expected == NO_ACCESS_LEVEL
         assert self._fresh_uac().get_user_access_level(obj) == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
@@ -858,14 +899,17 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         team_rows=project_rows(),
         membership_level=membership_levels_st,
         role_based_access=st.booleans(),
+        access_control=st.booleans(),
     )
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_effective_membership_level_agrees_with_enforced_project_access(
-        self, team_rows, membership_level, role_based_access
+        self, team_rows, membership_level, role_based_access, access_control
     ):
         # The two project resolvers must not contradict each other: effective_membership_level
         # gates ~25 call sites, while get_user_access_level is what PermissionClass 403s on, so a
-        # disagreement means one of them grants access the other denies.
+        # disagreement means one of them grants access the other denies. This holds without the
+        # access control entitlement too, where the members page shows get_user_access_level's
+        # answer while effective_membership_level enforces the membership level.
         #
         # Scope: object-scope rows only (`project_rows()` draws `("object",)`, so every row carries
         # `resource_id = str(team.pk)`). Agreement is *not* asserted for resource-level project rows
@@ -875,7 +919,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         # create such a row and the UI never sends `resource: "project"` to `resource_access_controls`,
         # so that path is left as-is rather than modelled here.
         self._set_membership_level(membership_level)
-        self._set_role_based_access(role_based_access)
+        self._set_entitlements(access_control=access_control, role_based_access=role_based_access)
         self._materialize_project_rows(team_rows)
 
         level = UserPermissions(self.user, self.team).current_team.effective_membership_level

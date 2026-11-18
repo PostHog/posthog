@@ -66,7 +66,7 @@ export function ConversionPaths({
         key,
         dataNodeCollectionId: MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy, pathTouchpointFilter } = useValues(marketingAttributionLogic)
     const { setPathTouchpointFilter } = useActions(marketingAttributionLogic)
@@ -188,6 +188,7 @@ export function ConversionPaths({
             </div>
             {responseError ? (
                 <InsightErrorState
+                    queryId={responseErrorObject?.queryId ?? queryId}
                     query={query}
                     excludeDetail
                     title={responseError}

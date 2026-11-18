@@ -1,9 +1,10 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     Describer,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogItem): HumanizedChange => {
@@ -27,12 +28,29 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return logItem.detail.name || 'Unknown key'
     }
 
+    // A row that an admin of another organization wrote carries no user, so name where the actor
+    // came from instead of the generic "A user".
+    const actor = logItem.detail.context?.acted_by_user_outside_organization ? (
+        <>An admin in another organization</>
+    ) : (
+        <ActivityLogUserName logItem={logItem} />
+    )
+
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the personal API key',
+                <>
+                    {getKeyTitle()} · {getScopeDescription()}
+                </>,
+                undefined,
+                actor
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                    {actor} created personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -40,10 +58,19 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
 
     if (logItem.activity === 'revoked') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Revoked the personal API key',
+                <>
+                    {getKeyTitle()} · {getScopeDescription()}
+                </>,
+                undefined,
+                actor
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> revoked access for personal
-                    API key <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
+                    {actor} revoked access for personal API key <strong>{getKeyTitle()}</strong> to{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -54,20 +81,38 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
 
         if (rolledChangeDescription) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Rolled the personal API key',
+                    <>
+                        {getKeyTitle()} · {getScopeDescription()}
+                    </>,
+                    undefined,
+                    actor
+                ),
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
-                        <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                        {actor} rolled personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                        <strong>{getScopeDescription()}</strong>
                     </>
                 ),
             }
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the personal API key',
+                <>
+                    {getKeyTitle()} · {getScopeDescription()}
+                </>,
+                undefined,
+                actor
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                    {actor} updated personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -75,10 +120,19 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the personal API key',
+                <>
+                    {getKeyTitle()} · {getScopeDescription()}
+                </>,
+                undefined,
+                actor
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for access to <strong>{getScopeDescription()}</strong>
+                    {actor} deleted personal API key <strong>{getKeyTitle()}</strong> for access to{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -116,12 +170,18 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
         return defaultDescriber(logItem)
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const before = asScopeList(scopesChange.before)
     const after = asScopeList(scopesChange.after)
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Registered the OAuth application',
+                appName,
+                `Scope ceiling: ${after.join(', ')}`
+            ),
             description: (
                 <>
                     {actor} registered OAuth application <strong>{appName}</strong> with scope ceiling{' '}
@@ -134,6 +194,12 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
     if (logItem.activity === 'updated') {
         if (after.length === 0 && before.length > 0) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Removed the scope ceiling',
+                    appName,
+                    `Previously ${before.join(', ')}. Default unprivileged scopes now apply.`
+                ),
                 description: (
                     <>
                         {actor} removed the scope ceiling on <strong>{appName}</strong> (was{' '}
@@ -145,6 +211,7 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
 
         if (before.length === 0 && after.length > 0) {
             return {
+                summary: activityLogSummary(logItem, 'Set the scope ceiling', appName, after.join(', ')),
                 description: (
                     <>
                         {actor} set the scope ceiling on <strong>{appName}</strong> to <ScopeList scopes={after} />
@@ -158,6 +225,12 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
 
         if (added.length > 0 && removed.length > 0) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Changed the scope ceiling',
+                    appName,
+                    `Added ${added.join(', ')}; removed ${removed.join(', ')}`
+                ),
                 description: (
                     <>
                         {actor} changed the scope ceiling on <strong>{appName}</strong>: added{' '}
@@ -168,6 +241,7 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
         }
         if (added.length > 0) {
             return {
+                summary: activityLogSummary(logItem, 'Widened the scope ceiling', appName, `Added ${added.join(', ')}`),
                 description: (
                     <>
                         {actor} widened the scope ceiling on <strong>{appName}</strong>: added{' '}
@@ -178,6 +252,12 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
         }
         if (removed.length > 0) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Narrowed the scope ceiling',
+                    appName,
+                    `Removed ${removed.join(', ')}`
+                ),
                 description: (
                     <>
                         {actor} narrowed the scope ceiling on <strong>{appName}</strong>: removed{' '}

@@ -4,10 +4,11 @@ import inspect
 import logging
 import importlib
 from collections.abc import Callable, Coroutine, Iterator, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
+
+from posthog.dataclasses import frozen
 
 from .requirements import SuiteKind
 
@@ -28,7 +29,16 @@ class SuiteDiscoveryError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
+MULTI_TURN_MODULE_MARKER = "MULTI_TURN_CASES"
+"""Module-level marker a suite module sets to declare multi-turn cases.
+
+The marker makes the harness scale the per-case timeout: a multi-turn case
+polls once per turn, each poll with its own budget, so one turn's budget cannot
+cover a whole conversation. ``_collect_suites`` copies the marker onto every
+suite function of the module so lifecycle can read it off the suite."""
+
+
+@frozen
 class EvalSuite:
     domain: str
     """Directory the suite lives in, e.g. ``experiments`` for a sandboxed suite or
@@ -102,6 +112,7 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
     kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
     if not isinstance(kind, SuiteKind):
         raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
+    multi_turn = bool(getattr(module, MULTI_TURN_MODULE_MARKER, False))
     collected: list[EvalSuite] = []
     for fn_name, fn in vars(module).items():
         if not fn_name.startswith("eval_") or not inspect.iscoroutinefunction(fn):
@@ -110,6 +121,9 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
         # module would otherwise be collected twice.
         if fn.__module__ != dotted:
             continue
+        if multi_turn:
+            # The dataclass is frozen, so carry the marker on the function.
+            setattr(fn, MULTI_TURN_MODULE_MARKER, True)
         collected.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
     return collected
 

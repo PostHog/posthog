@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,10 +16,12 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from './dateFormats'
 import { formatBucketLabel } from './durationBuckets'
 import { OperationHistogram } from './OperationHistogram'
 import { errorRate, formatErrorRate } from './OperationsTable'
 import { formatDuration, TraceWaterfallView } from './TraceWaterfallView'
+import { TRACING_AGENT_HEADLINES, buildTracingOperationAgentContext } from './tracingAgentContext'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
 import {
     type OperationChartType,
@@ -84,10 +88,20 @@ export function TracingOperationScene(): JSX.Element {
         chartType,
         latencyHeatmapData,
         rawLatencyHeatmapLoading,
-        heatmapEnabled,
     } = useValues(tracingOperationSceneLogic)
     const { setDateRange, setDurationSelection, setSampleIndex, selectSpan, setChartType, applyHeatmapBrush } =
         useActions(tracingOperationSceneLogic)
+
+    const agentContextItems = useMemo(
+        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange),
+        [serviceName, spanName, dateRange]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'tracing-operation',
+        contextItems: agentContextItems,
+        headlines: TRACING_AGENT_HEADLINES,
+        active: !!spanName && !!serviceName,
+    })
 
     if (!spanName || !serviceName) {
         return (
@@ -130,7 +144,7 @@ export function TracingOperationScene(): JSX.Element {
                     <StatBlock label="p99" value={formatDuration(operationStats.p99_duration_nano)} />
                 </div>
             )}
-            {heatmapEnabled && chartType === 'heatmap' ? (
+            {chartType === 'heatmap' ? (
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 min-h-6">
                         <span className="text-xs text-muted">Latency heatmap</span>
@@ -162,7 +176,7 @@ export function TracingOperationScene(): JSX.Element {
                         <TracingLatencyHeatmap
                             data={latencyHeatmapData}
                             loading={rawLatencyHeatmapLoading}
-                            displayTimezone="UTC"
+                            displayTimezone={TRACING_DISPLAY_TIMEZONE}
                             onBrush={applyHeatmapBrush}
                         />
                     </div>
@@ -175,9 +189,7 @@ export function TracingOperationScene(): JSX.Element {
                     onSelect={setDurationSelection}
                     onClear={() => setDurationSelection(null)}
                     samplesLoading={samplesLoading}
-                    actions={
-                        heatmapEnabled ? <OperationChartToggle chartType={chartType} onChange={setChartType} /> : null
-                    }
+                    actions={<OperationChartToggle chartType={chartType} onChange={setChartType} />}
                 />
             )}
             <SceneDivider />
@@ -216,7 +228,13 @@ export function TracingOperationScene(): JSX.Element {
                         />
                         {currentSample && (
                             <div className="flex items-center gap-2 ml-2 text-sm text-muted">
-                                <span>{humanFriendlyDetailedTime(currentSample.timestamp)}</span>
+                                <TZLabel
+                                    time={currentSample.timestamp}
+                                    formatDate={TRACING_DATE_FORMAT}
+                                    formatTime={TRACING_TIME_FORMAT}
+                                    displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                                    showSeconds
+                                />
                                 <span className="font-mono">{formatDuration(currentSample.duration_nano)}</span>
                                 {currentSample.status_code === 2 && <LemonTag type="danger">Error</LemonTag>}
                             </div>

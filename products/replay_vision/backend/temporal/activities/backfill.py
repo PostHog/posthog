@@ -35,8 +35,10 @@ from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     BACKFILL_CANDIDATE_QUERY_TYPE,
     BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+    SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
     WindowedCandidateQuery,
 )
+from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
@@ -56,11 +58,13 @@ from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
     FIND_BACKFILL_CANDIDATES_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_backfill_tick_outcome
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.schedule import (
     a_delete_backfill_schedule,
     a_pause_backfill_schedule,
@@ -111,7 +115,9 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
-    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    scanner_budget = (
+        compute_scanner_budget(backfill.scanner, org_state=quota) if backfill.scanner.has_spend_ceiling else None
+    )
     if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
         # Children would decline at create while the cursor walks past their sessions; the hold lets
         # the backfill resume when the period resets or the limit rises.
@@ -159,6 +165,18 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         record_backfill_tick_outcome("throttled")
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=True)
 
+    # The quoted count is the backfill's credit ceiling, so it caps dispatches even when the candidate set
+    # grows after the quote, as it does for a backfill quoted under a since-retired quality filter.
+    remaining = max(0, backfill.total_count - backfill.dispatched_count - backfill.skipped_count)
+    if remaining == 0:
+        # The advance matches on the starting cursor, so the completing output must carry it.
+        return FindBackfillCandidatesOutput(
+            candidates=[],
+            started_from_cursor_end_time=backfill.cursor_end_time,
+            started_from_cursor_session_id=backfill.cursor_session_id,
+            more_work_below_cursor=False,
+        )
+
     snapshot = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
     try:
         query = RecordingsQuery.model_validate({**snapshot.query, "kind": "RecordingsQuery"})
@@ -166,8 +184,20 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
-    query = apply_experiment_targeting(query, snapshot.experiment_targeting)
+    query = apply_experiment_targeting(query, snapshot.experiment_scope())
 
+    # Live exposure counts against the frozen scope, matching the sweep: the same salted hash plus
+    # the same rates keep sampling decisions stable between a live sweep and a backfill of the
+    # same range.
+    variant_plan = variant_sampling_plan_for_scope(
+        backfill.team,
+        scanner_type=snapshot.scanner_type,
+        scope=snapshot.experiment_scope(),
+        scanner_config=snapshot.scanner_config,
+        sampling_rate=snapshot.sampling_rate,
+        user=backfill.created_by,
+        scanner_id=str(backfill.scanner_id),
+    )
     candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
@@ -180,11 +210,12 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
         scanner_id=str(backfill.scanner_id),
-        sampling_mode=snapshot.sampling_mode,
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
         skip_negative_blocklists=True,
+        variant_sampling_rates=variant_plan.rates if variant_plan is not None else None,
+        group_key_resolution_seconds=SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
     )
     started_at = time.monotonic()
     try:
@@ -228,6 +259,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # cursor steps over it exactly like an excluded session.
     stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
     dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
+    dispatchable = dispatchable[:remaining]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
@@ -269,6 +301,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     skipped = sum(1 for c in candidates[:walked_through] if c.session_id in overtaken)
 
     return FindBackfillCandidatesOutput(
+        variant_sampling_rates=variant_plan.rates if variant_plan is not None else None,
         started_from_cursor_end_time=backfill.cursor_end_time,
         started_from_cursor_session_id=backfill.cursor_session_id,
         candidates=[
@@ -278,8 +311,11 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         next_cursor_end_time=walked_to.session_end if walked_to else None,
         next_cursor_session_id=walked_to.session_id if walked_to else "",
         # Held-back candidates are still work below the cursor, so a truncated batch must not look
-        # like a drained window; that would complete the backfill with sessions left unscanned.
-        more_work_below_cursor=len(candidates) == inputs.candidate_limit or truncated_by_caps,
+        # like a drained window; that would complete the backfill with sessions left unscanned. A batch
+        # that spends the rest of the quote completes it now, because the next tick's quota gate could
+        # otherwise hold the finished backfill active.
+        more_work_below_cursor=(len(candidates) == inputs.candidate_limit or truncated_by_caps)
+        and admitted + skipped < remaining,
     )
 
 
@@ -333,11 +369,13 @@ async def delete_backfill_schedule_activity(inputs: BackfillScheduleOpInputs) ->
 
 def _active_backfills_by_id() -> dict[UUID, tuple[int, UUID, str]]:
     """`{backfill_id: (team_id, scanner_id, status)}` for every non-terminal backfill."""
-    rows = ReplayScannerBackfill.objects.unscoped().filter(status__in=ACTIVE_BACKFILL_STATUSES)
-    return {
-        row_id: (team_id, scanner_id, row_status)
-        for row_id, team_id, scanner_id, row_status in rows.values_list("id", "team_id", "scanner_id", "status")
-    }
+    with bounded_queries(REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT):
+        rows = list(
+            ReplayScannerBackfill.objects.unscoped()
+            .filter(status__in=ACTIVE_BACKFILL_STATUSES)
+            .values_list("id", "team_id", "scanner_id", "status")
+        )
+    return {row_id: (team_id, scanner_id, row_status) for row_id, team_id, scanner_id, row_status in rows}
 
 
 async def _recreate_schedule(

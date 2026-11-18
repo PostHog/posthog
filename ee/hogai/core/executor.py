@@ -21,10 +21,12 @@ from posthog.temporal.common.client import async_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.core.workflow_payload import get_workflow_input_size_estimates
 from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
     CONVERSATION_STREAM_TIMEOUT,
+    ApprovalEvent,
     ConversationEvent,
     ConversationRedisStream,
     GenerationStatusEvent,
@@ -118,7 +120,11 @@ class AgentExecutor:
 
             except Exception as e:
                 posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-                logger.exception("Error starting workflow", error=e)
+                logger.exception(
+                    "Error starting workflow",
+                    error=e,
+                    workflow_input_estimated_bytes=get_workflow_input_size_estimates(inputs),
+                )
                 failed = True
 
         if failed:
@@ -223,6 +229,7 @@ class AgentExecutor:
             AssistantOutput generator
         """
         chunk_count = 0
+        finished = False
         # Use start_span + use_span (without making the span "current" across yields).
         # `start_as_current_span` inside an async generator attaches the span to the running
         # task's contextvars; when the generator yields, the consumer task resumes with that
@@ -250,6 +257,7 @@ class AgentExecutor:
                         try:
                             chunk = await read_iter.__anext__()
                         except StopAsyncIteration:
+                            finished = True
                             break
                         message = await self._redis_stream_to_assistant_output(chunk)
 
@@ -262,6 +270,7 @@ class AgentExecutor:
                     if message:
                         yield message
             except Exception as e:
+                finished = True
                 with trace.use_span(span, end_on_exit=False):
                     posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
                     logger.exception("Error streaming conversation", error=e)
@@ -269,7 +278,9 @@ class AgentExecutor:
         finally:
             with trace.use_span(span, end_on_exit=False):
                 span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
-                await self._redis_stream.delete_stream()
+                # A disconnected reader must leave replay available; the stream TTL bounds retention.
+                if finished:
+                    await self._redis_stream.delete_stream()
             span.end()
 
     async def _redis_stream_to_assistant_output(self, message: StreamEvent) -> AssistantOutput | None:
@@ -295,6 +306,8 @@ class AgentExecutor:
             return (AssistantEventType.UPDATE, message.event.payload)
         elif isinstance(message.event, GenerationStatusEvent):
             return (AssistantEventType.STATUS, message.event.payload)
+        elif isinstance(message.event, ApprovalEvent):
+            return (AssistantEventType.APPROVAL, message.event.payload)
         else:
             return None
 

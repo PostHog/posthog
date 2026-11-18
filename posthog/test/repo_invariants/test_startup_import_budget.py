@@ -1,8 +1,13 @@
 import os
 import re
 import sys
+import weakref
 import subprocess
 from pathlib import Path
+
+import pytest
+
+from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
@@ -41,6 +46,18 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
+    "products.signals.backend.tasks",  # celery task module — workers load it by autodiscovery; at setup it drags the signals and tasks contracts in
+    "products.signals.backend.scout_harness.suggestions",  # reaches the tasks facade contracts (pydantic DTOs) — deferred in the signals receivers; the facade itself stays importable
+    "ee.vercel.integration",  # receiver modules import the integration when the receiver fires, not during Django setup
+    "posthog.api.documentation",  # drf_spectacular schema hooks — request-time only
+    "django.test",  # test client — was dragged in by drf_spectacular.plumbing via rest_framework.test
+    "zxcvbn",  # password strength, needed only by posthog.auth (deferred in posthog.helpers.impersonation and posthog.event_usage)
+    "webauthn",  # passkeys, same door as zxcvbn (posthog.auth)
+    "posthog.async_migrations.setup",  # imports every async migration — only when SKIP_ASYNC_MIGRATIONS_SETUP is off
+    "infi.clickhouse_orm",  # ClickHouse ORM — migration commands only; its package __init__ imports pkg_resources
+    "pkg_resources",  # setuptools shim (~40ms) — only reached via infi.clickhouse_orm
+    "boto3",  # AWS SDK — object storage, SES and JS snippet clients build it at call time
+    "botocore",  # AWS SDK core — same door as boto3
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
@@ -130,6 +147,7 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
 # alerts, ee, and posthog core); this guards against new viewset-only receivers sneaking back in.
 _ROUTER_RECEIVER_DIFF = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -140,14 +158,21 @@ from django.contrib.auth import signals as auth_signals
 from django.db.models import signals
 from posthog.models.signals import model_activity_signal
 
+# Looked up instead of imported: an import here would connect the experiments save receivers before `before`, so the
+# diff would miss them if only the router imported their module.
+experiment_changed = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
+
 _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
 # model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
 # `handle_*_change` receivers live in viewset modules, so they are exactly the kind that the eager
 # router used to wire as a side effect — include it or this whole class of regression is invisible.
 # Auth signals are included for parity with the setup-receivers baseline: an auth receiver wired
 # only via a viewset import would otherwise slip past both guards.
+# experiment_changed is the experiments facade's hook for experiment saves and deletes. Its receivers take the place
+# of model-signal receivers on the experiment model, so they need the same guard.
 _CUSTOM_SIGNALS = {
     "model_activity": model_activity_signal,
+    "experiment_changed": experiment_changed,
     "user_logged_in": auth_signals.user_logged_in,
     "user_logged_out": auth_signals.user_logged_out,
     "user_login_failed": auth_signals.user_login_failed,
@@ -219,6 +244,7 @@ _RECEIVERS_BASELINE = Path(__file__).parent / "setup_receivers_baseline.txt"
 
 _SETUP_RECEIVERS_CAPTURE = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -236,6 +262,9 @@ _SIGNALS = {
 }
 _SIGNALS |= {name: getattr(auth_signals, name) for name in ("user_logged_in", "user_logged_out", "user_login_failed")}
 _SIGNALS["model_activity"] = model_activity_signal
+# Looked up instead of imported: an import here would connect the experiments save receivers itself, which would hide
+# a dropped import from an AppConfig.ready().
+_SIGNALS["experiment_changed"] = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
 
 out = set()
 for signal_name, signal in _SIGNALS.items():
@@ -292,6 +321,25 @@ def test_setup_receivers_match_baseline() -> None:
         "If the new wiring is deliberate (receiver in an import-light module, imported from the owning "
         "AppConfig.ready() — see docs/internal/django-startup-time.md), record it: "
         "UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match"
+    )
+
+
+# The baseline above resolves a weak receiver and skips a dead one, so it cannot see a receiver that
+# stays alive only by accident. The weak=False comment in register_team_extension_signal explains why
+# a weakly connected receiver survives under DEBUG and dies in production.
+def test_team_extension_receivers_are_connected_strongly() -> None:
+    extension_receivers = [entry for entry in post_save.receivers if str(entry[0][0]).startswith("create_")]
+    assert extension_receivers, (
+        "Found no create_* receivers on post_save. Did the dispatch_uid in register_team_extension_signal "
+        "change, or does no extension register the hook any more?"
+    )
+    weakly_held = sorted(
+        str(entry[0][0]) for entry in extension_receivers if isinstance(entry[1], weakref.ReferenceType)
+    )
+    assert not weakly_held, (
+        f"These team-extension receivers are connected weakly: {weakly_held}. "
+        "Pass weak=False in register_team_extension_signal, or the receiver is collected right after "
+        "registration and no extension row is written when a team is created."
     )
 
 
@@ -457,3 +505,36 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+
+# A web worker finalizes Celery on its first `.delay()`. A first-party import during that finalize can
+# deadlock with a thread lazily importing a task module, which hangs that worker for good.
+_WEB_FINALIZE_IMPORTS_PROBE = """
+import importlib
+import os
+import sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+importlib.import_module(sys.argv[1])
+from posthog.celery import app
+before = set(sys.modules)
+app.finalize()
+new = sorted(m for m in set(sys.modules) - before if m.split(".")[0] in {"posthog", "ee", "products"})
+print("FINALIZE_IMPORTS=" + ",".join(new))
+"""
+
+
+@pytest.mark.parametrize("entrypoint", ["posthog.wsgi", "posthog.asgi"])
+def test_celery_finalize_in_a_web_worker_imports_no_first_party_module(entrypoint: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _WEB_FINALIZE_IMPORTS_PROBE, entrypoint],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"{entrypoint} failed to import:\n{result.stderr[-2000:]}"
+    imported = next(line for line in result.stdout.splitlines() if line.startswith("FINALIZE_IMPORTS="))
+    assert imported == "FINALIZE_IMPORTS=", (
+        f"Celery finalize in {entrypoint} imported {imported.removeprefix('FINALIZE_IMPORTS=')}. A web worker "
+        "finalizes on its first `.delay()`, and an import there can deadlock with a lazy task import. Keep "
+        "imports out of `on_after_finalize` receivers: periodic tasks register on `import_modules` in posthog/celery.py."
+    )

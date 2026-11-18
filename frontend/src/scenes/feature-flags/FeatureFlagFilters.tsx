@@ -5,7 +5,7 @@ import { TagSelect } from 'lib/components/TagSelect'
 
 import { FeatureFlagEvaluationRuntime } from '~/types'
 
-import { FeatureFlagsFilters } from './featureFlagsLogic'
+import { FEATURE_FLAG_SEARCH_MAX_LENGTH, FeatureFlagsFilters } from './featureFlagsLogic'
 
 export interface FeatureFlagFiltersConfig {
     search?: boolean
@@ -50,6 +50,7 @@ export function FeatureFlagFiltersSection({
                         className="w-[335px] !max-w-[335px]"
                         type="search"
                         placeholder={searchPlaceholder}
+                        maxLength={FEATURE_FLAG_SEARCH_MAX_LENGTH}
                         onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
                         value={filters.search || ''}
                         data-attr="feature-flag-search"
@@ -104,11 +105,13 @@ export function FeatureFlagFiltersSection({
                                 dropdownMatchSelectWidth={false}
                                 size="small"
                                 onChange={(status) => {
-                                    const { active, archived, ...restFilters } = filters || {}
+                                    const { active, archived, deleted, ...restFilters } = filters || {}
                                     if (status === 'all') {
                                         setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                     } else if (status === 'ARCHIVED') {
                                         setFeatureFlagsFilters({ ...restFilters, archived: 'true', page: 1 }, true)
+                                    } else if (status === 'DELETED') {
+                                        setFeatureFlagsFilters({ ...restFilters, deleted: 'true', page: 1 }, true)
                                     } else {
                                         setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                                     }
@@ -131,8 +134,19 @@ export function FeatureFlagFiltersSection({
                                         value: 'ARCHIVED',
                                         'data-attr': 'feature-flag-select-status-archived',
                                     },
+                                    {
+                                        label: 'Deleted',
+                                        value: 'DELETED',
+                                        'data-attr': 'feature-flag-select-status-deleted',
+                                    },
                                 ]}
-                                value={filters.archived === 'true' ? 'ARCHIVED' : (filters.active ?? 'all')}
+                                value={
+                                    filters.deleted === 'true'
+                                        ? 'DELETED'
+                                        : filters.archived === 'true'
+                                          ? 'ARCHIVED'
+                                          : (filters.active ?? 'all')
+                                }
                                 data-attr="feature-flag-select-status"
                             />
                         </>

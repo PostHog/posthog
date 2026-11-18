@@ -1,26 +1,32 @@
 """Test module covering utilities used for batch exporting to BigQuery."""
 
 import os
+import uuid
 import datetime as dt
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
 import pyarrow as pa
+from google.api_core.exceptions import DeadlineExceeded, ServiceUnavailable
 from google.auth.exceptions import RefreshError
-from google.cloud import bigquery
+from google.cloud import bigquery, iam_admin_v1
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryField,
+    BigQueryInsertInputs,
+    BigQueryIntegrationNotFoundError,
     Boto3CredentialsSupplier,
     GoogleCloudCredentialsError,
     ServiceAccountOwnershipError,
     ensure_our_google_cloud_credentials_are_valid,
+    get_our_google_cloud_credentials,
     get_service_account_description,
+    insert_into_bigquery_activity_from_stage,
     verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
@@ -136,6 +142,32 @@ async def test_get_service_account_description(
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+@pytest.mark.parametrize("service_account_description", ["any"], indirect=True)
+async def test_get_service_account_description_retries(
+    aorganization,
+    integration,
+    service_account_description,
+) -> None:
+    service_account_integration = GoogleCloudServiceAccountIntegration(integration)
+    async with iam_admin_v1.IAMAsyncClient(credentials=get_our_google_cloud_credentials()) as client:
+        with (
+            patch.object(
+                iam_admin_v1.IAMAsyncClient,
+                "get_service_account",
+                wraps=client.get_service_account,
+                side_effect=[DeadlineExceeded("Deadline exceeded"), ServiceUnavailable("Unavailable"), DEFAULT],
+            ) as get_service_account,
+            patch("products.batch_exports.backend.temporal.utils.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            description = await get_service_account_description(service_account_integration.service_account_email)
+
+    assert description == service_account_description
+    assert get_service_account.await_count == 3
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.asyncio
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
 async def test_verify_impersonated_service_account_ownership(
     aorganization,
     ateam,
@@ -173,3 +205,21 @@ async def test_ensure_our_google_cloud_credentials_are_valid():
     with override_settings(BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT="garbage"):
         with pytest.raises(GoogleCloudCredentialsError):
             await ensure_our_google_cloud_credentials_are_valid()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_insert_activity_fails_when_export_has_no_integration(activity_environment):
+    inputs = BigQueryInsertInputs(
+        team_id=1,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start="2023-12-31T23:00:00+00:00",
+        data_interval_end="2024-01-01T00:00:00+00:00",
+        dataset_id="dataset",
+        table_id="events",
+    )
+
+    result = await activity_environment.run(insert_into_bigquery_activity_from_stage, inputs)
+
+    assert result.error is not None
+    assert result.error.type == BigQueryIntegrationNotFoundError.__name__

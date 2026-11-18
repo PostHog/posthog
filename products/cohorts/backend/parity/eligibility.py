@@ -20,8 +20,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Optional, Union
+
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 
 SINGLE_LEAF = "single_leaf"
 STAGE2_COMPOSABLE = "stage2_composable"
@@ -33,10 +35,17 @@ EXCLUDED_HAS_COHORT_REF = "excluded_has_cohort_ref"
 EXCLUDED_CYCLE_DETECTED = "excluded_cycle_detected"
 EXCLUDED_UNRESOLVED_REF = "excluded_unresolved_ref"
 EXCLUDED_HAS_DROPPED_LEAF = "excluded_has_dropped_leaf"
+# HogVM RETURN, which the catalog loader appends to every stored program before loading it.
+_OP_RETURN = 38
 # Not a processor metric class: the Rust loader skips these cohorts entirely.
 PARSE_ERROR = "parse_error"
 
 EMITTING_CLASSES = frozenset({SINGLE_LEAF, STAGE2_COMPOSABLE, STAGE2_COMPOSABLE_REF})
+# Decided from the cohort's own tree. The reference classes depend on other cohorts, so they are left
+# out, which is the line `composability` draws in `rust/cohort-seeder/src/domain/pinned.rs`.
+_STRUCTURAL_EXCLUSIONS = frozenset(
+    {EXCLUDED_HAS_DROPPED_LEAF, EXCLUDED_EMPTY_GROUP, EXCLUDED_TOP_LEVEL_NEGATION, EXCLUDED_NOT_MULTI_LEAF}
+)
 
 _INTERVAL_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
 _INTERVAL_SECONDS = {"minute": 60, "hour": 3_600}
@@ -215,6 +224,39 @@ def resolve_behavioral_window(node: Mapping[str, Any]) -> Optional[_Window]:
     return _interval_window(node)
 
 
+def _written_date(raw: str) -> date:
+    """The calendar day an absolute bound names, as written: an offset never shifts it (``select.rs``
+    ``absolute_datetime_to_day``)."""
+    return datetime.fromisoformat(raw).date()
+
+
+def _history_days(leaf: Mapping[str, Any], today: date) -> float:
+    """How many days before ``today`` a backfill of the leaf has to start."""
+    window = resolve_behavioral_window(leaf)
+    if window is None or window.kind == "seconds":
+        return 0
+    if window.kind == "days":
+        return window.days
+    start = leaf.get("explicit_datetime")
+    if not isinstance(start, str):
+        # A range with only an end reaches back without limit, and the seeder plans it from the cap.
+        return math.inf
+    return (today - _written_date(start)).days
+
+
+def behavioral_history_over_limit(properties: object, *, limit_days: int, today: date) -> bool:
+    """Whether a behavioral leaf needs history from more than ``limit_days`` before ``today``.
+
+    Mirror of ``rust/cohort-seeder/src/app/prepare.rs`` ``lookback_was_truncated`` with the cap as
+    ``limit_days``: a cohort this holds for is one the seeder would backfill truncated.
+    """
+    return any(
+        _history_days(leaf, today) > limit_days
+        for leaf in walk_filter_leaves(properties)
+        if leaf.get("type") == "behavioral"
+    )
+
+
 def explain_unsupported_window(node: Mapping[str, Any]) -> str:
     """Why :func:`resolve_behavioral_window` returned ``None`` for this leaf.
 
@@ -249,6 +291,22 @@ def _valid_condition_hash(value: Any) -> bool:
     return isinstance(value, str) and len(value.encode("utf-8")) == 16
 
 
+def _loads_as_hog_program(bytecode: list[Any]) -> bool:
+    """Mirror of hogvm `Program::from_shared` header acceptance, checked per leaf by the catalog.
+
+    The loader appends a trailing RETURN before loading, so an empty stored program presents that
+    opcode as its marker and is rejected; a bare `["_H"]` takes the appended opcode as its version.
+
+    Not `common/hogvm/python/execute.py`: that loader accepts `_h` too and never reads the version,
+    so it would keep programs the Rust catalog drops.
+    """
+    marker = bytecode[0] if bytecode else _OP_RETURN
+    if marker != "_H":
+        return False
+    version = bytecode[1] if len(bytecode) > 1 else _OP_RETURN
+    return isinstance(version, int) and not isinstance(version, bool) and 0 <= version <= 2**64 - 1
+
+
 def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     """Mirror of leaf_classifier.rs classify_leaf: a kept/ref _Leaf, or a drop-reason string."""
     leaf_type = node.get("type")
@@ -261,8 +319,29 @@ def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     return "unknown_leaf_type"
 
 
+def leaf_drop_reason(node: Mapping[str, Any]) -> Optional[str]:
+    """The catalog's drop label for a leaf the frozen catalog refuses, or ``None`` when it keeps it.
+
+    A cohort reference counts as kept: whether the cohort composes then depends on the reference
+    target, which one leaf cannot answer.
+
+    Public so the backfill seedability gate (``backfill/pinning.py``) reads this mirror rather than
+    keeping a looser copy of the classifier's rules.
+    """
+    classified = _classify_leaf(node)
+    return classified if isinstance(classified, str) else None
+
+
 def _explicit_negation(node: Mapping[str, Any]) -> bool:
     return node.get("negation") is True
+
+
+def is_action_key(key: Any) -> bool:
+    """Whether a behavioral leaf's ``key`` is an action id, which the catalog drops.
+
+    Public so the backfill pinner marks a leaf action-keyed exactly when this classifier drops it.
+    """
+    return isinstance(key, (int, float)) and not isinstance(key, bool)
 
 
 def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
@@ -270,12 +349,15 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     if value not in ("performed_event", "performed_event_multiple"):
         return "unsupported_behavioral_value"
     key = node.get("key")
-    if isinstance(key, (int, float)) and not isinstance(key, bool):
+    if is_action_key(key):
         return "behavioral_action_key"
     if not _valid_condition_hash(node.get("conditionHash")):
         return "missing_condition_hash"
-    if not isinstance(node.get("bytecode"), list):
+    bytecode = node.get("bytecode")
+    if not isinstance(bytecode, list):
         return "missing_bytecode"
+    if not _loads_as_hog_program(bytecode):
+        return "malformed_bytecode"
     if not isinstance(key, str) or not key:
         return "malformed_leaf"
     window = _behavioral_window_days(node, value)
@@ -287,8 +369,11 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
 def _classify_person(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     if not _valid_condition_hash(node.get("conditionHash")):
         return "missing_condition_hash"
-    if not isinstance(node.get("bytecode"), list):
+    bytecode = node.get("bytecode")
+    if not isinstance(bytecode, list):
         return "missing_bytecode"
+    if not _loads_as_hog_program(bytecode):
+        return "malformed_bytecode"
     return _Leaf(kind="person", negated=_explicit_negation(node))
 
 
@@ -383,6 +468,19 @@ def _classify_cohort(parsed: _Parsed) -> str:
     if flags.state_keyed_leaf_count >= 2:
         return STAGE2_COMPOSABLE
     return EXCLUDED_NOT_MULTI_LEAF
+
+
+def structural_exclusion(filters: Any) -> Optional[str]:
+    """The class of a cohort its own tree keeps out of composition, or ``None``.
+
+    Public so the backfill seedability gate refuses the cohorts the seeder fails a run over, such as
+    a negated root, which has no dropped leaf for a per-leaf screen to find.
+    """
+    parsed = _parse_cohort(filters)
+    if parsed is None:
+        return None
+    eligibility = _classify_cohort(parsed)
+    return eligibility if eligibility in _STRUCTURAL_EXCLUSIONS else None
 
 
 def _find_cycles(edges: Mapping[int, set[int]]) -> set[int]:

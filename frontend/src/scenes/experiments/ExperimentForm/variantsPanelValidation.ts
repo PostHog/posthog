@@ -112,33 +112,3 @@ export const getVariantValidationErrors = ({
 
     return errors
 }
-
-export const buildVariantSummary = (variants: MultivariateFlagVariant[], result: VariantValidationResult): string => {
-    const { rules } = result
-    const { areVariantKeysValid, hasDuplicateKeys, isValidRollout, totalRollout } = rules
-
-    const count = variants.length
-    if (count === 0) {
-        return 'No variants configured'
-    } // should never happen
-    if (count === 1) {
-        return '1 variant (need at least 2)'
-    } // should never happen
-
-    // Check for errors first
-    if (!areVariantKeysValid) {
-        return 'All variants must have a key'
-    }
-    if (hasDuplicateKeys) {
-        return 'Variant keys must be unique'
-    }
-
-    // Build the display string
-    const display =
-        count === 2
-            ? variants.map((v) => `${v.key} (${v.rollout_percentage || 0}%)`).join(' vs ')
-            : `${count} variants (${variants.map((v) => `${v.rollout_percentage || 0}%`).join('/')})`
-
-    // Append rollout error if needed
-    return !isValidRollout ? `${display} • Total: ${totalRollout}% (must be 100%)` : display
-}

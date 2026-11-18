@@ -31,7 +31,7 @@ Common — and cheap to guard against relative to the cost of shipping it.
 
 - **Catch it at:** the cheapest level that exercises the boundary — a pure-unit call with the bad value, or a Django `TestCase` hitting the endpoint. No ClickHouse.
 - [#62757](https://github.com/PostHog/posthog/pull/62757) — handle null metrics when serializing experiments — a `NULL` `metrics` column reached `enumerate(None)`, so one bad row 500'd the whole experiments list; the test parameterizes null/empty combinations against the list and detail endpoints.
-- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the fix converts it to a `ValueError` (→ 400), and the unit test calls the function directly and asserts that — a rung below even the endpoint.
+- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the fix converts it to a `ValueError` (→ 400), and the unit test calls the function directly and asserts that — a level below even the endpoint.
 - [#61076](https://github.com/PostHog/posthog/pull/61076) — guard `wordPluralize` against null `group_type` — a null group type crashed the flags page render; tested at the helper (Jest) and at the converter that produced the null (Python unit).
 
 ### Tenant-isolation / scoping (IDOR)
@@ -45,7 +45,7 @@ A query or endpoint isn't scoped to the requesting team/org, leaking reads or al
 
 Code assumes UTC; date bucketing, pagination cursors, and chart labels shift by a day for teams in other zones — and CI's `TZ=UTC` hides it.
 
-- **Catch it at:** usually the cheapest rung — a pure-unit test parameterized over non-UTC zones (plus a DST boundary). But when the truncation happens _inside ClickHouse_, the cheap test can't see it and you need real execution.
+- **Catch it at:** usually the cheapest level — a pure-unit test parameterized over non-UTC zones (plus a DST boundary). But when the truncation happens _inside ClickHouse_, the cheap test can't see it and you need real execution.
 - [#57593](https://github.com/PostHog/posthog/pull/57593) — timezone-safe date parsing — frontend parsing read the system wall-clock and rolled the calendar day back east of UTC; a pure Jest test over UTC/LA/Tokyo/Berlin and a DST boundary catches it. The clean cheap exemplar.
 - [#61111](https://github.com/PostHog/posthog/pull/61111) — UTC-pin `time_bucket` truncation — `toStartOfDay` truncated on the session-timezone grid while cursors printed UTC, emptying keyset page 2 under a non-UTC `session_timezone`. This one is _not_ cheap: the regression test inserts rows and runs the real SQL with `session_timezone=US/Pacific` (a ClickHouse-backed `TestCase`). Know which kind you have.
 
@@ -69,6 +69,11 @@ Reach for the right tool instead of writing a test that proves nothing.
   The catch is an `assertNumQueries` / query-count bound or reviewing the printed predicate — not a happy-path test.
   Honest note: in our own history these shipped verified by hand, not by an automated bound — [#61864](https://github.com/PostHog/posthog/pull/61864) (unbound `team_id` → scan) pins only an RPC name through a mock, and [#62417](https://github.com/PostHog/posthog/pull/62417) (indexed column wrapped in `toString`) asserts input validation, not query shape. That gap is exactly what a query-bound test would close.
 
+- **Performance regressions.**
+  A wall-clock assertion in the unit suite measures the runner it lands on, not the code.
+  [#93974](https://github.com/PostHog/posthog/pull/93974) guarded a linear flatten with `expect(elapsedMs).toBeLessThan(2000)`, but the hog VM's own 550ms budget trips first, so that assertion could never be the one to fail. The case still flaked on loaded runners and kicked unrelated PRs out of the merge queue.
+  A complexity guard belongs in a benchmark. In the unit suite, assert the output at scale instead, with the execution budget raised so it cannot bind.
+
 - **Migration / apply-time ordering.**
   Code reads a table before its migration creates it — [#59873](https://github.com/PostHog/posthog/pull/59873), a ClickHouse migration read `posthog_instancesetting` before it existed under parallel migration.
   No checked-in test guards this; the safety net is CI migration replay, which exercises the ordering. Don't write a unit test pretending to.
@@ -86,5 +91,5 @@ Reach for the right tool instead of writing a test that proves nothing.
 
 These dominate incident _volume_ but are prevented by monitoring, capacity, and alerting — never a unit test.
 
-- **Resource exhaustion under load** — OOM, connection-pool starvation, event-loop blocking. Load-dependent; prevention is capacity and alerting. (A _known_ accidental O(n) can get a targeted perf test; the load itself cannot.)
+- **Resource exhaustion under load** — OOM, connection-pool starvation, event-loop blocking. Load-dependent; prevention is capacity and alerting. (A _known_ accidental O(n) can get a targeted benchmark; neither the load nor a wall-clock assertion in the unit suite can stand in for one.)
 - **Infrastructure / third-party failure** — node crashes, DNS or network changes, disk exhaustion, upstream-provider outages. Root cause sits below the application; remediation is runbooks and monitoring.

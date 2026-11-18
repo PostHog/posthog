@@ -66,6 +66,64 @@ class TestLogsRetentionRulesAPI(APIBaseTest):
         assert allowed.status_code == status.HTTP_201_CREATED, allowed.json()
         assert allowed.json()["config"]["retention_days"] == 30
 
+    def test_custom_tier_requires_flag_and_entitlement(self):
+        self._grant_30d_retention()
+        # The class-level patch enables every flag; turn only the custom-retention flag off.
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag != "logs-settings-custom-retention",
+        ):
+            flag_off = self.client.post(
+                self.base_url,
+                self._payload(config={"retention_days": 90, "filter_group": VALID_FILTER_GROUP}),
+                format="json",
+            )
+        assert flag_off.status_code == status.HTTP_400_BAD_REQUEST, flag_off.json()
+
+        allowed = self.client.post(
+            self.base_url,
+            self._payload(config={"retention_days": 90, "filter_group": VALID_FILTER_GROUP}),
+            format="json",
+        )
+        assert allowed.status_code == status.HTTP_201_CREATED, allowed.json()
+        assert allowed.json()["config"]["retention_days"] == 90
+
+        self.organization.available_product_features = []
+        self.organization.save()
+        denied = self.client.post(
+            self.base_url,
+            self._payload(config={"retention_days": 360, "filter_group": VALID_FILTER_GROUP}),
+            format="json",
+        )
+        assert denied.status_code == status.HTTP_403_FORBIDDEN, denied.json()
+
+    def test_partial_update_keeps_stored_custom_period_when_flag_and_feature_are_gone(self):
+        self._grant_30d_retention()
+        rule = self.client.post(
+            self.base_url,
+            self._payload(config={"retention_days": 90, "filter_group": VALID_FILTER_GROUP}),
+            format="json",
+        ).json()
+
+        self.organization.available_product_features = []
+        self.organization.save()
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag != "logs-settings-custom-retention",
+        ):
+            response = self.client.patch(f"{self.base_url}{rule['id']}/", {"enabled": True}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["enabled"] is True
+            assert response.json()["config"]["retention_days"] == 90
+
+            # A changed period is still checked.
+            response = self.client.patch(
+                f"{self.base_url}{rule['id']}/",
+                {"config": {"retention_days": 180, "filter_group": VALID_FILTER_GROUP}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_list_scoped_to_team(self):
         self.client.post(self.base_url, self._payload(name="mine"), format="json")
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -115,7 +173,7 @@ class TestLogsRetentionRulesAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("non_tier_value", {"retention_days": 45, "filter_group": VALID_FILTER_GROUP}),
-            ("ninety_no_longer_a_tier", {"retention_days": 90, "filter_group": VALID_FILTER_GROUP}),
+            ("above_maximum", {"retention_days": 2610, "filter_group": VALID_FILTER_GROUP}),
             ("boolean_masquerading_as_int", {"retention_days": True, "filter_group": VALID_FILTER_GROUP}),
             ("missing_retention_days", {"filter_group": VALID_FILTER_GROUP}),
             ("missing_filter_group", {"retention_days": 14}),

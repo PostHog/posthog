@@ -1,1 +1,1 @@
-0008_icpscoringconfig
+0012_daily_health_rollups_autovacuum

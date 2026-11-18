@@ -1,10 +1,13 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import exceptions
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.models.user import User
@@ -19,7 +22,12 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
-from products.tasks.backend.facade import warm as warm_facade
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    warm as warm_facade,
+)
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -75,9 +83,9 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert result.just_created_run is True
         assert result.trace_id == "trace-1"
 
-        # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
+        # Task.create_and_run called with the PostHog AI profile and no repo / no PR.
         _, kwargs = m_car.call_args
-        assert kwargs["origin_product"] == Task.OriginProduct.POSTHOG_AI
+        assert kwargs["profile"] == POSTHOG_AI
         assert kwargs["repository"] is None
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"
@@ -92,7 +100,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert run.state["systemPrompt"] == SYS_PROMPT
         assert run.state["initial_permission_mode"] == "auto"
         assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
-        assert "<posthog_context>" in run.state["pending_user_message"]
+        assert "<posthog_untrusted_context>" in run.state["pending_user_message"]
         assert run.state["pending_user_message"].endswith("Why did checkout drop?")
 
         self.conversation.refresh_from_db()
@@ -103,6 +111,17 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_system_prompt_written_on_open_reaches_the_sandbox(self):
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open({"content": "Why did checkout drop?", "trace_id": "trace-1"})
+
+        detail = tasks_facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=True)
+
+        assert detail is not None
+        assert detail.state["systemPrompt"] == SYS_PROMPT
 
     def test_handoff_detaches_previous_owner_conversation(self):
         new_owner = User.objects.create_user(
@@ -162,6 +181,22 @@ class TestOpenSandboxMessage(APIBaseTest):
         run.refresh_from_db()
         assert run.state["pending_user_message"] == "Hello"
         assert run.state["attached_context"] == []
+
+    def test_instructions_attachment_reaches_the_trusted_block(self):
+        # A provider that attaches its own guidance must not have the send rejected at the boundary.
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open(
+                {
+                    "content": "Investigate",
+                    "attached_context": [{"type": "instructions", "value": "Prefer the live query."}],
+                }
+            )
+
+        run.refresh_from_db()
+        message = run.state["pending_user_message"]
+        assert "<posthog_trusted_context>\n- Prefer the live query.\n</posthog_trusted_context>" in message
 
     def test_unknown_attached_context_type_raises(self):
         with self.assertRaises(exceptions.ValidationError):
@@ -242,6 +277,75 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+
+    def _attach_warm_run(self) -> tuple[Task, TaskRun]:
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.state = {**(run.state or {}), "await_user_message": True}
+        run.save(update_fields=["status", "state"])
+        self._attach_task(task)
+        return task, run
+
+    def test_a_run_started_while_a_warm_run_gets_its_first_message_is_refused(self):
+        task, _ = self._attach_warm_run()
+        admitted_during_delivery: list[bool] = []
+
+        def start_a_run_during_delivery(*args, **kwargs) -> None:
+            try:
+                task.create_run(mode="interactive")
+            except tasks_facade.TaskRunAlreadyLiveError:
+                admitted_during_delivery.append(False)
+            else:
+                admitted_during_delivery.append(True)
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=start_a_run_during_delivery),
+            patch.object(TaskRun, "append_log"),
+        ):
+            self._service().open({"content": "go", "attached_context": []})
+
+        assert admitted_during_delivery == [False]
+        assert task.runs.count() == 1
+
+    def test_a_warm_run_beside_a_live_run_does_not_get_the_message(self):
+        task, run = self._attach_warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
+            patch.object(TaskRun, "append_log"),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "go", "attached_context": []})
+
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+
+    @parameterized.expand(
+        [
+            ("workflow_not_found", RPCStatusCode.NOT_FOUND, False),
+            ("timed_out_maybe_after_delivery", RPCStatusCode.DEADLINE_EXCEEDED, True),
+        ]
+    )
+    def test_a_failed_first_signal_releases_the_warm_run_only_when_nothing_was_delivered(
+        self, _name: str, status: RPCStatusCode, still_claimed: bool
+    ):
+        _, run = self._attach_warm_run()
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=RPCError("signal failed", status, b"")),
+            patch.object(TaskRun, "append_log"),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "go", "attached_context": []})
+
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+        assert bool(run.state.get("warm_activation_started")) is still_claimed
 
     def test_in_progress_followup_raises_conflict_when_signal_fails(self):
         task, run = self._stub_task()
@@ -387,6 +491,29 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert task.runs.count() == 2
         m_workflow.assert_not_called()
 
+    def test_terminal_resume_on_a_done_task_conflicts(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        Task.objects.filter(pk=task.pk).update(
+            profile="posthog_ai", status=Task.Status.DONE, status_reason=Task.StatusReason.CLOSED
+        )
+        self._attach_task(task)
+
+        with (
+            patch(
+                "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+                return_value={"posthog_ai": "enforce"},
+            ),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value=SYS_PROMPT),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "resume please"})
+
+        assert task.runs.count() == 1
+        m_workflow.assert_not_called()
+
     def test_terminal_resume_uses_freshest_terminal_run_after_lock(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
@@ -448,6 +575,12 @@ class TestSandboxWarmViaOpen(APIBaseTest):
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
+        access_patcher = patch(
+            "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def _service(self) -> SandboxSession:
         return SandboxSession(self.conversation, self.user)
@@ -682,11 +815,10 @@ class TestAwaitUserMessageStoredKey:
         assert dumped == {"await_user_message": True}
 
 
-class TestSandboxFirstMessageConversion(APIBaseTest):
-    """Converting an idle LangGraph conversation on its first sandbox message.
+class TestSandboxFirstMessageOnLangGraphConversation(APIBaseTest):
+    """A LangGraph conversation with no task takes the ordinary first-message path.
 
-    Conversion is just: flip the runtime + link the Task on the normal first-message path, with the
-    legacy window prepended to the first prompt. No ACP seeding, no synthetic historical run.
+    Linking the task marks the conversation sandbox; nothing else about the path changes.
     """
 
     def setUp(self):
@@ -699,20 +831,13 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
             status=Conversation.Status.IDLE,
         )
 
-    def _block(self) -> str:
-        return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
-
-    def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
+    def _open(self, *, content="continue here"):
         with patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow:
-            result = SandboxSession(self.conversation, self.user).open(
-                {"content": content, "trace_id": "t"},
-                resumed_context=resumed_context,
-                convert_to_acp=convert_to_acp,
-            )
+            result = SandboxSession(self.conversation, self.user).open({"content": content, "trace_id": "t"})
         return result, m_workflow
 
-    def test_first_message_conversion_flips_runtime_and_links_task(self):
-        result, m_workflow = self._open(resumed_context=self._block(), convert_to_acp=True)
+    def test_first_message_links_task_and_marks_runtime_sandbox(self):
+        result, m_workflow = self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
@@ -721,33 +846,16 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         task = self.conversation.task
         assert task is not None
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
-        # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
         first_run = task.runs.first()
         assert first_run is not None
         assert first_run.status != TaskRun.Status.COMPLETED
+        assert first_run.state["pending_user_message"] == "continue here"
         assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_first_message_conversion_does_not_seed_s3_log(self):
-        with patch.object(TaskRun, "append_log") as m_append:
-            self._open(resumed_context=self._block(), convert_to_acp=True)
-        m_append.assert_not_called()
-
-    def test_first_message_conversion_prepends_window_context(self):
-        self._open(resumed_context=self._block(), convert_to_acp=True)
-
-        self.conversation.refresh_from_db()
-        task = self.conversation.task
-        assert task is not None
-        run = task.runs.first()
-        assert run is not None
-        pending = run.state["pending_user_message"]
-        assert pending.startswith(self._block())
-        assert pending.endswith("continue here")
-
-    def test_first_message_conversion_idempotent_under_lock(self):
+    def test_first_message_idempotent_under_lock(self):
         # Simulate a concurrent winner: the DB row is linked to a Task after this request's entry
         # check but before it takes the lock. The under-lock re-check must surface a Conflict.
         other_task = Task.objects.create(
@@ -760,19 +868,15 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
         with self.assertRaises(Conflict):
-            self._open(resumed_context=self._block(), convert_to_acp=True)
+            self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id == other_task.id
 
-    def test_first_message_conversion_reverts_on_workflow_start_failure(self):
+    def test_first_message_reverts_on_workflow_start_failure(self):
         with patch(f"{ROUTING}.dispatch_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
-                SandboxSession(self.conversation, self.user).open(
-                    {"content": "continue here", "trace_id": "t"},
-                    resumed_context=self._block(),
-                    convert_to_acp=True,
-                )
+                SandboxSession(self.conversation, self.user).open({"content": "continue here", "trace_id": "t"})
 
         # A failed start leaves a clean idle LangGraph conversation the user can retry.
         self.conversation.refresh_from_db()
@@ -792,7 +896,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_born_sandbox_first_message_has_no_resumed_context(self):
+    def test_born_sandbox_first_message_carries_only_the_user_message(self):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 

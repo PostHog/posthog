@@ -1,7 +1,9 @@
 import { SquaresFourIcon } from "@phosphor-icons/react";
+import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
+import { SidebarKbdHint } from "./SidebarKbdHint";
 
 interface CommandCenterItemProps {
   isActive: boolean;
@@ -39,6 +41,7 @@ export function CommandCenterItem({
           title={`${activeCount} active`}
         />
       }
+      endHint={<SidebarKbdHint keys={SHORTCUTS.COMMAND_CENTER} />}
     />
   );
 }

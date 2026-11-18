@@ -1,6 +1,11 @@
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric
+from posthog.schema import (
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentWarehouseNativeNode,
+    ExperimentWarehouseNativeUnitBinding,
+)
 
 from products.experiments.backend.hogql_queries.cuped_config import (
     DEFAULT_CUPED_LOOKBACK_DAYS,
@@ -21,6 +26,8 @@ def _supported_metric() -> ExperimentMeanMetric:
         ("no_stats_config_team_default_enabled", None, True, True),
         ("empty_cuped_dict_uses_team_default", {"cuped": {}}, True, True),
         ("missing_cuped_key_uses_team_default", {"method": "bayesian"}, True, True),
+        ("null_cuped_uses_team_default", {"cuped": None}, True, True),
+        ("non_object_cuped_uses_team_default", {"cuped": ["enabled"]}, True, True),
         ("experiment_explicit_true_with_team_false", {"cuped": {"enabled": True}}, False, True),
         ("experiment_explicit_false_overrides_team_true", {"cuped": {"enabled": False}}, True, False),
         ("experiment_explicit_true_with_team_true", {"cuped": {"enabled": True}}, True, True),
@@ -66,6 +73,18 @@ def _threshold_metric() -> ExperimentMeanMetric:
 def test_get_cuped_config_disabled_for_threshold_metric(name, stats_config, team_default_enabled):
     # A thresholded mean is a binary outcome; CUPED variance reduction does not apply.
     config = get_cuped_config(stats_config, _threshold_metric(), team_default_enabled=team_default_enabled)
+    assert config.enabled is False
+
+
+def test_get_cuped_config_disabled_for_warehouse_native_source():
+    metric = ExperimentMeanMetric(
+        source=ExperimentWarehouseNativeNode(
+            connection_id="connection",
+            query="SELECT customer_id AS entity_id, paid_at AS timestamp FROM payments",
+            unit=ExperimentWarehouseNativeUnitBinding(unit_type="customer", id_namespace="customer_id"),
+        )
+    )
+    config = get_cuped_config({"cuped": {"enabled": True}}, metric, team_default_enabled=True)
     assert config.enabled is False
 
 

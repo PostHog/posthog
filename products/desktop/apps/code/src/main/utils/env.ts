@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { setMachineClaudeConfigDir } from "@posthog/agent/adapters/claude/machine-auth";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -30,7 +31,10 @@ export function getAppVersion(): string {
 
 export function ensureClaudeConfigDir(): void {
   const existing = process.env.CLAUDE_CONFIG_DIR;
-  if (existing) return;
+  setMachineClaudeConfigDir(existing);
+  if (existing) {
+    return;
+  }
 
   const claudeDir = path.join(getUserDataDir(), "claude");
 

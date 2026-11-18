@@ -23,9 +23,15 @@ describe("aiFeedback", () => {
     "maps a %s thumb to a quality=%s metric on the turn",
     (sentiment, rating) => {
       expect(
-        buildTurnRatingMetric({ run, turnId: "turn-9", sentiment }),
+        buildTurnRatingMetric({
+          run,
+          turnId: "turn-9",
+          traceId: "trace-9",
+          sentiment,
+        }),
       ).toEqual({
         ...context,
+        $ai_trace_id: "trace-9",
         turn_id: "turn-9",
         $ai_metric_name: "quality",
         $ai_metric_value: rating,
@@ -38,10 +44,12 @@ describe("aiFeedback", () => {
       buildTurnRatingMetric({
         run: { taskId: null },
         turnId: "turn-1",
+        traceId: null,
         sentiment: "positive",
       }),
     ).toMatchObject({
       $ai_session_id: null,
+      $ai_trace_id: null,
       task_id: null,
       task_run_id: undefined,
       $ai_metric_value: "good",

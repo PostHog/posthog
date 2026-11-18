@@ -2,6 +2,7 @@ import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import replace_placeholders
 
 from posthog.hogql_queries.ai.ai_column_rewriter import (
     _BOOLEAN_COLUMNS,
@@ -116,8 +117,10 @@ class TestAiColumnToPropertyRewriter:
             assert isinstance(result, ast.Field), f"{col_name} should not be wrapped"
 
     def test_scope_only_rewrites_in_ai_events_query(self):
-        query = parse_select("SELECT trace_id FROM posthog.ai_events AS ai_events")
-        result = rewrite_query_for_events_table(query)
+        query = parse_select("SELECT trace_id FROM posthog.ai_events AS ai_events WHERE trace_id = {trace_id}")
+        result = replace_placeholders(
+            rewrite_query_for_events_table(query), {"trace_id": ast.Constant(value="trace-1")}
+        )
         assert isinstance(result, ast.SelectQuery)
         # Rewritten select item is re-aliased to its original column name so the
         # query's output schema stays stable for downstream consumers.
@@ -130,6 +133,9 @@ class TestAiColumnToPropertyRewriter:
         assert isinstance(result.select_from.table, ast.Field)
         assert result.select_from.table.chain == ["events"]
         assert result.select_from.alias == _EVENTS_TABLE_ALIAS
+        assert isinstance(result.where, ast.CompareOperation)
+        assert isinstance(result.where.right, ast.Constant)
+        assert result.where.right.value == "trace-1"
 
     def test_scope_skips_non_ai_events_query(self):
         query = parse_select("SELECT trace_id FROM events")

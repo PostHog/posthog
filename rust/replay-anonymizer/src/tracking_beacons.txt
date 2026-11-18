@@ -1,0 +1,142 @@
+# Advertising and analytics beacons. The replay collector and the image fetcher refuse these.
+#
+# One entry per line: <host pattern><path prefix>
+#   host pattern  an exact host, "*.example.com" for every host below example.com, or "*" for every host
+#   path prefix   starts with "/" and is compared case-insensitively with the start of the decoded
+#                 request path. A prefix that does not end with "/" must end at a segment boundary,
+#                 so "host/tr" refuses "/tr" and "/tr/x" but not "/trending/x". "/" alone matches
+#                 every path on the host, and "*/" alone is refused.
+# A line that starts with "#" and a blank line are ignored.
+#
+# url_policy.rs embeds this file. The mirror refuses a match when it collects a URL, and the
+# fetcher refuses a match again for every job it reads from the frontier, so an entry added here
+# also drains the queued backlog for that beacon without a request. A change here ships only with
+# an image build of both lanes. A malformed line fails the crate's tests.
+
+# X / Twitter Ads conversion pixel
+analytics.twitter.com/i/adsct
+t.co/i/adsct
+
+# Microsoft Advertising UET and Clarity
+bat.bing.com/action
+bat.bing.net/action
+c.bing.com/c.gif
+c.clarity.ms/c.gif
+
+# Meta pixel
+www.facebook.com/tr
+
+# Google Ads, Floodlight, and Analytics
+www.google.com/pagead/1p-user-list
+www.google.com/pagead/1p-conversion
+www.google.com/ads/ga-audiences
+www.googleadservices.com/pagead/conversion
+googleads.g.doubleclick.net/pagead
+ad.doubleclick.net/ddm/activity
+*.fls.doubleclick.net/activityi
+cm.g.doubleclick.net/
+stats.g.doubleclick.net/
+securepubads.g.doubleclick.net/pcs
+google-analytics.com/
+*.google-analytics.com/
+
+# LinkedIn Insight Tag
+px.ads.linkedin.com/
+dc.ads.linkedin.com/
+www.linkedin.com/px
+
+# TikTok, Pinterest, Snap, Quora, and Reddit pixels
+analytics.tiktok.com/
+ct.pinterest.com/
+tr.snapchat.com/
+q.quora.com/_/ad
+alb.reddit.com/
+
+# Shopify storefront pixel
+v.shopify.com/last_shop
+
+# HubSpot, WordPress, Segment, and Mixpanel image beacons
+track.hubspot.com/__ptq.gif
+pixel.wp.com/
+api.segment.io/v1/pixel
+api.mixpanel.com/track
+
+# Yandex Metrica, VK, and Mail.ru
+mc.yandex.ru/watch
+mc.yandex.ru/pixel
+mc.yandex.com/watch
+mc.yandex.com/pixel
+vk.com/rtrg
+top-fwz1.mail.ru/
+
+# Adobe Analytics and Audience Manager, on Adobe hosts and on customer CNAMEs
+*.omtrdc.net/b/ss
+*.2o7.net/b/ss
+*/b/ss/
+*.demdex.net/
+cm.everesttech.net/
+
+# Legacy Google Analytics, Matomo, and Piwik image beacons at the site root of any host
+*/__utm.gif
+*/matomo.php
+*/piwik.php
+
+# Retargeting, cookie sync, and bidder pixels
+d.adroll.com/
+*.bidr.io/
+insight.adsrvr.org/
+*.adnxs.com/
+*.criteo.com/
+trc.taboola.com/
+trc-events.taboola.com/
+tr.outbrain.com/
+sp.analytics.yahoo.com/
+pixel.advertising.com/
+*.amazon-adsystem.com/
+*.rubiconproject.com/
+*.casalemedia.com/
+*.pubmatic.com/
+*.openx.net/
+p.adsymptotic.com/
+*.mathtag.com/
+*.rlcdn.com/
+*.agkn.com/
+*.bluekai.com/
+*.exelator.com/
+*.krxd.net/
+pixel.tapad.com/
+*.3lift.com/
+match.sharethrough.com/
+*.teads.tv/
+*.smartadserver.com/
+*.liadm.com/
+*.id5-sync.com/
+*.bidswitch.net/
+tags.srv.stackadapt.com/
+creativecdn.com/tags
+*.creativecdn.com/tags
+*.zemanta.com/
+tag.perfectaudience.com/
+pixel.sitescout.com/
+bh.contextweb.com/
+*.sonobi.com/
+rtb.gumgum.com/
+ap.lijit.com/
+*.pippio.com/
+*.semasio.net/
+*.dotomi.com/
+*.bttrack.com/
+
+# Sales intelligence trackers
+serve.albacross.com/
+b.6sc.co/
+epsilon.6sense.com/
+
+# Affiliate network pixels
+www.awin1.com/sread.img
+www.emjcd.com/
+track.linksynergy.com/
+
+# Email open pixels rendered inside web apps
+mandrillapp.com/track/open.php
+*.ct.sendgrid.net/wf/open

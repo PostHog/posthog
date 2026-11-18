@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,7 +34,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentSummaryToolHelpers(APIBaseTest):
+class TestExperimentSummaryToolHelpers(SimpleTestCase):
     def test_parse_metric_dict_funnel(self):
         metric_dict = {
             "metric_type": "funnel",
@@ -198,6 +198,15 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
                 },
                 "$pageview / purchase",
             ),
+            (
+                "quantile_fractional_level",
+                {
+                    "metric_type": "quantile",
+                    "quantile": 0.975,
+                    "source": {"kind": "EventsNode", "event": "page_loaded", "math_property": "load_ms"},
+                },
+                "p97.5 of load_ms",
+            ),
         ]
     )
     def test_get_default_metric_title(self, _name, metric_dict, expected):
@@ -248,7 +257,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             metrics_secondary=[],
         )
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_with_mocked_query_runners(self):
         experiment = await self.acreate_experiment(name="query-runner-test", with_metrics=True)
 
@@ -323,7 +332,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_executes_queries_on_cold_cache(self):
         """
         On a cold cache, queries must execute synchronously rather than
@@ -347,7 +356,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(summary_data.pending_calculation)
         self.assertIsNotNone(summary_data.last_refresh)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_includes_saved_metrics(self):
         experiment = await self.acreate_experiment(name="saved-metrics-test", with_metrics=False)
 
@@ -435,7 +444,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
         self.assertEqual(metrics_queried, ["funnel", "funnel"])
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
         experiment = await self.acreate_experiment(name="mixed-metrics-test", with_metrics=True)
         # experiment.metrics already has 1 inline primary metric from acreate_experiment
@@ -449,8 +458,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
                 "name": "Signup conversion",
             }
         ]
-        # UI display order puts the saved primary metric first
-        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid", "inline-primary-uuid"]
+        # UI display order puts the saved primary metric first. The inline metric is left out on
+        # purpose: the ordering is a display hint, and an unlisted metric is still summarized, last.
+        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid"]
         await experiment.asave(update_fields=["metrics", "metrics_secondary", "primary_metrics_ordered_uuids"])
 
         # Add 1 saved primary + 1 saved secondary
@@ -542,7 +552,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         # Saved mean primary (ordered first), inline funnel primary, inline funnel secondary, saved funnel secondary
         self.assertEqual(metrics_queried, ["mean", "funnel", "funnel", "funnel"])
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_reports_metrics_omitted_by_cap(self):
         experiment = await self.acreate_experiment(name="metric-cap-test", with_metrics=False)
         experiment.metrics = [

@@ -1,6 +1,6 @@
 from typing import Optional, Union
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -29,7 +29,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$autocapture"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,

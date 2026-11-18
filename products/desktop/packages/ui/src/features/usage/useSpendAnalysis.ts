@@ -4,6 +4,7 @@ import {
   windowToDateFrom,
 } from "@posthog/core/billing/spendAnalysisFormat";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 
@@ -46,6 +47,7 @@ export function useSpendAnalysis({
     },
     enabled: client !== null,
     staleTime: SPEND_ANALYSIS_STALE_TIME_MS,
+    meta: AUTH_SCOPED_QUERY_META,
   });
 
   return {

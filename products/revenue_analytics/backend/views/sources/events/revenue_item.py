@@ -8,7 +8,7 @@ from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHand
 from products.revenue_analytics.backend.views.sources.helpers import (
     currency_aware_amount,
     currency_aware_divider,
-    events_expr_for_team,
+    events_expr_for_handle,
     is_zero_decimal_in_stripe,
 )
 
@@ -20,7 +20,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
     if event is None:
         raise ValueError("Event is required")
 
-    generic_team_expr = events_expr_for_team(team)
+    generic_team_expr = events_expr_for_handle(handle)
 
     revenue_exprs = revenue_comparison_and_value_exprs_for_events(team, event, do_currency_conversion=False)
     currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(

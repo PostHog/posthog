@@ -1,0 +1,5 @@
+<resources>
+  <dimen name="hedgehog_sprite_size">78dp</dimen>
+  <dimen name="hoggie_sprite_size">106dp</dimen>
+  <dimen name="hedgehog_floor_inset">12dp</dimen>
+</resources>

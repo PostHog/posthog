@@ -1,0 +1,140 @@
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+
+import {
+    RESOLVE_REASON_OPTIONS,
+    STOP_MONITORING_REASON_OPTIONS,
+    ResolveReasonValue,
+} from '../../utils/dismissalReasons'
+import { ReportInterviewInvite } from '../detail/ReportInterviewInvite'
+import { HotkeyRadio } from './HotkeyRadio'
+
+export interface ResolveReportDialogResult {
+    reason: ResolveReasonValue
+    note: string
+}
+
+interface OpenResolveReportDialogParams {
+    /** Report title for single-report copy. Ignored when `selectedCount` is set. */
+    reportTitle?: string | null
+    /** How many reports the selection bar holds. When set, the copy counts reports instead of naming one. */
+    selectedCount?: number
+    /** Whether the report has an implementation PR that is still open. Resolving closes it, so the copy says so. */
+    hasOpenPr?: boolean
+    isMonitoring?: boolean
+    submitDataAttr?: string
+    onAfterClose?: () => void
+    /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
+    hotkeys?: boolean
+    /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
+     * so the person only has to write the note. */
+    initialReason?: ResolveReasonValue
+    /** Replaces the default title, description and submit label. Today uses them to ask for a reason
+     * after the report was already resolved, so the copy must not ask to resolve it again. */
+    copy?: { title: string; description: string; submitLabel: string }
+    /** Called with the chosen reason + note once the user confirms. */
+    onConfirm: (result: ResolveReportDialogResult) => void | Promise<void>
+}
+
+/**
+ * Opens the resolve dialog: pick why the report is done (canonical {@link RESOLVE_REASON_OPTIONS})
+ * plus an optional note, then mark it resolved with Enter or the button. Same shape as
+ * {@link openDismissReportDialog}, so the two verdicts read alike. The caller wires `onConfirm` to
+ * the bulk-resolve action or a direct
+ * `api.signalReports.setState(id, { state: 'resolved', dismissal_reason, dismissal_note })`.
+ */
+export function openResolveReportDialog({
+    reportTitle,
+    selectedCount,
+    hasOpenPr = false,
+    isMonitoring = false,
+    submitDataAttr,
+    onAfterClose,
+    hotkeys = false,
+    initialReason,
+    copy,
+    onConfirm,
+}: OpenResolveReportDialogParams): void {
+    // The selection bar knows the count and no titles, so its copy counts reports even when one
+    // report is selected. Every other caller names the report instead.
+    const isSelection = selectedCount !== undefined
+    const isPlural = (selectedCount ?? 1) > 1
+    const reasonOptions = isMonitoring ? STOP_MONITORING_REASON_OPTIONS : RESOLVE_REASON_OPTIONS
+    const title = isSelection
+        ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
+        : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
+    const description = isMonitoring
+        ? `This stops remaining follow-up checks and resolves the report. PostHog will not record an automatic verification result or update the report's evidence.${hasOpenPr ? ' The pull request opened for this report will be closed.' : ''}`
+        : isPlural
+          ? `Mark these useful reports as done. If an issue comes back, you get a new report linked to the old one.${hasOpenPr ? ' Any open pull request for these reports will be closed.' : ''}`
+          : `This marks a useful report as done. If the issue comes back, you get a new report linked to this one.${
+                hasOpenPr ? ' The pull request opened for this report will be closed.' : ''
+            }`
+    const primaryButtonProps = {
+        children:
+            copy?.submitLabel ?? (hasOpenPr ? 'Resolve and close PR' : isPlural ? 'Resolve reports' : 'Resolve report'),
+        'data-attr': submitDataAttr,
+    }
+
+    LemonDialog.openForm({
+        onAfterClose,
+        title: copy?.title ?? title,
+        description: copy?.description ?? description,
+        maxWidth: '36rem',
+        overlayClassName: '!items-center',
+        initialValues: { reason: initialReason ?? null, note: '' },
+        content: (
+            <div className="flex flex-col gap-3">
+                <LemonField name="reason" label="How was this report handled?">
+                    {({ value, onChange }) =>
+                        hotkeys ? (
+                            <HotkeyRadio value={value} onChange={onChange} options={reasonOptions} />
+                        ) : (
+                            <LemonRadio value={value} onChange={onChange} options={[...reasonOptions]} />
+                        )
+                    }
+                </LemonField>
+                <LemonField
+                    name="note"
+                    label="Details (optional)"
+                    info={
+                        isMonitoring
+                            ? 'Add context or a link to supporting evidence.'
+                            : 'Add context or a link to the implementation.'
+                    }
+                >
+                    <LemonTextArea
+                        // stopPropagation keeps Enter in this multi-line note from reaching the dialog
+                        // form and resolving the report (and closing its PR) mid-sentence.
+                        stopPropagation
+                        // With the reason already chosen, the note is the only thing left to type.
+                        // Never focus otherwise: the hotkey flow reads digits as reason picks.
+                        autoFocus={initialReason != null}
+                        placeholder={
+                            isMonitoring
+                                ? 'Add context or a link to supporting evidence'
+                                : 'Add context or a link to the implementation'
+                        }
+                        maxLength={4000}
+                        minRows={3}
+                        maxRows={8}
+                    />
+                </LemonField>
+                {!isSelection && !hotkeys && !copy && <ReportInterviewInvite />}
+            </div>
+        ),
+        errors: {
+            reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
+        },
+        primaryButtonProps,
+        shouldAwaitSubmit: true,
+        onSubmit: async ({ reason, note }) => {
+            if (!reason) {
+                return
+            }
+            await onConfirm({ reason, note: (note ?? '').trim() })
+        },
+    })
+}

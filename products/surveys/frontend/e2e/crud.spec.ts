@@ -96,7 +96,8 @@ test.describe('CRUD Survey', () => {
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
 
-        await expect(page.getByText('Display conditions summary')).toBeVisible()
-        await expect(page.locator('.FeatureConditionCard')).toContainText('Rolled out to 50% of users in this set.')
+        const audienceSection = page.locator('[data-attr="survey-draft-review-section-audience"]')
+        await expect(audienceSection).toContainText(/1\s+audience rule/)
+        await expect(audienceSection).toContainText('50%')
     })
 })

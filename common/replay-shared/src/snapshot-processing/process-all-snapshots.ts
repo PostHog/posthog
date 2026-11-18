@@ -1,6 +1,7 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
+import { makeScreenshotDocumentNode, SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -50,14 +51,7 @@ function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any |
     const checksLimit = Math.min(data.adds.length, 3)
     for (let i = 0; i < checksLimit; i++) {
         const node = data.adds[i]?.node
-        if (
-            node &&
-            node.type === 2 &&
-            node.tagName === 'img' &&
-            node.attributes?.['data-rrweb-id'] &&
-            node.attributes?.width &&
-            node.attributes?.height
-        ) {
+        if (node && node.type === 2 && node.tagName === 'img' && node.attributes?.[SCREENSHOT_ATTRIBUTE]) {
             return node
         }
     }
@@ -69,47 +63,16 @@ function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
     return extractImgNodeFromMobileIncremental(snapshot) !== undefined
 }
 
-function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
-    const bodyChildNodes = imgNode ? [imgNode] : []
-
-    const htmlNode = {
-        type: 2,
-        tagName: 'html',
-        attributes: {
-            'data-rrweb-id': 'minimal-html',
-        },
-        childNodes: [
-            {
-                type: 2,
-                tagName: 'head',
-                attributes: {
-                    'data-rrweb-id': 'minimal-head',
-                },
-                childNodes: [],
-            },
-            {
-                type: 2,
-                tagName: 'body',
-                attributes: {
-                    'data-rrweb-id': 5,
-                },
-                childNodes: bodyChildNodes,
-            },
-        ],
-    }
-    const documentNode = {
-        type: 0,
-        childNodes: [htmlNode],
-    }
+function createMinimalFullSnapshot(windowId: number, timestamp: number, imgNode?: any): RecordingSnapshot {
     return {
         type: EventType.FullSnapshot,
         timestamp,
         windowId,
         data: {
-            node: documentNode,
+            node: makeScreenshotDocumentNode(imgNode, timestamp),
             initialOffset: { top: 0, left: 0 },
         },
-    } as unknown as RecordingSnapshot
+    }
 }
 
 export async function processAllSnapshots(

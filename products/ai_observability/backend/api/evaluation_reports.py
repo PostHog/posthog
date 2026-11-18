@@ -22,7 +22,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -36,6 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     normalize_report_content_payload,
 )
 
+from products.ai_observability.backend.api.evaluations import _OutputConfigField
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.evaluation_configs import OutputType, evaluation_supports_reports
 from products.ai_observability.backend.models.evaluation_reports import (
@@ -44,7 +45,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportRun,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
-from products.workflows.backend.utils.rrule_utils import validate_rrule
+from products.workflows.backend.facade.api import validate_rrule
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +58,20 @@ REPORT_NOT_SUPPORTED_ERROR = "Reports are not supported for this evaluation."
 
 def default_schedule_anchor() -> dt.datetime:
     return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+
+def _workflow_start_time(client, workflow_id: str) -> dt.datetime | None:
+    try:
+        return async_to_sync(client.get_workflow_handle(workflow_id).describe)().start_time
+    except Exception:
+        logger.warning("Could not read the running report workflow", workflow_id=workflow_id, exc_info=True)
+        return None
+
+
+class EvaluationReportGenerateResponseSerializer(serializers.Serializer):
+    requested_at = serializers.DateTimeField(
+        help_text="Server time of the request. The new report is the first run created after it."
+    )
 
 
 class EvaluationReportListQuerySerializer(serializers.Serializer):
@@ -235,7 +250,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
-        if not evaluation_supports_reports(value.output_type, value.target):
+        if not evaluation_supports_reports(value.output_type, value.target, value.output_config):
             raise serializers.ValidationError(REPORT_NOT_SUPPORTED_ERROR)
         return value
 
@@ -329,11 +344,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             # Enforce tenant + kind boundary: only integrations that belong to this team AND
             # are Slack integrations are valid. Prevents cross-team reuse of integration ids
             # and rejects non-Slack kinds that happen to share an id.
-            owned = set(
-                Integration.objects.filter(
-                    team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify
-                ).values_list("id", flat=True)
-            )
+            owned = set(IntegrationManager.slack.oauth.get_many(team.id, slack_ids_to_verify))
             missing = slack_ids_to_verify - owned
             if missing:
                 raise serializers.ValidationError(f"Slack integration(s) not found for this team: {sorted(missing)}.")
@@ -427,6 +438,10 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
 
 
 class EvaluationReportMetricsSerializer(serializers.Serializer):
+    output_config = _OutputConfigField(
+        required=False,
+        help_text="Output configuration and passing rule used for both report periods.",
+    )
     output_type = serializers.ChoiceField(
         choices=OutputType.choices,
         required=False,
@@ -473,12 +488,13 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     )
     pass_rate = serializers.FloatField(
         required=False,
-        help_text="Boolean pass percentage, excluding results marked not applicable.",
+        allow_null=True,
+        help_text="Pass percentage excluding N/A. Null when no results passed or failed.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean pass percentage for the previous period, or null when unavailable.",
+        help_text="Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.",
     )
 
 
@@ -532,7 +548,19 @@ class _EvaluationReportMetricsField(serializers.JSONField):
 
 
 @extend_schema_field(serializers.ListSerializer(child=serializers.CharField()))
-class _EvaluationReportDeliveryErrorsField(serializers.JSONField):
+class _EvaluationReportStringListField(serializers.JSONField):
+    pass
+
+
+class EvaluationReportDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=EvaluationReportRun.DestinationType.choices, help_text="Destination kind: 'slack' or 'email'."
+    )
+    name = serializers.CharField(help_text="Slack channel name or email address.")
+
+
+@extend_schema_field(EvaluationReportDestinationSerializer(many=True))
+class _EvaluationReportDestinationsField(serializers.JSONField):
     pass
 
 
@@ -546,9 +574,16 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
     )
-    delivery_errors = _EvaluationReportDeliveryErrorsField(
+    delivery_errors = _EvaluationReportStringListField(
         read_only=True,
         help_text="Delivery error messages. Empty when all configured deliveries succeeded.",
+    )
+    delivery_destinations = _EvaluationReportDestinationsField(
+        read_only=True,
+        help_text=(
+            "Slack channels and email addresses this report was addressed to, including any that failed "
+            "(see delivery_errors). Empty for reports sent before this was recorded."
+        ),
     )
 
     class Meta:
@@ -562,6 +597,7 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
             "period_end",
             "delivery_status",
             "delivery_errors",
+            "delivery_destinations",
             "created_at",
         ]
         read_only_fields = fields
@@ -643,7 +679,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 generated_report_count=Count("runs"),
                 last_generated_at=Max("runs__created_at"),
             )
-            .order_by("-created_at"),
+            .order_by("-created_at", "id"),
         )
         if not is_service_auth(self.request):
             visible_evaluation_ids = self.user_access_control.filter_queryset_by_access_level(
@@ -652,7 +688,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             report_queryset = report_queryset.filter(evaluation_id__in=visible_evaluation_ids)
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":
-            report_queryset = report_queryset.reportable()
+            # Reading stored reports must not depend on the current passing rule.
+            report_queryset = report_queryset.for_supported_evaluations()
         if self.action not in ("update", "partial_update"):
             report_queryset = report_queryset.filter(deleted=False)
 
@@ -772,7 +809,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
         report = self.get_object()
-        queryset = EvaluationReportRun.objects.filter(report=report).order_by("-created_at")
+        queryset = EvaluationReportRun.objects.filter(report=report).order_by("-created_at", "id")
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = EvaluationReportRunSerializer(page, many=True)
@@ -780,13 +817,15 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         serializer = EvaluationReportRunSerializer(queryset, many=True)
         return Response(serializer.data)
 
-    @extend_schema(request=None, responses={202: None})
+    @extend_schema(request=None, responses={202: EvaluationReportGenerateResponseSerializer})
     @action(detail=True, methods=["post"], url_path="generate", required_scopes=["evaluation:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
         report = self.get_object()
-        if not evaluation_supports_reports(report.evaluation.output_type, report.evaluation.target):
+        if not evaluation_supports_reports(
+            report.evaluation.output_type, report.evaluation.target, report.evaluation.output_config
+        ):
             raise serializers.ValidationError({"evaluation": REPORT_NOT_SUPPORTED_ERROR})
 
         try:
@@ -802,9 +841,10 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        requested_at = dt.datetime.now(tz=dt.UTC)
         # Stable workflow ID windowed to the minute: if a user smashes the button, Temporal
         # rejects the duplicate start (WorkflowAlreadyStarted) and we treat that as success.
-        workflow_id = f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).strftime('%Y%m%dT%H%M')}"
+        workflow_id = f"eval-report-manual-{report.id}-{requested_at.strftime('%Y%m%dT%H%M')}"
         try:
             client = sync_connect()
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
@@ -823,11 +863,20 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                     report_id=str(report.id),
                     workflow_id=workflow_id,
                 )
-                return Response(status=status.HTTP_202_ACCEPTED)
+                # The page waits for a run created after this time. The running job may already have stored its run,
+                # so a duplicate answers with when that job started rather than when this request arrived.
+                started_at = _workflow_start_time(client, workflow_id) or requested_at.replace(second=0, microsecond=0)
+                return Response(
+                    EvaluationReportGenerateResponseSerializer({"requested_at": started_at}).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))
             return Response(
                 {"error": "Failed to trigger report generation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        return Response(
+            EvaluationReportGenerateResponseSerializer({"requested_at": requested_at}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )

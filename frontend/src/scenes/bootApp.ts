@@ -1,4 +1,8 @@
+import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
+import { routerUrlChangeTrackingMiddleware } from 'lib/logic/scenes/urlChangeTracker'
+import { loadFullStageAppContext } from 'scenes/fullStageAppContext'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
+import { prefetchScene } from 'scenes/prefetchScene'
 
 import { initKea } from '../initKea'
 import { loadPostHogJS } from '../loadPostHogJS'
@@ -14,6 +18,8 @@ let appBooted = false
  * Lives outside App.tsx so scenes/App keeps component-only exports and stays a React
  * Fast Refresh boundary; with a mixed-export App.tsx, HMR invalidations cascade into
  * src/index.tsx and force a full page reload on routine edits.
+ * zod is configured in src/index.tsx before this chunk is imported, not here: by the time
+ * this runs, the App graph has already constructed schemas at module scope.
  */
 export function bootApp(): void {
     if (appBooted) {
@@ -22,11 +28,17 @@ export function bootApp(): void {
     appBooted = true
 
     loadPostHogJS()
-    // Kea must initialize before any component mounts
-    initKea()
+    // Kea must initialize before any component mounts. The URL loop detector is passed in rather than
+    // imported by initKea, which sits below lib/ in the frontend layers.
+    initKea({ middleware: [routerUrlChangeTrackingMiddleware] })
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
     // notebooks (toolbar, exporter) don't ship them; the app opts in here
     registerNotebookLinkDrag()
+    // Same seam for the error toast's "Get help" button: the app opens support in place, the
+    // toolbar and exporter keep linking out to the support options docs
+    registerToastGetHelp()
+    prefetchScene()
+    loadFullStageAppContext()
 
     const idle =
         typeof window.requestIdleCallback === 'function'
@@ -41,11 +53,10 @@ export function bootApp(): void {
             })
 
         // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
-        // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
-        // keep the two in sync. Detection is canvas-based and can throw on some browser states
-        // (e.g. Safari/macOS); it's purely cosmetic and best-effort.
-        void import('country-flag-emoji-polyfill')
-            .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
+        // The import stays dynamic so the package loads after boot. Detection is canvas-based and can
+        // throw on some browser states (e.g. Safari/macOS); it's purely cosmetic and best-effort.
+        void import('lib/countryFlagEmojiPolyfill')
+            .then(({ polyfillCountryFlags }) => polyfillCountryFlags())
             .catch((error) => {
                 console.warn('[App] Country flag emoji polyfill failed:', error)
             })

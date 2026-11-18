@@ -136,6 +136,26 @@ describe('the property flattener', () => {
         expect(eventsOutput.properties).toEqual(expectedProperties)
     })
 
+    test('flattens many nested sibling objects in linear time', async () => {
+        // This plugin runs synchronously on the ingestion consumer, so flattening must stay
+        // linear in the number of properties. The bound is wide enough to not flake in CI
+        // while still failing on a quadratic accumulator.
+        const properties: Record<string, any> = {}
+        for (let i = 0; i < 10_000; i++) {
+            properties[`key${i}`] = { nested: i }
+        }
+        const event = createEvent({ event: 'test', properties })
+
+        const start = performance.now()
+        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const elapsedMs = performance.now() - start
+
+        expect(elapsedMs).toBeLessThan(3_000)
+        expect(eventsOutput.properties['key0__nested']).toEqual(0)
+        expect(eventsOutput.properties['key9999__nested']).toEqual(9999)
+        expect(Object.keys(eventsOutput.properties)).toHaveLength(20_000)
+    })
+
     test('$group_set', async () => {
         const event = createEvent({
             event: '$groupidentify',

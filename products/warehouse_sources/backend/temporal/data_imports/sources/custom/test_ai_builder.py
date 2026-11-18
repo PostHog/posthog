@@ -3,10 +3,12 @@ from typing import cast
 
 from django.test import SimpleTestCase
 
-from openai import OpenAI
+import requests
+from anthropic import Anthropic
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
+    _docs_fetch_error_message,
     build_system_prompt,
     build_user_prompt,
     draft_manifest_sync,
@@ -21,7 +23,7 @@ def _valid_manifest(base_url: str = "https://api.example.com") -> dict:
     }
 
 
-class _FakeCompletions:
+class _FakeMessages:
     def __init__(self, responses: list[str]) -> None:
         self._responses = responses
         self.calls: list[dict] = []
@@ -30,24 +32,20 @@ class _FakeCompletions:
         index = min(len(self.calls), len(self._responses) - 1)
         self.calls.append(kwargs)
         content = self._responses[index]
-        return type(
-            "Resp",
-            (),
-            {"choices": [type("Choice", (), {"message": type("Msg", (), {"content": content})})]},
-        )
+        return type("Resp", (), {"content": [type("Block", (), {"type": "text", "text": content})]})
 
 
 class _FakeClient:
     def __init__(self, responses: list[str]) -> None:
-        self.chat = type("Chat", (), {"completions": _FakeCompletions(responses)})
+        self.messages = _FakeMessages(responses)
 
     def with_options(self, **kwargs: object) -> "_FakeClient":
-        # Mirror the OpenAI client's per-call options override, which returns a configured client.
+        # Mirror the Anthropic client's per-call options override, which returns a configured client.
         return self
 
 
-def _client(responses: list[str]) -> OpenAI:
-    return cast(OpenAI, _FakeClient(responses))
+def _client(responses: list[str]) -> Anthropic:
+    return cast(Anthropic, _FakeClient(responses))
 
 
 class TestExtractManifestJson(SimpleTestCase):
@@ -160,3 +158,32 @@ class TestDraftManifestSync(SimpleTestCase):
         )
         self.assertEqual(result.status, "invalid")
         self.assertIsNotNone(result.manifest_json)
+
+
+class TestDocsFetchErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, "needs a login"),
+            ("forbidden", 403, "needs a login"),
+            ("not_found", 404, "no page at that address"),
+            ("server_error", 500, "couldn't reach"),
+        ]
+    )
+    def test_names_the_cause_without_leaking_the_request(self, _name: str, status_code: int, expected: str) -> None:
+        response = requests.Response()
+        response.status_code = status_code
+        response.url = "https://docs.example.com/api?token=sekrit"
+        exc = requests.HTTPError(f"{status_code} Client Error: for url: {response.url}", response=response)
+
+        message = _docs_fetch_error_message(exc)
+
+        self.assertIn(expected, message)
+        self.assertNotIn(str(status_code), message)
+        self.assertNotIn("docs.example.com", message)
+        self.assertNotIn("sekrit", message)
+
+    def test_timeout_says_to_try_again(self) -> None:
+        message = _docs_fetch_error_message(requests.Timeout("timed out"))
+
+        self.assertIn("too long to answer", message)
+        self.assertIn("Configure manually", message)

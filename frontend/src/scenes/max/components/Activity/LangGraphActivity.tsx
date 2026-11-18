@@ -56,19 +56,23 @@ export function LangGraphActivity({
                   ))
             : []
 
-    const activityChildren = (
-        <>
-            {widget}
-            {!!uiPayload?.summarize_website_interactions && result && (
-                <UIPayloadAnswer
-                    toolCallId={result.tool_call_id}
-                    toolName="summarize_website_interactions"
-                    toolPayload={uiPayload.summarize_website_interactions}
-                    embedded
-                />
-            )}
-        </>
-    )
+    const summary =
+        !!uiPayload?.summarize_website_interactions && result ? (
+            <UIPayloadAnswer
+                toolCallId={result.tool_call_id}
+                toolName="summarize_website_interactions"
+                toolPayload={uiPayload.summarize_website_interactions}
+                embedded
+            />
+        ) : null
+    // Null, not an empty fragment, so the activity draws no empty widget slot under the title.
+    const activityChildren =
+        widget || summary ? (
+            <>
+                {widget}
+                {summary}
+            </>
+        ) : null
 
     // The tool call's details — UI payload, SQL, args, and result — live behind the chevron and only
     // surface once the call has produced a result. An in-flight call shows just the shimmering title,

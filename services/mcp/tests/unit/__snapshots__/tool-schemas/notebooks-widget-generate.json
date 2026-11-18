@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_current_version_id": {
+            "description": "Current widget version the improvement is based on. Required for improve operations.",
+            "type": "string"
+        },
+        "generation_id": {
+            "description": "Idempotency key for this generation job.",
+            "type": "string"
+        },
+        "generation_operation": {
+            "default": "regenerate",
+            "description": "Whether to generate from scratch or improve the current source.\n\n* `initial` - initial\n* `regenerate` - regenerate\n* `improve` - improve",
+            "enum": ["initial", "regenerate", "improve"],
+            "type": "string"
+        },
+        "model": {
+            "default": "claude-sonnet-5",
+            "description": "AI model used to generate the widget.\n\n* `claude-haiku-4-5` - claude-haiku-4-5\n* `claude-sonnet-4-6` - claude-sonnet-4-6\n* `claude-sonnet-5` - claude-sonnet-5\n* `claude-opus-5` - claude-opus-5",
+            "enum": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-5"],
+            "type": "string"
+        },
+        "node_id": {
+            "description": "Stable identifier of the generated widget node.",
+            "type": "string"
+        },
+        "prompt": {
+            "description": "Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.",
+            "maxLength": 50000,
+            "type": "string"
+        },
+        "short_id": {
+            "description": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+            "type": "string"
+        }
+    },
+    "required": ["node_id", "short_id", "prompt", "generation_id"],
+    "type": "object"
+}

@@ -6,6 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     engineeringAnalyticsJobAggregates,
+    engineeringAnalyticsWorkflowHealth,
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
@@ -16,6 +17,7 @@ import { workflowRunsLogic } from './workflowRunsLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsJobAggregates: jest.fn(),
+    engineeringAnalyticsWorkflowHealth: jest.fn(),
     engineeringAnalyticsWorkflowJobs: jest.fn(),
     engineeringAnalyticsWorkflowRunActivity: jest.fn(),
     engineeringAnalyticsWorkflowRunnerCosts: jest.fn(),
@@ -33,6 +35,9 @@ const mockJobs = engineeringAnalyticsWorkflowJobs as jest.MockedFunction<typeof 
 const mockJobAggregates = engineeringAnalyticsJobAggregates as jest.MockedFunction<
     typeof engineeringAnalyticsJobAggregates
 >
+const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunction<
+    typeof engineeringAnalyticsWorkflowHealth
+>
 
 describe('workflowRunsLogic', () => {
     let logic: ReturnType<typeof workflowRunsLogic.build>
@@ -46,6 +51,7 @@ describe('workflowRunsLogic', () => {
         mockRunnerCosts.mockResolvedValue([])
         mockJobs.mockResolvedValue([])
         mockJobAggregates.mockResolvedValue([])
+        mockWorkflowHealth.mockResolvedValue([])
     })
 
     let unmountFilters: (() => void) | undefined
@@ -56,38 +62,119 @@ describe('workflowRunsLogic', () => {
         logic?.unmount()
     })
 
-    it('scopes the runs list, activity chart, and cost breakdown to the shared branch, reloading all on a change', async () => {
+    it('sends the shared run scope to every windowed read on the page, reloading all of them on a change', async () => {
         logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
-        await expectLogic(logic).toDispatchActions([
+        const windowedReadSuccesses = [
             'loadRunsSuccess',
+            'loadWorkflowHealthSuccess',
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
+        ]
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
+
+        const windowedReads = [mockRuns, mockWorkflowHealth, mockRunActivity, mockRunnerCosts, mockJobAggregates]
+        for (const read of windowedReads) {
+            expect(read).toHaveBeenLastCalledWith(
+                '1',
+                expect.objectContaining({ workflow_name: 'CI', repo: 'PostHog/posthog', date_from: '-7d' })
+            )
+            // All runs is the default, and the backend already reports every run when the param is absent.
+            expect(read.mock.lastCall?.[1]).not.toHaveProperty('run_scope')
+        }
+
+        // Picking a group on the shared filters logic reloads all five reads scoped to it, so the detail
+        // page's numbers and its chart match the list it was opened from.
+        filters.actions.setRunScope('merge_queue')
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
+        for (const read of windowedReads) {
+            expect(read).toHaveBeenLastCalledWith('1', expect.objectContaining({ run_scope: 'merge_queue' }))
+        }
+    })
+
+    it('reads the tiles from the window-wide figures, not the capped run table', async () => {
+        mockWorkflowHealth.mockResolvedValue([
+            {
+                repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+                workflow_name: 'CI',
+                run_count: 4000,
+                successful_run_count: 3800,
+                conclusive_run_count: 3900,
+                success_rate: 0.974,
+                p50_seconds: 120,
+                p95_seconds: 600,
+                last_failure_at: null,
+                latest_run_failed: false,
+                latest_run_conclusion: 'success',
+                latest_run_id: 1,
+                latest_run_attempt: 1,
+                granularity: 'day',
+                buckets: [],
+            },
         ])
-
-        // No branch applied → the endpoints see every branch (the pre-fix behavior for the whole page).
-        const runsArgs = { workflow_name: 'CI', repo: 'PostHog/posthog', date_from: '-7d', branch: undefined }
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-
-        // Applying a branch on the shared filters logic reloads all three reads scoped to it — so the detail
-        // page's numbers (and the chart's runs) match the branch-scoped Workflows tab instead of widening
-        // back to all branches.
-        filters.actions.setBranchFilter('master')
-        filters.actions.applyBranchFilter()
-        await expectLogic(logic).toDispatchActions([
-            'loadRuns',
-            'loadRunActivity',
-            'loadRunnerCosts',
-            'loadRunsSuccess',
-            'loadRunActivitySuccess',
+        mockRunnerCosts.mockResolvedValue([
+            {
+                provider: 'self_hosted',
+                runner_label: 'depot-ubuntu-16',
+                job_count: 10,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
+        mockJobAggregates.mockResolvedValue([
+            {
+                job_name: 'Python tests',
+                job_count: 10,
+                shard_count: 1,
+                runs_in: 10,
+                run_share: 1,
+                queue_p50_seconds: 30,
+                p50_seconds: 600,
+                p95_seconds: 900,
+                failure_rate: 0,
+                retry_job_count: 0,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
+        logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthSuccess',
             'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
         ])
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
+
+        expect(logic.values.healthSummary.totalRuns).toBe(4000)
+        expect(logic.values.healthSummary.passRate).toBe(0.974)
+        expect(logic.values.healthSummary.state).toBe('healthy')
+        expect(logic.values.costSummary?.estimatedCostUsd).toBe(3.2)
+        expect(logic.values.queueP50Seconds).toBe(30)
+
+        // A failed reload must not keep showing the previous window's figures under an error state.
+        mockWorkflowHealth.mockRejectedValue(new Error('network down'))
+        mockRunnerCosts.mockRejectedValue(new Error('network down'))
+        mockJobAggregates.mockRejectedValue(new Error('network down'))
+        const filters = engineeringAnalyticsFiltersLogic()
+        unmountFilters = filters.mount()
+        filters.actions.setDateRange('-7d', null)
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthFailure',
+            'loadRunnerCostsFailure',
+            'loadJobAggregatesFailure',
+        ])
+
+        expect(logic.values).toMatchObject({
+            workflowHealthFailed: true,
+            runnerCostsFailed: true,
+            jobAggregatesFailed: true,
+            costSummary: null,
+            queueP50Seconds: null,
+        })
+        expect(logic.values.healthSummary.totalRuns).toBe(0)
+        expect(logic.values.healthSummary.state).toBe('unknown')
     })
 })

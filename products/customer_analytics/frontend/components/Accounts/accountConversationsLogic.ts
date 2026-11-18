@@ -18,6 +18,8 @@ import type {
     SupportTicketApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { getTileString, type AccountViewTileConfig, type AccountViewTileLogicProps } from './accountViewTileConfig'
+
 export type ConversationSource = 'email' | 'support' | 'slack'
 
 export type AccountConversation =
@@ -41,8 +43,16 @@ export const NOT_LOADED: AccountConversationsResult = {
 }
 const LIST_LIMIT = 50
 
-export interface AccountConversationsLogicProps {
+export interface AccountConversationsLogicProps extends AccountViewTileLogicProps {
     accountId: string
+}
+
+function getInitialSources(config: AccountViewTileConfig | undefined): ConversationSource[] {
+    const sources = config?.sources
+    return Array.isArray(sources) &&
+        sources.every((source) => source === 'email' || source === 'support' || source === 'slack')
+        ? sources
+        : ['email', 'support', 'slack']
 }
 
 interface accountConversationsLogicValues {
@@ -159,7 +169,7 @@ function searchableText(conversation: AccountConversation): string {
 export const accountConversationsLogic = kea<accountConversationsLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountConversationsLogic', key]),
     props({} as AccountConversationsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -287,9 +297,12 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
             },
         ],
     })),
-    reducers({
-        searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        sources: [['email', 'support', 'slack'] as ConversationSource[], { setSources: (_, { sources }) => sources }],
+    reducers(({ props }) => ({
+        searchTerm: [
+            getTileString(props.initialConfig, 'searchTerm'),
+            { setSearchTerm: (_, { searchTerm }) => searchTerm },
+        ],
+        sources: [getInitialSources(props.initialConfig), { setSources: (_, { sources }) => sources }],
         expandedConversationId: [
             null as string | null,
             {
@@ -331,7 +344,7 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                 loadSupportTicketMessagesFailure: (state, { ticketId }) => ({ ...state, [ticketId]: true }),
             },
         ],
-    }),
+    })),
     selectors({
         filteredConversations: [
             (selectors) => [selectors.conversationsResult, selectors.searchTerm, selectors.sources],
@@ -358,6 +371,13 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            props.onConfigChange?.({ searchTerm: values.searchTerm, sources: values.sources })
+        },
+        setSources: () => {
+            props.onConfigChange?.({ searchTerm: values.searchTerm, sources: values.sources })
+        },
         openConversation: ({ conversationId }) => {
             if (!conversationId.startsWith('support:')) {
                 return

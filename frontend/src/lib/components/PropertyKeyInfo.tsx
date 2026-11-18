@@ -7,22 +7,26 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { PropertySourceId, getExternalPropertySource } from '~/taxonomy/propertySources'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 const SURVEY_RESPONSE_PREFIX = '$survey_response_'
 
-function SourceLogo({ source }: { source: 'posthog' | 'langfuse' }): JSX.Element {
+function SourceLogo({ source }: { source: PropertySourceId }): JSX.Element {
     if (source === 'posthog') {
         // The brand logomark handles light/dark itself (gradient mark in light, white mono in dark)
         return <Logomark className="PropertyKeyInfo__logo PropertyKeyInfo__logo--posthog" />
     }
-    return <span className="PropertyKeyInfo__logo PropertyKeyInfo__logo--langfuse" />
+    return <span className={clsx('PropertyKeyInfo__logo', `PropertyKeyInfo__logo--${source}`)} />
 }
 
 export interface PropertyKeyInfoProps {
@@ -57,8 +61,10 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
     const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
-    const recognizedSource: 'posthog' | 'langfuse' | null =
-        coreDefinition || value.startsWith('$') ? 'posthog' : value.startsWith('langfuse ') ? 'langfuse' : null
+    const flagKey = featureFlagKeyFromProperty(value)
+
+    const recognizedSource: PropertySourceId | null =
+        getExternalPropertySource(value)?.id ?? (coreDefinition || value.startsWith('$') ? 'posthog' : null)
 
     const innerContent = (
         <span
@@ -90,6 +96,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                             <LemonDivider className="my-3" />
                             <div>
                                 {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
+                                <FlagCalledMoveNotice name={value} groupType={type} className="mb-2" />
                                 {coreDefinition.examples ? (
                                     <p>
                                         <i>
@@ -103,6 +110,13 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                         </>
                     ) : null}
 
+                    {flagKey && (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                        </>
+                    )}
+
                     {!coreDefinition.virtual && (
                         <>
                             <LemonDivider className="my-3" />
@@ -114,6 +128,10 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                 </div>
             }
             visible={popoverVisible}
+            // React bubbles a click in the portaled overlay to the onClick of any element that wraps this component
+            onClickInside={(e) => e.stopPropagation()}
+            onMouseEnterInside={() => setPopoverVisible(true)}
+            onMouseLeaveInside={() => setPopoverVisible(false)}
             showArrow
             placement="right"
         >

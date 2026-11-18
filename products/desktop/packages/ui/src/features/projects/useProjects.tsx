@@ -11,13 +11,13 @@ export interface ProjectInfo {
   organization: { id: string; name: string };
 }
 
-export interface GroupedProjects {
+interface GroupedProjects {
   orgId: string;
   orgName: string;
   projects: ProjectInfo[];
 }
 
-export function groupProjectsByOrg(map: OrgProjectsMap): GroupedProjects[] {
+function groupProjectsByOrg(map: OrgProjectsMap): GroupedProjects[] {
   return Object.entries(map).map(([orgId, org]) => ({
     orgId,
     orgName: org.orgName,

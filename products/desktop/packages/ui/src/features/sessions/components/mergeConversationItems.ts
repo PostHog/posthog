@@ -1,46 +1,62 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
+import {
+  hasInjectedBlocks,
+  stripInjectedBlocks,
+} from "@posthog/core/editor/injectedBlocks";
 import type { ConversationItem } from "./buildConversationItems";
-import {
-  extractChannelContext,
-  hasChannelContext,
-} from "./session-update/channelContext";
-import {
-  extractCustomInstructions,
-  hasCustomInstructions,
-} from "./session-update/customInstructions";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
   optimisticItems: ConversationItem[];
   isCloud: boolean;
+  tailAnchors?: Map<string, string | null>;
 }
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 
-// The pinned optimistic bubble is seeded from the bare task description, but the
-// echoed `session/prompt` that streams back from the sandbox may additionally
-// carry the channel's CONTEXT.md and/or the user's personalization, folded into
-// the prompt at task creation (see buildChannelContextText /
-// buildCustomInstructionsText in @posthog/core). The description side instead
-// appends an `Attached files: <names>` summary line that the echo carries as
-// resource_link blocks, not text (see buildCloudTaskDescription). Dedupe and
-// upgrade compare on the text with all three stripped so the echo still matches
-// its placeholder.
 function strippedUserContent(content: string): string {
-  const withoutChannel = extractChannelContext(content)?.stripped ?? content;
-  const withoutInstructions =
-    extractCustomInstructions(withoutChannel)?.stripped ?? withoutChannel;
-  return stripTrailingAttachmentSummary(withoutInstructions);
+  return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
 }
 
-function hasShadowContext(content: string): boolean {
-  return hasChannelContext(content) || hasCustomInstructions(content);
+function reconcileInitialPromptEcho(
+  items: ConversationItem[],
+): ConversationItem[] {
+  let initial: UserMessageItem | undefined;
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (
+      item.type === "session_update" &&
+      item.update.sessionUpdate === "progress_group"
+    ) {
+      continue;
+    }
+    if (item.type !== "user_message") return items;
+    if (!initial) {
+      if (hasInjectedBlocks(item.content)) return items;
+      initial = item;
+      continue;
+    }
+    if (
+      !hasInjectedBlocks(item.content) ||
+      strippedUserContent(initial.content) !== strippedUserContent(item.content)
+    ) {
+      return items;
+    }
+    // The stored startup transcript can contain both the bare request and its
+    // context-bearing echo even after the in-memory optimistic row is gone.
+    return items
+      .filter((_, itemIndex) => itemIndex !== index)
+      .map((entry) =>
+        entry === initial ? { ...item, id: initial.id } : entry,
+      );
+  }
+  return items;
 }
 
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
-// will appear.
+// will appear, or where they were sent when `tailAnchors` is given.
 //
 // Local sessions keep optimistic at the chronological end — they rely on
 // `replaceOptimisticWithEvent` to swap optimistic↔real in place.
@@ -48,7 +64,11 @@ export function mergeConversationItems({
   conversationItems,
   optimisticItems,
   isCloud,
+  tailAnchors,
 }: MergeConversationItemsArgs): ConversationItem[] {
+  if (isCloud) {
+    conversationItems = reconcileInitialPromptEcho(conversationItems);
+  }
   if (optimisticItems.length === 0) {
     return conversationItems;
   }
@@ -88,14 +108,14 @@ export function mergeConversationItems({
           if (remaining > 0) {
             unconsumedPinnedKeyCounts.set(key, remaining - 1);
             echoedItemByKey.set(key, item);
-            if (!hasShadowContext(item.content))
+            if (!hasInjectedBlocks(item.content))
               consumedPlainEchoByKey.add(key);
             return false;
           }
 
           if (
             consumedPlainEchoByKey.has(key) &&
-            hasShadowContext(item.content)
+            hasInjectedBlocks(item.content)
           ) {
             echoedItemByKey.set(key, item);
             consumedPlainEchoByKey.delete(key);
@@ -141,10 +161,50 @@ export function mergeConversationItems({
     }
   }
 
-  return [
-    ...resolvedPinnedItems,
-    ...dedupedConversation.slice(0, tailInsertionIndex),
-    ...tailOptimisticItems,
-    ...dedupedConversation.slice(tailInsertionIndex),
-  ];
+  if (!tailAnchors || tailOptimisticItems.length === 0) {
+    return [
+      ...resolvedPinnedItems,
+      ...dedupedConversation.slice(0, tailInsertionIndex),
+      ...tailOptimisticItems,
+      ...dedupedConversation.slice(tailInsertionIndex),
+    ];
+  }
+
+  const tailIds = new Set(tailOptimisticItems.map((item) => item.id));
+  for (const id of tailAnchors.keys()) {
+    if (!tailIds.has(id)) tailAnchors.delete(id);
+  }
+  const lastUserMessageIndex = dedupedConversation.findLastIndex(
+    (entry) => entry.type === "user_message",
+  );
+  const placements = tailOptimisticItems.map((item) => {
+    if (!tailAnchors.has(item.id)) {
+      tailAnchors.set(
+        item.id,
+        dedupedConversation[tailInsertionIndex - 1]?.id ?? null,
+      );
+    }
+    const anchorId = tailAnchors.get(item.id);
+    const anchorIndex =
+      anchorId == null
+        ? -1
+        : dedupedConversation.findLastIndex((entry) => entry.id === anchorId);
+    if (anchorId != null && anchorIndex === -1) {
+      return { item, index: tailInsertionIndex };
+    }
+    return {
+      item,
+      index: Math.max(anchorIndex, lastUserMessageIndex) + 1,
+    };
+  });
+  placements.sort((left, right) => left.index - right.index);
+
+  const segments: ConversationItem[][] = [resolvedPinnedItems];
+  let start = 0;
+  for (const { item, index } of placements) {
+    segments.push(dedupedConversation.slice(start, index), [item]);
+    start = index;
+  }
+  segments.push(dedupedConversation.slice(start));
+  return ([] as ConversationItem[]).concat(...segments);
 }

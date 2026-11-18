@@ -52,9 +52,15 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     this.thresholdsSeen = { ...this.host.getThresholdsSeen() };
     // The snapshot is identity-scoped billing data: a signed-in account must
     // never be served the previous account's spend.
-    let orgId = authService.getState().currentOrgId;
+    let { currentOrgId: orgId, currentProjectId: projectId } =
+      authService.getState();
     authService.on(AuthServiceEvent.StateChanged, (state) => {
-      if (state.currentOrgId === orgId) return;
+      const projectChanged = state.currentProjectId !== projectId;
+      projectId = state.currentProjectId;
+      if (state.currentOrgId === orgId) {
+        if (projectChanged && projectId !== null) this.requestRefresh();
+        return;
+      }
       orgId = state.currentOrgId;
       this.latestUsage = null;
       // The snapshot was just dropped, so let the refetch through any open
@@ -194,15 +200,8 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     if (!isCodeUsageFreeTier(usage)) return;
     const userId = usage.user_id.toString();
     const product = usage.product;
-    this.maybeEmit(usage, "burst", usage.burst, userId, product, usage.is_pro);
-    this.maybeEmit(
-      usage,
-      "sustained",
-      usage.sustained,
-      userId,
-      product,
-      usage.is_pro,
-    );
+    this.maybeEmit(usage, "burst", usage.burst, userId, product);
+    this.maybeEmit(usage, "sustained", usage.sustained, userId, product);
   }
 
   private maybeEmit(
@@ -211,7 +210,6 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     status: UsageBucket,
     userId: string,
     product: string,
-    isPro: boolean,
   ): void {
     const anchor = this.anchorFor(bucket, status, usage);
     if (!anchor) return;
@@ -236,7 +234,6 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
       threshold,
       usedPercent: status.used_percent,
       resetAt: status.reset_at,
-      isPro,
       userIsActive: this.host.hasActiveSessions(),
     });
   }

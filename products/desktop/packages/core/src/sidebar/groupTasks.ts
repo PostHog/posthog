@@ -16,7 +16,7 @@ export interface GroupableTask {
   originProduct?: string;
 }
 
-export const CUSTOM_IMAGES_GROUP_ID = "custom-images";
+const CUSTOM_IMAGES_GROUP_ID = "custom-images";
 
 export interface TaskGroup<T extends GroupableTask> {
   id: string;
@@ -72,7 +72,7 @@ export function getRepositoryInfo(
   return null;
 }
 
-export function folderGroupId(folder: {
+function folderGroupId(folder: {
   path: string;
   remoteUrl: string | null;
 }): string {

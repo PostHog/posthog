@@ -45,6 +45,59 @@ describe('modelPickerLogic', () => {
     })
 
     describe('loadByokModels', () => {
+        it.each(['example-judge-v1', 'custom-model'])(
+            'offers System One model %s only to evaluation model pickers',
+            async (model) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                            results: [
+                                { id: 'key-system-one', provider: 'system_one', name: 'System One', state: 'ok' },
+                            ],
+                        },
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                        '/api/llm_proxy/models/': ({ request }) =>
+                            new URL(request.url).searchParams.get('provider_key_id')
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) =>
+                            params.key_id
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
+                    },
+                })
+                logic = modelPickerLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.evaluationProviderModelGroups[0].models[0].id).toBe(model)
+                expect(logic.values.providerModelGroups).toEqual([])
+                expect(logic.values.generativeByokModels).toEqual([])
+                expect(logic.values.hasByokKeys).toBe(false)
+                expect(logic.values.evaluationModelNotice).toBeNull()
+            }
+        )
+
         it('should load and attach providerKeyId to models from valid keys', async () => {
             useMocks({
                 get: {
@@ -56,6 +109,12 @@ describe('modelPickerLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
                         return [200, []]
@@ -74,9 +133,72 @@ describe('modelPickerLogic', () => {
                     provider: m.provider,
                     description: m.description,
                     isRecommended: true,
+                    supportsDecisions: false,
+                    supportsChat: true,
+                    supportsReasoning: false,
                     providerKeyId: 'key-1',
                 }))
             )
+        })
+
+        it('offers OpenRouter decisions to evaluations alongside chat models, but not to generative pickers', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'key-openrouter', provider: 'openrouter', name: 'OpenRouter', state: 'ok' }],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                    '/api/llm_proxy/models/': ({ request }) => [
+                        200,
+                        new URL(request.url).searchParams.get('provider_key_id')
+                            ? [
+                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
+                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
+                                  {
+                                      id: 'example/dual-model',
+                                      provider: 'OpenRouter',
+                                      supports_decisions: true,
+                                      supports_chat: true,
+                                  },
+                              ]
+                            : [],
+                    ],
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                        200,
+                        params.key_id
+                            ? [
+                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
+                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
+                                  {
+                                      id: 'example/dual-model',
+                                      provider: 'OpenRouter',
+                                      supports_decisions: true,
+                                      supports_chat: true,
+                                  },
+                              ]
+                            : [],
+                    ],
+                },
+            })
+            logic = modelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.evaluationProviderModelGroups[0].models.map((model) => model.id)).toEqual([
+                'typesafe/jev-1.13',
+                'typesafe/jev-router',
+                'example/dual-model',
+            ])
+            expect(logic.values.providerModelGroups[0].models.map((model) => model.id)).toEqual([
+                'typesafe/jev-router',
+                'example/dual-model',
+            ])
+            expect(logic.values.generativeByokModels.map((model) => model.id)).toEqual([
+                'typesafe/jev-router',
+                'example/dual-model',
+            ])
+            // The playground asks decisions only through a System One connection, never through OpenRouter.
+            expect(logic.values.playgroundSystemOneModelGroups).toEqual([])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {
@@ -90,6 +212,12 @@ describe('modelPickerLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS_MIXED]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS_MIXED]
                         }
                         return [200, []]
@@ -153,6 +281,16 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -167,6 +305,7 @@ describe('modelPickerLogic', () => {
         })
 
         it('should gracefully handle API errors for individual keys', async () => {
+            let key1Fails = true
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
@@ -181,7 +320,17 @@ describe('modelPickerLogic', () => {
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1') {
-                            return [500, { error: 'Internal error' }]
+                            return key1Fails ? [500, { error: 'Internal error' }] : [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return key1Fails ? [500, { error: 'Internal error' }] : [200, BYOK_OPENAI_MODELS]
                         }
                         if (keyId === 'key-2') {
                             return [200, BYOK_ANTHROPIC_MODELS]
@@ -204,8 +353,71 @@ describe('modelPickerLogic', () => {
                     description: m.description,
                     isRecommended: true,
                     providerKeyId: 'key-2',
+                    supportsDecisions: false,
+                    supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
+            expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({
+                provider: 'openai',
+                providerKeyId: 'key-1',
+                label: 'OpenAI (Unavailable)',
+                models: [],
+                disabledReason: expect.any(String),
+            })
+            expect(logic.values.byokModelNotice).toEqual({
+                kind: 'models-failed',
+                keys: [expect.objectContaining({ id: 'key-1' })],
+            })
+
+            key1Fails = false
+            logic.actions.loadByokModels()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.failedByokProviderKeyIds).toEqual([])
+            expect(logic.values.byokModelNotice).toBeNull()
+        })
+    })
+
+    describe('byokModelNotice', () => {
+        it.each([
+            ['no provider keys', [], [], { kind: 'no-keys' }],
+            [
+                'only unhealthy keys',
+                [{ id: 'key-1', provider: 'openai', name: 'Production', state: 'invalid' }],
+                [],
+                { kind: 'no-usable-keys' },
+            ],
+            [
+                'a key with models',
+                [{ id: 'key-1', provider: 'anthropic', name: 'Production', state: 'ok' }],
+                BYOK_ANTHROPIC_MODELS,
+                null,
+            ],
+            [
+                'an Azure key that lists no deployments',
+                [{ id: 'key-1', provider: 'azure_openai', name: 'Production', state: 'ok' }],
+                [],
+                { kind: 'deployments-unlisted', keys: [expect.objectContaining({ id: 'key-1' })] },
+            ],
+        ])('with %s', async (_, keys, models, expected) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': { results: keys },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': () => [200, models],
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': () => [200, models],
+                },
+            })
+
+            logic = modelPickerLogic()
+            logic.mount()
+            expect(logic.values.byokModelNotice).toBeNull()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.byokModelNotice).toEqual(expected)
         })
     })
 
@@ -300,6 +512,16 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -318,6 +540,50 @@ describe('modelPickerLogic', () => {
             expect(openaiGroup?.providerKeyId).toBe('key-1')
         })
 
+        it('offers typed Azure deployments to the tagger picker but not to the playground', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [
+                            { id: 'key-1', provider: 'openai', name: 'My OpenAI Key', state: 'ok' },
+                            { id: 'key-azure', provider: 'azure_openai', name: 'My Azure Key', state: 'ok' },
+                            {
+                                id: 'key-foundry',
+                                provider: 'anthropic',
+                                name: 'My Foundry Key',
+                                state: 'ok',
+                                azure_endpoint_display: 'https://my-resource.services.ai.azure.com/',
+                            },
+                            { id: 'key-anthropic', provider: 'anthropic', name: 'My Anthropic Key', state: 'ok' },
+                        ],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                        return [200, keyId === 'key-1' ? BYOK_OPENAI_MODELS : []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        return [200, keyId === 'key-1' ? BYOK_OPENAI_MODELS : []]
+                    },
+                },
+            })
+
+            logic = modelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const customModelKeyIds = logic.values.providerModelGroups
+                .filter((g) => g.allowsCustomModel)
+                .map((g) => g.providerKeyId)
+                .sort()
+            expect(customModelKeyIds).toEqual(['key-azure', 'key-foundry'])
+            expect(logic.values.playgroundByokProviderModelGroups.map((g) => g.providerKeyId)).toEqual(['key-1'])
+            expect(logic.values.playgroundByokProviderModelGroups.some((g) => g.allowsCustomModel)).toBe(false)
+        })
+
         it('should disambiguate labels when multiple keys exist for same provider', async () => {
             useMocks({
                 get: {
@@ -332,6 +598,13 @@ describe('modelPickerLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                        if (keyId === 'key-1' || keyId === 'key-2') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
                         if (keyId === 'key-1' || keyId === 'key-2') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
@@ -394,14 +667,24 @@ describe('parsePlaygroundProviderKeyId', () => {
     })
 })
 
+const AZURE_CUSTOM_GROUP: ProviderModelGroup = {
+    provider: 'azure_openai',
+    providerKeyId: 'key-azure',
+    label: 'Azure OpenAI',
+    models: [],
+    allowsCustomModel: true,
+}
+
 describe('findSelectedProvider', () => {
     it.each([
         ['exact match by providerKeyId and model', 'gpt-5', 'key-1', 'openai'],
         ['fallback to model-only match when providerKeyId is null', 'claude-sonnet-4', null, 'anthropic'],
         ['returns null when model not found', 'unknown-model', 'key-1', null],
         ['returns null for empty groups', 'gpt-5', 'key-1', null],
+        ['typed deployment on the selected custom key', 'my-gpt-4o', 'key-azure', 'azure_openai'],
+        ['typed deployment named like another key model', 'gpt-4.1', 'key-azure', 'azure_openai'],
     ] as const)('%s', (_, model, providerKeyId, expected) => {
-        const groups = expected === null && model === 'gpt-5' ? [] : GROUPS
+        const groups = expected === null && model === 'gpt-5' ? [] : [...GROUPS, AZURE_CUSTOM_GROUP]
         expect(findSelectedProvider(groups as ProviderModelGroup[], model, providerKeyId)).toBe(expected)
     })
 })
@@ -426,6 +709,10 @@ describe('filterGroups', () => {
 
     it('removes groups with no matching models', () => {
         expect(filterGroups(GROUPS, 'nonexistent')).toHaveLength(0)
+    })
+
+    it('keeps groups that accept a typed model id', () => {
+        expect(filterGroups([...GROUPS, AZURE_CUSTOM_GROUP], 'my-deployment')).toEqual([AZURE_CUSTOM_GROUP])
     })
 })
 

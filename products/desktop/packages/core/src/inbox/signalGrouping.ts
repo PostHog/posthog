@@ -4,7 +4,7 @@ import type { Signal } from "@posthog/shared/types";
  * Under this many signals, a flat list reads fine; grouping would be more
  * chrome than help.
  */
-export const FLAT_SIGNALS_MAX = 4;
+const FLAT_SIGNALS_MAX = 4;
 
 /** Signals shown per source group before the "Show all" expander. */
 export const GROUP_PREVIEW_COUNT = 2;

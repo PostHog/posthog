@@ -4,21 +4,32 @@ import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
+import { mswDecorator } from '~/mocks/browser'
+import {
+    MCPDashboardQuery,
+    MCPDashboardSection,
+    MCPDashboardSectionResult,
+    MCPModelBreakdownQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+
+import { MCPAnalyticsLeaderboardHome } from '../leaderboardHome/MCPAnalyticsLeaderboardHome'
 import {
     type DailyActivity,
     type HarnessRow,
     type KPIData,
     type KPIMetric,
+    type ModelRow,
     type NotableSession,
-    type ToolDailySeries,
     type ToolRow,
 } from '../mcpDashboardOverviewLogic'
 import { ActivityChart } from './ActivityChart'
-import { HarnessDonut } from './HarnessDonut'
+import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
+import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
-import { ToolUsageChart } from './ToolUsageChart'
+import { ToolLatencyChart } from './ToolLatencyChart'
 
 const DAYS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
 
@@ -36,16 +47,6 @@ const DAILY_ACTIVITY_PARTIAL_TAIL: DailyActivity = {
     errors: [120, 140, 160, 170, 180, 176, 54],
 }
 
-const TOOL_DAILY: ToolDailySeries = {
-    labels: DAYS,
-    tools: [
-        { tool: 'exec', data: [720, 760, 800, 740, 820, 880, 910] },
-        { tool: 'execute-sql', data: [210, 230, 250, 240, 260, 280, 300] },
-        { tool: 'read-data-schema', data: [110, 120, 95, 130, 140, 150, 120] },
-        { tool: 'query-trends', data: [60, 80, 70, 90, 100, 80, 110] },
-    ],
-}
-
 const TOOL_ROWS: ToolRow[] = [
     { tool: 'cohort-create', total_calls: 95, errors: 6, error_rate_pct: 28, p95_duration_ms: 1620 },
     { tool: 'execute-sql', total_calls: 1480, errors: 144, error_rate_pct: 13, p95_duration_ms: 3525 },
@@ -56,12 +57,57 @@ const TOOL_ROWS: ToolRow[] = [
 ]
 
 const HARNESS_ROWS: HarnessRow[] = [
-    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
-    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
-    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
-    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
-    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+    { category: 'OpenAI Codex', total_calls: 4200, errors: 84, error_rate_pct: 2, sessions: 600 },
+    { category: 'Claude Code', total_calls: 2800, errors: 112, error_rate_pct: 4, sessions: 400 },
+    { category: 'Claude Agent SDK', total_calls: 1600, errors: 48, error_rate_pct: 3, sessions: 200 },
+    { category: 'Cursor', total_calls: 1200, errors: 24, error_rate_pct: 2, sessions: 180 },
+    { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
+    { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
+    { category: 'Claude Artifacts', total_calls: 300, errors: 3, error_rate_pct: 1, sessions: 60 },
+    { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
+    { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
+    { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },
+    { category: 'Replit', total_calls: 70, errors: 0, error_rate_pct: 0, sessions: 12 },
+    { category: 'Lovable', total_calls: 50, errors: 1, error_rate_pct: 2, sessions: 10 },
+    { category: 'Kiro', total_calls: 30, errors: 0, error_rate_pct: 0, sessions: 6 },
+    { category: 'Notion', total_calls: 10, errors: 0, error_rate_pct: 0, sessions: 2 },
 ]
+
+const MODEL_ROWS: ModelRow[] = [
+    { model: 'claude-sonnet-5', total_calls: 4200 },
+    { model: 'gpt-5.6-sol', total_calls: 3100 },
+    { model: 'claude-opus-4', total_calls: 2200 },
+    { model: 'Unknown', total_calls: 1400 },
+    { model: 'gemini-2.5-pro', total_calls: 900 },
+    { model: 'gpt-4o', total_calls: 750 },
+    { model: 'Other', total_calls: 580 },
+    { model: 'grok-3', total_calls: 320 },
+]
+
+const ALL_MODEL_ROWS: ModelRow[] = [
+    ...MODEL_ROWS.filter((row) => row.model !== 'Unknown' && row.model !== 'Other'),
+    ...Array.from({ length: 58 }, (_, index) => ({
+        model: `example-provider/model-with-a-long-version-name-${String(index + 1).padStart(2, '0')}`,
+        total_calls: 10,
+    })),
+]
+
+const modelPagesDecorator = mswDecorator({
+    post: {
+        '/api/environments/:team_id/query/:kind': async ({ request }) => {
+            const { query } = (await request.json()) as { query: MCPModelBreakdownQuery }
+            const offset = query.offset ?? 0
+            const limit = query.limit ?? 50
+            return [
+                200,
+                {
+                    results: ALL_MODEL_ROWS.slice(offset, offset + limit),
+                    hasMore: offset + limit < ALL_MODEL_ROWS.length,
+                },
+            ]
+        },
+    },
+})
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -121,6 +167,7 @@ const KPIS: KPIData = {
     toolCalls: metric(31420, 27800, [4100, 4300, 4500, 4720, 4600, 4900, 5100], 'up'),
     errorRatePct: metric(3.6, 4.1, [4.2, 3.9, 3.5, 3.3, 3.7, 3.4, 3.2], 'down'),
     p95LatencyMs: metric(2240, 2380, [1900, 2050, 2100, 2080, 2200, 2150, 2240], 'down'),
+    users: metric(1840, 1655, [262, 271, 280, 294, 288, 301, 312], 'up'),
 }
 
 const meta: Meta = {
@@ -150,12 +197,12 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
                 showIntentClusters
                 theme={buildTheme()}
+                interval="day"
                 incompleteTail={false}
             />
         </div>
@@ -167,13 +214,73 @@ export const KeyMetricsInProgressBucket: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
                 showIntentClusters
                 theme={buildTheme()}
+                interval="day"
                 incompleteTail
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading
+                usersLoading
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsEmptyRange: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={{
+                    sessions: metric(0, 0, [], 'up'),
+                    toolCalls: metric(0, 0, [], 'up'),
+                    errorRatePct: metric(0, 0, [], 'down'),
+                    p95LatencyMs: metric(0, 0, [], 'down'),
+                    users: metric(0, 0, [], 'up'),
+                }}
+                intentClusterCount={metric(0, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsLoadError: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                kpisFailed
+                onRetryKpis={() => {}}
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
             />
         </div>
     ),
@@ -184,6 +291,20 @@ export const DailyCallsAndErrors: Story = {
         <ActivityChart
             daily={DAILY_ACTIVITY}
             loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
+export const DailyCallsAndErrorsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={{ labels: [], successes: [], errors: [] }}
+            loading
             theme={theme}
             timezone="UTC"
             interval="day"
@@ -206,17 +327,157 @@ export const DailyCallsAndErrorsInProgressBucket: Story = {
 }
 
 export const ShareByHarness: Story = {
-    render: withTheme((theme) => <HarnessDonut rows={HARNESS_ROWS} loading={false} theme={theme} />),
+    render: withTheme((theme) => <HarnessBarChart rows={HARNESS_ROWS} loading={false} theme={theme} />),
+}
+
+export const ShareByHarnessNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <HarnessBarChart
+                rows={[
+                    {
+                        category: 'Example custom client with a very long name',
+                        total_calls: 1,
+                        errors: 0,
+                        error_rate_pct: 0,
+                        sessions: 1,
+                    },
+                    ...HARNESS_ROWS.toReversed(),
+                    { category: 'Claude Code (VS Code)', total_calls: 140, errors: 7, error_rate_pct: 5, sessions: 20 },
+                    { category: 'opencode', total_calls: 80, errors: 0, error_rate_pct: 0, sessions: 16 },
+                    { category: 'Antigravity', total_calls: 40, errors: 0, error_rate_pct: 0, sessions: 8 },
+                    { category: 'Grok', total_calls: 20, errors: 1, error_rate_pct: 5, sessions: 4 },
+                ]}
+                loading={false}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
+}
+
+export const ShareByHarnessExpandedNarrow: Story = {
+    ...ShareByHarnessNarrow,
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all harnesses' }))
+    },
+}
+
+export const ShareByHarnessLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => <HarnessBarChart rows={[]} loading theme={theme} />),
+}
+
+export const ShareByHarnessEmpty: Story = {
+    render: withTheme((theme) => <HarnessBarChart rows={[]} loading={false} theme={theme} />),
+}
+
+export const ShareByHarnessOtherOnly: Story = {
+    render: withTheme((theme) => (
+        <HarnessBarChart
+            rows={[{ category: 'Other', total_calls: 15, errors: 0, error_rate_pct: 0, sessions: 3 }]}
+            loading={false}
+            theme={theme}
+        />
+    )),
+}
+
+export const ShareByModel: Story = {
+    decorators: [modelPagesDecorator],
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelExpandedNarrow: Story = {
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all models' }))
+    },
+    decorators: [modelPagesDecorator],
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart rows={MODEL_ROWS} theme={buildTheme()} />
+        </div>
+    ),
+}
+
+export const ShareByModelLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            post: { '/api/environments/:team_id/query/:kind': [500, { detail: 'Could not load models' }] },
+        }),
+    ],
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart
+                rows={[
+                    { model: 'Other', total_calls: 30 },
+                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                    { model: 'gpt-5.6-sol', total_calls: 3100 },
+                    { model: 'Unknown', total_calls: 1400 },
+                    { model: 'example-model-c', total_calls: 800 },
+                    { model: 'example-model-d', total_calls: 600 },
+                    { model: 'example-model-e', total_calls: 400 },
+                    { model: 'example-model-f', total_calls: 1 },
+                ]}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
+}
+
+export const ShareByModelLowCoverage: Story = {
+    render: withTheme((theme) => (
+        <ModelBarChart
+            rows={[
+                { model: 'Unknown', total_calls: 900 },
+                { model: 'example-model', total_calls: 70 },
+                { model: 'Other', total_calls: 30 },
+            ]}
+            theme={theme}
+        />
+    )),
+}
+
+export const ShareByModelFullCoverage: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'example-model', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelUnknownOnly: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'Unknown', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelEmpty: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
 }
 
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
 
-export const DailyToolBreakdown: Story = {
+export const ErrorRateByToolLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => <ToolErrorRateChart rows={[]} loading theme={theme} />),
+}
+
+export const ErrorRateByToolRefreshing: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading theme={theme} />),
+}
+
+export const ErrorRateByToolLoadError: Story = {
     render: withTheme((theme) => (
-        <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
+        <ToolErrorRateChart rows={TOOL_ROWS} loading={false} failed onRetry={() => {}} theme={theme} />
     )),
+}
+
+// The full dashboard stories snapshot this card next to the error-rate card, so this story only checks that it renders.
+export const SlowestToolsByLatency: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: withTheme((theme) => <ToolLatencyChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
 
 export const FlaggedSessions: Story = {
@@ -226,3 +487,68 @@ export const FlaggedSessions: Story = {
         </div>
     ),
 }
+
+export const FlaggedSessionsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: () => (
+        <div className="w-[680px]">
+            <NotableSessionsTable sessions={[]} loading />
+        </div>
+    ),
+}
+
+// The leaderboard also sends queries of other kinds, such as First Look's EventsQuery.
+function answerDashboardSections(
+    answer: (section: MCPDashboardSection) => MCPDashboardSectionResult,
+    otherQueries: [number, object]
+): Story {
+    return {
+        decorators: [
+            mswDecorator({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: MCPDashboardQuery | { kind: string } }
+                        if (query.kind !== NodeKind.MCPDashboardQuery) {
+                            return otherQueries
+                        }
+                        return [
+                            200,
+                            {
+                                results: Object.fromEntries(
+                                    (query as MCPDashboardQuery).sections.map((section) => [section, answer(section)])
+                                ),
+                            },
+                        ]
+                    },
+                },
+            }),
+        ],
+        render: () => (
+            <div className="w-[960px]">
+                <MCPAnalyticsLeaderboardHome />
+            </div>
+        ),
+    }
+}
+
+const UNKNOWN_MODEL_SECTIONS: Partial<Record<MCPDashboardSection, unknown[]>> = {
+    [MCPDashboardSection.ModelRows]: [{ model: 'Unknown', total_calls: 100 }],
+    [MCPDashboardSection.Model]: [['2026-06-07', 'Unknown', 100]],
+}
+
+export const LeaderboardUnknownModels: Story = answerDashboardSections(
+    (section) => ({ results: UNKNOWN_MODEL_SECTIONS[section] ?? [] }),
+    [200, { results: [] }]
+)
+
+const SECTIONS_THAT_LOAD = [
+    MCPDashboardSection.Kpis,
+    MCPDashboardSection.PeriodTotals,
+    MCPDashboardSection.ToolRows,
+    MCPDashboardSection.SessionRows,
+]
+
+export const LeaderboardLoadError: Story = answerDashboardSections(
+    (section) => (SECTIONS_THAT_LOAD.includes(section) ? { results: [] } : { error: 'Query timed out' }),
+    [504, { detail: 'Query timed out' }]
+)

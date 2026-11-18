@@ -14,6 +14,7 @@ import collections.abc
 
 from django.conf import settings
 
+from posthog.clickhouse.workload import Workload
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -22,7 +23,6 @@ from products.batch_exports.backend.service import BackfillDetails, BatchExportF
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
@@ -34,7 +34,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_EVENTS_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
@@ -87,7 +86,6 @@ class ClickHouseTestProducer:
         self,
         queue: RecordBatchQueue,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         is_backfill: bool,
         backfill_details: BackfillDetails | None,
         max_record_batch_size_bytes: int = 0,
@@ -101,7 +99,6 @@ class ClickHouseTestProducer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
-                done_ranges=done_ranges,
             )
         else:
             return await self.start_without_model(
@@ -109,7 +106,6 @@ class ClickHouseTestProducer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 is_backfill=is_backfill,
                 backfill_details=backfill_details,
                 **kwargs,
@@ -119,7 +115,6 @@ class ClickHouseTestProducer:
         self,
         queue: RecordBatchQueue,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -129,7 +124,6 @@ class ClickHouseTestProducer:
             self.produce_batch_export_record_batches_from_range(
                 query_or_model=self.model,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 queue=queue,
                 query_parameters={},
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
@@ -149,12 +143,11 @@ class ClickHouseTestProducer:
         backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str] | None]] | None = None,
+        filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         is_workflows: bool = False,
         **parameters,
@@ -211,9 +204,6 @@ class ClickHouseTestProducer:
             elif is_workflows:
                 self.logger.debug("Using workflows events query for batch export")
                 query_template = SELECT_FROM_EVENTS_WORKFLOWS
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                self.logger.debug("Using events_batch_export_unbounded view for batch export")
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 self.logger.debug("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -249,7 +239,6 @@ class ClickHouseTestProducer:
             self.produce_batch_export_record_batches_from_range(
                 query_or_model=query,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 queue=queue,
                 query_parameters=parameters,
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
@@ -265,7 +254,6 @@ class ClickHouseTestProducer:
         self,
         query_or_model: str | RecordBatchModel,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
         team_id: int,
@@ -278,8 +266,6 @@ class ClickHouseTestProducer:
             query: The ClickHouse query used to obtain record batches. The query should be have a
                 `FORMAT ArrowStream` clause, although we do not enforce this.
             full_range: The full date range of record batches to produce.
-            done_ranges: Date ranges of record batches that have already been exported, and thus
-                should be skipped.
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
             team_id: The team ID of the batch export.
@@ -289,11 +275,6 @@ class ClickHouseTestProducer:
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
-        clickhouse_url = None
-        # 5 min batch exports should query a single node, which is known to have zero replication lag
-        if is_5_min_batch_export(full_range=full_range):
-            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
         # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
         # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
         # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
@@ -301,36 +282,42 @@ class ClickHouseTestProducer:
             delta = dt.timedelta(seconds=30)
         else:
             delta = dt.timedelta(minutes=1)
-        end_at = full_range[1]
-        await wait_for_delta_past_data_interval_end(end_at, delta)
+        interval_start, interval_end = full_range
+        await wait_for_delta_past_data_interval_end(interval_end, delta)
 
-        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        workload = Workload.OFFLINE
+        if isinstance(query_or_model, RecordBatchModel):
+            query, context = await query_or_model.as_query_with_context(interval_start, interval_end)
+            query_parameters = context.values
+            workload = context.workload or Workload.OFFLINE
+        else:
+            query = query_or_model
+
+        clickhouse_url = None
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url, workload=workload) as client:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-                if interval_start is not None:
-                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_id = uuid.uuid4()
-                self.logger.debug("Executing query with ID '%s'", query_id)
+            query_id = uuid.uuid4()
+            self.logger.debug("Executing query with ID '%s'", query_id)
 
-                if isinstance(query_or_model, RecordBatchModel):
-                    query, query_parameters = await query_or_model.as_query_with_parameters(
-                        interval_start, interval_end
-                    )
-                else:
-                    query = query_or_model
-
-                try:
-                    async for record_batch in client.astream_query_as_arrow(
-                        query, query_parameters=query_parameters, query_id=str(query_id)
+            try:
+                async for record_batch in client.astream_query_as_arrow(
+                    query, query_parameters=query_parameters, query_id=str(query_id)
+                ):
+                    for record_batch_slice in slice_record_batch(
+                        record_batch, max_record_batch_size_bytes, min_records_per_batch
                     ):
-                        for record_batch_slice in slice_record_batch(
-                            record_batch, max_record_batch_size_bytes, min_records_per_batch
-                        ):
-                            await queue.put(record_batch_slice)
+                        await queue.put(record_batch_slice)
 
-                except Exception as e:
-                    self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
-                    raise
+            except Exception as e:
+                self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise

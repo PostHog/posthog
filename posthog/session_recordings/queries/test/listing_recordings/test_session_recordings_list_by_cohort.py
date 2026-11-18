@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -26,7 +26,7 @@ from posthog.test.persons import create_person
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -49,7 +49,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_cohort_properties(self) -> None:
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 user_one = "test_filter_with_cohort_properties-user"
                 user_two = "test_filter_with_cohort_properties-user2"
                 session_id_one = "session_not_in_cohort"
@@ -137,7 +137,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_static_and_dynamic_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 user_one = "test_filter_with_cohort_properties-user-in-static-cohort"
                 user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
                 user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
@@ -325,7 +325,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_events_and_cohorts(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 user_one = "test_filter_with_events_and_cohorts-user"
                 user_two = "test_filter_with_events_and_cohorts-user2"
                 session_id_one = f"test_filter_with_events_and_cohorts-1-{str(uuid4())}"
@@ -443,7 +443,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_internal_account_filter_with_cohort_properties(self) -> None:
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 user_one = "test_filter_with_cohort_properties-user"
                 user_two = "test_filter_with_cohort_properties-user2"
                 session_id_one = "session_not_in_cohort"
@@ -529,7 +529,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         The filter would incorrectly match because it checked ALL person_ids before applying argMax.
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 distinct_id = "user-with-multiple-person-ids"
                 session_id = "session-should-not-be-filtered"
 
@@ -640,7 +640,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         2. The query uses an efficient JOIN-based approach instead of IN subquery
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 # Create a small "internal users" cohort (like employees)
                 internal_user = "internal-employee@company.com"
                 session_internal = "session-internal-user"
@@ -736,7 +736,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         All sessions should be returned since no one is in the cohort.
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 user = "test-user@example.com"
                 session_id = "session-with-empty-cohort"
 
@@ -808,7 +808,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         other property filters (like event properties or person properties).
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 internal_user = "internal@company.com"
                 premium_external = "premium@customer.com"
                 free_external = "free@customer.com"
@@ -894,7 +894,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         This tests the case where a user wants to exclude multiple cohorts.
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 internal_user = "internal@company.com"
                 beta_user = "beta@customer.com"
                 regular_user = "regular@customer.com"
@@ -976,7 +976,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         With OR, sessions matching ANY cohort condition should be returned.
         """
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
+            with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
                 internal_user = "internal@company.com"
                 beta_user = "beta@customer.com"
                 regular_user = "regular@customer.com"

@@ -2,12 +2,16 @@ import { Gauge, register } from 'prom-client'
 
 import {
     ProducerStatsTracker,
-    kafkaProducerAnyBrokersDown,
+    kafkaProducerBrokerLatencySeconds,
+    kafkaProducerBrokers,
+    kafkaProducerBusiestBrokerRequestsInFlight,
     kafkaProducerCallbackQueueDepth,
     kafkaProducerQueueBytes,
     kafkaProducerQueueMaxBytes,
     kafkaProducerQueueMaxMessages,
     kafkaProducerQueueMessages,
+    kafkaProducerRequestsInFlight,
+    kafkaProducerRequestsQueued,
     kafkaProducerTopicBatchCountAvg,
     kafkaProducerTopicBatchSizeBytesAvg,
 } from './kafka-producer-metrics'
@@ -48,31 +52,93 @@ describe('ProducerStatsTracker', () => {
         expect(await gaugeValue(kafkaProducerCallbackQueueDepth, labels)).toBe(7)
     })
 
-    it('flags any broker not UP via kafkaProducerAnyBrokersDown', async () => {
+    it('counts brokers per librdkafka state', async () => {
         const tracker = new ProducerStatsTracker('DEFAULT')
 
         tracker.track(
             makeStats({
                 brokers: {
-                    'kafka-1:9092/1': { state: 'UP' },
-                    'kafka-2:9092/2': { state: 'DOWN' },
+                    'kafka-1:9092/1': { nodeid: 1, state: 'UP' },
+                    'kafka-2:9092/2': { nodeid: 2, state: 'UP' },
+                    'kafka-3:9092/3': { nodeid: 3, state: 'DOWN' },
+                    'kafka-4:9092/4': { nodeid: 4, state: 'INIT' },
                 },
             })
         )
 
-        expect(await gaugeValue(kafkaProducerAnyBrokersDown, { producer_name: 'DEFAULT' })).toBe(1)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'UP' })).toBe(2)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'DOWN' })).toBe(1)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'INIT' })).toBe(1)
     })
 
-    it('reports zero when all known brokers are UP', async () => {
+    it('excludes bootstrap entries from broker counts', async () => {
         const tracker = new ProducerStatsTracker('DEFAULT')
 
         tracker.track(
             makeStats({
-                brokers: { 'kafka-1:9092/1': { state: 'UP' }, 'kafka-2:9092/2': { state: 'UP' } },
+                brokers: {
+                    'kafka-1:9092/bootstrap': { nodeid: -1, state: 'DOWN' },
+                    'kafka-1:9092/1': { nodeid: 1, state: 'UP' },
+                },
             })
         )
 
-        expect(await gaugeValue(kafkaProducerAnyBrokersDown, { producer_name: 'DEFAULT' })).toBe(0)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'UP' })).toBe(1)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'DOWN' })).toBeUndefined()
+    })
+
+    it('resets a state to zero once no broker is in it any more', async () => {
+        const tracker = new ProducerStatsTracker('DEFAULT')
+
+        tracker.track(makeStats({ brokers: { 'kafka-1:9092/1': { nodeid: 1, state: 'DOWN' } } }))
+        tracker.track(makeStats({ brokers: { 'kafka-1:9092/1': { nodeid: 1, state: 'UP' } } }))
+
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'DOWN' })).toBe(0)
+        expect(await gaugeValue(kafkaProducerBrokers, { producer_name: 'DEFAULT', state: 'UP' })).toBe(1)
+    })
+
+    it('rolls up broker requests and latency windows across learned brokers', async () => {
+        const tracker = new ProducerStatsTracker('DEFAULT')
+
+        tracker.track(
+            makeStats({
+                brokers: {
+                    'kafka-1:9092/bootstrap': {
+                        nodeid: -1,
+                        state: 'UP',
+                        waitresp_cnt: 100,
+                        outbuf_cnt: 100,
+                        rtt: { sum: 90_000_000, cnt: 1, p99: 90_000_000 },
+                    },
+                    'kafka-1:9092/1': {
+                        nodeid: 1,
+                        state: 'UP',
+                        waitresp_cnt: 5,
+                        outbuf_cnt: 7,
+                        rtt: { sum: 1_200_000, cnt: 3, p99: 600_000 },
+                        outbuf_latency: { sum: 0, cnt: 0, p99: 0 },
+                    },
+                    'kafka-2:9092/2': {
+                        nodeid: 2,
+                        state: 'UP',
+                        waitresp_cnt: 2,
+                        outbuf_cnt: 0,
+                        rtt: { sum: 200_000, cnt: 1, p99: 200_000 },
+                    },
+                },
+            })
+        )
+
+        const labels = { producer_name: 'DEFAULT' }
+        expect(await gaugeValue(kafkaProducerRequestsInFlight, labels)).toBe(7)
+        expect(await gaugeValue(kafkaProducerBusiestBrokerRequestsInFlight, labels)).toBe(5)
+        expect(await gaugeValue(kafkaProducerRequestsQueued, labels)).toBe(7)
+        const latency = (name: string, stat: string): Promise<number | undefined> =>
+            gaugeValue(kafkaProducerBrokerLatencySeconds, { ...labels, latency: name, stat })
+        expect(await latency('round_trip', 'mean')).toBeCloseTo(0.35)
+        expect(await latency('round_trip', 'max_p99')).toBeCloseTo(0.6)
+        expect(await latency('request_queue', 'mean')).toBe(0)
+        expect(await latency('request_queue', 'max_p99')).toBe(0)
     })
 
     it('sets per-topic batching gauges', async () => {

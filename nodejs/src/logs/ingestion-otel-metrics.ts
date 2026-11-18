@@ -22,9 +22,12 @@ interface LogsIngestionInstruments {
     recordsAllowed: Counter
     bytesDropped: Counter
     recordsDropped: Counter
+    internalBytes: Counter
+    internalRecords: Counter
     messagesDropped: Counter
     messagesDlq: Counter
     processingDuration: Histogram
+    jsonEnrichmentSkipped: Counter
 }
 
 /** Keep in lockstep with the logs_ingestion_processing_duration_seconds prom buckets. */
@@ -39,6 +42,9 @@ function getInstruments(): LogsIngestionInstruments {
             bytesReceived: createCounterWithExemplars(meter, 'logs_ingestion_bytes_received_total', {
                 description: 'Total uncompressed bytes received for logs ingestion',
                 unit: 'By',
+            }),
+            jsonEnrichmentSkipped: createCounterWithExemplars(meter, 'logs_ingestion_json_enrichment_skipped_total', {
+                description: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
             }),
             recordsReceived: createCounterWithExemplars(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',
@@ -56,6 +62,14 @@ function getInstruments(): LogsIngestionInstruments {
             }),
             recordsDropped: createCounterWithExemplars(meter, 'logs_ingestion_records_dropped_total', {
                 description: 'Total log records dropped due to quota or rate limiting',
+            }),
+            internalBytes: createCounterWithExemplars(meter, 'logs_ingestion_internal_bytes_total', {
+                description:
+                    'Uncompressed bytes of verified internal logs, which stay out of the received and allowed counters',
+                unit: 'By',
+            }),
+            internalRecords: createCounterWithExemplars(meter, 'logs_ingestion_internal_records_total', {
+                description: 'Records of verified internal logs, which stay out of the received and allowed counters',
             }),
             messagesDropped: createCounterWithExemplars(meter, 'logs_ingestion_message_dropped_count', {
                 description: 'The number of logs ingestion messages dropped',
@@ -85,6 +99,10 @@ export const recordLogsReceived = swallowing((bytes: number, records: number): v
     addPositive(recordsReceived, records)
 })
 
+export const recordJsonEnrichmentSkipped = swallowing((reason: string, source: string): void => {
+    getInstruments().jsonEnrichmentSkipped.add(1, { reason, source })
+})
+
 export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
     const { bytesAllowed, recordsAllowed } = getInstruments()
     addPositive(bytesAllowed, bytes)
@@ -98,6 +116,13 @@ export const recordLogsDropped = swallowing((teamId: number, bytes: number, reco
     addPositive(recordsDropped, records, attributes)
 })
 
+export const recordInternalLogs = swallowing((teamId: number, bytes: number, records: number): void => {
+    const { internalBytes, internalRecords } = getInstruments()
+    const attributes = { team_id: teamId.toString() }
+    addPositive(internalBytes, bytes, attributes)
+    addPositive(internalRecords, records, attributes)
+})
+
 export const recordLogMessageDropped = swallowing((reason: string, teamId: string, count: number = 1): void => {
     addPositive(getInstruments().messagesDropped, count, { reason, team_id: teamId })
 })
@@ -109,7 +134,12 @@ export const recordLogMessageDlq = swallowing((reason: string, teamId: string): 
 export const recordLogProcessingDuration = swallowing(
     (
         seconds: number,
-        attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
+        attributes: {
+            json_parse_enabled: string
+            pii_scrub_enabled: string
+            attribute_extraction_enabled: string
+            compression_codec: string
+        }
     ): void => {
         getInstruments().processingDuration.record(seconds, attributes)
     }

@@ -87,7 +87,9 @@ class BackfillScannerWorkflow(PostHogWorkflow):
         if find_result.candidates:
             # Deterministic child ids collide with live-sweep applies of the same (scanner, session), so
             # a session observed live is skipped here for free.
-            await asyncio.gather(*(self._start_child(inputs, c) for c in find_result.candidates))
+            await asyncio.gather(
+                *(self._start_child(inputs, c, find_result.variant_sampling_rates) for c in find_result.candidates)
+            )
 
         # The activity decides how far the walk got, since it can step over sessions that were
         # already observed but must not step over ones the caps held back.
@@ -126,7 +128,12 @@ class BackfillScannerWorkflow(PostHogWorkflow):
                 "replay_vision.backfill_schedule_delete_failed", extra={"backfill_id": str(inputs.backfill_id)}
             )
 
-    async def _start_child(self, inputs: BackfillTickInputs, candidate: CandidateSessionPayload) -> None:
+    async def _start_child(
+        self,
+        inputs: BackfillTickInputs,
+        candidate: CandidateSessionPayload,
+        variant_sampling_rates: dict[str, float] | None,
+    ) -> None:
         try:
             await wf.start_child_workflow(
                 APPLY_SCANNER_WORKFLOW_NAME,
@@ -136,6 +143,7 @@ class BackfillScannerWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     triggered_by=ObservationTrigger.BACKFILL,
                     backfill_id=inputs.backfill_id,
+                    variant_sampling_rates=variant_sampling_rates,
                 ),
                 id=build_apply_scanner_workflow_id(inputs.scanner_id, candidate.session_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

@@ -14,21 +14,22 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{
-    is_fetchable_image_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
-    INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+    has_usable_srcset, is_at_most_one_pixel, is_fetchable_image_attr, is_image_ref_attr,
+    is_media_src_attr, px_length, IMAGE_REF_ATTR_PREFIX, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS,
+    PLACEHOLDER_SRC,
 };
-use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::{Ctx, ImageSource};
+use crate::context::{CountCheckpoint, Ctx, ImageSource};
 use crate::css;
+use crate::data_uri::is_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
     ParentKind, TagKind,
 };
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
-use crate::images::ImageFallback;
 use crate::scan::{self, Span};
-use crate::srcset::largest_candidate;
+use crate::srcset::candidate_for_scrubbing;
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
 
@@ -236,9 +237,7 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    // Through `cv::compress_scrubbed`, never the raw codec: the walk may have substituted deferred
-    // image tokens into `walked`, and compression is the last moment they can still be resolved.
-    let zs = crate::cv::compress_scrubbed(ctx, content).ok()?;
+    let zs = crate::cv::compress_scrubbed(content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -602,7 +601,9 @@ impl<'c, 'a> Walker<'c, 'a> {
         let base = self.seen.len();
         let node_mark = out.len();
         let changed_before = self.changed;
-        let result = self.walk_node_inner(base, start, parent, node_mark, changed_before, out);
+        let counts = self.ctx.count_checkpoint();
+        let result =
+            self.walk_node_inner(base, start, parent, node_mark, changed_before, counts, out);
         self.seen.truncate(base);
         self.depth -= 1;
         result
@@ -616,6 +617,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         parent: ParentKind,
         node_mark: usize,
         changed_before: bool,
+        counts: CountCheckpoint,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         let bytes = self.bytes;
@@ -629,6 +631,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         let mut attrs_m: Option<(Span, Span)> = None;
         // childNodes: emitted range in `out` + source span, for the rare late splice.
         let mut children: Option<((usize, usize), Span, Span)> = None;
+        // Counts before the optimistic children walk, restored when that walk is redone.
+        let mut children_counts = counts;
 
         let mut pos = start + 1;
         let mut first = true;
@@ -689,6 +693,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     out.extend_from_slice(&bytes[key.0 - 1..key_end]);
                     out.push(b':');
                     let seg_start = out.len();
+                    children_counts = self.ctx.count_checkpoint();
                     let vend = self.walk_array(vstart, out, &mut |w, p, o| {
                         w.walk_node(p, ParentKind::Other, o)
                     })?;
@@ -725,12 +730,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_ELEMENT) => {
                 if let (TagKind::Script, Some((seg, _, src))) = (kind, children) {
                     // Script content is code — the tree leaves the children untouched.
+                    self.ctx.discard_walk(children_counts);
                     let verbatim = &bytes[src.0..src.1];
                     out.splice(seg.0..seg.1, verbatim.iter().copied());
                 }
                 if let (TagKind::Style, Some((seg, _, src))) = (kind, children) {
                     // Style children are CSS text: rebuild that segment with the style parent.
                     let mut tmp = Vec::with_capacity(src.1 - src.0);
+                    self.ctx.restore_counts(children_counts);
                     self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
                         w.walk_node(p, ParentKind::Style, o)
                     })?;
@@ -739,13 +746,14 @@ impl<'c, 'a> Walker<'c, 'a> {
                 if tag.eq_ignore_ascii_case("picture") {
                     if let Some((seg, _, src)) = children {
                         let mut tmp = Vec::with_capacity(src.1 - src.0);
+                        self.ctx.restore_counts(children_counts);
                         self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
                             w.walk_node(p, ParentKind::Picture, o)
                         })?;
                         out.splice(seg.0..seg.1, tmp.iter().copied());
                     }
                 }
-                // Attributes with the real tag kind (media blur vs plain scrubs).
+                // Attributes with the real tag kind (media sources vs plain scrubs).
                 if let Some((key, v)) = attrs_m {
                     if self.find_member(v.0, b"style").ok()?.is_some()
                         || self
@@ -753,10 +761,20 @@ impl<'c, 'a> Walker<'c, 'a> {
                             .ok()?
                             .is_some()
                     {
-                        return self.redo_node(start, end, parent, node_mark, out);
+                        return self.redo_node(start, end, parent, node_mark, counts, out);
                     }
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    self.walk_attrs(v.0, kind, &tag, parent == ParentKind::Picture, out)?;
+                    let hidden_pixel = tag.eq_ignore_ascii_case("img")
+                        && self.ctx.collects_urls()
+                        && self.attrs_hide_pixel(v.0).ok()?;
+                    self.walk_attrs(
+                        v.0,
+                        kind,
+                        &tag,
+                        parent == ParentKind::Picture,
+                        hidden_pixel,
+                        out,
+                    )?;
                 }
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -766,6 +784,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_TEXT) if parent == ParentKind::Script => {
                 // The tree never touches script text nodes: undo and re-emit verbatim.
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);
@@ -773,7 +792,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_TEXT) | Some(NODE_COMMENT) | Some(NODE_CDATA) => {
                 if children.map(|(seg, ..)| seg.0 != seg.1).unwrap_or(false) && node_changed {
                     // A text-ish node with scrubbed childNodes has no tree equivalent: redo.
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 let styled = ty == Some(NODE_TEXT)
                     && (parent == ParentKind::Style
@@ -781,7 +800,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                             .map(|(_, v)| bytes.get(v.0..v.1) == Some(b"true"))
                             .unwrap_or(false));
                 if styled && text_m.is_some() {
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 if let Some((key, v)) = text_m {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -796,7 +815,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 if attrs_m.is_some() {
                     // The tree ignores document attributes but still scrubs the children — no
                     // optimistic emission matches that; let the tree do this node.
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 // Children stay as walked (documents parent as Other); scalars verbatim.
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
@@ -809,6 +828,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             // re-emit verbatim either way.
             _ => {
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);
@@ -826,10 +846,12 @@ impl<'c, 'a> Walker<'c, 'a> {
         end: usize,
         parent: ParentKind,
         node_mark: usize,
+        counts: CountCheckpoint,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         use simd_json::prelude::Writable;
         out.truncate(node_mark);
+        self.ctx.restore_counts(counts);
         let span = &self.bytes[start..end];
         crate::json::reject_if_too_deep(span, "node").ok()?;
         let mut scratch = span.to_vec();
@@ -842,7 +864,84 @@ impl<'c, 'a> Walker<'c, 'a> {
         Some(end)
     }
 
-    /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).
+    /// One pass over an object for several keys. An escaped key or a repeated wanted key makes the
+    /// tree path decide, because that path sees the decoded key and keeps the last duplicate, and a
+    /// side effect taken here on a different reading could not be rolled back.
+    fn find_members<const N: usize>(
+        &self,
+        obj_start: usize,
+        names: [&[u8]; N],
+    ) -> Result<[Option<Span>; N], Fallback> {
+        const PRESCAN_BUDGET: usize = 4096;
+        let bytes = self.bytes;
+        let budget_end = obj_start.saturating_add(PRESCAN_BUDGET);
+        let mut found: [Option<Span>; N] = [None; N];
+        let mut pos = obj_start + 1;
+        let mut first = true;
+        loop {
+            pos = scan::skip_ws(bytes, pos);
+            if bytes.get(pos) == Some(&b'}') {
+                return Ok(found);
+            }
+            if pos >= budget_end {
+                return Err(Fallback);
+            }
+            if !first {
+                if bytes.get(pos) != Some(&b',') {
+                    return Ok(found);
+                }
+                pos = scan::skip_ws(bytes, pos + 1);
+            }
+            first = false;
+            if bytes.get(pos) != Some(&b'"') {
+                return Ok(found);
+            }
+            let key_end = scan::skip_string(bytes, pos).map_err(|_| Fallback)?;
+            let key = &bytes[pos + 1..key_end - 1];
+            if key.contains(&b'\\') {
+                return Err(Fallback);
+            }
+            pos = scan::skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return Ok(found);
+            }
+            let vspan = scan::locate_value(bytes, pos + 1).map_err(|_| Fallback)?;
+            if let Some(index) = names.iter().position(|name| *name == key) {
+                if found[index].is_some() {
+                    return Err(Fallback);
+                }
+                found[index] = Some(vspan);
+            }
+            pos = vspan.1;
+        }
+    }
+
+    /// The attribute half of `assets::is_hidden_pixel`. The style half never reaches this walker,
+    /// because `walk_node` sends every element with a `style` attribute to the tree path first.
+    fn attrs_hide_pixel(&self, obj_start: usize) -> Result<bool, Fallback> {
+        let [hidden, width, height] =
+            self.find_members(obj_start, [b"hidden", b"width", b"height"])?;
+        if hidden.is_some() {
+            return Ok(true);
+        }
+        Ok(is_at_most_one_pixel(
+            self.px_length_at(width)?,
+            self.px_length_at(height)?,
+        ))
+    }
+
+    fn px_length_at(&self, span: Option<Span>) -> Result<Option<f64>, Fallback> {
+        let Some(span) = span else {
+            return Ok(None);
+        };
+        if scan::is_string(self.bytes, span) {
+            let text = scan::unescape(self.bytes, span).map_err(|_| Fallback)?;
+            return Ok(px_length(&text));
+        }
+        Ok(scan::parse_number(self.bytes, span))
+    }
+
+    /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including media sources).
     /// Namespaced attrs are appended before the closing brace; the tree path inserts them into the
     /// map instead, which is the same object semantically.
     fn walk_attrs(
@@ -851,11 +950,23 @@ impl<'c, 'a> Walker<'c, 'a> {
         kind: TagKind,
         tag: &str,
         parent_is_picture: bool,
+        hidden_pixel: bool,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         if self.bytes.get(start) != Some(&b'{') {
             return self.copy_value(start, out);
         }
+        let prefer_srcset = if tag.eq_ignore_ascii_case("img") {
+            match self.find_member(start, b"srcset").ok()? {
+                Some(span) if scan::is_string(self.bytes, span) => {
+                    let value = scan::unescape(self.bytes, span).ok()?;
+                    has_usable_srcset(&value, self.ctx)
+                }
+                _ => false,
+            }
+        } else {
+            false
+        };
         let mut stashes: Vec<(String, String)> = Vec::new();
         let end = {
             let stashes = &mut stashes;
@@ -868,7 +979,24 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return None;
                 }
                 if kind == TagKind::Media && is_media_src_attr(name) {
-                    return w.blur_media_src(name, vstart, tag, parent_is_picture, out, stashes);
+                    if prefer_srcset
+                        && matches!(name, "src" | "rr_src")
+                        && w.bytes.get(vstart) == Some(&b'"')
+                    {
+                        let end = scan::skip_string(w.bytes, vstart).ok()?;
+                        scan::write_json_string(PLACEHOLDER_SRC, out);
+                        w.changed = true;
+                        return Some(end);
+                    }
+                    return w.scrub_media_src(
+                        name,
+                        vstart,
+                        tag,
+                        parent_is_picture,
+                        hidden_pixel,
+                        out,
+                        stashes,
+                    );
                 }
                 if name == INLINE_IMAGE_ATTR {
                     return w.scrub_string_value(vstart, out, |w, s| {
@@ -920,32 +1048,36 @@ impl<'c, 'a> Walker<'c, 'a> {
         Some(end)
     }
 
-    /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
+    /// One media source attribute (mirrors `assets::scrub_media_sources` for a single key): data images go to
+    /// the image scrub; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
     /// host-scrubbed original are stashed alongside.
-    fn blur_media_src(
+    /// `hidden_pixel` is true for an `img` nobody can see. The collector counts that refusal once
+    /// per URL, so `src` and `srcset` naming one URL, and a re-walk after a fallback, count once.
+    #[allow(clippy::too_many_arguments)]
+    fn scrub_media_src(
         &mut self,
         name: &str,
         vstart: usize,
         tag: &str,
         parent_is_picture: bool,
+        hidden_pixel: bool,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
         let bytes = self.bytes;
         if bytes.get(vstart) != Some(&b'"') {
-            // Non-string media source: apply_blur skips it.
+            // Non-string media source: scrub_media_sources skips it.
             return self.copy_value(vstart, out);
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
-        // See `assets::apply_blur`: only on an explicitly trusted re-scrub, and only for a
+        // See `assets::scrub_media_sources`: only on an explicitly trusted re-scrub, and only for a
         // fully well-formed ref.
         if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
             return self.copy_value(vstart, out);
         }
         let selected = if name == "srcset" {
-            largest_candidate(existing.as_ref()).map(str::to_string)
+            candidate_for_scrubbing(existing.as_ref()).map(str::to_string)
         } else {
             Some(existing.into_owned())
         };
@@ -956,19 +1088,22 @@ impl<'c, 'a> Walker<'c, 'a> {
         };
         let property = MEDIA_SRC_ATTRS.iter().copied().find(|attr| *attr == name)?;
         if is_image_data_uri(&selected) {
-            let blurred = self.ctx.scrub_image_from(
+            let scrubbed = self.ctx.scrub_image_from(
                 &selected,
                 ImageFallback::Placeholder,
                 ImageSource::HtmlAttribute(property),
             );
-            scan::write_json_string(&blurred, out);
+            scan::write_json_string(&scrubbed, out);
         } else {
-            let collected = is_fetchable_image_attr(name, tag, parent_is_picture)
-                .then(|| {
-                    self.ctx
-                        .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
-                })
-                .flatten();
+            let collected = if !is_fetchable_image_attr(name, tag, parent_is_picture) {
+                None
+            } else if hidden_pixel {
+                self.ctx.decline_url(&selected, "hidden_pixel");
+                None
+            } else {
+                self.ctx
+                    .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
+            };
             let scrubbed = scrub_url(self.ctx, &selected).unwrap_or_else(|| selected.clone());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             if let Some(url_ref) = collected {
@@ -1027,7 +1162,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         };
                         // Mutation attributes carry no tag, so a `src` here is not known to be
                         // an image. Decline rather than guess.
-                        w.walk_attrs(vstart, kind, "", false, out)
+                        w.walk_attrs(vstart, kind, "", false, false, out)
                     }
                     _ => w.copy_value(vstart, out),
                 },
@@ -1071,7 +1206,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 }
                 let content = if changed { &walked } else { &decompressed };
                 // See `scrub_cv_snapshot_value`: the barrier, not the raw codec.
-                let zs = crate::cv::compress_scrubbed(self.ctx, content).ok()?;
+                let zs = crate::cv::compress_scrubbed(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

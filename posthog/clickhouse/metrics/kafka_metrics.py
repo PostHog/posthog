@@ -11,7 +11,7 @@ HCL definitions — the multinode convergence gate diffs the live schema against
 
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplicationScheme
 
 from .metric_events import SAMPLES_TABLE_NAME, SERIES_TABLE_NAME
@@ -53,7 +53,7 @@ ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = 8,
+    kafka_num_consumers = {kafka_num_consumers(8)},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000
 """
@@ -140,17 +140,20 @@ SETTINGS
 """
 
 
-def METRICS_KAFKA_METRICS_TABLE_SQL():
-    return f"""
-CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_METRICS_TABLE_NAME}
-(
-    `_partition` UInt32,
+KAFKA_METRICS_COLUMNS = """    `_partition` UInt32,
     `_topic` String,
     `max_offset` SimpleAggregateFunction(max, UInt64),
     `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
     `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
-    `max_lag` SimpleAggregateFunction(max, UInt64)
+    `max_lag` SimpleAggregateFunction(max, UInt64)"""
+
+
+def METRICS_KAFKA_METRICS_TABLE_SQL():
+    return f"""
+CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_METRICS_TABLE_NAME}
+(
+{KAFKA_METRICS_COLUMNS}
 )
 ENGINE = {AggregatingMergeTree(KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (_topic, _partition)

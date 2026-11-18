@@ -10,12 +10,10 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
-import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,14 +23,17 @@ import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/schema/node-guards'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
+import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { hasBreakdown } from '../funnelUtils'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
+import { formatFunnelTrendsCounts } from '../shared/funnelTrendsCounts'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
@@ -223,7 +224,10 @@ export function FunnelLineChart({
                 dateRange={insightData?.resolved_date_range ?? undefined}
                 groupTypeLabel={resolvedGroupTypeLabel}
                 renderSeriesOverride={(datum) => datum.label ?? ''}
-                renderCount={(value) => `${value}%`}
+                renderCount={(value, entry) => {
+                    const counts = entry.series.meta ? formatFunnelTrendsCounts(entry.series.meta, ctx.dataIndex) : null
+                    return counts ? `${value}% (${counts})` : `${value}%`
+                }}
                 onRowClick={
                     showPersonsModal
                         ? (datum) => {
@@ -259,6 +263,7 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && showPersonsModal ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"

@@ -6,6 +6,7 @@ const NO_HIDDEN: ReadonlySet<SettingsCategory> = new Set();
 
 describe("searchSettings", () => {
   it.each([
+    ["finds backups by export", "export sounds", "Back up settings and sounds"],
     ["matches labels case-insensitively", "THEME", "Theme"],
     [
       "matches keywords the label doesn't contain",
@@ -13,6 +14,11 @@ describe("searchSettings", () => {
       "Spoken narration",
     ],
     ["ranks a label prefix above keyword hits", "dock badge", "Dock badge"],
+    [
+      "finds Simplified Technical English by its standard name",
+      "STE100",
+      "Simplified Technical English (ASD-STE100)",
+    ],
   ])("%s", (_name, query, expectedFirstLabel) => {
     const results = searchSettings(query, NO_HIDDEN);
     expect(results[0]?.label).toBe(expectedFirstLabel);
@@ -26,5 +32,9 @@ describe("searchSettings", () => {
     const hidden: ReadonlySet<SettingsCategory> = new Set(["terminal"]);
     const results = searchSettings("terminal", hidden);
     expect(results.every((r) => r.category !== "terminal")).toBe(true);
+  });
+
+  it("hides backup search when the host does not provide file access", () => {
+    expect(searchSettings("backup", NO_HIDDEN, false)).toEqual([]);
   });
 });

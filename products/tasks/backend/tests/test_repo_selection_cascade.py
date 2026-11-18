@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.integration import Integration
 
-from products.tasks.backend.logic.repo_selection.agent import list_team_connected_repositories
+from products.tasks.backend.logic.repo_selection.agent import list_team_connected_repositories, team_repository_names
 from products.tasks.backend.logic.repo_selection.cascade import cascade_select_repository, select_repository_for_message
 from products.tasks.backend.models import Task
 
@@ -52,6 +52,18 @@ class TestCascadeSelectRepository:
         resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog"])
         with resolve, list_repos:
             assert cascade_select_repository(1, 2, "", single_repo_wins=single_repo_wins) == expected
+
+    def test_archived_lone_repo_is_not_taken(self):
+        # An archived repo accepts no pull request, so single_repo_wins must drop it before the
+        # lone-repo shortcut. Dropping the team's only repo leaves no candidate, so the caller starts
+        # repo-less rather than targeting an unpushable repo. A repo cached before the flag existed
+        # carries no `archived` and stays a candidate.
+        github = MagicMock()
+        github.list_all_cached_repositories.return_value = [
+            {"full_name": "owner/retired", "archived": True},
+        ]
+        with patch(f"{_CASCADE}.resolve_team_github_integration", return_value=github):
+            assert cascade_select_repository(1, 2, "", single_repo_wins=True) is None
 
     @pytest.mark.django_db
     def test_unsynced_cache_is_read_without_a_live_sync(self, team):
@@ -104,3 +116,15 @@ class TestListTeamConnectedRepositories:
         ]
         with patch(f"{_AGENT}.resolve_team_github_integration", return_value=github):
             assert list_team_connected_repositories(1) == ["owner/active", "owner/unknown"]
+
+
+class TestTeamRepositoryNames:
+    def test_keys_are_lowercased_and_values_keep_github_casing(self):
+        github = MagicMock()
+        github.list_all_cached_repositories.return_value = [
+            {"full_name": "Acme/Web"},
+            {"full_name": "acme/api"},
+            {"name": "no-full-name"},
+        ]
+        with patch(f"{_AGENT}.resolve_team_github_integration", return_value=github):
+            assert team_repository_names(1) == {"acme/web": "Acme/Web", "acme/api": "acme/api"}

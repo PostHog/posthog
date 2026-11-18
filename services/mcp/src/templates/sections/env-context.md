@@ -1,3 +1,3 @@
-{defined_groups}
+### Active environment
 
-{metadata}
+{env_lookups}

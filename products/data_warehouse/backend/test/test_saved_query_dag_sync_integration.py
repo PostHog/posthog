@@ -33,7 +33,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         assert node.dag is not None
         self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
 
-    def test_update_saved_query_syncs_to_dag(self):
+    def test_rename_saved_query_syncs_name_to_dag(self):
         # create
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -48,19 +48,11 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         saved_query_id = create_response.json()["id"]
-        latest_history_id = create_response.json().get("latest_history_id")
 
-        # update
+        # rename
         update_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/",
-            {
-                "name": "dag_sync_update_test_renamed",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "SELECT 2",
-                },
-                "edited_history_id": latest_history_id,
-            },
+            {"name": "dag_sync_update_test_renamed"},
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
@@ -69,6 +61,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         assert node is not None
         assert node.saved_query is not None
         self.assertEqual(node.saved_query.name, "dag_sync_update_test_renamed")
+        self.assertEqual(node.name, "dag_sync_update_test_renamed")
 
     def test_delete_saved_query_removes_from_dag(self):
         # create
@@ -88,17 +81,35 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertTrue(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
         # delete
-        delete_response = self.client.delete(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
+            )
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_saved_query_workflow")
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_materialize_updates_node_type(self, _mock_workflow_exists, _mock_sync_workflow):
+    def test_a_delete_that_fails_before_the_soft_delete_keeps_the_node(self):
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "dag_sync_failed_delete_test", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        saved_query_id = create_response.json()["id"]
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "revert_materialization", side_effect=RuntimeError("boom")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            delete_response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
+            )
+
+        self.assertEqual(delete_response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertTrue(Node.objects.filter(saved_query_id=saved_query_id).exists())
+
+    def test_materialize_updates_node_type(self):
         # create
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -117,17 +128,18 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(node.type, NodeType.VIEW)
 
         # materialize
-        materialize_response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize/"
-        )
+        with patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(node.dag_id)},
+        ):
+            materialize_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize/"
+            )
         self.assertEqual(materialize_response.status_code, status.HTTP_200_OK)
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True
-    )
-    def test_revert_materialization_updates_node_type(self, _mock_workflow_exists):
+    def test_revert_materialization_updates_node_type(self):
         # create materialized
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -153,10 +165,9 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.save()
 
         # revert materialization
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"):
-            revert_response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization/"
-            )
+        revert_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization/"
+        )
         self.assertEqual(revert_response.status_code, status.HTTP_200_OK)
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.VIEW)

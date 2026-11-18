@@ -1,8 +1,6 @@
 import type { DraftComment } from "@posthog/core/code-review/types";
 import { create } from "zustand";
 
-export type { DraftComment } from "@posthog/core/code-review/types";
-
 interface ReviewDraftsStoreState {
   drafts: Record<string, DraftComment[]>;
   batchEnabled: Record<string, boolean>;

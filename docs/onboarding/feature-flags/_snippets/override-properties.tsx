@@ -105,6 +105,29 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                 },
             )
         `,
+        dotnet: dedent`
+            var flags = await posthog.EvaluateFlagsAsync(
+                "distinct_id_of_the_user",
+                options: new AllFeatureFlagsOptions
+                {
+                    PersonProperties = new()
+                    {
+                        ["property_name"] = "value",
+                    },
+                    Groups = new()
+                    {
+                        new Group("your_group_type", "your_group_id")
+                        {
+                            ["group_property_name"] = "value",
+                        },
+                        new Group("another_group_type", "your_group_id")
+                        {
+                            ["group_property_name"] = "value",
+                        },
+                    },
+                }
+            );
+        `,
     }
 
     const langMap: Record<string, string> = {
@@ -114,6 +137,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
         php: 'php',
         ruby: 'ruby',
         go: 'go',
+        dotnet: 'csharp',
     }
 
     return (

@@ -155,7 +155,7 @@ def _launch_preview(input: StartDevStackPreviewInput) -> StartDevStackPreviewOut
     if uploaded.exit_code != 0:
         return StartDevStackPreviewOutput(started=False, reason=f"upload_exit_{uploaded.exit_code}")
 
-    result = sandbox.execute(
+    result = sandbox.execute_in_task_filesystem(
         _launch_command(host=host, repo_path=sandbox_repo_path(input.repository)),
         timeout_seconds=LAUNCH_TIMEOUT_SECONDS,
     )

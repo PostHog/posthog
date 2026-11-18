@@ -4,6 +4,25 @@ Use 'read-data-schema' to discover available events, actions, and properties for
 
 IMPORTANT: Funnels REQUIRE AT LEAST TWO series (events or actions).
 
+Start with the smallest valid request and add only fields the question needs:
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    { "kind": "EventsNode", "event": "sign up" },
+    { "kind": "EventsNode", "event": "purchase" }
+  ],
+  "dateRange": { "date_from": "-30d" }
+}
+```
+
+`series` is required. Each event step requires `kind: "EventsNode"` and `event`; each action step requires `kind: "ActionsNode"`, a numeric `id`, and `name`.
+
+When adapting a saved funnel from `insight-get`, copy its `query.source` fields rather than sending an insight ID or wrapping them in `query`. Preserve its steps, filters, order, conversion window, and `math: "total"` values so the measurement stays the same. Change only the fields needed for the requested comparison.
+
+If a saved query fails validation, remove only the presentation-only field named by the error or inspect `schema query-funnel <field>`. Do not remove a step or measurement filter to make the request pass. Use `insight-query` instead when the saved insight should run unchanged.
+
 The funnel insights have the following features:
 
 - Various visualization types (steps, time-to-convert, historical trends).
@@ -85,6 +104,15 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 ## Time period
 
 You should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.
+
+### Date boundaries
+
+A `date_to` with no time is an inclusive calendar day.
+Give a full timestamp instead to end the window at an exact instant.
+Both forms below cover all of August and nothing in September.
+
+- `{ "date_from": "2026-08-01", "date_to": "2026-08-31" }`
+- `{ "date_from": "2026-08-01T00:00:00Z", "date_to": "2026-09-01T00:00:00Z" }`
 
 # Funnel guidelines
 

@@ -21,7 +21,7 @@ class TestTriggerMatching:
             ("posthog/schema_migrations/0001_foo.py", "build:schema"),
             ("posthog/api/serializers.py", "build:openapi"),
             ("posthog/api/dashboard/views.py", "build:openapi"),
-            ("posthog/scopes.py", "build:openapi"),
+            ("posthog/scopes/oauth.py", "build:openapi"),
             ("ee/api/some_view.py", "build:openapi"),
             ("products/surveys/backend/api/serializers.py", "build:openapi"),
             ("products/surveys/backend/presentation/views.py", "build:openapi"),
@@ -30,7 +30,8 @@ class TestTriggerMatching:
             (".oxfmtrc.json", "build:openapi"),
             (".oxlintrc.json", "build:openapi"),
             ("posthog/hogql/grammar/HogQLParser.g4", "build:grammar"),
-            ("posthog/taxonomy/taxonomy.py", "build:taxonomy-json"),
+            ("posthog/taxonomy/taxonomy.py", "build:projections"),
+            ("products/tasks/backend/model_catalog.py", "build:projections"),
             ("products/surveys/frontend/src/Survey.tsx", "build:products"),
             ("products/posthog_ai/skills/foo/SKILL.md", "build:skills"),
             ("services/mcp/src/handlers/foo.ts", "build:schema-mcp"),
@@ -89,7 +90,7 @@ class TestBuildCommand:
         "changed_file,expected_command",
         [
             ("frontend/src/queries/schema/index.ts", "build:schema"),
-            ("posthog/taxonomy/foo.py", "build:taxonomy-json"),
+            ("posthog/taxonomy/foo.py", "build:projections"),
         ],
     )
     @patch("hogli_commands.build.subprocess.run")

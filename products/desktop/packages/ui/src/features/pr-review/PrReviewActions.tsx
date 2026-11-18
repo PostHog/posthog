@@ -13,8 +13,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Spinner,
 } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { useApprovePr } from "./useApprovePr";
 import { useMarkPrReady } from "./useMarkPrReady";

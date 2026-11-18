@@ -22,9 +22,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import { streamEvents } from 'lib/api-stream'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -40,8 +42,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
+import { RetainedValues } from 'lib/utils/retainedValues'
+import { retryImport } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -53,9 +56,10 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
+import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { AnyResponseType } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     InsightModel,
@@ -65,27 +69,22 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
+import {
+    getNotebooksCollabStreamRetrieveUrl,
+    notebooksCollabPresenceCreate,
+} from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import type { Node } from '../../../queries/schema/schema-general'
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
-    collectDuckSqlNodes,
-    collectHogqlSqlNodes,
     collectNodeIndices,
-    collectPythonNodes,
     collectNotebookFrameNodes,
+    collectRunnableCellNodeIds,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
-import type {
-    DuckSqlNodeSummary,
-    HogqlSqlNodeSummary,
-    NotebookDependencyGraph,
-    PythonNodeSummary,
-    NotebookFrameNodeSummary,
-    SqlV2NodeSummary,
-} from '../Nodes/notebookNodeContent'
+import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType, NotebookVariableApi } from '../types'
@@ -102,12 +101,12 @@ import {
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
-import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { NOTEBOOKS_VERSION } from './migrations/notebooksVersion'
 import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookKernelInfo } from './notebookKernelInfoLogic'
-import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
+import { notebookNodeStalenessLogic, NotebookNodeRunTerminalStatus } from './notebookNodeStalenessLogic'
 import {
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
@@ -276,6 +275,23 @@ export type NotebookLogicProps = {
     cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
+const retainedNotebooks = new RetainedValues<NotebookType>({
+    maxEntries: 50,
+    ttlMs: RESPONSE_CACHE_TTL,
+    maxTotalSize: 30_000_000,
+    maxEntrySize: 10_000_000,
+    sizeOf: (notebook) => JSON.stringify(notebook.content ?? null).length,
+})
+
+function canRetainNotebook(props: NotebookLogicProps): boolean {
+    return (
+        (props.mode ?? 'notebook') === 'notebook' &&
+        !props.cachedNotebook &&
+        props.shortId !== SCRATCHPAD_NOTEBOOK.short_id &&
+        !props.shortId.startsWith('template-')
+    )
+}
+
 async function runWhenNotebookIsReady(waitForNotebook: () => boolean, fn: () => any): Promise<any | null> {
     const maxWaitMs = 5000
     const startTime = Date.now()
@@ -310,19 +326,16 @@ export interface notebookLogicValues {
     canvasFiltersOverride: any
     containerSize: 'medium' | 'small'
     content: JSONContent
+    contentAtLastRun: JSONContent | null
     dependencyGraph: NotebookDependencyGraph
-    duckSqlNodeIndices: Map<string, number>
-    duckSqlNodeSummaries: DuckSqlNodeSummary[]
     editingNodeIds: Record<string, true>
     editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
     hasUnsavedVariables: boolean
-    hogqlSqlNodeIndices: Map<string, number>
-    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     isEditable: boolean
     isLocalOnly: boolean
     isShareModalOpen: boolean
@@ -344,6 +357,7 @@ export interface notebookLogicValues {
     markdownRemoteParticipants: NotebookRemoteParticipant[]
     markdownRemotePresence: Record<string, NotebookRemotePresenceState>
     mode: NotebookLogicMode
+    mountedEditorCount: number
     newNotebook: NotebookType | null
     newNotebookLoading: boolean
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
@@ -354,8 +368,7 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
-    pythonNodeIndices: Map<string, number>
-    pythonNodeSummaries: PythonNodeSummary[]
+    runnableCellNodeIds: string[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -381,6 +394,15 @@ export interface notebookLogicActions {
         callback: ((event: { sent: boolean }) => void) | undefined
         context: Record<string, any> | null
     } // commentsLogic
+    nodeRunFinished: (
+        nodeId: string,
+        status: NotebookNodeRunTerminalStatus,
+        content: JSONContent | null
+    ) => {
+        content: JSONContent | null
+        nodeId: string
+        status: NotebookNodeRunTerminalStatus
+    } // notebookNodeStalenessLogic
     setShowVariables: (showVariables: boolean | null) => {
         showVariables: boolean | null
     } // notebookSettingsLogic
@@ -492,6 +514,12 @@ export interface notebookLogicActions {
             value: true
         }
     }
+    notebookEditorMounted: () => {
+        value: true
+    }
+    notebookEditorUnmounted: () => {
+        value: true
+    }
     notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
         variables: NotebookVariableApi[]
     }
@@ -551,6 +579,9 @@ export interface notebookLogicActions {
         error: string
         errorObject?: any
     }
+    saveNotebookNow: () => {
+        value: true
+    }
     saveNotebookSuccess: (
         notebook: NotebookType | null,
         payload?: {
@@ -576,6 +607,9 @@ export interface notebookLogicActions {
     }
     setContainerSize: (containerSize: 'medium' | 'small') => {
         containerSize: 'medium' | 'small'
+    }
+    setContentAtLastRun: (content: JSONContent | null) => {
+        content: JSONContent | null
     }
     setEditable: (editable: boolean) => {
         editable: boolean
@@ -683,16 +717,11 @@ export interface notebookLogicMeta {
             nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
-        pythonNodeSummaries: (content: JSONContent) => PythonNodeSummary[]
-        duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
-        hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        runnableCellNodeIds: (content: JSONContent) => string[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
-        dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
-        pythonNodeIndices: (content: JSONContent) => Map<string, number>
+        dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
-        duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
-        hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
         variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
         variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
@@ -709,8 +738,8 @@ export interface notebookLogicMeta {
         cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
         getSharedCachedInsight: (
             isShared: boolean,
-            cachedInsightsByShortId: Record<string, InsightModel>
-        ) => (shortId: string | null | undefined) => InsightModel | null
+            cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
+        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
@@ -730,7 +759,8 @@ export type notebookLogicType = MakeLogicType<
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId, mode }) => `${shortId}-${mode}`),
+    // Keep the legacy suffix because scratchpad content is persisted under this key.
+    key(({ shortId, mode }) => `${shortId}-${mode === 'canvas' ? mode : undefined}`),
 
     connect((props: NotebookLogicProps) => ({
         values: [
@@ -741,7 +771,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'selectedCommentId'],
-            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
+            notebookKernelInfoLogic({
+                shortId: props.shortId,
+                mode: props.mode,
+                // A shared view is exactly the one that renders from cachedNotebook, and both kernel
+                // endpoints are team-scoped. This is the mount that matters: the panel is not the
+                // only thing that brings the logic up.
+                isShared: !!props.cachedNotebook,
+            }),
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showVariablesOverride'],
@@ -760,9 +797,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['setItemContext', 'maybeLoadComments'],
+            // Connected so the dependency-graph snapshot can refresh when a cell run finishes.
+            notebookNodeStalenessLogic({ shortId: props.shortId }),
+            ['nodeRunFinished'],
         ],
     })),
     actions({
+        notebookEditorMounted: true,
+        notebookEditorUnmounted: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
         setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
@@ -803,6 +845,7 @@ export const notebookLogic = kea<notebookLogicType>([
         showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebookNow: true,
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
@@ -819,6 +862,7 @@ export const notebookLogic = kea<notebookLogicType>([
         }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        setContentAtLastRun: (content: JSONContent | null) => ({ content }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
         openShareModal: true,
@@ -826,6 +870,13 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        mountedEditorCount: [
+            0,
+            {
+                notebookEditorMounted: (count) => count + 1,
+                notebookEditorUnmounted: (count) => Math.max(0, count - 1),
+            },
+        ],
         isShareModalOpen: [
             false,
             {
@@ -840,6 +891,13 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        // The document as of the last run: a cell output exists only after its cell has run.
+        contentAtLastRun: [
+            null as JSONContent | null,
+            {
+                setContentAtLastRun: (_, { content }) => content,
             },
         ],
         // Local edits ahead of the saved notebook; null means "nothing edited yet, use the server's".
@@ -978,7 +1036,7 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
     loaders(({ values, props, actions, cache }) => ({
         notebook: [
-            null as NotebookType | null,
+            (canRetainNotebook(props) ? retainedNotebooks.get(props.shortId) : null) as NotebookType | null,
             {
                 loadNotebook: async () => {
                     let response: NotebookType | null = null
@@ -1010,17 +1068,20 @@ export const notebookLogic = kea<notebookLogicType>([
                             })
                         } catch (e: any) {
                             if (e.status === 403 && e.code === 'permission_denied') {
+                                retainedNotebooks.delete(props.shortId)
                                 actions.setAccessDeniedToNotebook()
                             } else if (e.status === 304) {
                                 // Indicates nothing has changed
                                 return values.notebook
                             } else if (e.status === 404) {
+                                retainedNotebooks.delete(props.shortId)
                                 return null
                             }
                             throw e
                         }
                     }
 
+                    const { migrate } = await retryImport(() => import('./migrations/migrate'))
                     return await migrate(response, { skipApiUpgrade: !!values.isShared })
                 },
 
@@ -1213,6 +1274,8 @@ export const notebookLogic = kea<notebookLogicType>([
         // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
         // land in `notebook` without a refetch.
         notebook: {
+            // A retained copy can render before the server denies access, so it must not stay on screen.
+            setAccessDeniedToNotebook: () => null,
             loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
@@ -1429,16 +1492,13 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
-        pythonNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectPythonNodes(content)],
-        duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
-        hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        runnableCellNodeIds: [(s) => [s.content], (content: JSONContent) => collectRunnableCellNodeIds(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
-        dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
-
-        pythonNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+        dependencyGraph: [
+            // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
+            (s) => [s.contentAtLastRun],
+            (contentAtLastRun: JSONContent | null) => buildNotebookDependencyGraph(contentAtLastRun),
         ],
 
         sqlNodeIndices: [
@@ -1451,14 +1511,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
-        ],
-        duckSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
-        ],
-        hogqlSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
@@ -1662,6 +1714,7 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    let retryAttempt = 0
 
                     const onMessage = (msg: EventSourceMessage): void => {
                         if (msg.id) {
@@ -1722,14 +1775,19 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.handleMarkdownStreamEvent({ version, diff, baseCrc, clientId })
                     }
 
-                    const onError = (error: any): void => {
+                    const onError = (error: any): number | void => {
                         if (controller.signal.aborted) {
                             return
                         }
-                        const message = error instanceof Error ? error.message : String(error)
-                        posthog.captureException(error instanceof Error ? error : new Error(message), {
-                            action: 'notebook markdown stream',
-                        })
+                        if (retryAttempt === 0) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            posthog.captureException(error instanceof Error ? error : new Error(message), {
+                                action: 'notebook markdown stream',
+                            })
+                        }
+                        const retryDelay = Math.min(1000 * 2 ** retryAttempt, 30_000)
+                        retryAttempt = Math.min(retryAttempt + 1, 5)
+                        return retryDelay
                     }
 
                     const onClose = (): void => {
@@ -1739,26 +1797,33 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.connectMarkdownUpdateStream()
                     }
 
-                    void api.notebooks
-                        .collabStream(values.shortId, {
+                    void streamEvents(
+                        getNotebooksCollabStreamRetrieveUrl(String(ApiConfig.getCurrentProjectId()), values.shortId),
+                        {
                             onMessage,
                             onError,
+                            onOpen: () => {
+                                retryAttempt = 0
+                            },
                             onClose,
                             signal: controller.signal,
-                            lastEventId: cache.markdownUpdateStreamLastEventId,
-                        })
-                        .catch((error) => {
-                            if (controller.signal.aborted) {
-                                return
-                            }
-                            onError(error)
-                            actions.connectMarkdownUpdateStream()
-                        })
+                            headers: {
+                                'Last-Event-ID':
+                                    cache.markdownUpdateStreamLastEventId ?? `${values.notebook?.version ?? 0}-1`,
+                            },
+                        }
+                    ).catch((error) => {
+                        if (controller.signal.aborted) {
+                            return
+                        }
+                        onError(error)
+                        actions.connectMarkdownUpdateStream()
+                    })
 
                     return () => controller.abort()
                 },
                 'markdownUpdateStream',
-                { pauseOnPageHidden: false }
+                { pauseOnPageHidden: true }
             )
 
             cache.disposables.add(() => {
@@ -1967,6 +2032,20 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
         },
 
+        saveNotebookNow: () => {
+            // Autosave already saves every edit, so this only skips its debounce and repeats the
+            // gates that path applies. No local content means the notebook is already saved.
+            if (values.previewContent || values.autosavePaused || values.isLocalOnly) {
+                return
+            }
+
+            if (!values.localContent || !values.content || values.notebookLoading) {
+                return
+            }
+
+            actions.saveNotebook({ content: values.content, title: values.title })
+        },
+
         setLocalContent: async ({ jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
@@ -2080,6 +2159,9 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
 
+            // Seed the snapshot so an opened notebook shows its links before any rerun.
+            actions.setContentAtLastRun(values.content)
+
             // `notebook opened` is a human/browser open — capture once per mount. This listener
             // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
             // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
@@ -2093,6 +2175,15 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
+        },
+
+        // Only a successful run carries the executed document; failed and interrupted runs pass
+        // null and leave the snapshot, so the links keep matching what the kernel last ran. This is
+        // the document the staleness logic records too, so the two stay consistent.
+        nodeRunFinished: ({ content }) => {
+            if (content) {
+                actions.setContentAtLastRun(content)
+            }
         },
 
         exportJSON: () => {
@@ -2163,8 +2254,11 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, props }) => ({
         notebook: (notebook?: NotebookType) => {
+            if (notebook && canRetainNotebook(props)) {
+                retainedNotebooks.set(props.shortId, notebook)
+            }
             // Keep the list logic up to date with any changes
             if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
                 actions.receiveNotebookUpdate(notebook)
@@ -2200,14 +2294,19 @@ export const notebookLogic = kea<notebookLogicType>([
                 isLocalOnly: logic.values.isLocalOnly,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
                 currentPathname: router.values.location.pathname,
                 newPathname: newLocation?.pathname,
             }),
         message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
-    afterMount(({ props }) => {
-        drainPendingNotebookOperations(props.shortId)
+    afterMount(({ props, values, actions }) => {
+        drainPendingNotebookOperations(props.shortId, notebookLogic(props))
+        // A retained copy renders at once, so check it against the server straight away.
+        if (values.notebook && canRetainNotebook(props)) {
+            actions.loadNotebook()
+        }
     }),
 
     beforeUnmount(() => {

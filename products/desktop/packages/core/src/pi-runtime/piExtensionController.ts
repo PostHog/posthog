@@ -1,5 +1,5 @@
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import { inject, injectable } from "inversify";
@@ -41,6 +41,7 @@ export class PiExtensionController {
     Map<string, ReturnType<typeof setTimeout>>
   >();
   private readonly responses = new Map<string, Map<string, Promise<void>>>();
+  private readonly consumedEventIds = new Map<string, Set<string>>();
   private readonly versions = new Map<string, number>();
 
   constructor(
@@ -86,6 +87,7 @@ export class PiExtensionController {
     this.cancelReconnect(taskId);
     this.disposeSubscription(taskId);
     this.responses.delete(taskId);
+    this.consumedEventIds.delete(taskId);
     this.clearTaskState(taskId);
   }
 
@@ -109,6 +111,7 @@ export class PiExtensionController {
     const delivery = this.sendResponse(taskId, response)
       .then(() => {
         if (this.getVersion(taskId) === version) {
+          this.markEventConsumed(taskId, response.id);
           this.removeDialog(taskId, response.id);
         }
       })
@@ -154,10 +157,12 @@ export class PiExtensionController {
   }
 
   acknowledgeNotification(taskId: string, id: string): void {
+    this.markEventConsumed(taskId, id);
     this.dispatch(taskId, { type: "remove-notification", id });
   }
 
   acknowledgeEditorText(taskId: string, id: string): void {
+    this.markEventConsumed(taskId, id);
     this.dispatch(taskId, { type: "consume-editor-text", id });
   }
 
@@ -195,13 +200,25 @@ export class PiExtensionController {
   private handleEvent(
     taskId: string,
     subscription: PiExtensionSubscription,
-    event: PiExtensionEvent,
+    event: PiExtensionSessionEvent,
   ): void {
     if (this.subscriptions.get(taskId) !== subscription) {
       return;
     }
 
     this.reconnectAttempts.delete(taskId);
+    if (event.type === "extension_ui_response") {
+      this.markEventConsumed(taskId, event.id);
+      this.removeDialog(taskId, event.id);
+      return;
+    }
+    if (
+      event.type === "extension_ui_request" &&
+      this.consumedEventIds.get(taskId)?.has(event.id)
+    ) {
+      return;
+    }
+
     this.dispatch(taskId, {
       type: "event",
       event,
@@ -234,18 +251,17 @@ export class PiExtensionController {
 
     this.subscriptions.delete(taskId);
     this.dispose(subscription);
-    this.advanceVersion(taskId);
-    this.cancelPendingDialogs(taskId);
     this.sessions.delete(taskId);
-    this.responses.delete(taskId);
-    this.clearTaskState(taskId);
 
     if (!this.activeTaskIds.has(taskId)) {
       this.cancelReconnect(taskId);
       return;
     }
 
-    if (error !== undefined) {
+    if (
+      error !== undefined &&
+      !String(error).includes("Pi session not found for task")
+    ) {
       this.dispatch(taskId, {
         type: "notification",
         notification: {
@@ -338,7 +354,10 @@ export class PiExtensionController {
     }
     taskTimeouts.set(
       requestId,
-      setTimeout(() => this.removeDialog(taskId, requestId), timeoutMs),
+      setTimeout(() => {
+        this.markEventConsumed(taskId, requestId);
+        this.removeDialog(taskId, requestId);
+      }, timeoutMs),
     );
     this.dialogTimeouts.set(taskId, taskTimeouts);
   }
@@ -384,6 +403,12 @@ export class PiExtensionController {
         void cancel();
       }
     }
+  }
+
+  private markEventConsumed(taskId: string, eventId: string): void {
+    const consumed = this.consumedEventIds.get(taskId) ?? new Set<string>();
+    consumed.add(eventId);
+    this.consumedEventIds.set(taskId, consumed);
   }
 
   private getVersion(taskId: string): number {

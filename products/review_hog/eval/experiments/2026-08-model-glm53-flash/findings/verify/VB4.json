@@ -1,0 +1,6 @@
+{
+    "id": "VB4",
+    "real": true,
+    "source": "reused-LA4",
+    "reasoning": "Identical claim already verified as LA4 in the sol experiment (is_real=true, high confidence); frozen tree matches. The carve-out try/retry (tasks.py:873-879) runs before the head-changing skip retraction (tasks.py:888-904); _mark_pr_event_processed only after. The Celery task (tasks.py:810, max_retries=3, delay=5) re-raises once retries exhaust, the webhook already ACKed 202 (webhooks.py:61-64), and nothing reconciles later. The carve-out reads the default DB (find_signal_implementation_run -> TaskRun) and signals resolvers, while retraction needs only the stamphog DB plus GitHub — so a partial default-DB outage during a synchronize on a self-driving PR leaves the old-head approval standing. LA4 downgraded severity to should_fix (infra-outage trigger, pre-existing retry-drop shape), but the defect is real and reachable."
+}

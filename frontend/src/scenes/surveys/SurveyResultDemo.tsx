@@ -5,12 +5,13 @@ import { IconGraph, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
 
 import { SurveyQuestionType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 function SurveyResponsesByQuestionV2Demo(): JSX.Element {
     const { survey, surveyDemoData } = useValues(surveyLogic)

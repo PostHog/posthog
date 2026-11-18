@@ -10,26 +10,23 @@ import {
     overflowRedirectEventsTotal,
     overflowRedirectKeysTotal,
     overflowRedirectRateLimitDecisions,
+    overflowRedirectRateLimiterBuckets,
     overflowRedirectSourceEventsTotal,
 } from './metrics'
 import { OverflowEventGroup, OverflowRedirectService } from './overflow-redirect-service'
-import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
+import { OverflowRedisRepository, OverflowType } from './overflow-redis-repository'
 import { OverflowStrategyEntry } from './overflow-strategy'
 
 export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
     localCacheTTLSeconds: number
     /** Max entries in the in-memory flagged/not-flagged cache before LRU eviction. */
-    localCacheMaxSize?: number
+    localCacheMaxSize: number
     /** Overflow conditions to enforce; a key is redirected when any strategy's bucket is exhausted. */
     strategies: OverflowStrategyEntry[]
     /** Redis keyspace this service operates on. Fixed per pipeline. */
     overflowType: OverflowType
 }
-
-// Bounds the in-memory cache so a flood of unique token:distinct_id keys cannot
-// grow it without limit; evicted keys simply re-check Redis on the next lookup.
-const DEFAULT_LOCAL_CACHE_MAX_SIZE = 1_000_000
 
 /**
  * Main lane implementation of overflow redirect.
@@ -52,12 +49,16 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
     }[]
     private redisRepository: OverflowRedisRepository
     private overflowType: OverflowType
+    private localCacheTTLMs: number
+    private nextPurgeAt: number
 
     constructor(config: MainLaneOverflowRedirectConfig) {
         this.redisRepository = config.redisRepository
+        this.localCacheTTLMs = config.localCacheTTLSeconds * 1000
+        this.nextPurgeAt = Date.now() + this.localCacheTTLMs
         this.localCache = new LRUCache({
-            max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
-            ttl: config.localCacheTTLSeconds * 1000,
+            max: config.localCacheMaxSize,
+            ttl: this.localCacheTTLMs,
         })
         this.strategies = config.strategies.map((entry) => ({
             label: entry.label,
@@ -67,12 +68,20 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         this.overflowType = config.overflowType
     }
 
-    private localCacheKey(type: OverflowType, token: string, distinctId: string): string {
-        return `${type}:${token}:${distinctId}`
+    private localCacheKey(type: OverflowType, key: string): string {
+        return `${type}:${key}`
+    }
+
+    // lru-cache drops expired entries only on read; ttlAutopurge would reset a timer per entry on every write.
+    private purgeExpired(now: number): void {
+        if (now < this.nextPurgeAt) {
+            return
+        }
+        this.nextPurgeAt = now + this.localCacheTTLMs
+        this.localCache.purgeStale()
     }
 
     // true = flagged in Redis, false = known not in Redis, undefined = cache miss.
-    // TTL expiry and size-bounded LRU eviction are handled by the cache itself.
     private getCachedValue(key: string): boolean | undefined {
         return this.localCache.get(key)
     }
@@ -87,18 +96,20 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         const redirectSource = new Map<string, 'redis' | 'rate_limiter'>()
         const needsRateLimitCheck: OverflowEventGroup[] = []
 
+        const now = Date.now()
+        this.purgeExpired(now)
+
         // Step 1: Check local cache
         const needsRedisCheck: OverflowEventGroup[] = []
 
         for (const group of batch) {
-            const cacheKey = this.localCacheKey(type, group.key.token, group.key.distinctId)
+            const cacheKey = this.localCacheKey(type, group.key)
             const cached = this.getCachedValue(cacheKey)
 
             if (cached === true) {
                 // Already flagged (cached from previous Redis lookup) - redirect
-                const mKey = memberKey(group.key.token, group.key.distinctId)
-                toRedirect.add(mKey)
-                redirectSource.set(mKey, 'redis')
+                toRedirect.add(group.key)
+                redirectSource.set(group.key, 'redis')
                 overflowRedirectCacheHitsTotal.labels(type, 'hit_flagged').inc()
             } else if (cached === false) {
                 // Known not in Redis - check rate limit only
@@ -119,13 +130,12 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             )
 
             for (const group of needsRedisCheck) {
-                const mKey = memberKey(group.key.token, group.key.distinctId)
-                const cacheKey = this.localCacheKey(type, group.key.token, group.key.distinctId)
+                const cacheKey = this.localCacheKey(type, group.key)
 
-                if (redisResults.get(mKey)) {
+                if (redisResults.get(group.key)) {
                     // Flagged in Redis - redirect
-                    toRedirect.add(mKey)
-                    redirectSource.set(mKey, 'redis')
+                    toRedirect.add(group.key)
+                    redirectSource.set(group.key, 'redis')
                     this.setCachedValue(cacheKey, true)
                 } else {
                     // Not in Redis - cache false and check rate limit
@@ -142,8 +152,6 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         const newlyFlagged: OverflowEventGroup[] = []
 
         for (const group of needsRateLimitCheck) {
-            const rateLimitKey = memberKey(group.key.token, group.key.distinctId)
-
             // Consume from every strategy (no short-circuit) so buckets drain
             // consistently; any exhausted bucket flags the key.
             let allowed = true
@@ -156,7 +164,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                     continue
                 }
 
-                if (limiter.consume(rateLimitKey, tokens, group.firstTimestamp)) {
+                if (limiter.consume(group.key, tokens, group.firstTimestamp)) {
                     overflowRedirectRateLimitDecisions.labels(type, label, 'allowed').inc()
                 } else {
                     allowed = false
@@ -167,9 +175,14 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             if (!allowed) {
                 // Rate limit exceeded - needs to be flagged
                 newlyFlagged.push(group)
-                toRedirect.add(rateLimitKey)
-                redirectSource.set(rateLimitKey, 'rate_limiter')
+                toRedirect.add(group.key)
+                redirectSource.set(group.key, 'rate_limiter')
             }
+        }
+
+        for (const { label, limiter } of this.strategies) {
+            limiter.removeRefilledBuckets(now)
+            overflowRedirectRateLimiterBuckets.labels(type, label).set(limiter.buckets.size)
         }
 
         // Step 4: Batch flag newly rate-limited keys in Redis
@@ -177,8 +190,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             // Update local cache BEFORE Redis write to prevent race condition where
             // a subsequent batch could check the rate limiter again before Redis completes
             for (const group of newlyFlagged) {
-                const cacheKey = this.localCacheKey(type, group.key.token, group.key.distinctId)
-                this.setCachedValue(cacheKey, true)
+                this.setCachedValue(this.localCacheKey(type, group.key), true)
             }
             overflowRedirectCacheSize.set(this.localCache.size)
 
@@ -198,10 +210,9 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         let passedEvents = 0
         const eventsBySource = new Map<'redis' | 'rate_limiter', number>()
         for (const group of batch) {
-            const mKey = memberKey(group.key.token, group.key.distinctId)
-            if (toRedirect.has(mKey)) {
+            if (toRedirect.has(group.key)) {
                 redirectedEvents += group.headersPerEvent.length
-                const source = redirectSource.get(mKey)
+                const source = redirectSource.get(group.key)
                 if (source) {
                     eventsBySource.set(source, (eventsBySource.get(source) ?? 0) + group.headersPerEvent.length)
                 }

@@ -1,16 +1,20 @@
+from types import SimpleNamespace
 from typing import Any
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
-from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
-from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
+
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, _reject_serde_unsafe_filters
+from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
+    PERSON_AGGREGATED_PROPERTY_TYPES,
     Violation,
     check_groups_non_empty_for_create,
     check_variant_rollout_sum,
@@ -18,6 +22,7 @@ from products.feature_flags.backend.filters_validation import (
     collect_filters_violations,
     flatten_structural_errors,
 )
+from products.feature_flags.backend.models import FeatureFlag
 
 
 def _multivariate(*variants: tuple[str, float]) -> dict[str, Any]:
@@ -140,6 +145,21 @@ class TestFiltersValidation(SimpleTestCase):
                 [],
             ),
             (
+                "not_in_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 5}]}]},
+                [],
+            ),
+            (
+                "exact_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "exact", "value": 5}]}]},
+                ["cross_field.cohort_requires_in_or_not_in"],
+            ),
+            (
+                "cohort_property_without_operator",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": 5}]}]},
+                [],
+            ),
+            (
                 "date_operator_unparseable_value",
                 {"groups": [{"properties": [_person_prop(operator="is_date_after", value="not a date")]}]},
                 ["cross_field.date_value_not_parseable"],
@@ -162,6 +182,36 @@ class TestFiltersValidation(SimpleTestCase):
             (
                 "gt_operator_numeric_value",
                 {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]},
+                [],
+            ),
+            (
+                "gte_operator_float_value",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=1.5)]}]},
+                [],
+            ),
+            (
+                "lt_operator_string_value",
+                {"groups": [{"properties": [_person_prop(operator="lt", value="5")]}]},
+                [],
+            ),
+            (
+                "lte_operator_boolean_value",
+                {"groups": [{"properties": [_person_prop(operator="lte", value=True)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gte_operator_value_over_f64_range",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=10**400)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gt_operator_list_value",
+                {"groups": [{"properties": [_person_prop(operator="gt", value=[5])]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "icontains_operator_numeric_value",
+                {"groups": [{"properties": [_person_prop(operator="icontains", value=5)]}]},
                 ["cross_field.operator_requires_string_value"],
             ),
             (
@@ -324,6 +374,40 @@ class TestFiltersValidation(SimpleTestCase):
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
 
+    def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
+        assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
+            "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
+            "`type !== 'group'` (in isPersonAggregatedType). That is the complement of "
+            "PERSON_AGGREGATED_PROPERTY_TYPES only while 'group' is the sole type outside it. A group-side type "
+            "that slips through as person-aggregated lets that merge helper silently clear a flag's group "
+            "targeting. If the new type belongs under person aggregation, add it to "
+            "PERSON_AGGREGATED_PROPERTY_TYPES and the TypeScript needs no change. If the difference came out "
+            "empty instead, 'group' was added to PERSON_AGGREGATED_PROPERTY_TYPES, and the merge helper's "
+            "`!== 'group'` check no longer separates the two aggregations at all; that change needs its own "
+            "review, not a wider tuple here. Otherwise update the merge helper and "
+            "services/mcp/tests/unit/preserve-group-targeting.test.ts, then this assertion."
+        )
+
+    @parameterized.expand([("serde_guard", set()), ("structural", {"*"})])
+    def test_property_type_rejection_detail_starts_with_the_property_path(
+        self, _name: str, enforced_rules: set[str]
+    ) -> None:
+        filters = {
+            "groups": [
+                {"properties": [], "rollout_percentage": 100},
+                {"properties": [{"key": "plan", "operator": "exact", "value": "pro"}], "rollout_percentage": 100},
+            ]
+        }
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            assert not serializer.is_valid()
+        assert str(serializer.errors["filters"][0]).startswith("groups[1].properties[0].type: "), (
+            "services/mcp/src/tools/featureFlags/updateFeatureFlagHooks.ts matches this prefix "
+            "(PROPERTY_REJECTION) to add a recovery step to the update-feature-flag error. "
+            "If the prefix changes, update that regex and "
+            "services/mcp/tests/unit/update-feature-flag-preserving-groups.test.ts, then this assertion."
+        )
+
 
 class TestRejectSerdeUnsafeFilters(SimpleTestCase):
     # The only cache-poisoning guard that runs while the enforcement switch is off, and the
@@ -424,3 +508,72 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
     )
     def test_accepts_what_master_accepted(self, _name: str, filters: Any) -> None:
         _reject_serde_unsafe_filters(filters)
+
+
+def _variant_filters(*keys: str) -> dict[str, Any]:
+    return {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": _multivariate(*((key, 100 / len(keys)) for key in keys)),
+    }
+
+
+def _new_variant_serializer(key: str, stored_keys: list[str] | None) -> FeatureFlagSerializer:
+    instance = FeatureFlag(filters=_variant_filters(*stored_keys)) if stored_keys is not None else None
+    request = SimpleNamespace(method="POST" if instance is None else "PATCH")
+    return FeatureFlagSerializer(
+        instance, data={"filters": _variant_filters("control", key)}, partial=True, context={"request": request}
+    )
+
+
+class TestReservedVariantKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            *(
+                (f"{key or 'empty'}_{name}", key, enforced_rules, None)
+                for key in (*FEATURE_FLAG_VARIANT_SENTINELS, "null", "")
+                for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
+            ),
+            *((f"{key or 'empty'}_added_on_update", key, set(), ["control"]) for key in ("null", "")),
+            *(
+                (f"{sentinel}_kept_on_update", sentinel, set(), ["control", sentinel])
+                for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
+            ),
+        ]
+    )
+    def test_reserved_key_is_rejected_as_a_variant_key(
+        self, _name: str, key: str, enforced_rules: set[str], stored_keys: list[str] | None
+    ) -> None:
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            serializer = _new_variant_serializer(key, stored_keys)
+            assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "reserved_variant_key"
+        assert (key or "can't be empty") in str(serializer.errors["filters"][0])
+
+    @parameterized.expand(
+        [
+            ("uppercase_on_create", "NULL", {"*"}, None),
+            ("title_case_on_create", "Null", {"*"}, None),
+            ("null_kept_on_update", "null", {"*"}, ["control", "null"]),
+            # A structural rule rejects a blank key under full enforcement. This case therefore runs log-only.
+            ("empty_kept_on_update", "", set(), ["control", ""]),
+        ]
+    )
+    def test_unreserved_key_is_accepted_as_a_variant_key(
+        self, _name: str, key: str, enforced_rules: set[str], stored_keys: list[str] | None
+    ) -> None:
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            serializer = _new_variant_serializer(key, stored_keys)
+            # is_valid() would go on to the object-level validate(), which reads the team from the database.
+            validated = serializer.validate_filters(serializer.initial_data["filters"])
+        assert [variant["key"] for variant in validated["multivariate"]["variants"]] == ["control", key]
+
+    @parameterized.expand([("list", ["$true"]), ("dict", {"key": "$true"})])
+    def test_non_string_key_is_a_validation_error(self, _name: str, key: Any) -> None:
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {"variants": [{"key": key, "rollout_percentage": 100}]},
+        }
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"}):
+            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "structural.multivariate.variants[].key.invalid"

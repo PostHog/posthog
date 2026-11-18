@@ -1,0 +1,6 @@
+{
+    "id": "VB21",
+    "real": true,
+    "source": "reused-LB2",
+    "reasoning": "Identical claim already verified as LB2 in 2026-08-validator-model-sol (same file, lines 1202-1209, same mechanism); adopted. Confirmed in frozen tree: the inbox dedupe (products/stamphog/backend/tasks/tasks.py:1202-1210) excludes SUPERSEDED and FAILED, orders by -created_at, so an older COMPLETED run at the same head shadows a newer FAILED re-review and the task returns early (tasks.py:1211-1221) without creating a replacement. Reachable via same-head reopen/base-retarget of a self-driving PR whose re-review fails (single-attempt workflow), then a receiver refire finds the old COMPLETED run and never recreates the review. Consequence is fail-safe (approvals were dismissed at re-review start), reachability narrow — LB2 rated it real at 'consider' severity, medium confidence."
+}

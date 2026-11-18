@@ -1,0 +1,8 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            "inputs": ["owners_yaml/**/*.py", "tests/**/*.py", "conformance/**", "pyproject.toml"]
+        }
+    }
+}

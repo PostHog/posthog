@@ -24,6 +24,20 @@ function normalizeReleaseNotes(
   return joined.length > 0 ? joined : null;
 }
 
+// electron-updater types releaseDate as a string, but it parses the channel
+// file with js-yaml, which turns an unquoted timestamp into a Date. A Date
+// here fails the string output schema on `updates.getStatus`, so the renderer
+// cannot read the initial update state and the update banner stays hidden.
+function normalizeReleaseDate(
+  releaseDate: UpdateInfo["releaseDate"],
+): string | undefined {
+  const value: unknown = releaseDate;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function pickDownloadSize(files: UpdateInfo["files"]): number | null {
   if (!files?.length) return null;
   const sizes = files.map((file) => file.size ?? 0).filter((size) => size > 0);
@@ -86,7 +100,7 @@ export class ElectronUpdater implements IUpdater {
       handler({
         version: info.version,
         releaseNotes: normalizeReleaseNotes(info.releaseNotes),
-        releaseDate: info.releaseDate,
+        releaseDate: normalizeReleaseDate(info.releaseDate),
         releaseName: info.releaseName,
         sizeBytes: pickDownloadSize(info.files),
       });

@@ -6,8 +6,10 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
-from posthog.models import Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
@@ -15,6 +17,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.constants import CI_STATUSES, PR_STATES
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.task_done import wake_refusal
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
 
@@ -28,7 +31,7 @@ class GetPrContextInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@dataclass(frozen=True)
 class GetPrContextOutput:
     pr_url: str
     pr_state: str
@@ -37,6 +40,7 @@ class GetPrContextOutput:
     ci_status: str = "none"
     changes_requested: bool = False
     unresolved_threads: int = 0
+    merge_queue_push_would_eject: bool = False
 
 
 def is_pr_actionable(pr: GetPrContextOutput) -> bool:
@@ -79,9 +83,22 @@ def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
     return hashlib.sha256(fingerprint_source.encode()).hexdigest()
 
 
-def get_github_integration(github_integration_id: int) -> GitHubIntegration:
-    integration = Integration.objects.get(id=github_integration_id)
-    github_integration = GitHubIntegration(integration)
+def merge_queue_push_would_eject(github_integration: GitHubIntegration | UserGitHubIntegration, pr_url: str) -> bool:
+    """Whether a push now removes the PR from the Trunk merge queue and resets the PRs testing behind it.
+
+    A submitted PR that still waits for branch protection reads False, because a fix push is what
+    it waits for.
+    """
+    ref = github_integration.parse_pull_request_url(pr_url)
+    if ref is None:
+        return False
+    state = github_integration.get_pull_request_merge_queue_state(ref.repository, ref.number)
+    return state is not None and state.push_would_eject
+
+
+def get_github_integration(team_id: int, github_integration_id: int) -> GitHubIntegration:
+    integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
+    github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
@@ -90,7 +107,49 @@ def get_github_integration(github_integration_id: int) -> GitHubIntegration:
 
 
 def get_user_github_integration(github_user_integration_id: str) -> UserGitHubIntegration:
-    return UserGitHubIntegration(UserIntegration.objects.get(id=github_user_integration_id))
+    return UserGitHubIntegration(
+        UserIntegration.objects.get(id=github_user_integration_id), source="tasks_sandbox", priority=Priority.CRITICAL
+    )
+
+
+@frozen
+class WakeablePullRequest:
+    pr_url: str
+    github_integration: GitHubIntegration | UserGitHubIntegration
+
+
+def load_wakeable_pull_request(ctx: TaskProcessingContext, activity_name: str) -> WakeablePullRequest | None:
+    if not ctx.has_github_credentials:
+        return None
+
+    try:
+        task_run = TaskRun.objects.get(id=ctx.run_id)
+    except TaskRun.DoesNotExist:
+        activity.logger.warning(f"{activity_name}_task_run_not_found", extra={"run_id": ctx.run_id})
+        return None
+    if wake_refusal(task_run.task, source="ci_follow_up") is not None:
+        return None
+
+    pr_url = (task_run.output or {}).get("pr_url")
+    if not pr_url:
+        return None
+
+    github_integration: GitHubIntegration | UserGitHubIntegration
+    try:
+        if ctx.github_integration_id:
+            github_integration = get_github_integration(ctx.team_id, ctx.github_integration_id)
+        else:
+            github_integration = get_user_github_integration(str(ctx.github_user_integration_id))
+    except (ObjectDoesNotExist, IntegrationNotFound):
+        activity.logger.warning(
+            f"{activity_name}_github_integration_not_found",
+            extra={
+                "github_integration_id": ctx.github_integration_id,
+                "github_user_integration_id": ctx.github_user_integration_id,
+            },
+        )
+        return None
+    return WakeablePullRequest(pr_url=pr_url, github_integration=github_integration)
 
 
 @activity.defn
@@ -102,32 +161,10 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         "get_pr_context",
         **ctx.to_log_context(),
     ):
-        if not ctx.has_github_credentials:
+        target = load_wakeable_pull_request(ctx, "get_pr_context")
+        if target is None:
             return None
-
-        try:
-            task_run = TaskRun.objects.get(id=ctx.run_id)
-        except TaskRun.DoesNotExist:
-            activity.logger.warning("get_pr_context_task_run_not_found", run_id=ctx.run_id)
-            return None
-
-        pr_url = (task_run.output or {}).get("pr_url")
-        if not pr_url:
-            return None
-
-        try:
-            github_integration: GitHubIntegration | UserGitHubIntegration
-            if ctx.github_integration_id:
-                github_integration = get_github_integration(ctx.github_integration_id)
-            else:
-                github_integration = get_user_github_integration(str(ctx.github_user_integration_id))
-        except ObjectDoesNotExist:
-            activity.logger.warning(
-                "get_pr_context_github_integration_not_found",
-                github_integration_id=ctx.github_integration_id,
-                github_user_integration_id=ctx.github_user_integration_id,
-            )
-            return None
+        pr_url, github_integration = target.pr_url, target.github_integration
 
         try:
             # Snapshot (GraphQL) over the plain REST fetch: it carries the CI rollup
@@ -138,6 +175,9 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             if not pull_request.get("success"):
                 return None
             fingerprint = compute_pr_fingerprint(pull_request)
+            push_would_eject = pull_request.get("state") not in ("closed", "merged") and merge_queue_push_would_eject(
+                github_integration, pr_url
+            )
         except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
             # A GitHub rate limit (its own 429) or our egress budget shedding the call is a
             # normal, recoverable condition — not a fault. Keep it retryable but skip error
@@ -191,4 +231,5 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             ci_status=pull_request.get("ci_status", "none"),
             changes_requested=pull_request.get("review_decision") == "changes_requested",
             unresolved_threads=pull_request.get("unresolved_threads", 0),
+            merge_queue_push_would_eject=push_would_eject,
         )

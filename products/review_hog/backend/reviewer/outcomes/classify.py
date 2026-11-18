@@ -27,19 +27,20 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.engineering_analytics.backend.facade.api import list_recently_merged_pull_requests
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.facade.contracts import FindingReactionSentiment
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import (
-    ArtefactContentValidationError,
     FindingOutcomeArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
-    parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
@@ -50,20 +51,33 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_LINE_PROXIMITY_WINDOW,
     OUTCOME_MAX_EXTRA_COMPARE_BASES,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    OUTCOME_MAX_REACTION_READS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
     priority_rank,
     published_priorities_for,
 )
+from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
+from products.review_hog.backend.reviewer.outcomes.comment_signal import (
+    comment_outdated,
+    engagement_method,
+    find_finding_comment,
+    first_reply_excerpt,
+    reaction_sentiment,
+)
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
-from products.review_hog.backend.reviewer.outcomes.github_fetch import fetch_compare_files, fetch_review_comments
+from products.review_hog.backend.reviewer.outcomes.github_fetch import (
+    fetch_comment_reactions,
+    fetch_compare_files,
+    fetch_review_comments,
+)
 from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
-from products.review_hog.backend.reviewer.persistence import load_findings_bundle
+from products.review_hog.backend.reviewer.persistence import load_finding_outcomes, load_findings_bundle
+from products.review_hog.backend.reviewer.telemetry import finding_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +114,16 @@ class _ClassifiedOutcome:
     reviewed_head: str
     final_head: str
     judge_reasoning: str | None = None
+    signals: "_CommentSignals | None" = None
+
+
+@dataclass(frozen=True)
+class _CommentSignals:
+    """What GitHub shows on the finding's comment at merge, recorded next to the outcome whichever signal decided it."""
+
+    reaction_sentiment: FindingReactionSentiment | None
+    reply_excerpt: str | None
+    outdated: bool
 
 
 @dataclass(frozen=True)
@@ -109,6 +133,7 @@ class _ReportInputs:
     # inside the diff it is judged on.
     compares: dict[str, list[dict[str, Any]]]
     review_comments: list[dict[str, Any]]
+    reactions_by_comment: dict[int, list[dict[str, Any]]]
     published: list[_PublishedFinding]
     distinct_id: str
     judge_user_id: int
@@ -120,7 +145,9 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None] 
     Unlike the review path's variant this returns None instead of raising: a missing installation is a
     skip-this-report condition for the batch, not a failure.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.BATCH
+    )
     if github is None:
         return None
     return github.get_access_token(), github.github_installation_id
@@ -152,7 +179,7 @@ def _touching_diff(file: str, compare_files: list[dict[str, Any]]) -> str:
 
 
 def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str) -> _ReportInputs:
-    """All the blocking IO for one report: auth, compare, comments, and its published findings.
+    """All the blocking IO for one report: auth, compare, comments, reactions, and its published findings.
 
     Returns the findings publishing gated on (validated + at/above the acting user's urgency
     threshold), each paired with its inline comment when one is on the PR. Raises when auth is
@@ -183,7 +210,7 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
     # mirror IssuePriority, coerced through the value like the publish path).
     snapshotted = report.published_urgency_thresholds or {}
     fallback_threshold = (
-        str(ReviewUserSettings.load(team_id, report.acting_user_id).urgency_threshold)
+        ReviewUserSettings.load_preferences(team_id, report.acting_user_id).urgency_threshold.value
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
     )
@@ -238,18 +265,43 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
         for base in [reviewed_head, *extra_bases]
     }
 
+    published_findings = [
+        _PublishedFinding(
+            finding=finding,
+            verdict=verdict,
+            comment=find_finding_comment(finding=finding, review_comments=review_comments),
+            reviewed_head=(base if (base := base_by_run[finding.run_index]) in compares else reviewed_head),
+        )
+        for finding, verdict in to_classify
+    ]
+    reacted_comment_ids = list(
+        dict.fromkeys(
+            pf.comment["id"]
+            for pf in published_findings
+            if pf.comment is not None and (pf.comment.get("reactions") or {}).get("total_count", 0) > 0
+        )
+    )
+    if len(reacted_comment_ids) > OUTCOME_MAX_REACTION_READS_PER_REPORT:
+        logger.warning(
+            "Report %s has %d reacted finding comments; reading the reactions of the first %d, so the rest "
+            "may read as addressed or ignored instead of reacted",
+            report.id,
+            len(reacted_comment_ids),
+            OUTCOME_MAX_REACTION_READS_PER_REPORT,
+        )
+        reacted_comment_ids = reacted_comment_ids[:OUTCOME_MAX_REACTION_READS_PER_REPORT]
+    reactions_by_comment = {
+        comment_id: fetch_comment_reactions(
+            owner=owner, repo=repo, comment_id=comment_id, token=token, installation_id=installation_id
+        )
+        for comment_id in reacted_comment_ids
+    }
+
     return _ReportInputs(
         compares=compares,
         review_comments=review_comments,
-        published=[
-            _PublishedFinding(
-                finding=finding,
-                verdict=verdict,
-                comment=find_finding_comment(finding=finding, review_comments=review_comments),
-                reviewed_head=(base if (base := base_by_run[finding.run_index]) in compares else reviewed_head),
-            )
-            for finding, verdict in to_classify
-        ],
+        reactions_by_comment=reactions_by_comment,
+        published=published_findings,
         distinct_id=_finding_distinct_id(report, repository),
         judge_user_id=report.acting_user_id or 0,
     )
@@ -280,6 +332,9 @@ def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_Classifie
                     reviewed_head=oc.reviewed_head,
                     final_head=oc.final_head,
                     judge_reasoning=oc.judge_reasoning,
+                    reaction_sentiment=oc.signals.reaction_sentiment if oc.signals else None,
+                    reply_excerpt=oc.signals.reply_excerpt if oc.signals else None,
+                    comment_outdated=oc.signals.outdated if oc.signals else None,
                     judge_model=OUTCOME_JUDGE_MODEL if oc.method in ("judge_confirmed", "judge_rejected") else None,
                 ),
                 attribution=ArtefactAttribution.system(),
@@ -311,31 +366,7 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
     findings/verdicts they rule on — so the re-emitted events are identical to what the interrupted
     attempt sent, never a recomputation that could disagree with it.
     """
-    stored: dict[str, FindingOutcomeArtefact] = {}
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=str(report.id), type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
-        .order_by("created_at", "id")
-    )
-    for row in rows:
-        try:
-            content = parse_artefact_content(row.type, row.content)
-        except ArtefactContentValidationError as e:
-            logger.warning("Skipping unparseable finding_outcome artefact %s: %s", row.id, e)
-            continue
-        assert isinstance(content, FindingOutcomeArtefact)
-        if content.issue_key in stored:
-            # An outcome is decided once: the persist is transactional and the resume path re-emits
-            # rather than re-deciding, so a second row for one finding means something re-decided it.
-            # Latest-wins would absorb that silently, and the two rows can disagree — say so instead.
-            logger.warning(
-                "Duplicate finding_outcome for %s on report %s (%s then %s); taking the latest",
-                content.issue_key,
-                report.id,
-                stored[content.issue_key].outcome,
-                content.outcome,
-            )
-        stored[content.issue_key] = content
+    stored = load_finding_outcomes(team_id=team_id, report_id=str(report.id))
 
     bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
     pairs = {finding.issue_key: (finding, verdict) for finding, verdict in bundle.all_valid(str(report.id))}
@@ -355,6 +386,13 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
                 reviewed_head=ruling.reviewed_head,
                 final_head=ruling.final_head,
                 judge_reasoning=ruling.judge_reasoning,
+                signals=_CommentSignals(
+                    reaction_sentiment=ruling.reaction_sentiment,
+                    reply_excerpt=ruling.reply_excerpt,
+                    outdated=ruling.comment_outdated,
+                )
+                if ruling.comment_outdated is not None
+                else None,
             )
         )
     return outcomes, _finding_distinct_id(report, report.repository)
@@ -399,14 +437,32 @@ async def _emit_and_mark(
                 "is_directly_related_to_changes": oc.finding.is_directly_related_to_changes,
                 "outcome": oc.outcome,
                 "classification_method": oc.method,
+                "finding_budget_arm": budget_arm(repository, report.pr_number),
                 "reviewed_head": oc.reviewed_head,
                 "final_head": oc.final_head,
+                "comment_reaction_sentiment": oc.signals.reaction_sentiment if oc.signals else None,
+                "comment_outdated": oc.signals.outdated if oc.signals else None,
+                **finding_routing_properties(report, oc.finding),
             },
         )
     if flush is not None:
         await database_sync_to_async(flush, thread_sensitive=False)()
     await database_sync_to_async(_mark_outcomes_emitted, thread_sensitive=False)(
         team_id=team_id, report_id=str(report.id)
+    )
+
+
+def _comment_signals(pf: _PublishedFinding, inputs: _ReportInputs, app_login: str | None) -> _CommentSignals | None:
+    if pf.comment is None:
+        return None
+    return _CommentSignals(
+        reaction_sentiment=reaction_sentiment(
+            reactions=inputs.reactions_by_comment.get(pf.comment["id"], []), app_login=app_login
+        ),
+        reply_excerpt=first_reply_excerpt(
+            comment=pf.comment, review_comments=inputs.review_comments, app_login=app_login
+        ),
+        outdated=comment_outdated(pf.comment),
     )
 
 
@@ -422,6 +478,7 @@ async def classify_report(
     inputs = await database_sync_to_async(_gather_report_inputs, thread_sensitive=False)(
         team_id=team_id, report=report, final_head=final_head
     )
+    app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
     compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
@@ -438,13 +495,23 @@ async def classify_report(
             # The judge is free text, so cap what goes into the durable record; the ruling is meant
             # to be a sentence or two and only a malfunctioning one would need trimming.
             judge_reasoning=judge_reasoning[:OUTCOME_JUDGE_REASONING_MAX_CHARS] if judge_reasoning else None,
+            signals=_comment_signals(pf, inputs, app_login),
         )
 
     # Settle everything the cheap signals answer first, so only the findings that genuinely need the
     # judge compete for its budget.
     candidates: list[_PublishedFinding] = []
     for pf in inputs.published:
-        method = engagement_method(comment=pf.comment, review_comments=inputs.review_comments) if pf.comment else None
+        method = (
+            engagement_method(
+                comment=pf.comment,
+                review_comments=inputs.review_comments,
+                reactions=inputs.reactions_by_comment.get(pf.comment["id"], []),
+                app_login=app_login,
+            )
+            if pf.comment
+            else None
+        )
         if method is not None:
             outcomes.append(_decided(pf, "reacted", method))
         elif touched_near(

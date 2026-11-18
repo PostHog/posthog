@@ -8,11 +8,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalog'
 import { NotebookNodeProps } from 'scenes/notebooks/types'
 
+import { SurveyResult } from 'products/surveys/frontend/SurveyResult'
+
 import { NEW_SURVEY, SURVEY_TYPE_LABEL_MAP } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
-import { SurveyResult } from './SurveyView'
 
 export type SurveyNotebookWidgetAttributes = {
     id: string

@@ -10,13 +10,16 @@ Repository changes should continue to be delivered through git rather than dupli
 
 ## PostHog object references
 
-A completed assistant message can reference a PostHog object with an object tag, such as `<insight id="9pQx3">Checkout funnel</insight>`. Desktop extracts these tags after the turn completes and registers them in the same run artifact manifest with `type: reference` and `source: posthog_object`.
+A completed assistant message can reference a PostHog object with a Markdown link to the object's page in the signed-in project, such as `[Checkout funnel](https://us.posthog.com/project/2/insights/9pQx3)`.
+Older messages use an object tag, such as `<insight id="9pQx3">Checkout funnel</insight>`, and Desktop still reads them.
+A link to another host or another project is not a reference.
+Desktop extracts these references after the turn completes and registers them in the same run artifact manifest with `type: reference` and `source: posthog_object`.
 
 Reference artifacts do not upload a file and do not have a storage path, size, or download URL. Their metadata stores the object kind, exact identifier, source message IDs, and occurrence count. Replaying the same completed message updates the existing entry instead of creating another one.
 
 Registration failure does not block the completed turn or replace the current artifact list. Desktop retries when it hydrates the completed turn again, so the client and backend can deploy in either order.
 
-The Artifacts pane shows file and reference artifacts in one list. The Timeline announces a new reference as an added artifact. Both surfaces open the same artifact tab, which resolves the current object data from the active PostHog project.
+The Artifacts pane shows file and reference artifacts in one list. The Timeline announces a new reference as an added artifact. Inbox report references open in the native Inbox report view. Other references open an artifact tab that resolves current object data from the active PostHog project.
 
 The desktop app runs scripts embedded in HTML artifacts inside an isolated preview process. The preview cannot access Node.js, Electron, PostHog credentials, remote resources, downloads, or device permissions. Use **Stop preview** if a script becomes unresponsive, then use **Restart preview** to load it in a fresh process.
 

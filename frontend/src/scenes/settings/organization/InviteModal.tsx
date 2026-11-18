@@ -8,19 +8,19 @@ import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
-
-import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -196,8 +196,9 @@ export function InviteRow({
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
-    const { invitesToSend } = useValues(inviteLogic)
+    const { invitesToSend, existingMemberInviteRows, canSubmit } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
+    const isExistingMember = existingMemberInviteRows[index]
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -219,7 +220,7 @@ export function InviteRow({
                     <LemonInput
                         placeholder={`${name.toLowerCase()}@posthog.com`}
                         type="email"
-                        className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
+                        className={`error-on-blur${!invitesToSend[index]?.isValid || isExistingMember ? ' errored' : ''}`}
                         onChange={(v) => {
                             let isValid = true
                             if (v && !isEmail(v)) {
@@ -236,6 +237,11 @@ export function InviteRow({
                         autoFocus={index === 0}
                         data-attr="invite-email-input"
                     />
+                    {isExistingMember && (
+                        <div className="text-danger text-xs mt-1" data-attr="invite-email-existing-member">
+                            This person is already a member of this organization
+                        </div>
+                    )}
                 </div>
                 {preflight?.email_service_available && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
@@ -273,7 +279,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email)}
+                            disabled={!isEmail(invitesToSend[index].target_email) || !canSubmit}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}
@@ -302,8 +308,10 @@ export function InviteTeamMatesComponent({
     hideProjectAccessSelector?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+    const { invitesToSend, inviteContainsOwnerLevel, messageError, recipientNameError } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage, setIsInviteConfirmed, ensureAllMembersLoaded } = useActions(inviteLogic)
+
+    useOnMountEffect(ensureAllMembersLoaded)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -346,6 +354,11 @@ export function InviteTeamMatesComponent({
                         isDeletable={areInvitesDeletable}
                     />
                 ))}
+                {recipientNameError && (
+                    <div className="text-danger text-xs" data-attr="invite-name-error">
+                        {recipientNameError}
+                    </div>
+                )}
 
                 <div className="mt-2 flex justify-end">
                     {areInvitesCreatable && (
@@ -365,6 +378,11 @@ export function InviteTeamMatesComponent({
                         placeholder="Tell your teammates why you're inviting them to PostHog"
                         onChange={(e) => updateMessage(e)}
                     />
+                    {messageError && (
+                        <div className="text-danger text-xs mt-1" data-attr="invite-message-error">
+                            {messageError}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -393,7 +411,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit, isInviting, hasExistingMemberInvite } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
@@ -462,9 +480,11 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                     disabledReason={
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
-                                            : !canSubmit
-                                              ? 'Please fill out all fields'
-                                              : undefined
+                                            : hasExistingMemberInvite
+                                              ? 'Remove people who are already members'
+                                              : !canSubmit
+                                                ? 'Please fill out all fields'
+                                                : undefined
                                     }
                                     data-attr="invite-team-member-submit"
                                 >

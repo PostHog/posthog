@@ -2,6 +2,7 @@ import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
 } from "@posthog/api-client/posthog-client";
+import { cloudAccessFor } from "@posthog/core/sessions/cloudModelAccess";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -22,6 +23,7 @@ import { TASK_CREATION_EFFECTS, TASK_CREATION_HOST } from "./identifiers";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
 import { TaskCreationSaga } from "./taskCreationSaga";
+import type { WarmTaskSubmission } from "./warmTaskService";
 
 export type { TaskCreationInput, TaskCreationOutput };
 export { TASK_SERVICE } from "./identifiers";
@@ -103,7 +105,10 @@ export class TaskService {
   public async createTask(
     input: TaskCreationInput,
     onTaskReady?: (output: TaskCreationOutput) => void,
-    options?: { skipCloudUsagePreflight?: boolean },
+    options?: {
+      skipCloudUsagePreflight?: boolean;
+      warmSubmission?: WarmTaskSubmission;
+    },
   ): Promise<CreateTaskResult> {
     this.log.info("Creating task", {
       workspaceMode: input.workspaceMode,
@@ -153,9 +158,36 @@ export class TaskService {
       }
     }
 
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
+      try {
+        const access = await this.sessionService.resolveCloudModelAccess(
+          adapter,
+          adapter === "claude"
+            ? input.claudeCloudModelAccess
+            : input.codexCloudModelAccess,
+        );
+        input = {
+          ...input,
+          claudeCloudModelAccess: cloudAccessFor(access, "claude"),
+          codexCloudModelAccess: cloudAccessFor(access, "codex"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          failedStep: "validation",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not check subscription billing.",
+        };
+      }
+    }
+
     const creator = new TaskCreationSaga(
       {
         posthogClient,
+        warmSubmission: options?.warmSubmission,
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
@@ -261,6 +293,7 @@ export class TaskService {
           await this.piRunner.resume({
             taskContext: {
               taskId,
+              taskRunId: task.latest_run?.id,
               cwd:
                 existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
             },
@@ -284,7 +317,9 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskContext: { taskId, cwd } });
+        await this.piRunner.resume({
+          taskContext: { taskId, taskRunId: task.latest_run?.id, cwd },
+        });
         return {
           success: true,
           data: { task, workspace: null },

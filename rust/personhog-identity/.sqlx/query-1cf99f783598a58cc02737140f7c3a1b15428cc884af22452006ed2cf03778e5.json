@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_unmap_cohort_membership' */ DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1cf99f783598a58cc02737140f7c3a1b15428cc884af22452006ed2cf03778e5"
+}

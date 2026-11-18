@@ -17,8 +17,8 @@ class TestActivityLogPaginationSchema(SimpleTestCase):
     def test_cursor_response_body_has_no_count(self):
         pagination = ActivityLogPagination()
         pagination.request = Request(APIRequestFactory().get("/"))
-        pagination.cursor_pagination.page = []
-        pagination.cursor_pagination.has_next = False
-        pagination.cursor_pagination.has_previous = False
+        pagination.page = []
+        pagination.has_next = False
+        pagination.has_previous = False
 
         assert "count" not in pagination.get_paginated_response([]).data

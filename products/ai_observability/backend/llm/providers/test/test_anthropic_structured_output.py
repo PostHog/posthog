@@ -3,9 +3,14 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import anthropic
+from parameterized import parameterized
 from pydantic import BaseModel
 
-from products.ai_observability.backend.llm.errors import QuotaExceededError, StructuredOutputParseError
+from products.ai_observability.backend.llm.errors import (
+    OutputTokenLimitError,
+    QuotaExceededError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -63,11 +68,12 @@ class TestStructuredOutputComplete:
             response_format=response_format,
         )
 
-    def _make_mock_response(self, text: str):
+    def _make_mock_response(self, text: str, stop_reason: str = "end_turn") -> MagicMock:
         mock_block = MagicMock()
         mock_block.text = text
         mock_response = MagicMock()
         mock_response.content = [mock_block]
+        mock_response.stop_reason = stop_reason
         mock_response.usage.input_tokens = 10
         mock_response.usage.output_tokens = 20
         return mock_response
@@ -96,6 +102,52 @@ class TestStructuredOutputComplete:
         assert "result" in schema["properties"]
         assert "reason" in schema["properties"]
 
+    @parameterized.expand(
+        [
+            ("budget_model", "claude-haiku-4-5", "medium", {"type": "enabled", "budget_tokens": 4096}, None, 12288),
+            (
+                "dated_claude_4_0",
+                "claude-sonnet-4-20250514",
+                "low",
+                {"type": "enabled", "budget_tokens": 2048},
+                None,
+                10240,
+            ),
+            ("adaptive_model", "claude-haiku-5-5", "high", {"type": "adaptive"}, "high", 16384),
+            ("adaptive_minimal_is_low", "claude-opus-4-7", "minimal", {"type": "adaptive"}, "low", 9216),
+            ("unlisted_newer_model", "claude-sonnet-9", "low", {"type": "adaptive"}, "low", 10240),
+            ("no_level", "claude-haiku-5-5", None, None, None, 8192),
+            ("claude_3", "claude-3-haiku-20240307", "high", None, None, 8192),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_structured_output_applies_reasoning_level(
+        self,
+        _name,
+        model,
+        level,
+        expected_thinking,
+        expected_effort,
+        expected_max_tokens,
+        mock_anthropic_cls,
+        mock_settings,
+    ):
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = self._make_mock_response('{"result": true, "reason": "ok"}')
+        request = self._make_request(response_format=BooleanEvalResult)
+        request.model = model
+        request.reasoning_level = level
+
+        AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs.get("thinking") == expected_thinking
+        assert call_kwargs["output_config"].get("effort") == expected_effort
+        assert call_kwargs["output_config"]["format"]["type"] == "json_schema"
+        assert call_kwargs["max_tokens"] == expected_max_tokens
+
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
     def test_structured_output_parses_valid_json(self, mock_anthropic_cls, mock_settings):
@@ -118,16 +170,50 @@ class TestStructuredOutputComplete:
         assert result.parsed.result is True
         assert result.parsed.reason == "The sky is blue"
 
+    @parameterized.expand(
+        [
+            (
+                "invalid_json",
+                "not valid json at all",
+                "end_turn",
+                StructuredOutputParseError,
+                "Failed to parse structured output",
+            ),
+            (
+                "truncated_json",
+                '{"result": true, "reason": "The sky',
+                "max_tokens",
+                OutputTokenLimitError,
+                "output token limit",
+            ),
+            (
+                "valid_json_at_limit",
+                '{"result": true, "reason": "The sky is blue"}',
+                "max_tokens",
+                OutputTokenLimitError,
+                "output token limit",
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_structured_output_raises_on_invalid_json(self, mock_anthropic_cls, mock_settings):
+    def test_structured_output_distinguishes_parse_errors_from_output_limits(
+        self,
+        _name: str,
+        text: str,
+        stop_reason: str,
+        expected_error: type[Exception],
+        expected_message: str,
+        mock_anthropic_cls: MagicMock,
+        mock_settings: MagicMock,
+    ) -> None:
         mock_settings.ANTHROPIC_API_KEY = "sk-ant-test"
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = self._make_mock_response("not valid json at all")
+        mock_client.messages.create.return_value = self._make_mock_response(text, stop_reason=stop_reason)
 
         adapter = AnthropicAdapter()
-        with pytest.raises(StructuredOutputParseError, match="Failed to parse structured output"):
+        with pytest.raises(expected_error, match=expected_message):
             adapter.complete(
                 self._make_request(response_format=BooleanEvalResult),
                 api_key="sk-ant-test",
@@ -150,13 +236,16 @@ class TestStructuredOutputComplete:
                 analytics=AnalyticsContext(capture=False),
             )
 
+    @parameterized.expand(["end_turn", "max_tokens"])
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_non_structured_output_returns_text(self, mock_anthropic_cls, mock_settings):
+    def test_non_structured_output_returns_text(
+        self, stop_reason: str, mock_anthropic_cls: MagicMock, mock_settings: MagicMock
+    ) -> None:
         mock_settings.ANTHROPIC_API_KEY = "sk-ant-test"
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = self._make_mock_response("The sky is blue.")
+        mock_client.messages.create.return_value = self._make_mock_response("The sky is blue.", stop_reason=stop_reason)
 
         adapter = AnthropicAdapter()
         result = adapter.complete(

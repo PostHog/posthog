@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
@@ -20,9 +20,13 @@ function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage 
 }
 
 describe('ToolActivity', () => {
-    it('renders the title and subtitle (second line)', () => {
+    afterEach(() => cleanup())
+
+    it('renders the title in the header and the subtitle inside the expanded details', () => {
         render(<ToolActivity message={makeMessage()} title="Terminal" subtitle="ls -la" />)
         expect(screen.getByText('Terminal')).toBeInTheDocument()
+        expect(screen.queryByText('ls -la')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('ls -la')).toBeInTheDocument()
     })
 
@@ -33,7 +37,7 @@ describe('ToolActivity', () => {
         expect(screen.getByText('command output')).toBeInTheDocument()
     })
 
-    it('auto-expands the body while the tool is running', () => {
+    it('keeps the body collapsed while the tool is running', () => {
         render(
             <ToolActivity
                 message={makeMessage({ status: 'in_progress' })}
@@ -41,7 +45,8 @@ describe('ToolActivity', () => {
                 body={<div>streaming…</div>}
             />
         )
-        expect(screen.getByText('streaming…')).toBeInTheDocument()
+        expect(screen.getByText('Running')).toBeInTheDocument()
+        expect(screen.queryByText('streaming…')).not.toBeInTheDocument()
     })
 
     it('renders children always-visible without expanding', () => {
@@ -66,6 +71,6 @@ describe('ToolActivity', () => {
 
     it('marks a turn-cancelled tool', () => {
         render(<ToolActivity message={makeMessage({ status: 'in_progress' })} title="Terminal" turnCancelled />)
-        expect(screen.getByText('(cancelled)')).toBeInTheDocument()
+        expect(screen.getByText('Canceled')).toBeInTheDocument()
     })
 })

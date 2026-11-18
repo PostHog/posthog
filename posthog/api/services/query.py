@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Literal, Optional, overload
+from typing import TYPE_CHECKING, Literal, Optional, overload
 
 import structlog
 import pydantic_core
@@ -11,12 +13,14 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
+    HogLanguage,
     HogQLAutocomplete,
     HogQLMetadata,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
+    QueryStatus,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -28,20 +32,32 @@ from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import (
+    CacheMissResponse,
+    ExecutionMode,
+    QueryResponse,
+    QueryRunner,
+    get_query_runner_or_none,
+    unwrapped_source,
+)
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.managed_warehouse.backend.facade.query_execution import get_managed_trino_schema
 
 from common.hogvm.python.debugger import color_bytecode
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +96,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -102,6 +119,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -123,6 +141,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     upgraded_query_json = upgrade(query_json)
@@ -176,11 +195,26 @@ def process_query_dict(
         cache_age_seconds=cache_age_seconds,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
+        query_status=query_status,
         allow_raw_results=allow_raw_results,
     )
 
 
 def process_database_schema_query(
+    team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
+) -> DatabaseSchemaQueryResponse:
+    if query.executionTarget == "managed_trino":
+        try:
+            return get_managed_trino_schema(query, team=team, user=user)
+        except (APIException, ExposedHogQLError, UserAccessControlError):
+            raise
+        except Exception as error:
+            capture_exception(error, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
+            raise DatabaseSchemaUnavailable() from error
+    return _build_database_schema_query(team, query, user=user)
+
+
+def _build_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
 ) -> DatabaseSchemaQueryResponse:
     try:
@@ -190,6 +224,7 @@ def process_database_schema_query(
             user=user,
             error_factory=ValidationError,
             modifiers=create_default_modifiers_for_team(team),
+            schema_table_names=set(query.tables) if query.tables else None,
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(
@@ -251,6 +286,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -273,6 +309,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -294,20 +331,35 @@ def process_query_model(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
-    result: dict | BaseModel | RawCachedQueryResponse
-
     if isinstance(query, HogQLAutocomplete):
+        timings = HogQLTimings()
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
-            _, database = resolve_database_for_connection(
-                team,
-                query.connectionId,
-                user=user,
-                error_factory=ValidationError,
-                modifiers=create_default_modifiers_for_team(team),
-            )
-            return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+            with timings.measure("editor_assist"):
+                database: Database | None = None
+                # Hog and template languages answer from globals, so building the schema is wasted work.
+                if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_EXPR):
+                    with timings.measure("database"):
+                        _, database = resolve_database_for_connection(
+                            team,
+                            query.connectionId,
+                            user=user,
+                            error_factory=ValidationError,
+                            modifiers=create_default_modifiers_for_team(team),
+                            # Editor-assist only: query execution never reads cached sources.
+                            use_cached_sources=True,
+                        )
+                with timings.measure("autocomplete"):
+                    autocomplete_response = get_hogql_autocomplete(
+                        query=query, team=team, database_arg=database, user=user
+                    )
+            autocomplete_response.timings = [
+                *(autocomplete_response.timings or []),
+                *timings.to_list(back_out_stack=False),
+            ]
+            return autocomplete_response
 
     if isinstance(query, HogQLMetadata):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
@@ -320,67 +372,112 @@ def process_query_model(
     query_runner = get_query_runner_or_none(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
-    if query_runner is None:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(
-                team,
-                query.source,
-                dashboard_filters=dashboard_filters,
-                variables_override=variables_override,
-                limit_context=limit_context,
-                execution_mode=execution_mode,
-                user=user,
-                user_access_control=user_access_control,
-                query_id=query_id,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
-                is_query_service=is_query_service,
-                cache_age_seconds=cache_age_seconds,
-                analytics_props=analytics_props,
-                allow_raw_results=allow_raw_results,
-            )
-        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            # Caching is handled by query runners, so in this case we can only return a cache miss
-            result = CacheMissResponse(cache_key=None)
-        elif isinstance(query, HogQuery):
-            if is_cloud() and (user is None or not user.is_staff):
-                return {"results": "Hog queries currently require staff user privileges."}
-
-            try:
-                hog_result = execute_hog(query.code or "", team=team)
-                bytecode = hog_result.bytecodes.get("root", None)
-                result = HogQueryResponse(
-                    results=hog_result.result,
-                    bytecode=bytecode,
-                    coloredBytecode=color_bytecode(bytecode) if bytecode else None,
-                    stdout="\n".join(hog_result.stdout),
-                )
-            except Exception as e:
-                result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        else:
-            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
-    else:  # Query runner available - it will handle execution as well as caching
-        if dashboard_filters:
-            query_runner.apply_dashboard_filters(dashboard_filters)
-        if variables_override:
-            query_runner.apply_variable_overrides(variables_override)
-        if pagination_cursor:
-            query_runner.apply_pagination_cursor(pagination_cursor)
-        query_runner.is_query_service = is_query_service
-        if allow_raw_results:
-            query_runner.serve_raw_cached_results = True
-
-        result = query_runner.run(
+    if query_runner is not None:  # Query runner available - it will handle execution as well as caching
+        return _run_query_runner(
+            query_runner,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
             execution_mode=execution_mode,
             user=user,
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
+            cache_age_seconds=cache_age_seconds,
+            pagination_cursor=pagination_cursor,
+            analytics_props=analytics_props,
+            query_status=query_status,
+            allow_raw_results=allow_raw_results,
+        )
+
+    # This query doesn't run via query runner
+    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        return process_query_model(
+            team,
+            unwrapped_source(query, query.source),
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
+            limit_context=limit_context,
+            execution_mode=execution_mode,
+            user=user,
+            user_access_control=user_access_control,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
+            query_status=query_status,
+            allow_raw_results=allow_raw_results,
         )
-        raw_results = query_runner.raw_cached_results_bytes
-        if raw_results is not None and isinstance(result, BaseModel):
-            return RawCachedQueryResponse(response=result, raw_results=raw_results)
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        # Caching is handled by query runners, so in this case we can only return a cache miss
+        return CacheMissResponse(cache_key=None)
+    if isinstance(query, HogQuery):
+        return _run_hog_query(query, team, user)
+    raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
 
+
+def _run_hog_query(query: HogQuery, team: Team, user: Optional[User]) -> dict | HogQueryResponse:
+    if is_cloud() and (user is None or not user.is_staff):
+        return {"results": "Hog queries currently require staff user privileges."}
+
+    try:
+        hog_result = execute_hog(query.code or "", team=team)
+        bytecode = hog_result.bytecodes.get("root", None)
+        return HogQueryResponse(
+            results=hog_result.result,
+            bytecode=bytecode,
+            coloredBytecode=color_bytecode(bytecode) if bytecode else None,
+            stdout="\n".join(hog_result.stdout),
+        )
+    except Exception as e:
+        return HogQueryResponse(results=f"ERROR: {str(e)}")
+
+
+def _run_query_runner(
+    query_runner: QueryRunner,
+    *,
+    dashboard_filters: Optional[DashboardFilter],
+    variables_override: Optional[list[HogQLVariable]],
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    query_id: Optional[str],
+    insight_id: Optional[int],
+    dashboard_id: Optional[int],
+    is_query_service: bool,
+    cache_age_seconds: Optional[int],
+    pagination_cursor: Optional[str],
+    analytics_props: Optional[AnalyticsProps],
+    query_status: QueryStatus | None = None,
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse:
+    if dashboard_filters:
+        query_runner.apply_dashboard_filters(dashboard_filters)
+        # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
+        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
+    if variables_override:
+        query_runner.apply_variable_overrides(variables_override)
+    if pagination_cursor:
+        query_runner.apply_pagination_cursor(pagination_cursor)
+    query_runner.is_query_service = is_query_service
+    if allow_raw_results:
+        query_runner.serve_raw_cached_results = True
+
+    # The worker rebuilds the runner, so enqueue-time labels can describe a different access snapshot.
+    labels = query_runner.query_status_labels() if query_status is not None else None
+    result = query_runner.run(
+        execution_mode=execution_mode,
+        user=user,
+        query_id=query_id,
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+        cache_age_seconds=cache_age_seconds,
+        analytics_props=analytics_props,
+    )
+    if query_status is not None and labels is not None:
+        query_status.labels = [*labels, *(["chained"] if "chained" in (query_status.labels or []) else [])]
+    raw_results = query_runner.raw_cached_results_bytes
+    if raw_results is not None and isinstance(result, BaseModel):
+        return RawCachedQueryResponse(response=result, raw_results=raw_results)
     return result

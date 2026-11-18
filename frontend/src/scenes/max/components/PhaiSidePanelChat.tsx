@@ -1,12 +1,10 @@
 import { useMountedLogic } from 'kea'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { phaiSidePanelComposerSeedLogic } from '../phaiSidePanelComposerSeedLogic'
-
-// The client-side key for the embedded `taskTrackerSceneLogic` (and paired `runnerPanelLogic`) instance
-// this panel binds — stable so the panel keeps the same in-flight run across re-renders of its host.
-export const MAX_SIDE_PANEL_ID = 'max-side-panel'
 
 /**
  * The new posthog_ai side-panel experience: task-based, built on the `products/posthog_ai/frontend` runner
@@ -18,7 +16,6 @@ export const MAX_SIDE_PANEL_ID = 'max-side-panel'
 export function PhaiSidePanelChat(): JSX.Element {
     // Bridges the legacy `initialMaxPrompt` side-panel option into this panel's new composer (see the logic).
     useMountedLogic(phaiSidePanelComposerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }))
-
     return (
         // `flex-1 min-h-0`, NOT `h-full`: the side panel hosts this inside a ScrollArea whose content
         // grows with its children (`min-height: auto`), so a percentage height resolves against the

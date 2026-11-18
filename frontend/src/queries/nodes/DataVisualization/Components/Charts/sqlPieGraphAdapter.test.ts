@@ -68,28 +68,70 @@ describe('sqlPieGraphAdapter', () => {
                 { label: 'alpha', value: 7, color: getSeriesColor(0) },
                 { label: 'beta', value: 3, color: getSeriesColor(1) },
             ])
+            yData[0].settings = { display: { color: '#123456' } }
+            expect(buildPieSlices(xData, yData).map((slice) => slice.color)).toEqual(['#123456', '#123456'])
         })
 
-        it('aggregates breakdown series by series total', () => {
-            const yData: AxisBreakdownSeries<number | null>[] = [
+        it('treats a non-finite value as zero instead of making the whole label non-finite', () => {
+            const yData: AxisSeries<number | null>[] = [
                 {
-                    name: 'first',
-                    breakdownValue: 'first',
-                    data: [1, 2, null],
-                    settings: { display: { color: '#111111' } },
-                },
-                {
-                    name: 'second',
-                    breakdownValue: 'second',
-                    data: [3, 4, 5],
-                    settings: { display: { color: '#222222' } },
+                    column: {
+                        name: 'value',
+                        type: {
+                            name: 'INTEGER',
+                            isNumerical: true,
+                        },
+                        label: 'value',
+                        dataIndex: 1,
+                    },
+                    // 'alpha' sums 2 and Infinity; a non-finite value must not carry into the total.
+                    data: [2, 3, Number.POSITIVE_INFINITY],
+                    settings: {},
                 },
             ]
 
             expect(buildPieSlices(xData, yData)).toEqual([
-                { label: 'first', value: 3, color: '#111111' },
-                { label: 'second', value: 12, color: '#222222' },
+                { label: 'alpha', value: 2, color: getSeriesColor(0) },
+                { label: 'beta', value: 3, color: getSeriesColor(1) },
             ])
+        })
+
+        it.each([undefined, 'Renamed first', 'second'])(
+            'aggregates breakdown series with display label %s without changing their keys',
+            (label) => {
+                const yData: AxisBreakdownSeries<number | null>[] = [
+                    {
+                        name: 'first',
+                        breakdownValue: 'first',
+                        data: [1, 2, null],
+                        settings: { display: { color: '#111111', label } },
+                    },
+                    {
+                        name: 'second',
+                        breakdownValue: 'second',
+                        data: [3, 4, 5],
+                        settings: { display: { color: '#222222' } },
+                    },
+                ]
+
+                expect(buildPieSeries(buildPieSlices(xData, yData))).toEqual([
+                    { key: 'first', label: label ?? 'first', data: [3], color: '#111111' },
+                    { key: 'second', label: 'second', data: [12], color: '#222222' },
+                ])
+            }
+        )
+
+        it('does not let one NaN point drop a breakdown series that also has valid points', () => {
+            const yData: AxisBreakdownSeries<number | null>[] = [
+                {
+                    name: 'first',
+                    breakdownValue: 'first',
+                    data: [1, NaN, 2],
+                    settings: { display: { color: '#111111' } },
+                },
+            ]
+
+            expect(buildPieSlices(xData, yData)).toEqual([{ label: 'first', value: 3, color: '#111111' }])
         })
 
         it('falls back to one slice per y-series when there is no categorical x-axis', () => {
@@ -150,9 +192,31 @@ describe('sqlPieGraphAdapter', () => {
                     { label: 'beta', value: 3, color: '#222222' },
                 ])
             ).toEqual([
-                { key: 'alpha-0', label: 'alpha', color: '#111111', data: [7] },
-                { key: 'beta-1', label: 'beta', color: '#222222', data: [3] },
+                { key: 'alpha', label: 'alpha', color: '#111111', data: [7] },
+                { key: 'beta', label: 'beta', color: '#222222', data: [3] },
             ])
+        })
+
+        it.each([
+            {
+                name: 'keys a part by its label, so a reorder keeps the key',
+                labels: ['beta', 'alpha'],
+                keys: ['beta', 'alpha'],
+            },
+            {
+                name: 'numbers a repeated label',
+                labels: ['alpha', 'alpha', 'beta'],
+                keys: ['alpha', 'alpha-2', 'beta'],
+            },
+            {
+                name: 'skips a numbered key that another label already takes',
+                labels: ['alpha', 'alpha', 'alpha-2'],
+                keys: ['alpha', 'alpha-3', 'alpha-2'],
+            },
+        ])('$name', ({ labels, keys }) => {
+            const slices = labels.map((label) => ({ label, value: 1, color: '#111111' }))
+
+            expect(buildPieSeries(slices).map((series) => series.key)).toEqual(keys)
         })
 
         it('returns an empty array when there are no slices', () => {

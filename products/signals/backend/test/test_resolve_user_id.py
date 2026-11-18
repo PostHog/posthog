@@ -1,18 +1,32 @@
 import pytest
 
+from django.apps import apps
+
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.temporal.agentic import resolve_acting_user_id_for_team, resolve_user_id_for_team
+from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.task_profiles import (
+    GITHUB_ONLY_DOMAINS,
+    REPO_SELECTION,
+    RESEARCH,
+    SCOUT_FULL_NETWORK,
+    SCOUT_TRIAL_JUDGE,
+)
+from products.signals.backend.temporal.agentic import (
+    get_or_create_signals_sandbox_env,
+    resolve_acting_user_id_for_team,
+    resolve_user_id_for_team,
+)
 
 
 @pytest.fixture
 def organization():
     org = Organization.objects.create(name="test-resolve-user-org")
-    yield org
-    org.delete()
+    return org
 
 
 @pytest.fixture
@@ -167,3 +181,51 @@ def test_acting_user_prefers_github_creator_when_present(organization, team):
     _create_github_integration(team, created_by=creator)
 
     assert resolve_acting_user_id_for_team(team.id) == creator.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("denial", ["private_project", "per_member_rule"])
+@pytest.mark.parametrize("with_github_integration", [False, True])
+def test_acting_user_skips_member_without_project_access(organization, team, with_github_integration, denial):
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+    ]
+    organization.save()
+    denied_member = _create_user("denied@example.com", organization, level=OrganizationMembership.Level.MEMBER)
+    admin = _create_user("admin@example.com", organization, level=OrganizationMembership.Level.ADMIN)
+    denied_by_member = (
+        OrganizationMembership.objects.get(user=denied_member, organization=organization)
+        if denial == "per_member_rule"
+        else None
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="project",
+        resource_id=str(team.id),
+        organization_member=denied_by_member,
+        access_level="none",
+    )
+    if with_github_integration:
+        _create_github_integration(team, created_by=denied_member)
+
+    assert resolve_acting_user_id_for_team(team.id) == admin.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "profile,expected_level,expected_domains",
+    [
+        pytest.param(RESEARCH, "trusted", [], id="trusted"),
+        pytest.param(REPO_SELECTION, "custom", GITHUB_ONLY_DOMAINS, id="github_only"),
+        pytest.param(SCOUT_TRIAL_JUDGE, "custom", [], id="custom_without_domains"),
+        pytest.param(SCOUT_FULL_NETWORK, "full", [], id="full"),
+    ],
+)
+def test_sandbox_env_takes_its_network_policy_from_the_profile(team, profile, expected_level, expected_domains):
+    SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
+
+    env_id = get_or_create_signals_sandbox_env(team.id, "SIGNALS_PROFILE_TEST", profile)
+
+    env = SandboxEnvironment.objects.get(id=env_id)
+    assert env.internal is True
+    assert (env.network_access_level, env.allowed_domains) == (expected_level, expected_domains)

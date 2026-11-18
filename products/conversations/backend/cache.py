@@ -6,6 +6,7 @@ Short TTLs ensure stale data expires quickly without explicit invalidation.
 """
 
 import json
+import uuid
 import hashlib
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -39,17 +40,19 @@ def _make_cache_key(prefix: str, *args: str) -> str:
 # Widget Messages Cache
 # Caches both initial load (after=None) and polling (after=timestamp).
 # When polling, 'after' stays constant until a new message arrives,
-# so cache hits are common. Stale data expires via short TTL.
+# so cache hits are common. A new message changes last_message_at in the key, so the next poll misses.
 
 
-def get_messages_cache_key(team_id: int, ticket_id: str, after: str | None = None) -> str:
+def get_messages_cache_key(team_id: int, ticket_id: str, last_message_at: str | None, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    return _make_cache_key("messages", str(team_id), ticket_id, after or "initial")
+    return _make_cache_key("messages", str(team_id), ticket_id, last_message_at or "none", after or "initial")
 
 
-def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) -> dict | None:
+def get_cached_messages(
+    team_id: int, ticket_id: str, last_message_at: str | None, after: str | None = None
+) -> dict | None:
     """Get cached messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, last_message_at, after)
     try:
         return cache.get(key)
     except Exception:
@@ -57,13 +60,49 @@ def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) 
         return None
 
 
-def set_cached_messages(team_id: int, ticket_id: str, response_data: dict, after: str | None = None) -> None:
+def set_cached_messages(
+    team_id: int,
+    ticket_id: str,
+    response_data: dict,
+    last_message_at: str | None,
+    after: str | None = None,
+) -> None:
     """Cache messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, last_message_at, after)
     try:
         cache.set(key, response_data, timeout=MESSAGES_CACHE_TTL)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
+
+
+# Widget Session Has Tickets
+# Only a positive result is cached, because a session keeps its tickets once it has them.
+
+SESSION_HAS_TICKETS_CACHE_TTL = 24 * 3600
+
+
+def get_session_has_tickets_cache_key(team_id: int, widget_session_id: str) -> str:
+    session_digest = hashlib.sha256(widget_session_id.encode()).hexdigest()
+    return _make_cache_key("session_has_tickets", str(team_id), session_digest)
+
+
+def get_cached_session_has_tickets(team_id: int, widget_session_id: str) -> bool:
+    try:
+        return cache.get(get_session_has_tickets_cache_key(team_id, widget_session_id)) is True
+    except Exception:
+        logger.warning("conversations_cache_get_error", team_id=team_id, cache_type="session_has_tickets")
+        return False
+
+
+def set_cached_session_has_tickets(team_id: int, widget_session_id: str) -> None:
+    try:
+        cache.set(
+            get_session_has_tickets_cache_key(team_id, widget_session_id),
+            True,
+            timeout=SESSION_HAS_TICKETS_CACHE_TTL,
+        )
+    except Exception:
+        logger.warning("conversations_cache_set_error", team_id=team_id, cache_type="session_has_tickets")
 
 
 # Widget Tickets List Cache
@@ -91,6 +130,36 @@ def set_cached_tickets(team_id: int, widget_session_id: str, response_data: dict
         cache.set(key, response_data, timeout=TICKETS_CACHE_TTL)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
+
+
+def _identity_tickets_cache_namespace_key(team_id: int) -> str:
+    return _make_cache_key("identity_tickets_namespace", str(team_id))
+
+
+def get_identity_tickets_cache_namespace(team_id: int) -> str | None:
+    """Return the namespace shared by identity-authenticated ticket list keys."""
+    key = _identity_tickets_cache_namespace_key(team_id)
+    new_namespace = uuid.uuid4().hex
+    try:
+        namespace = cache.get(key)
+        if namespace:
+            return str(namespace)
+        if cache.add(key, new_namespace, timeout=None):
+            return new_namespace
+        namespace = cache.get(key)
+        return str(namespace) if namespace else new_namespace
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def invalidate_identity_tickets_cache(team_id: int) -> None:
+    """Rotate the namespace so all identity-authenticated ticket lists miss."""
+    key = _identity_tickets_cache_namespace_key(team_id)
+    try:
+        cache.set(key, uuid.uuid4().hex, timeout=None)
+    except Exception:
+        logger.warning("conversations_cache_invalidate_error", keys=[key])
 
 
 # Unread Count Cache (for dashboard nav badge)
@@ -125,15 +194,6 @@ def set_cached_unread_count(team_id: int, count: int) -> None:
 def invalidate_unread_count_cache(team_id: int) -> None:
     """Invalidate unread count cache for a team."""
     key = get_unread_count_cache_key(team_id)
-    try:
-        cache.delete(key)
-    except Exception:
-        logger.warning("conversations_cache_delete_error", key=key)
-
-
-def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
-    key = get_messages_cache_key(team_id, ticket_id, None)
     try:
         cache.delete(key)
     except Exception:
@@ -303,7 +363,8 @@ def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
     # JSON-encode for an unambiguous preimage: joining with a separator collides
     # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).
     digest = hashlib.sha256(json.dumps(sorted(distinct_ids)).encode()).hexdigest()[:32]
-    return _make_cache_key("resolved_groups", str(team_id), digest)
+    # Bump the version suffix when the cached $groups shape changes: the 12-hour TTL outlives a deploy.
+    return _make_cache_key("resolved_groups_v2", str(team_id), digest)
 
 
 def get_cached_resolved_groups(team_id: int, distinct_ids: list[str]) -> dict | None:

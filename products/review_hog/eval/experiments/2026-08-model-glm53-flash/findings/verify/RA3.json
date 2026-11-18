@@ -1,0 +1,6 @@
+{
+    "id": "RA3",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Claim is factually accurate: version.py:12 in the frozen tree reads STAMPHOG_VERSION = \"2.0.0b4\", and git diff master...HEAD shows exactly 2.0.0b3 -> 2.0.0b4. The PR changes engine behavior (reviewer.py, review_pr.py, review_local.py in the branch diff), so the bump matches the docstring rule at version.py:5-9 (behavior change bumps version; policy data rides the policy sha). But the finding asserts compliance, not a defect - there is no genuine, reachable problem in the tree, so under the defect-oriented protocol real=false."
+}

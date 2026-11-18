@@ -26,21 +26,25 @@ from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, F
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import Property, PropertyGroup
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.leaf_shape import (
+    FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_composition_hash,
     extract_person_leaf_shape_hash,
 )
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.models.team_access import RealtimeCohortLevel
+from products.cohorts.backend.realtime_teams import is_processing_team, realtime_level, team_honors_readiness_stamps
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -151,6 +155,16 @@ COHORT_RECALCULATION_FIELDS = frozenset(
 )
 
 
+# Written by turning realtime on or off, by the backfill finalizer, and by save() when an edit moves a
+# shape hash. A save of a whole row read before one of those writes would put the old value back.
+COHORT_REALTIME_SWITCH_FIELDS = (
+    "realtime_enabled_at",
+    "last_backfill_events_at",
+    "last_backfill_person_properties_at",
+    "last_realtime_cohort_calculation_at",
+)
+
+
 class ImportResolution:
     """Accumulates matched and unmatched import IDs, deduplicated across batches."""
 
@@ -250,12 +264,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("posthog.Person", through="CohortPeople")  # type: models.ManyToManyField
+    people = models.ManyToManyField("posthog.Person", through="CohortPeople", related_name="+")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
     is_calculating = models.BooleanField(default=False)
@@ -269,6 +283,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     behavioral_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     person_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
+    # Null while realtime is off. The choice survives a save that makes the cohort ineligible, so the
+    # pipeline loads a cohort only when it is both `realtime` and on.
+    realtime_enabled_at = models.DateTimeField(blank=True, null=True)
 
     last_import_total_count = models.IntegerField(
         blank=True,
@@ -330,6 +347,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # Backs the stuck static cohort sweeps in posthog/tasks/calculate_cohort.py (order by created_at, limit N).
+            # Their WHERE clause must imply the condition, or the planner skips the index.
+            models.Index(
+                fields=["created_at"],
+                condition=Q(is_static=True, is_calculating=True, deleted=False),
+                name="cohort_static_calculating_idx",
+            ),
         ]
         db_table = "posthog_cohort"
 
@@ -344,19 +368,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         `cohort_type` isn't derived here — it's computed by the API serializer
         (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
         gets a fresh `condition_type` but a stale/absent `cohort_type`."""
-        # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
-        # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
-        update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
+        # Intercept update_fields so _maintain_filter_shape_hashes can extend the frozen set.
+        update_fields = kwargs.get("update_fields")
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
-        maintained_update_fields = self._maintain_filter_shape_hashes(update_fields)
-        if len(args) > 3:
-            args = (*args[:3], maintained_update_fields, *args[4:])
-        else:
-            kwargs["update_fields"] = maintained_update_fields
+        kwargs["update_fields"] = self._maintain_filter_shape_hashes(update_fields)
         super().save(*args, **kwargs)
 
     def _maintain_filter_shape_hashes(self, update_fields: Iterable[str] | None) -> set[str] | None:
@@ -365,52 +384,75 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         self._person_shape_changed = False
         maintained_update_fields = set(update_fields) if update_fields is not None else None
         try:
-            if not self.team_id or not is_realtime_cohort_team(self.team_id):
-                return maintained_update_fields
             if self.cohort_type != CohortType.REALTIME or self.is_static or self.deleted:
                 return maintained_update_fields
             if maintained_update_fields is not None and "filters" not in maintained_update_fields:
+                return maintained_update_fields
+            # Read the row, not the cached snapshot: right after a grant, a stale snapshot would skip
+            # the supersede for an edit while the uncached run creators already accept the team.
+            if not self.team_id or not is_processing_team(self.team_id, fresh=True):
                 return maintained_update_fields
 
             new_shape_hash = extract_leaf_shape_hash(self.filters)
             new_behavioral_shape_hash = extract_behavioral_leaf_shape_hash(self.filters)
             new_person_shape_hash = extract_person_leaf_shape_hash(self.filters)
+            new_person_composition_hash = extract_person_composition_hash(self.filters)
             stored_shape_hash = self.__dict__.get("filters_shape_hash")
             stored_behavioral_shape_hash = self.__dict__.get("behavioral_filters_shape_hash")
             stored_person_shape_hash = self.__dict__.get("person_filters_shape_hash")
             previous_behavioral_shape_hash = stored_behavioral_shape_hash
             previous_person_shape_hash = stored_person_shape_hash
+            previous_shape_hash = None
+            previous_person_composition_hash = None
 
-            if not self._state.adding and (
-                stored_shape_hash is None or stored_behavioral_shape_hash is None or stored_person_shape_hash is None
-            ):
-                persisted = (
-                    Cohort.objects.filter(id=self.pk, team_id=self.team_id)
-                    .values(
-                        "filters",
-                        "filters_shape_hash",
-                        "behavioral_filters_shape_hash",
-                        "person_filters_shape_hash",
-                    )
-                    .first()
-                )
+            if not self._state.adding:
+                persisted_query = Cohort.objects.filter(id=self.pk, team_id=self.team_id)
+                if (
+                    stored_shape_hash is not None
+                    and stored_behavioral_shape_hash is not None
+                    and stored_person_shape_hash is not None
+                ):
+                    # Check equality in Postgres: a stale instance can overwrite a concurrent edit.
+                    # Matching rows need no JSONB transfer or rehash; legacy hashes still fall through.
+                    persisted_query = persisted_query.exclude(filters_shape_hash=new_shape_hash)
+                persisted = persisted_query.values(
+                    "filters",
+                    "filters_shape_hash",
+                    "behavioral_filters_shape_hash",
+                    "person_filters_shape_hash",
+                ).first()
                 if persisted is not None:
+                    # Kind hashes retain edits made while the cohort was outside realtime tracking.
+                    # Recomputing those baselines from filters would lose that invalidation signal.
+                    try:
+                        previous_shape_hash = extract_leaf_shape_hash(persisted["filters"])
+                        previous_person_composition_hash = extract_person_composition_hash(persisted["filters"])
+                    except Exception:
+                        # A malformed baseline must not disable invalidation for a valid replacement.
+                        previous_shape_hash = None
+                        previous_person_composition_hash = None
                     if stored_shape_hash is None:
                         stored_shape_hash = persisted["filters_shape_hash"]
                     if stored_behavioral_shape_hash is None:
                         stored_behavioral_shape_hash = persisted["behavioral_filters_shape_hash"]
-                        previous_behavioral_shape_hash = (
-                            stored_behavioral_shape_hash
-                            if stored_behavioral_shape_hash is not None
-                            else extract_behavioral_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_behavioral_shape_hash = (
+                                stored_behavioral_shape_hash
+                                if stored_behavioral_shape_hash is not None
+                                else extract_behavioral_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_behavioral_shape_hash = None
                     if stored_person_shape_hash is None:
                         stored_person_shape_hash = persisted["person_filters_shape_hash"]
-                        previous_person_shape_hash = (
-                            stored_person_shape_hash
-                            if stored_person_shape_hash is not None
-                            else extract_person_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_person_shape_hash = (
+                                stored_person_shape_hash
+                                if stored_person_shape_hash is not None
+                                else extract_person_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_person_shape_hash = None
 
             shape_hash_needs_update = stored_shape_hash != new_shape_hash
             behavioral_shape_hash_needs_update = stored_behavioral_shape_hash != new_behavioral_shape_hash
@@ -419,6 +461,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 not self._state.adding and previous_behavioral_shape_hash != new_behavioral_shape_hash
             )
             person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
+
+            current_shape = FilterShapeHashes(
+                definition=new_shape_hash,
+                behavioral=new_behavioral_shape_hash,
+                person=new_person_shape_hash,
+                person_composition=new_person_composition_hash,
+            )
+            previous_shape = FilterShapeHashes(
+                definition=previous_shape_hash,
+                behavioral=previous_behavioral_shape_hash,
+                person=previous_person_shape_hash,
+                person_composition=previous_person_composition_hash,
+            )
+            repair_kinds = current_shape.composition_repair_kinds(previous_shape, self.filters)
+            behavioral_shape_changed |= "behavioral" in repair_kinds
+            person_shape_changed |= "person_property" in repair_kinds
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash
@@ -541,39 +599,66 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "cohorts": any(leaf.get("type") == "cohort" for leaf in leaves),
         }
 
+    def _required_backfill_stamps(self) -> dict[str, Optional[datetime]]:
+        """The backfill stamp each of this cohort's current filter kinds needs, keyed by that kind.
+
+        The one place the filter-type-to-stamp mapping lives, so `is_flag_compatible`,
+        `realtime_ready_at` and the realtime state resolver cannot drift apart. A third gated leaf
+        kind added to one of them and not the others would let a cohort read as ready from a
+        backfill its filters never needed.
+
+        Empty when no filter type is recognized (empty filters, cohort-reference-only, and so on):
+        the realtime evaluator has no leaf to key membership on, so stale stamps mean nothing.
+        """
+        stamps: dict[str, Optional[datetime]] = {}
+        if self._has_filter_type("person") or self._has_filter_type("person_metadata"):
+            stamps[CohortBackfillKind.PERSON_PROPERTY.value] = self.last_backfill_person_properties_at
+        if self._has_filter_type("behavioral"):
+            stamps[CohortBackfillKind.BEHAVIORAL.value] = self.last_backfill_events_at
+        return stamps
+
     @property
     def is_flag_compatible(self) -> bool:
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
 
-        Gates on both person property and event backfills based on which filter types the cohort uses:
-        - Cohorts with person property or person_metadata filters require last_backfill_person_properties_at
-        - Cohorts with behavioral event filters require last_backfill_events_at
-        - Cohorts with both require both timestamps
-        - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
-          are not flag-compatible, even if stale timestamps are set, because the realtime
-          evaluator has no leaf to key membership on.
+        Every backfill its current filters need has to have landed: person property and
+        person_metadata filters need `last_backfill_person_properties_at`, behavioral event filters
+        need `last_backfill_events_at`, and a cohort with both needs both.
+
+        Stamps do not count on a team whose access row is below `serving`
+        (`team_honors_readiness_stamps`). The pipeline stamps a `processing` team's cohorts, but the
+        flags service reads no membership for it, and its users must not see realtime cohorts.
         """
-        if self.cohort_type != CohortType.REALTIME:
+        if self.cohort_type != CohortType.REALTIME or not self.realtime_enabled:
             return False
 
-        has_person_filters = self._has_filter_type("person") or self._has_filter_type("person_metadata")
-        has_behavioral_filters = self._has_filter_type("behavioral")
-
-        if not (has_person_filters or has_behavioral_filters):
+        stamps = self._required_backfill_stamps()
+        if not stamps or any(stamp is None for stamp in stamps.values()):
             return False
+        return team_honors_readiness_stamps(self.team_id)
 
-        if has_person_filters and self.last_backfill_person_properties_at is None:
-            return False
-        if has_behavioral_filters and self.last_backfill_events_at is None:
-            return False
+    @property
+    def realtime_enabled(self) -> bool:
+        return self.realtime_enabled_at is not None
 
-        return True
+    @property
+    def realtime_ready_at(self) -> Optional[datetime]:
+        """When this cohort became targetable by feature flags, or None while it isn't.
+
+        The later of the stamps `is_flag_compatible` gates on, and only those: a cohort can carry a
+        stamp for a leaf kind its filters no longer use, and reporting that one would date the
+        readiness to a backfill the current definition never needed.
+        """
+        if not self.is_flag_compatible:
+            return None
+        # `is_flag_compatible` has already proved every required stamp is set.
+        return max(stamp for stamp in self._required_backfill_stamps().values() if stamp is not None)
 
     @property
     def properties(self) -> PropertyGroup:
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.
-            return Filter(data={**self.filters, "is_simplified": True}).property_groups
+            return parse_property_group_data(self.filters.get("properties"))
 
         # convert deprecated groups to properties
         if self.groups:
@@ -600,7 +685,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         group["properties"] = new_properties
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
-                    property_groups.append(Filter(data={**group, "is_simplified": True}).property_groups)
+                    property_groups.append(parse_property_group_data(group.get("properties")))
                 elif group.get("action_id") or group.get("event_id"):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
@@ -635,10 +720,23 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     def get_analytics_metadata(self):
+        level = realtime_level(self.team_id) if self.team_id else RealtimeCohortLevel.OFF
         return {
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
             "deleted": self.deleted,
+            "is_static": self.is_static,
+            # `cohort_type` is what the cohort was classified as at this moment: a later
+            # calculation clears it when the cohort grows past the realtime member ceiling.
+            "cohort_type": self.cohort_type,
+            "condition_type": self.condition_type,
+            # `cohort_type` reads `realtime` whenever the filters are realtime-eligible, on every
+            # team. This reports the cohort's own switch, so a consumer can tell an eligible cohort
+            # from one that realtime membership is maintained for.
+            "realtime_enabled": self.realtime_enabled,
+            # `processing` teams run the pipeline while their users see none of it, so adoption
+            # counts only `serving`.
+            "realtime_level": level.value,
         }
 
     def _safe_reset_calculating_state(self, completed_version: int) -> None:
@@ -823,6 +921,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        save_state: bool = True,
         import_resolution: ImportResolution | None = None,
     ) -> int:
         """
@@ -836,6 +935,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 cohort state is left for the caller to finalize, instead of being swallowed
                 and recorded on the cohort here. Use when the caller records its own
                 success/failure outcome and must not treat a partial insert as success.
+            save_state: When False, this call neither recomputes ``count`` nor saves the cohort's
+                calculation state, and a batch insert failure is re-raised. The caller refreshes the
+                count and saves the state. Use when the caller inserts in several calls and the
+                cohort must stay calculating between them.
             import_resolution: Optional accumulator for deduplicated matched and unmatched UUIDs.
 
         Returns:
@@ -853,6 +956,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse=True,
             team_id=team_id,
             raise_on_error=raise_on_error,
+            save_state=save_state,
             insert_batch=insert_batch,
         )
 
@@ -980,6 +1084,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        save_state: bool = True,
         insert_batch: Callable[[list[Any]], None] | None = None,
     ) -> int:
         """
@@ -989,6 +1094,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             team_id: The ID of the team to which the cohort belongs.
+            raise_on_error, save_state: See ``insert_users_list_by_uuid``.
             insert_batch: Override for the per-batch write. Defaults to resolving each batch of
                 UUIDs via personhog and inserting (``_insert_batch_via_personhog``, which honors
                 ``insert_in_clickhouse``); callers whose batches are not plain UUID lists supply
@@ -997,7 +1103,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from products.cohorts.backend.models.util import count_cohort_members
 
         def _resolve_and_insert_batch(batch: list[Any]) -> None:
             self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
@@ -1021,10 +1126,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             raise
         except Exception as err:
             processing_error = err
-            # When the caller owns terminal-state finalization (raise_on_error), surface
-            # the failure instead of swallowing it, so a partial insert can't be recorded
-            # as success. The finally block below skips its own error save in this mode.
-            if settings.DEBUG or raise_on_error:
+            # When the caller owns terminal-state finalization (raise_on_error or
+            # save_state=False), surface the failure instead of swallowing it, so a partial
+            # insert can't be recorded as success. The finally block below skips its own
+            # error save in these modes.
+            if settings.DEBUG or raise_on_error or not save_state:
                 raise
             capture_exception(
                 err,
@@ -1035,28 +1141,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 },
             )
         finally:
-            # Always update the count and cohort state, even if processing failed
-            try:
-                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
-                self.count = count
-            except Exception as count_err:
-                # If count calculation fails, log the error but don't override the processing error.
-                # Leave existing count unchanged - it's better than None.
-                logger.exception(
-                    "Failed to calculate static cohort size",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
-                capture_exception(
-                    count_err,
-                    additional_properties={"cohort_id": self.id, "team_id": team_id},
-                )
-
-            # In raise_on_error mode the caller finalizes cohort state on failure, so skip
-            # the error save here to avoid double-counting errors_calculating. The success
-            # path (processing_error is None) still finalizes state as usual.
-            if not (raise_on_error and processing_error is not None):
-                self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+            if save_state:
+                self._refresh_count(team_id=team_id)
+                # In raise_on_error mode the caller finalizes cohort state on failure, so skip
+                # the error save here to avoid double-counting errors_calculating.
+                if processing_error is None or not raise_on_error:
+                    self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
 
@@ -1246,11 +1336,30 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "is_static": self.is_static,
             "cohort_type": self.cohort_type,
             "condition_type": self.condition_type,
+            "realtime_enabled": self.realtime_enabled,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
+    def _refresh_count(self, *, team_id: int) -> None:
+        """Recompute ``count`` on the instance from the stored members. A failure is logged, not raised."""
+        from products.cohorts.backend.models.util import count_cohort_members
+
+        try:
+            self.count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
+        except Exception as count_err:
+            # A failed count leaves the existing count unchanged. An old count is better than None.
+            logger.exception(
+                "Failed to calculate static cohort size",
+                cohort_id=self.id,
+                team_id=team_id,
+            )
+            capture_exception(
+                count_err,
+                additional_properties={"cohort_id": self.id, "team_id": team_id},
+            )
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """
@@ -1347,11 +1456,14 @@ def get_or_create_internal_test_users_cohort(
         }
     ]
 
-    # Add email domain filter if the creating user has a non-generic domain
+    # Add email domain filter if the creating user has a non-generic domain.
+    # The value is anchored to the end of the email: an unanchored "@acme.com" also matches
+    # acme.com.br and acme.community, silently dropping real users from every insight. Anchoring costs
+    # subdomain matches (eu.acme.com), which a team can widen itself.
     if initiating_user_email:
         generic_emails = GenericEmails()
         if not generic_emails.is_generic(initiating_user_email):
-            match = re.search(r"@([\w.]+)", initiating_user_email)
+            match = re.search(r"@([\w.-]+)", initiating_user_email)
             if match:
                 domain = match.group(1).lower()
                 filter_groups.append(
@@ -1362,7 +1474,7 @@ def get_or_create_internal_test_users_cohort(
                                 "key": "email",
                                 "type": "person",
                                 "value": f"@{domain}",
-                                "operator": "icontains",
+                                "operator": "ends_with",
                             }
                         ],
                     }
@@ -1386,7 +1498,7 @@ def get_or_create_internal_test_users_cohort(
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
-    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:

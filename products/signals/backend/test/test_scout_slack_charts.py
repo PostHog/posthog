@@ -369,7 +369,7 @@ class TestScoutSlackReportCharts(BaseTest):
             url_mock.return_value = "https://img/1"
             blocks, _ = build_scout_report_slack_message(report, run)
 
-        assert [b["type"] for b in blocks] == ["context", "header", "section", "actions"]
+        assert [b["type"] for b in blocks] == ["context", "header", "markdown", "actions"]
 
     def test_report_message_places_charts_between_prose_and_link(self) -> None:
         run = self._make_run(created_by=self.user)
@@ -380,5 +380,5 @@ class TestScoutSlackReportCharts(BaseTest):
             url_mock.return_value = "https://img/1"
             blocks, _ = build_scout_report_slack_message(report, run)
 
-        assert [b["type"] for b in blocks] == ["context", "header", "section", "section", "image", "actions"]
-        assert blocks[2]["text"]["text"] == "Look at signups."
+        assert [b["type"] for b in blocks] == ["context", "header", "markdown", "section", "image", "actions"]
+        assert blocks[2]["text"] == "Look at signups."

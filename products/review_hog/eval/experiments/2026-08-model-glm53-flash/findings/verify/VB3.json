@@ -1,0 +1,6 @@
+{
+    "id": "VB3",
+    "real": false,
+    "source": "reused-KA13",
+    "reasoning": "Identical claim verified as not real in the sol experiment (KA13). Not permanent: the broker publish is retried (Celery 5.3.6 default task_publish_retry=True, 3 retries; nothing in posthog/settings overrides it), and the receiver deliberately re-fires on every later output save carrying the same pr_url (receivers.py:75-79) — routine, since set_task_run_output saves update_fields=['output','updated_at'] on every agent-server sync (products/tasks/backend/facade/api.py:2154) and the webhook backstop does the same; process_inbox_pr_review dedupes on PR head, so a re-fire re-dispatches a missed initial review. Stamphog's webhook carve-out recomputes provenance per delivery and needs no prior ReviewRun. Log-and-return inside the save path is a tested design decision (test_inbox_trigger.py:358-370)."
+}

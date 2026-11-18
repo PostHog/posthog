@@ -13,11 +13,20 @@ import type {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '../types'
-import { createAddLogFunction, getSensitiveValues, redactSensitiveValues, sanitizeLogMessage } from '../utils'
+import {
+    createAddLogFunction,
+    getConfiguredSensitiveValues,
+    getSensitiveValues,
+    redactSensitiveValues,
+    sanitizeLogMessage,
+} from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { hasIntegrationRef } from '../utils/integration-input-refs'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { findRebuildMapping } from '../utils/rebuildable-inputs'
 import { HogInputsService } from './hog-inputs.service'
+import type { PreferencesTokenSource } from './messaging/recipient-tokens.service'
 
 export interface HogExecutorConfig {
     /** Hard wall-clock limit for one Hog program. The VM aborts the invocation once it elapses. */
@@ -57,7 +66,14 @@ export type HogExecutorAsyncFunctionHandler = (
 /** The parts of an earlier step's result that carry forward into the next one. */
 export type HogExecutorPreviousResult = Pick<
     Partial<CyclotronJobInvocationResult>,
-    'finished' | 'capturedPostHogEvents' | 'warehouseWebhookPayloads' | 'logs' | 'metrics' | 'error' | 'execResult'
+    | 'finished'
+    | 'capturedPostHogEvents'
+    | 'warehouseWebhookPayloads'
+    | 'logs'
+    | 'metrics'
+    | 'error'
+    | 'execResult'
+    | 'emailSendResult'
 >
 
 export type HogExecutorExecuteOptions = {
@@ -87,9 +103,17 @@ export class HogExecutorService {
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
+        return this.hogInputsService.buildInputsWithGlobals(
+            hogFunction,
+            globals,
+            additionalInputs,
+            preferencesTokenSource,
+            signal
+        )
     }
 
     /**
@@ -125,6 +149,7 @@ export class HogExecutorService {
                 continue
             }
             const { match } = await filterFunctionInstrumented({
+                caller: 'execute_hog_function',
                 fn: hogFunction,
                 filters: mapping.filters,
                 filterGlobals,
@@ -135,6 +160,22 @@ export class HogExecutorService {
         }
 
         return merged
+    }
+
+    /**
+     * Builds the inputs that the job queue did not store, from the current function config and the stored
+     * globals. The stored mapping identity selects the mapping inputs, so the result matches the invocation
+     * that the queue received and not every mapping that matches the event.
+     */
+    private async rebuildOmittedInputs(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        const mapping = findRebuildMapping(invocation.hogFunction, invocation.state.inputsSource ?? {})
+        return this.hogInputsService.buildInputsWithGlobals(
+            invocation.hogFunction,
+            invocation.state.globals,
+            mapping ? (mapping.inputs ?? {}) : undefined
+        )
     }
 
     @instrumented({ key: 'hog-executor.execute', sendException: false })
@@ -157,7 +198,9 @@ export class HogExecutorService {
 
         // Declared out here so the terminal catch can mask secrets out of `result.error`, which is
         // persisted to `hog_invocation_results.error_message` and rendered in the Invocations tab.
-        let sensitiveValues: string[] = []
+        // Starts from the values the function config holds, so an error raised while the inputs are
+        // still resolving is masked too; the resolved values are added once the build succeeds.
+        let sensitiveValues: string[] = getConfiguredSensitiveValues(invocation.hogFunction)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -170,8 +213,22 @@ export class HogExecutorService {
                 // the bare globals so the run resolves inputs against the
                 // current hog function config. Callers that pre-resolve inputs
                 // (e.g. the mappings path) skip the rebuild.
-                if (invocation.state.globals.inputs) {
-                    globals = invocation.state.globals
+                if (invocation.state.inputsOmitted && !invocation.state.globals.inputs) {
+                    globals = await this.rebuildOmittedInputs(invocation)
+                    // Later steps in this process use these values. The job queue drops them again when it stores the job.
+                    result.invocation.state.globals = globals
+                } else if (invocation.state.globals.inputs) {
+                    // The resolved values stay local to this run, so the state the queue persists keeps references.
+                    const inputs = hasIntegrationRef(invocation.state.globals.inputs)
+                        ? await this.hogInputsService.resolveIntegrationRefs(
+                              invocation.hogFunction,
+                              invocation.state.globals.inputs
+                          )
+                        : invocation.state.globals.inputs
+                    globals =
+                        inputs === invocation.state.globals.inputs
+                            ? invocation.state.globals
+                            : { ...invocation.state.globals, inputs }
                 } else {
                     // Mapping destinations need their per-mapping inputs
                     // re-merged here — they aren't part of the top-level config
@@ -187,12 +244,13 @@ export class HogExecutorService {
                     )
                 }
             } catch (e) {
-                addLog('error', `Error building inputs: ${e}`)
+                // A template can hand an earlier secret input to a function that quotes its argument.
+                addLog('error', sanitizeLogMessage([`Error building inputs: ${e}`], sensitiveValues))
 
                 throw e
             }
 
-            sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 

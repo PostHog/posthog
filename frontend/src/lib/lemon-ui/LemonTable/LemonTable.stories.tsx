@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
+import { fn } from 'storybook/test'
 
 import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -10,13 +13,14 @@ import { More } from '../LemonButton/More'
 import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
-import { LemonTableColumns } from './types'
+import type { LemonTableColumn, LemonTableColumns } from './types'
 
 type Story = StoryObj<LemonTableProps<any>>
 const meta: Meta<LemonTableProps<any>> = {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable as any,
     tags: ['autodocs'],
+    args: { onRow: fn(() => ({})) },
 }
 export default meta
 
@@ -45,7 +49,7 @@ const MANY_PEOPLE: MockPerson[] = [
     { name: 'Ingrid S.', occupation: 'Writer' },
 ]
 
-const WIDE_COLUMNS: LemonTableColumns<MockPerson> = [
+const WIDE_COLUMNS: LemonTableColumn<MockPerson, keyof MockPerson | undefined>[] = [
     {
         title: 'Name',
         dataIndex: 'name',
@@ -239,6 +243,17 @@ export const WithExpandableRows: Story = {
             },
         },
     },
+}
+
+export const WithFixedLayoutExpandableRows: Story = {
+    ...WithExpandableRows,
+    args: {
+        tableLayout: 'fixed',
+        expandable: {
+            expandedRowRender: (record) => <span>{record.occupation}</span>,
+        },
+    },
+    parameters: { testOptions: { viewport: { width: 600, height: 400 } } },
 }
 
 export const Small: Story = { render: renderBasic as any, args: { size: 'small' } }
@@ -483,6 +498,41 @@ export const WithRowActions: Story = {
             />
         )
     },
+}
+
+const RESIZABLE_COLUMNS: LemonTableColumn<MockPerson, keyof MockPerson | undefined>[] = [
+    {
+        title: 'Identifier',
+        key: 'identifier',
+        width: 300,
+        render: (_, person) => (
+            <span className="whitespace-nowrap">{`0192b2c8-4f4c-7c3a-9e6d-${person.name.length}b2c3d4e5f6`}</span>
+        ),
+    },
+    ...WIDE_COLUMNS.slice(0, 3),
+]
+
+function ResizableColumnsTable(): JSX.Element {
+    const [widths, setWidths] = useState<Record<number, number>>({})
+
+    return (
+        <LemonTable
+            columns={RESIZABLE_COLUMNS.map((column, index) => ({
+                ...column,
+                width: widths[index] ?? column.width,
+                resizable: true,
+                onResize: (width: number) => setWidths((currentWidths) => ({ ...currentWidths, [index]: width })),
+            }))}
+            dataSource={MANY_PEOPLE.slice(0, 5)}
+            // Size the table to its content once a column is resized, the same as tables that persist
+            // column widths. Intrinsic sizing is the mode a cropped column shows in.
+            tableStyle={Object.keys(widths).length > 0 ? { width: 'max-content' } : undefined}
+        />
+    )
+}
+
+export const WithResizableColumns: Story = {
+    render: () => <ResizableColumnsTable />,
 }
 
 export const WithHorizontalOverflow: Story = {

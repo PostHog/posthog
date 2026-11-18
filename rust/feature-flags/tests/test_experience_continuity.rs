@@ -657,3 +657,227 @@ async fn test_experience_continuity_without_person_uses_anon_distinct_id() -> Re
 
     Ok(())
 }
+
+/// Sends a flags request and returns the variant the server assigned for `flag_key`.
+async fn request_variant(server: &ServerHandle, payload: &Value, flag_key: &str) -> Result<String> {
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<Value>().await?;
+    Ok(body["flags"][flag_key]["variant"]
+        .as_str()
+        .expect("flag should resolve to a variant")
+        .to_string())
+}
+
+/// Finds two distinct ids that bucket into different variants of `flag_key`. If the server used
+/// the sentinel as the hash key, every visitor would land on one variant, so a pair that already
+/// lands on different variants is what lets the assertions below fail.
+async fn two_distinct_ids_in_different_variants(
+    server: &ServerHandle,
+    api_token: &str,
+    flag_key: &str,
+) -> Result<(String, String)> {
+    let mut control: Option<String> = None;
+    let mut test: Option<String> = None;
+
+    for n in 0..20 {
+        let distinct_id = format!("cookieless_visitor_{n}");
+        let payload = json!({ "token": api_token, "distinct_id": distinct_id });
+        let slot = match request_variant(server, &payload, flag_key).await?.as_str() {
+            "control" => &mut control,
+            _ => &mut test,
+        };
+        slot.get_or_insert(distinct_id);
+
+        if let (Some(control), Some(test)) = (&control, &test) {
+            return Ok((control.clone(), test.clone()));
+        }
+    }
+
+    panic!("no two distinct ids bucketed into different variants of {flag_key}");
+}
+
+fn multivariate_continuity_flag(id: i32, team_id: i32, key: &str) -> FeatureFlagRow {
+    FeatureFlagRow {
+        id,
+        team_id,
+        name: Some("Cookieless Sentinel Test".to_string()),
+        key: key.to_string(),
+        filters: json!({
+            "groups": [{"rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50}
+                ]
+            }
+        }),
+        deleted: false,
+        active: true,
+        ensure_experience_continuity: Some(true),
+        version: Some(1),
+        evaluation_runtime: None,
+        evaluation_tags: None,
+        bucketing_identifier: None,
+        has_experiment: false,
+    }
+}
+
+#[tokio::test]
+async fn test_cookieless_sentinel_anon_distinct_id_does_not_share_a_variant() -> Result<()> {
+    // Every cookieless visitor sends the same sentinel as $anon_distinct_id on identify. If the
+    // service takes it as a hash key, all of them bucket together and an A/A test reports a
+    // skewed split. Each visitor must keep the variant their own distinct id gives them, and no
+    // sentinel row may reach the override table.
+
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team");
+
+    let flag_key = "cookieless-sentinel-continuity-test";
+    context
+        .insert_flag(
+            team.id,
+            Some(multivariate_continuity_flag(300, team.id, flag_key)),
+        )
+        .await?;
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let server = ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![],
+        vec![(team.api_token.clone(), team.id)],
+    )
+    .await;
+
+    let (control_user, test_user) =
+        two_distinct_ids_in_different_variants(&server, &team.api_token, flag_key).await?;
+
+    for (distinct_id, expected_variant) in [(&control_user, "control"), (&test_user, "test")] {
+        // The person must exist, or the write path has nothing to attach an override row to.
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
+            .await?;
+
+        let payload = json!({
+            "token": team.api_token,
+            "distinct_id": distinct_id,
+            "$anon_distinct_id": "$posthog_cookieless",
+        });
+
+        assert_eq!(
+            request_variant(&server, &payload, flag_key).await?,
+            expected_variant,
+            "{distinct_id} should keep its own variant when the anon id is the cookieless sentinel"
+        );
+    }
+
+    let mut conn = context.get_persons_connection().await?;
+    let sentinel_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND hash_key = $2",
+    )
+    .bind(team.id)
+    .bind("$posthog_cookieless")
+    .fetch_one(&mut *conn)
+    .await?;
+
+    assert_eq!(
+        sentinel_rows, 0,
+        "the cookieless sentinel must never be stored as a hash key override"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stored_cookieless_sentinel_override_is_replaced() -> Result<()> {
+    // A person can already hold a sentinel override row. The write path matches existing rows
+    // on the flag key alone, so without the sentinel filter it sees an override for every
+    // continuity flag and writes nothing. The person then has no usable continuity key and
+    // moves variant on each login. The real anon id must replace the stored sentinel.
+
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team");
+
+    let flag_key = "stored-sentinel-continuity-test";
+    context
+        .insert_flag(
+            team.id,
+            Some(multivariate_continuity_flag(301, team.id, flag_key)),
+        )
+        .await?;
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let server = ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![],
+        vec![(team.api_token.clone(), team.id)],
+    )
+    .await;
+
+    let (control_user, test_user) =
+        two_distinct_ids_in_different_variants(&server, &team.api_token, flag_key).await?;
+
+    let person_id = context
+        .insert_person(team.id, control_user.clone(), None)
+        .await?;
+
+    let mut conn = context.get_persons_connection().await?;
+    sqlx::query(
+        "INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(team.id)
+    .bind(person_id)
+    .bind(flag_key)
+    .bind("$posthog_cookieless")
+    .execute(&mut *conn)
+    .await?;
+
+    // The anon id buckets to "test" and the distinct id to "control". This request reads "test"
+    // whether or not the write replaced the sentinel, because the read skips a stored sentinel
+    // and falls back to the request's anon id.
+    let payload = json!({
+        "token": team.api_token,
+        "distinct_id": control_user,
+        "$anon_distinct_id": test_user,
+    });
+
+    assert_eq!(
+        request_variant(&server, &payload, flag_key).await?,
+        "test",
+        "the request's anon id should drive bucketing"
+    );
+
+    // Without an anon id, only the stored row can steer bucketing. A replaced row reads "test",
+    // and a leftover sentinel falls back to the distinct id and reads "control".
+    let follow_up = json!({ "token": team.api_token, "distinct_id": control_user });
+
+    assert_eq!(
+        request_variant(&server, &follow_up, flag_key).await?,
+        "test",
+        "the replaced override should drive bucketing without an anon id"
+    );
+
+    let stored_hash_key: String = sqlx::query_scalar(
+        "SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2 AND feature_flag_key = $3",
+    )
+    .bind(team.id)
+    .bind(person_id)
+    .bind(flag_key)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    assert_eq!(
+        stored_hash_key, test_user,
+        "the stored cookieless sentinel should have been replaced by the real anon id"
+    );
+
+    Ok(())
+}

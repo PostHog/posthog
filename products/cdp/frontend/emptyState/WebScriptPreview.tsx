@@ -2,7 +2,7 @@ import './WebScriptPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored 7-day invocation sparklines for the script rows. The hero's series
 // only shows once its script is enabled.
@@ -18,7 +18,7 @@ const SPARK_BANNER = 'M 0 15.5 L 16 15.5 L 32 15.2 L 48 10 L 64 7.5 L 80 5.5 L 1
  * stacked in `__swap` grids and crossfaded, so enabling never changes the layout's size.
  */
 export function WebScriptPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('WebScriptPreview', isStatic && 'WebScriptPreview--static')}>

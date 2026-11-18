@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "description": "Whether checks run automatically on this schedule.",
+            "type": "boolean"
+        },
+        "interval": {
+            "description": "How often all enabled checks on the subject run.\n\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day",
+            "enum": ["1hour", "6hour", "12hour", "24hour", "7day"],
+            "type": "string"
+        },
+        "subject_type": {
+            "description": "Kind of object: 'table', 'view', 'metric', or 'posthog_table'.\n\n* `table` - table\n* `view` - view\n* `metric` - metric\n* `posthog_table` - posthog_table",
+            "enum": ["table", "view", "metric", "posthog_table"],
+            "type": "string"
+        },
+        "subject_uuid": {
+            "description": "Id of the table, view, metric, or PostHog table.",
+            "type": "string"
+        }
+    },
+    "required": ["subject_type", "subject_uuid"],
+    "type": "object"
+}

@@ -5,32 +5,34 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 import './number-field.css'
 
-function NumberFieldRoot({
-    className,
-    ...props
-}: NumberFieldPrimitive.Root.Props): React.ReactElement {
+const NumberFieldRoot = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.Root>,
+    NumberFieldPrimitive.Root.Props
+>(function NumberFieldRoot({ className, ...props }, ref) {
     return (
         <NumberFieldPrimitive.Root
+            ref={ref}
             data-quill
             data-slot="number-field"
             className={cn('flex flex-col gap-1', className)}
             {...props}
         />
     )
-}
+})
 
-function NumberFieldGroup({
-    className,
-    ...props
-}: NumberFieldPrimitive.Group.Props): React.ReactElement {
+const NumberFieldGroup = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.Group>,
+    NumberFieldPrimitive.Group.Props
+>(function NumberFieldGroup({ className, ...props }, ref) {
     return (
         <NumberFieldPrimitive.Group
+            ref={ref}
             data-slot="number-field-group"
             className={cn('quill-number-field__group flex items-center', className)}
             {...props}
         />
     )
-}
+})
 
 const NumberFieldInput = React.forwardRef<HTMLInputElement, NumberFieldPrimitive.Input.Props>(
     ({ className, ...props }, ref) => {
@@ -46,13 +48,13 @@ const NumberFieldInput = React.forwardRef<HTMLInputElement, NumberFieldPrimitive
 )
 NumberFieldInput.displayName = 'NumberFieldInput'
 
-function NumberFieldIncrement({
-    className,
-    children,
-    ...props
-}: NumberFieldPrimitive.Increment.Props): React.ReactElement {
+const NumberFieldIncrement = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.Increment>,
+    NumberFieldPrimitive.Increment.Props
+>(function NumberFieldIncrement({ className, children, ...props }, ref) {
     return (
         <NumberFieldPrimitive.Increment
+            ref={ref}
             data-slot="number-field-increment"
             className={cn('quill-number-field__increment flex items-center justify-center', className)}
             {...props}
@@ -60,15 +62,15 @@ function NumberFieldIncrement({
             {children ?? <ChevronUpIcon className="size-3.5" />}
         </NumberFieldPrimitive.Increment>
     )
-}
+})
 
-function NumberFieldDecrement({
-    className,
-    children,
-    ...props
-}: NumberFieldPrimitive.Decrement.Props): React.ReactElement {
+const NumberFieldDecrement = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.Decrement>,
+    NumberFieldPrimitive.Decrement.Props
+>(function NumberFieldDecrement({ className, children, ...props }, ref) {
     return (
         <NumberFieldPrimitive.Decrement
+            ref={ref}
             data-slot="number-field-decrement"
             className={cn('quill-number-field__decrement flex items-center justify-center', className)}
             {...props}
@@ -76,33 +78,35 @@ function NumberFieldDecrement({
             {children ?? <ChevronDownIcon className="size-3.5" />}
         </NumberFieldPrimitive.Decrement>
     )
-}
+})
 
-function NumberFieldScrubArea({
-    className,
-    ...props
-}: NumberFieldPrimitive.ScrubArea.Props): React.ReactElement {
+const NumberFieldScrubArea = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.ScrubArea>,
+    NumberFieldPrimitive.ScrubArea.Props
+>(function NumberFieldScrubArea({ className, ...props }, ref) {
     return (
         <NumberFieldPrimitive.ScrubArea
+            ref={ref}
             data-slot="number-field-scrub-area"
             className={cn('cursor-ew-resize', className)}
             {...props}
         />
     )
-}
+})
 
-function NumberFieldScrubAreaCursor({
-    className,
-    ...props
-}: NumberFieldPrimitive.ScrubAreaCursor.Props): React.ReactElement {
+const NumberFieldScrubAreaCursor = React.forwardRef<
+    React.ComponentRef<typeof NumberFieldPrimitive.ScrubAreaCursor>,
+    NumberFieldPrimitive.ScrubAreaCursor.Props
+>(function NumberFieldScrubAreaCursor({ className, ...props }, ref) {
     return (
         <NumberFieldPrimitive.ScrubAreaCursor
+            ref={ref}
             data-slot="number-field-scrub-area-cursor"
             className={cn(className)}
             {...props}
         />
     )
-}
+})
 
 export {
     NumberFieldRoot,

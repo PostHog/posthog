@@ -6,6 +6,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ADVANCED_ACTIVITY_PAGE_SIZE, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -131,6 +132,35 @@ export function isValidIpFilterValue(raw: string): boolean {
     return v.includes(':')
 }
 
+const UTC_OFFSET = /T.*(Z|[+-]\d{2}:?\d{2})$/i
+
+// A value without a UTC offset is in the project timezone, as in insights.
+export function filterDateToISOString(value: string, timezone: string): string | undefined {
+    const date = UTC_OFFSET.test(value) ? dayjs(value) : dateStringToDayJs(value, timezone)
+    return date?.isValid() ? date.toISOString() : undefined
+}
+
+// The date picker shows a value as written, so a jump's UTC instants are stored in project time.
+export function toFilterDates(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string
+): { start_date?: string; end_date?: string; hadUtcOffset: boolean } {
+    const toProjectTime = (value: string): string => {
+        if (!UTC_OFFSET.test(value)) {
+            return value
+        }
+        const projectTime = dayjs(value).tz(timezone).format('YYYY-MM-DDTHH:mm:ss')
+        // A time in the repeated hour when clocks go back maps to two instants, so keep the offset there.
+        return dayjs.tz(projectTime, timezone).isSame(dayjs(value)) ? projectTime : value
+    }
+    return {
+        start_date: dateFrom ? toProjectTime(dateFrom) : undefined,
+        end_date: dateTo ? toProjectTime(dateTo) : undefined,
+        hadUtcOffset: [dateFrom, dateTo].some((value) => !!value && UTC_OFFSET.test(value)),
+    }
+}
+
 function parseBooleanSearchParam(raw: unknown): boolean | undefined {
     if (raw === 'true') {
         return true
@@ -148,6 +178,7 @@ export interface advancedActivityLogsLogicValues {
     currentOrganizationId: string // organizationLogic
     currentProjectId: number | string // teamLogic
     currentTeamIdStrict: number | string // teamLogic
+    timezone: string // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     activeAdvancedFiltersCount: number
     activeFilters: ActiveDetailFilter[]
@@ -333,7 +364,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             userLogic,
             ['hasAvailableFeature'],
             teamLogic,
-            ['currentTeamIdStrict', 'currentProjectId'],
+            ['currentTeamIdStrict', 'currentProjectId', 'timezone'],
             organizationLogic,
             ['currentOrganization', 'currentOrganizationId'],
         ],
@@ -426,17 +457,15 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     const params = new URLSearchParams()
 
-                    if (values.filters.start_date) {
-                        const startDate = dateStringToDayJs(values.filters.start_date)
-                        if (startDate) {
-                            params.append('start_date', startDate.toISOString())
-                        }
+                    const startDate =
+                        values.filters.start_date && filterDateToISOString(values.filters.start_date, values.timezone)
+                    if (startDate) {
+                        params.append('start_date', startDate)
                     }
-                    if (values.filters.end_date) {
-                        const endDate = dateStringToDayJs(values.filters.end_date)
-                        if (endDate) {
-                            params.append('end_date', endDate.toISOString())
-                        }
+                    const endDate =
+                        values.filters.end_date && filterDateToISOString(values.filters.end_date, values.timezone)
+                    if (endDate) {
+                        params.append('end_date', endDate)
                     }
 
                     values.filters.users?.forEach((user) => params.append('users', user))
@@ -465,6 +494,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
                     const [response] = await Promise.all([
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         api.get(`${values.advancedActivityLogsBaseUrl}/?${params}`),
                         ensureActivityDescribersLoaded(),
                     ])
@@ -477,6 +507,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(`${values.advancedActivityLogsBaseUrl}/available_filters/`)
                     return response
                 },
@@ -489,7 +520,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
-                    const response = await api.get(`api/environments/${values.currentTeamIdStrict}/exports/?${params}`)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use exportsList() from '~/generated/core/api' instead.
+                    const response = await api.get(`api/projects/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
             },
@@ -759,10 +791,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             }
             try {
                 const startDate = values.filters.start_date
-                    ? dateStringToDayJs(values.filters.start_date)?.toISOString()
+                    ? filterDateToISOString(values.filters.start_date, values.timezone)
                     : undefined
                 const endDate = values.filters.end_date
-                    ? dateStringToDayJs(values.filters.end_date)?.toISOString()
+                    ? filterDateToISOString(values.filters.end_date, values.timezone)
                     : undefined
 
                 const filtersToExport = {
@@ -779,6 +811,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     item_ids: values.filters.item_ids,
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use advancedActivityLogsExportCreate() from 'products/platform_features/frontend/generated/api' instead.
                 await api.create(`api/projects/${values.currentProjectId}/advanced_activity_logs/export/`, {
                     format,
                     filters: filtersToExport,

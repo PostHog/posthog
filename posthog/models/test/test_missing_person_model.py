@@ -1,11 +1,11 @@
 from uuid import UUID
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.models.person.missing_person import MissingPerson
 
 
-class TestMissingPersonModel(BaseTest):
+class TestMissingPersonModel(SimpleTestCase):
     def test_generates_deterministic_uuid(self):
         assert MissingPerson(1, "test").uuid == UUID("246f7a43-5507-564f-b687-793ee3c2dd79")
         assert MissingPerson(2, "test").uuid == UUID("00ce873a-549c-548e-bbec-cc804a385dd8")

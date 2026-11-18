@@ -1,14 +1,39 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/types'
 
-import { validateMetricName } from './common'
+import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
+
+import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
+import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
+import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsDestroy,
@@ -27,6 +52,30 @@ export interface DataCatalogMetricSceneLogicProps {
     name: string
 }
 
+export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage' | 'usage'
+
+/** What stopped the lineage load, in the terms the tab has a screen for. */
+export type LineageLoadProblem = 'not_ready' | 'missing' | 'no_warehouse_access' | 'failed'
+
+export interface MetricLineage {
+    nodes: DataModelingNode[]
+    edges: DataModelingEdge[]
+}
+
+/** A node written moments ago may not exist yet, so one silent retry covers the common case. */
+export const LINEAGE_RETRY_MS = 3000
+
+function lineageProblem(error: unknown): LineageLoadProblem {
+    const status = error instanceof ApiError ? error.status : undefined
+    if (status === 404) {
+        return 'not_ready'
+    }
+    if (status === 403) {
+        return 'no_warehouse_access'
+    }
+    return 'failed'
+}
+
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
@@ -42,6 +91,28 @@ function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
+/** A metric with no query definition has no lineage to fetch; the tab says so without asking. */
+export function metricHasExecutableDefinition(metric: DataCatalogMetricApi | null): boolean {
+    return !!metric?.definition_kind && metric.definition_kind !== 'MarkdownDefinition'
+}
+
+const REFERENCED_TABLE_PREVIEW_ROWS = 100
+
+export function metricReferencedTableNames(metric: DataCatalogMetricApi): string[] {
+    const names = metric.referenced_table_names
+    return Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string') : []
+}
+
+export function referencedTablePreviewQuery(tableName: string): string {
+    return `SELECT * FROM ${escapeDottedHogQLIdentifier(tableName)} LIMIT ${REFERENCED_TABLE_PREVIEW_ROWS}`
+}
+
+// What a lineage graph was computed for. The upstream tables follow from the metric and its
+// definition, so a reload that returns the same key returns the same graph.
+function lineageMetricKey(metric: DataCatalogMetricApi | null): string | null {
+    return metric ? `${metric.id}:${JSON.stringify(metric.definition ?? null)}` : null
+}
+
 export function definitionField(metric: DataCatalogMetricApi | null, field: string): string {
     const definition = metric?.definition as Record<string, unknown> | null | undefined
     const value = definition?.[field]
@@ -50,29 +121,94 @@ export function definitionField(metric: DataCatalogMetricApi | null, field: stri
 
 export const MARKDOWN_DEFINITION_TEMPLATE = '1. Describe how to calculate this metric'
 
+const pendingDraftByName = new Map<string, string>()
+
+// Scope the handoff key by project. The map is module-global and only a successful load consumes
+// its entry, so a failed or interrupted target load would otherwise leave a name-keyed draft that a
+// same-named metric in another project restores into the wrong editor.
+function pendingDraftKey(name: string): string {
+    return `${projectId()}:${name}`
+}
+
+// Only the markdown and stub branches of MetricDefinition render the editor.
+function rendersMarkdownEditor(metric: DataCatalogMetricApi | null): boolean {
+    const kind = metric?.definition_kind
+    return !kind || kind === 'MarkdownDefinition'
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataCatalogMetricSceneLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    sceneIntegrationEnabled: boolean // sceneAgentPanelLogic
+    activeTab: MetricSceneTab
     breadcrumbs: Breadcrumb[]
     draftMarkdown: string
     draftSql: string
     editingDefinition: boolean
+    lineage: MetricLineage | null
+    lineageLoading: boolean
+    lineageProblem: LineageLoadProblem | null
+    lineageRequestedFor: string | null
+    lineageRetried: boolean
+    lineageStale: boolean
     metric: DataCatalogMetricApi | null
     metricLoading: boolean
+    mountedTabs: MetricSceneTab[]
     mutating: boolean
-    pendingDefinitionEdit: boolean
     runResult: DataCatalogMetricRunApi | null
     runResultLoading: boolean
+    supportsMetricChecks: boolean
+    visitedTabs: MetricSceneTab[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataCatalogMetricSceneLogicActions {
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     approveMetric: () => {
         value: true
     }
     deleteMetric: () => {
         value: true
     }
-    loadMetric: () => any
+    loadLineage: () => {
+        value: true
+    }
+    loadLineageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLineageIfNeeded: () => {
+        value: true
+    }
+    loadLineageSuccess: (
+        lineage: {
+            edges: DataModelingEdge[]
+            nodes: DataModelingNode[]
+        } | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        lineage: {
+            edges: DataModelingEdge[]
+            nodes: DataModelingNode[]
+        } | null
+        payload?: {
+            value: true
+        }
+    }
+    loadMetric: () => {
+        value: true
+    }
     loadMetricFailure: (
         error: string,
         errorObject?: any
@@ -82,10 +218,14 @@ export interface dataCatalogMetricSceneLogicActions {
     }
     loadMetricSuccess: (
         metric: DataCatalogMetricApi,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         metric: DataCatalogMetricApi
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadRunResult: () => any
     loadRunResultFailure: (
@@ -102,11 +242,26 @@ export interface dataCatalogMetricSceneLogicActions {
         runResult: DataCatalogMetricRunApi
         payload?: any
     }
+    markLineageMissing: () => {
+        value: true
+    }
+    markLineageStale: () => {
+        value: true
+    }
     refreshMetricFromInsight: () => {
         value: true
     }
     renameMetric: (name: string) => {
         name: string
+    }
+    renamedExternally: (name: string) => {
+        name: string
+    }
+    runMetricWithAI: () => {
+        value: true
+    }
+    setActiveTab: (activeTab: MetricSceneTab) => {
+        activeTab: MetricSceneTab
     }
     setDraftMarkdown: (draftMarkdown: string) => {
         draftMarkdown: string
@@ -116,6 +271,12 @@ export interface dataCatalogMetricSceneLogicActions {
     }
     setEditingDefinition: (editingDefinition: boolean) => {
         editingDefinition: boolean
+    }
+    setLineageRequestedFor: (key: string | null) => {
+        key: string | null
+    }
+    setLineageRetried: (lineageRetried: boolean) => {
+        lineageRetried: boolean
     }
     setMetric: (metric: DataCatalogMetricApi) => {
         metric: DataCatalogMetricApi
@@ -141,13 +302,14 @@ export interface dataCatalogMetricSceneLogicActions {
     setMutating: (mutating: boolean) => {
         mutating: boolean
     }
-    setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => {
-        pendingDefinitionEdit: boolean
-    }
     startEditingMarkdown: () => {
         value: true
     }
-    updateMetric: (patch: PatchedDataCatalogMetricApi) => {
+    updateMetric: (
+        patch: PatchedDataCatalogMetricApi,
+        approve?: boolean
+    ) => {
+        approve: boolean
         patch: PatchedDataCatalogMetricApi
     }
 }
@@ -156,7 +318,9 @@ export interface dataCatalogMetricSceneLogicActions {
 export interface dataCatalogMetricSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        breadcrumbs: (metric: DataCatalogMetricApi | null, arg: any) => Breadcrumb[]
+        mountedTabs: (activeTab: MetricSceneTab, visitedTabs: MetricSceneTab[]) => MetricSceneTab[]
+        supportsMetricChecks: (metric: DataCatalogMetricApi | null) => boolean
+        breadcrumbs: (metric: DataCatalogMetricApi | null, arg: any, featureFlags: FeatureFlagsSet) => Breadcrumb[]
     }
 }
 
@@ -167,35 +331,74 @@ export type dataCatalogMetricSceneLogicType = MakeLogicType<
     dataCatalogMetricSceneLogicMeta
 >
 
+// The Quill layout has no usage tab yet, so a usage link opens the definition there.
+function usageTabAvailable(featureFlags: FeatureFlagsSet): boolean {
+    return !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE] && !catalogRestructureEnabled(featureFlags)
+}
+
 export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>([
     props({ name: '' } as DataCatalogMetricSceneLogicProps),
     key((props) => props.name),
     path((key) => ['products', 'data_catalog', 'frontend', 'dataCatalogMetricSceneLogic', key]),
+    connect(() => ({
+        logic: [dataCatalogAgentSyncLogic, suiteRunResultsLogic],
+        values: [featureFlagLogic, ['featureFlags'], sceneAgentPanelLogic, ['sceneIntegrationEnabled']],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
+    })),
     actions({
+        setActiveTab: (activeTab: MetricSceneTab) => ({ activeTab }),
+        // Declared here as well as by the loader: the loader takes a breakpoint, so without this the
+        // generated action would require a payload every call site has to pass.
+        loadMetric: true,
+        loadLineage: true,
+        loadLineageIfNeeded: true,
+        markLineageStale: true,
+        setLineageRequestedFor: (key: string | null) => ({ key }),
+        setLineageRetried: (lineageRetried: boolean) => ({ lineageRetried }),
+        markLineageMissing: true,
         setMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         approveMetric: true,
         refreshMetricFromInsight: true,
         deleteMetric: true,
         renameMetric: (name: string) => ({ name }),
-        updateMetric: (patch: PatchedDataCatalogMetricApi) => ({ patch }),
+        renamedExternally: (name: string) => ({ name }),
+        updateMetric: (patch: PatchedDataCatalogMetricApi, approve: boolean = false) => ({ patch, approve }),
         setMutating: (mutating: boolean) => ({ mutating }),
         setEditingDefinition: (editingDefinition: boolean) => ({ editingDefinition }),
         setDraftSql: (draftSql: string) => ({ draftSql }),
         setDraftMarkdown: (draftMarkdown: string) => ({ draftMarkdown }),
         startEditingMarkdown: true,
-        setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => ({ pendingDefinitionEdit }),
+        runMetricWithAI: true,
     }),
     loaders(({ props }) => ({
         metric: [
             null as DataCatalogMetricApi | null,
             {
-                loadMetric: async () => {
+                loadMetric: async (_, breakpoint) => {
                     if (isInvalidMetricName(props.name)) {
                         throw new Error('Invalid metric name')
                     }
-                    return await dataCatalogMetricsRetrieve(projectId(), props.name)
+                    const metric = await dataCatalogMetricsRetrieve(projectId(), props.name)
+                    // Latest-wins: a tool completion can fire loadMetric while one is already in
+                    // flight, so drop a superseded response instead of writing stale data back.
+                    breakpoint()
+                    return metric
                 },
                 setMetric: ({ metric }) => metric,
+            },
+        ],
+        lineage: [
+            null as MetricLineage | null,
+            {
+                loadLineage: async (_, breakpoint) => {
+                    const metricId = dataCatalogMetricSceneLogic.findMounted(props)?.values.metric?.id
+                    if (!metricId) {
+                        return null
+                    }
+                    const lineage = await api.dataModelingNodes.lineage({ metricId })
+                    breakpoint()
+                    return lineage
+                },
             },
         ],
         runResult: [
@@ -211,6 +414,46 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         ],
     })),
     reducers({
+        activeTab: ['definition' as MetricSceneTab, { setActiveTab: (_, { activeTab }) => activeTab }],
+        visitedTabs: [
+            [] as MetricSceneTab[],
+            {
+                setActiveTab: (state: MetricSceneTab[], { activeTab }: { activeTab: MetricSceneTab }) =>
+                    state.includes(activeTab) ? state : [...state, activeTab],
+            },
+        ],
+        lineageProblem: [
+            null as LineageLoadProblem | null,
+            {
+                loadLineage: () => null,
+                loadLineageSuccess: () => null,
+                loadLineageFailure: (_, { errorObject }: { errorObject?: unknown }) => lineageProblem(errorObject),
+                markLineageMissing: () => 'missing',
+            },
+        ],
+        lineageStale: [
+            false,
+            {
+                setMetric: () => true,
+                markLineageStale: () => true,
+                loadLineageSuccess: () => false,
+                loadLineageFailure: () => false,
+            },
+        ],
+        lineageRequestedFor: [
+            null as string | null,
+            {
+                setLineageRequestedFor: (_, { key }) => key,
+            },
+        ],
+        lineageRetried: [
+            false,
+            {
+                setLineageRetried: (_, { lineageRetried }) => lineageRetried,
+                loadLineageSuccess: () => false,
+                setMetric: () => false,
+            },
+        ],
         mutating: [
             false,
             {
@@ -236,40 +479,139 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setDraftMarkdown: (_, { draftMarkdown }) => draftMarkdown,
             },
         ],
-        pendingDefinitionEdit: [
-            false,
-            {
-                setPendingDefinitionEdit: (_, { pendingDefinitionEdit }) => pendingDefinitionEdit,
-            },
-        ],
     }),
     selectors({
+        mountedTabs: [
+            (s) => [s.activeTab, s.visitedTabs],
+            (activeTab: MetricSceneTab, visitedTabs: MetricSceneTab[]): MetricSceneTab[] =>
+                visitedTabs.includes(activeTab) ? visitedTabs : [...visitedTabs, activeTab],
+        ],
+        supportsMetricChecks: [
+            (s) => [s.metric],
+            (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === HOGQL_METRIC_DEFINITION_KIND,
+        ],
         breadcrumbs: [
-            (s) => [s.metric, (_, props) => props.name],
-            (metric: DataCatalogMetricApi | null, name: string): Breadcrumb[] => [
+            (s) => [s.metric, (_, props) => props.name, s.featureFlags],
+            (metric: DataCatalogMetricApi | null, name: string, featureFlags: FeatureFlagsSet): Breadcrumb[] => [
                 { key: 'DataCatalog', name: 'Data catalog', path: urls.dataCatalog() },
+                ...(catalogRestructureEnabled(featureFlags)
+                    ? [{ key: 'DataCatalogMetrics', name: 'Metrics', path: urls.dataCatalog('metrics') }]
+                    : []),
                 { key: name, name: metric?.display_name || name },
             ],
         ],
     }),
     listeners(({ props, values, actions }) => ({
+        [suiteRunResultsLogic.actionTypes.revealSubjectResults]: ({ subject }) => {
+            if (subject.subjectType === 'metric' && subject.subjectId === values.metric?.id) {
+                actions.setActiveTab('data-quality')
+            }
+        },
+        [dataCatalogAgentSyncLogic.actionTypes.openMetricReloadRequested]: ({ name, newName }) => {
+            if (name !== props.name) {
+                return
+            }
+            if (newName) {
+                actions.renamedExternally(newName)
+                return
+            }
+            actions.loadMetric()
+        },
         loadMetricSuccess: ({ metric }) => {
+            const draftKey = pendingDraftKey(props.name)
+            const pendingDraft = pendingDraftByName.get(draftKey)
+            pendingDraftByName.delete(draftKey)
+            // A rename that also replaced the definition with a query kind leaves the draft no
+            // renderer and no way back, so the agent's own definition change wins over it.
+            if (pendingDraft !== undefined && rendersMarkdownEditor(metric)) {
+                actions.setDraftMarkdown(pendingDraft)
+                actions.setEditingDefinition(true)
+                return
+            }
             // A reload while the editor is open (route revisit, refetch) must not overwrite what
             // the user is typing.
-            if (values.editingDefinition) {
+            if (values.editingDefinition && rendersMarkdownEditor(metric)) {
                 return
+            }
+            // The definition changed under the open editor to a kind that has no editor, so close
+            // it instead of leaving edit state the user cannot see or dismiss.
+            if (values.editingDefinition) {
+                actions.setEditingDefinition(false)
             }
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
-            // Deferred until the metric is loaded, otherwise the draft sync above would wipe the seeded template.
-            if (values.pendingDefinitionEdit) {
-                actions.setPendingDefinitionEdit(false)
-                actions.startEditingMarkdown()
+            // A reload can carry a definition the agent rewrote, so an open tab is no evidence that
+            // the graph is current. Compare what the graph was requested for instead, because every
+            // tab switch reloads the metric and an unchanged reload must not ask for it again.
+            if (values.activeTab !== 'lineage' || lineageMetricKey(metric) !== values.lineageRequestedFor) {
+                actions.markLineageStale()
             }
+            actions.loadLineageIfNeeded()
+        },
+        setActiveTab: () => {
+            actions.loadLineageIfNeeded()
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            // Flags that the page bootstrap cannot evaluate arrive later, so a usage link waits for them.
+            const onThisMetric =
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.dataCatalogMetric(props.name)
+            if (
+                onThisMetric &&
+                router.values.searchParams.tab === 'usage' &&
+                values.activeTab !== 'usage' &&
+                usageTabAvailable(values.featureFlags)
+            ) {
+                actions.setActiveTab('usage')
+            }
+        },
+        loadLineageIfNeeded: () => {
+            if (values.activeTab !== 'lineage' || values.lineageLoading) {
+                return
+            }
+            if (!metricHasExecutableDefinition(values.metric)) {
+                return
+            }
+            // The request for this metric has settled and the tab shows what it returned, so asking
+            // again would repeat it. After a failure the scheduled retry owns the next attempt.
+            if (!values.lineageStale && lineageMetricKey(values.metric) === values.lineageRequestedFor) {
+                return
+            }
+            actions.setLineageRequestedFor(lineageMetricKey(values.metric))
+            actions.loadLineage()
+        },
+        loadLineageSuccess: () => {
+            // One request runs at a time, so a metric change during a request cannot start its own.
+            // The graph that lands is then the previous metric's, and this asks for the current one.
+            // The guard above returns for a graph that already matches, so a normal load stops here.
+            actions.loadLineageIfNeeded()
+        },
+        loadLineageFailure: async (_, breakpoint) => {
+            if (values.lineageProblem !== 'not_ready') {
+                return
+            }
+            if (values.lineageRetried) {
+                actions.markLineageMissing()
+                return
+            }
+            actions.setLineageRetried(true)
+            await breakpoint(LINEAGE_RETRY_MS)
+            // A refresh or a reload can load the graph inside the window, so ask again only while
+            // the node is still missing. The retry finishes even off the tab, so the graph is there
+            // when the user returns.
+            if (values.lineageProblem !== 'not_ready' || values.lineageLoading) {
+                return
+            }
+            actions.loadLineage()
+        },
+        loadMetricFailure: () => {
+            // The draft is handed over for the load this instance just issued. Dropping it on a
+            // failure keeps it from reopening over a later visit to the same name.
+            pendingDraftByName.delete(pendingDraftKey(props.name))
         },
         setMetric: ({ metric }) => {
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
+            actions.loadLineageIfNeeded()
         },
         setEditingDefinition: ({ editingDefinition }) => {
             // Closing the editor discards the draft, otherwise the next edit session starts from stale text.
@@ -277,6 +619,21 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setDraftSql(definitionField(values.metric, 'query'))
                 actions.setDraftMarkdown(definitionField(values.metric, 'markdown'))
             }
+        },
+        runMetricWithAI: () => {
+            if (!values.metric) {
+                return
+            }
+            if (!values.sceneIntegrationEnabled) {
+                // Still record the run server-side so last run time and run analytics stay accurate.
+                actions.loadRunResult()
+            }
+            actions.openSidePanel(
+                SidePanelTab.Max,
+                autoRunMaxPrompt(
+                    buildMetricRunPrompt(values.metric.name, { metricAttached: values.sceneIntegrationEnabled })
+                )
+            )
         },
         startEditingMarkdown: () => {
             if (!values.draftMarkdown.trim()) {
@@ -290,7 +647,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setMutating(true)
             try {
-                actions.setMetric(await dataCatalogMetricsApproveCreate(projectId(), props.name))
+                const approved = await dataCatalogMetricsApproveCreate(projectId(), props.name)
+                actions.setMetric(approved)
+                lemonToast.success(`Approved ${approved.display_name || approved.name}`)
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error(
@@ -320,14 +679,28 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setMutating(false)
             }
         },
-        updateMetric: async ({ patch }) => {
+        updateMetric: async ({ patch, approve }) => {
             if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
             try {
-                actions.setMetric(await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch))
-                lemonToast.success('Metric saved')
+                const saved = await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch)
+                actions.setMetric(saved)
+                if (!approve) {
+                    lemonToast.success('Metric saved')
+                    return
+                }
+                try {
+                    actions.setMetric(
+                        await dataCatalogMetricsApproveCreate(projectId(), props.name, {
+                            expected_updated_at: saved.updated_at ?? undefined,
+                        })
+                    )
+                    lemonToast.success('Metric saved and approved')
+                } catch {
+                    lemonToast.warning('Metric saved, but approving it failed. Approve it from the banner.')
+                }
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
             } finally {
@@ -348,11 +721,17 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 await dataCatalogMetricsPartialUpdate(projectId(), props.name, { name })
                 lemonToast.success('Metric renamed')
                 // The logic is keyed by name, so navigating remounts a fresh instance at the new URL.
-                router.actions.replace(urls.dataCatalogMetric(name))
+                router.actions.replace(urls.dataCatalogMetric(name, values.activeTab))
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not rename the metric. Try again.')
                 actions.setMutating(false)
             }
+        },
+        renamedExternally: ({ name }) => {
+            if (values.editingDefinition) {
+                pendingDraftByName.set(pendingDraftKey(name), values.draftMarkdown)
+            }
+            router.actions.replace(urls.dataCatalogMetric(name, values.activeTab))
         },
         deleteMetric: async () => {
             if (values.mutating || isInvalidMetricName(props.name)) {
@@ -362,24 +741,48 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             try {
                 await dataCatalogMetricsDestroy(projectId(), props.name)
                 lemonToast.success('Metric deleted')
-                router.actions.push(urls.dataCatalog())
+                router.actions.push(urls.dataCatalog('metrics'))
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not delete the metric. Try again.')
                 actions.setMutating(false)
             }
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.dataCatalogMetric(':name')]: (_, searchParams) => {
-            if (searchParams.edit === 'definition') {
-                actions.setPendingDefinitionEdit(true)
-                // Consume the param so refresh or back does not reopen the editor.
-                router.actions.replace(router.values.location.pathname)
+    actionToUrl(({ props }) => ({
+        setActiveTab: ({ activeTab }) => urls.dataCatalogMetric(props.name, activeTab),
+    })),
+    urlToAction(({ actions, values, props }) => ({
+        [urls.dataCatalogMetric(':name')]: ({ name }, searchParams) => {
+            if (name !== props.name) {
+                return
+            }
+            // `tests` is the old key for the data quality tab; links in sent notifications still use it.
+            const tabParam = searchParams.tab === 'tests' ? 'data-quality' : searchParams.tab
+            // The usage tab exists only behind its flag, so a shared link opens the definition while it is off.
+            const usageAllowed = tabParam === 'usage' && usageTabAvailable(values.featureFlags)
+            const activeTab: MetricSceneTab =
+                tabParam === 'data-quality' || tabParam === 'lineage' || usageAllowed ? tabParam : 'definition'
+            // A usage link keeps its param, so the tab can still open when the flag loads after the page.
+            if (activeTab !== searchParams.tab && searchParams.tab !== undefined && tabParam !== 'usage') {
+                // Drop the param so a refresh or a back navigation does not ask for the tab again.
+                router.actions.replace(urls.dataCatalogMetric(props.name, activeTab))
+            }
+            if (activeTab !== values.activeTab) {
+                actions.setActiveTab(activeTab)
             }
             actions.loadMetric()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
+        dataCatalogAgentSyncLogic.actions.setOpenMetricName(props.name)
         actions.loadMetric()
+    }),
+    beforeUnmount(({ props }) => {
+        // Keyed by name, so a rename remounts a fresh instance before React releases this one.
+        // Clear the shared slot only when it still names this metric, so a late unmount does not
+        // blank the metric the new instance already registered.
+        if (dataCatalogAgentSyncLogic.values.openMetricName === props.name) {
+            dataCatalogAgentSyncLogic.actions.setOpenMetricName(null)
+        }
     }),
 ])

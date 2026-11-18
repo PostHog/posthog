@@ -47,11 +47,11 @@ def a_terminal() -> Iterator[None]:
         yield
 
 
-_CLIENT_ID = f"{_HOST}/api/oauth/hogli/client-metadata"
+_CLIENT_ID = "https://posthog.com/.well-known/oauth/hogli/client-metadata.json"
 
 
 def _metadata(*scopes: str) -> Any:
-    # Stands in for the client metadata document PostHog serves, which names hogli and its ceiling.
+    # Stands in for the client metadata document on posthog.com, which names hogli and its ceiling.
     document = {"client_id": _CLIENT_ID, "com.posthog": {"scopes": list(scopes or (_SCOPE,))}}
     return patch.object(posthog_auth.requests, "get", lambda url, timeout: _Response(200, document))
 
@@ -383,15 +383,6 @@ def test_a_login_keeps_its_new_credential_when_revoking_the_replaced_one_fails()
     assert credential.access_token == "pha_new"
     cached = posthog_auth.load(_HOST)
     assert cached is not None and cached.access_token == "pha_new"
-
-
-def test_a_host_that_serves_no_client_document_names_the_way_out() -> None:
-    # An older self-hosted PostHog would otherwise fail at /authorize, which cannot say what to do.
-    with patch.object(posthog_auth.requests, "get", lambda url, timeout: _Response(404, {})):
-        with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
-            with pytest.raises(posthog_auth.AuthError) as caught:
-                posthog_auth.login(scopes=[_SCOPE], host=_HOST)
-    assert "POSTHOG_PERSONAL_API_KEY" in caught.value.message
 
 
 def test_a_login_off_a_tty_refuses_instead_of_opening_a_browser() -> None:

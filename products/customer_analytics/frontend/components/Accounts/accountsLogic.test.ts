@@ -1,24 +1,35 @@
-import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+import { setOAuthContextIds } from 'lib/utils/oauthClient'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AccountsTableAccountField,
     AccountsTableAccountFieldOperator,
+    AccountsTableAggregation,
     AccountsTableCustomPropertyOperator,
+    AccountsTableThresholdOperator,
     type AccountsTableQuery,
+    type AccountsTableQueryResponse,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType } from '~/types'
 
 import {
     accountRelationshipDefinitionsList,
+    accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -26,21 +37,31 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountApi,
+    AccountPresenceApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
     ACCOUNTS_DEFAULT_COLUMNS,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    customPropertyAlias,
     relationshipAlias,
 } from './accountsColumnConfigLogic'
-import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, savingRoleKey } from './accountsLogic'
-import { AccountsEvents } from './constants'
+import {
+    ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS,
+    accountsLogic,
+    customPropertySavingKey,
+    savingRoleKey,
+    SEARCH_DEBOUNCE_MS,
+} from './accountsLogic'
+import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
+import { AccountsEvents, DEFAULT_TILES } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
     query?.filters?.find((filter) => filter.kind === 'assigned_to')?.userIds
@@ -51,7 +72,9 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsCustomPropertyValuesCreate: jest.fn(),
     accountsPartialUpdate: jest.fn(),
+    accountsPresenceList: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
     accountsRelationshipsList: jest.fn(),
@@ -68,11 +91,21 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
     typeof accountsRelationshipsEndCreate
 >
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockCustomPropertyValuesCreate = accountsCustomPropertyValuesCreate as jest.MockedFunction<
+    typeof accountsCustomPropertyValuesCreate
+>
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+const mockAccountsPresenceList = accountsPresenceList as jest.MockedFunction<typeof accountsPresenceList>
 
 const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
 const AE_DEFINITION_ID = '66666666-7777-8888-9999-aaaaaaaaaaaa'
 const OWNER_DEFINITION_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
+const CSM_COLUMN = `accounts.relationships.values.\`${CSM_DEFINITION_ID}\` AS ${relationshipAlias(CSM_DEFINITION_ID)}`
+const AE_COLUMN = `accounts.relationships.values.\`${AE_DEFINITION_ID}\` AS ${relationshipAlias(AE_DEFINITION_ID)}`
+const OWNER_COLUMN = `accounts.relationships.values.\`${OWNER_DEFINITION_ID}\` AS ${relationshipAlias(OWNER_DEFINITION_ID)}`
+const CSM_ALIAS = relationshipAlias(CSM_DEFINITION_ID)
+const AE_ALIAS = relationshipAlias(AE_DEFINITION_ID)
+const OWNER_ALIAS = relationshipAlias(OWNER_DEFINITION_ID)
 const TILE_FILTER = {
     tileId: 'tile-1',
     filter: {
@@ -83,10 +116,44 @@ const TILE_FILTER = {
     },
 }
 
+const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+
+const ACCOUNT_FILTERS = [
+    {
+        type: PropertyFilterType.Account as const,
+        key: AccountsTableAccountField.IgnoredAt,
+        label: 'Ignored at',
+        operator: PropertyOperator.IsSet,
+        value: null,
+    },
+    {
+        type: PropertyFilterType.AccountCustomProperty as const,
+        key: CSM_DEFINITION_ID,
+        label: 'Health score',
+        operator: PropertyOperator.GreaterThan,
+        value: 5,
+    },
+    {
+        type: PropertyFilterType.AccountRelationship as const,
+        key: CSM_DEFINITION_ID,
+        label: 'CSM',
+        operator: PropertyOperator.Exact,
+        value: [42],
+    },
+]
+
+const CUSTOM_TILES = [{ id: 'tile-1', label: 'Accounts', metric: { type: 'count' as const } }]
+
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
-    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
-    { id: AE_DEFINITION_ID, name: 'Account executive', description: null, is_single_holder: true },
-    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true },
+    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true, is_controlled: false },
+    {
+        id: AE_DEFINITION_ID,
+        name: 'Account executive',
+        description: null,
+        is_single_holder: true,
+        is_controlled: false,
+    },
+    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true, is_controlled: false },
 ]
 
 const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
@@ -95,6 +162,7 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     user: { id: 42, email: 'alex@example.com' },
     started_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    source: null,
     ...overrides,
 })
 
@@ -120,46 +188,99 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
         ...overrides,
     }) as UserBasicType
 
+const createCustomPropertySource = (): CustomPropertySourceApi => ({
+    id: 'source-1',
+    definition: 'custom-property-1',
+    key_column: 'external_id',
+    consecutive_failures: 0,
+    last_synced_at: null,
+    last_sync_error: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    sync_frequency_interval_seconds: null,
+    next_sync_at: null,
+    latest_run: null,
+    external_data_source: null,
+    table_name: null,
+    saved_query_name: null,
+})
+
+const buildCustomPropertyDefinition = (
+    overrides: Partial<CustomPropertyDefinitionApi> = {}
+): CustomPropertyDefinitionApi => ({
+    id: 'custom-property-1',
+    name: 'Health score',
+    display_type: 'number',
+    is_canonical: false,
+    source: null,
+    references: [],
+    has_workflow_reference: false,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    ...overrides,
+})
+
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            current_team: MOCK_DEFAULT_TEAM,
+            current_user: MOCK_DEFAULT_USER,
+        } as any
         initKeaTests()
+        router.actions.push(urls.customerAnalyticsAccounts())
         jest.resetAllMocks()
-        // accountsLogic connects to the (localStorage-persisted) shared scene logic;
-        // clear it so a "mine only" write in one test can't leak into the next.
         localStorage.clear()
+        sessionStorage.clear()
         mockDefinitionsList.mockResolvedValue({ count: DEFINITIONS.length, results: DEFINITIONS })
         mockCustomPropertiesList.mockResolvedValue({ count: 0, results: [] })
         logic = accountsLogic()
         logic.mount()
-        // Legacy role columns only resolve into the query once definitions load.
+        // Saved-view restoration has its own suite; these tests exercise the settled list.
+        logic.actions.applyViewState(logic.values.viewState, { source: 'draft', columns: 'keep' })
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.hydrateTableDefinitions({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+            columns: DEFINITIONS.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+            relationshipDefinitions: DEFINITIONS,
+        })
+        config.actions.loadRelationshipDefinitionsSuccess(DEFINITIONS)
         await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
     })
 
     afterEach(() => {
         logic.unmount()
         localStorage.clear()
+        sessionStorage.clear()
+        jest.useRealTimers()
+        resumeKeaLoadersErrors()
     })
 
     it('starts with empty filters', () => {
         expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
-        expect(logic.values.allRolesUnassigned).toBe(false)
+        expect(logic.values.assignmentStatus).toBe('all')
         expect(logic.values.assignedToFilter).toEqual([])
+    })
+
+    it('defaults to showing all accounts, omitting the assignment filter', () => {
+        const filters = logic.values.accountsQuerySource?.filters ?? []
+        expect(filters.some((filter) => filter.kind === 'assigned' || filter.kind === 'unassigned')).toBe(false)
     })
 
     it('runs the list and overview through typed Postgres queries', () => {
         const source = logic.values.accountsQuerySource as AccountsTableQuery
         expect(source.kind).toBe('AccountsTableQuery')
-        expect(source.columns).toEqual([
-            { kind: 'account_field', field: 'name' },
-            { kind: 'tags' },
-            { kind: 'note_count' },
-            { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
-            { kind: 'relationship', definitionId: AE_DEFINITION_ID },
-            { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
-        ])
+        expect(source.columns).toEqual([])
+        expect(source.useDefaultColumns).toBe(true)
         expect(logic.values.metricsQuery).toMatchObject({
             kind: 'AccountsTableQuery',
             columns: [],
@@ -181,8 +302,8 @@ describe('accountsLogic', () => {
         expect(logic.values.accountsDataTableQuery.columns).not.toContain('arbitrary_hogql()')
     })
 
-    it('removes restored unsupported custom-property filters', () => {
-        logic.actions.loadCustomPropertyDefinitionsSuccess([
+    it('removes unsupported operators while keeping unknown IDs for backend validation', () => {
+        accountsColumnConfigLogic.findMounted()!.actions.loadCustomPropertyDefinitionsSuccess([
             {
                 id: CSM_DEFINITION_ID,
                 name: 'Plan',
@@ -198,8 +319,21 @@ describe('accountsLogic', () => {
             },
         ])
 
+        logic.actions.setAccountFilterGroups([
+            [
+                ACCOUNT_FILTERS[0],
+                {
+                    type: PropertyFilterType.AccountCustomProperty,
+                    key: '99999999-9999-9999-9999-999999999999',
+                    operator: PropertyOperator.Exact,
+                    value: 'missing',
+                },
+            ],
+        ])
+
         expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.activeFilterCount).toBe(0)
+        expect(logic.values.accountFilterGroups[0]).toHaveLength(2)
+        expect(logic.values.activeFilterCount).toBe(1)
     })
 
     it('adds native account filters to the query and shareable view state', () => {
@@ -219,7 +353,7 @@ describe('accountsLogic', () => {
             operator: AccountsTableAccountFieldOperator.IsSet,
             values: [],
         })
-        expect(logic.values.viewUrlState.customProperties).toEqual(logic.values.accountFilters)
+        expect(logic.values.viewState.filters.customProperties).toEqual(logic.values.accountFilters)
     })
 
     it('captures native filter shape without its field or value', () => {
@@ -246,6 +380,23 @@ describe('accountsLogic', () => {
         expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('value')
     })
 
+    it('tracks edits to OR groups without tracking restored state', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
+        expect(capture).not.toHaveBeenCalledWith(AccountsEvents.FilterChanged, expect.anything())
+
+        logic.actions.updateAccountFilterGroup(0, [ACCOUNT_FILTERS[1]])
+        logic.actions.addAccountFilterGroup()
+        logic.actions.removeAccountFilterGroup(1)
+
+        expect(capture.mock.calls.filter(([event]) => event === AccountsEvents.FilterChanged)).toEqual([
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 3 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+        ])
+    })
+
     it('setTagsFilter updates the reducer', () => {
         logic.actions.setTagsFilter(['enterprise'])
         expect(logic.values.tagsFilter).toEqual(['enterprise'])
@@ -256,28 +407,171 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('acme')
     })
 
-    it('setSearchInput updates the input immediately but defers the committed searchQuery', () => {
+    it('setSearchInput updates the input immediately but defers the committed searchQuery', async () => {
+        jest.useFakeTimers()
         logic.actions.setSearchInput('acme')
         expect(logic.values.searchInput).toBe('acme')
         // Debounced: the query-driving value is not committed synchronously.
         expect(logic.values.searchQuery).toBe('')
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+        expect(logic.values.searchQuery).toBe('acme')
     })
 
-    it('withholds the list and metrics queries until relationship definitions settle', async () => {
+    it('starts table and overview queries without loading definition catalogs', () => {
         logic.unmount()
-        let resolveDefinitions: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
-        mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
         logic = accountsLogic()
         logic.mount()
+        logic.actions.setAwaitingSavedView(false)
+        const tiles = accountsOverviewTilesLogic.findMounted()!
+        const columnExpression = `toFloatOrNull(accounts.custom_properties.values.\`${CSM_DEFINITION_ID}\`)`
+        tiles.actions.setTiles([
+            { id: 'saved-total', label: 'Total', metric: { type: 'sum', columnExpression, columnLabel: 'Amount' } },
+            {
+                id: 'saved-threshold',
+                label: 'Above threshold',
+                metric: { type: 'count_threshold', columnExpression, columnLabel: 'Amount', operator: '>', value: 10 },
+            },
+        ])
 
+        expect(logic.values.accountsQuerySource?.useDefaultColumns).toBe(true)
+        expect(logic.values.metricsQuery?.metrics).toEqual([
+            {
+                kind: 'aggregate',
+                aggregation: AccountsTableAggregation.Sum,
+                column: { kind: 'custom_property', definitionId: CSM_DEFINITION_ID },
+            },
+            {
+                kind: 'count_threshold',
+                column: { kind: 'custom_property', definitionId: CSM_DEFINITION_ID },
+                operator: AccountsTableThresholdOperator.GreaterThan,
+                value: 10,
+            },
+        ])
+        expect(mockDefinitionsList).not.toHaveBeenCalled()
+        expect(mockCustomPropertiesList).not.toHaveBeenCalled()
+    })
+
+    it('hydrates defaults without changing the table or overview request', () => {
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.resetColumns()
+        const beforeTable = logic.values.accountsQuerySource
+        const beforeMetrics = logic.values.metricsQuery
+        config.actions.hydrateTableDefinitions({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+            columns: DEFINITIONS.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+            relationshipDefinitions: DEFINITIONS,
+        })
+        expect(logic.values.visibleColumnNames).toContain(relationshipAlias(CSM_DEFINITION_ID))
+        expect(logic.values.accountsQuerySource).toEqual(beforeTable)
+        expect(logic.values.metricsQuery).toEqual(beforeMetrics)
+    })
+
+    it.each([
+        ['the user before the team', ['user', 'team']],
+        ['the team before the user', ['team', 'user']],
+    ])('waits for identity when %s resolves without bootstrap or OAuth helpers', async (_, arrivals) => {
+        logic.actions.setSearchQuery('previous session edits')
+        logic.unmount()
+        window.POSTHOG_APP_CONTEXT = undefined
+        setOAuthContextIds(null)
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        userLogic.actions.loadUserSuccess(null)
+        sessionStorage.setItem(
+            `customerAnalytics.accounts.viewDraft.${MOCK_DEFAULT_TEAM.id}.${MOCK_DEFAULT_USER.uuid}`,
+            JSON.stringify({ filters: { search: 'stale storage' } })
+        )
+        expect(getCurrentTeamIdOrNone()).toBeNull()
+        expect(getCurrentUserIdOrNone()).toBeNull()
+        logic = accountsLogic()
+        logic.mount()
+        expect(logic.values.viewStateHydrated).toBe(false)
         expect(logic.values.accountsQuerySource).toBeNull()
-        expect(logic.values.metricsQuery).toBeNull()
+        for (const arrival of arrivals) {
+            if (arrival === 'user') {
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            } else {
+                teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        expect(logic.values.viewStateHydrated).toBe(true)
+        expect(logic.values.searchQuery).toBe('')
+        logic.actions.setSearchQuery('private edits')
+        const otherUser = { ...MOCK_DEFAULT_USER, uuid: 'other-user-uuid' }
+        await expectLogic(logic, () => userLogic.actions.loadUserSuccess(otherUser)).toFinishAllListeners()
+        expect(logic.values.searchQuery).toBe('')
+        expect(logic.values.awaitingSavedView).toBe(true)
+    })
 
-        resolveDefinitions!({ count: DEFINITIONS.length, results: DEFINITIONS })
-        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+    it('keeps active relationship filters when the catalog request fails', async () => {
+        logic.unmount()
+        silenceKeaLoadersErrors()
+        mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
+        logic = accountsLogic()
+        logic.mount()
+        logic.actions.setAwaitingSavedView(false)
+        const filter = {
+            type: PropertyFilterType.AccountRelationship as const,
+            key: CSM_DEFINITION_ID,
+            operator: PropertyOperator.Exact,
+            value: [42],
+        }
+        logic.actions.updateAccountFilters([filter])
+        const config = accountsColumnConfigLogic.findMounted()!
+        await expectLogic(config, () => config.actions.ensureDefinitionsLoaded()).toFinishAllListeners()
+        expect(logic.values.accountFilters).toEqual([filter])
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({
+            kind: 'relationship',
+            definitionId: CSM_DEFINITION_ID,
+            operator: 'exact',
+            userIds: [42],
+        })
+    })
 
-        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsTableQuery')
-        expect(logic.values.metricsQuery).not.toBeNull()
+    it('loads each complete catalog once when a picker needs it', async () => {
+        logic.unmount()
+        const first = buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID, name: 'Plan' })
+        const last = buildCustomPropertyDefinition({ id: AE_DEFINITION_ID, name: 'Renewal' })
+        mockCustomPropertiesList.mockResolvedValue({ count: 2, next: null, results: [first, last] })
+        logic = accountsLogic()
+        logic.mount()
+        const config = accountsColumnConfigLogic.findMounted()!
+        expect(mockCustomPropertiesList).not.toHaveBeenCalled()
+        await expectLogic(config, () => config.actions.showColumnConfigurator()).toFinishAllListeners()
+        await expectLogic(config, () => config.actions.ensureDefinitionsLoaded()).toFinishAllListeners()
+        expect(mockCustomPropertiesList).toHaveBeenCalledTimes(1)
+        expect(mockCustomPropertiesList).toHaveBeenCalledWith(expect.any(String), { pagination: 'none' })
+        expect(mockDefinitionsList).toHaveBeenCalledTimes(1)
+        expect(mockDefinitionsList).toHaveBeenCalledWith(expect.any(String), { pagination: 'none' })
+        expect(config.values.aliasToDefinition[customPropertyAlias(AE_DEFINITION_ID)]).toEqual(last)
+    })
+
+    it('hides a deleted saved column without changing the table request', () => {
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.restoreSelectColumns([
+            'name',
+            `accounts.custom_properties.values.\`${CSM_DEFINITION_ID}\` AS ${customPropertyAlias(CSM_DEFINITION_ID)}`,
+        ])
+        const request = logic.values.accountsQuerySource
+        config.actions.hydrateTableDefinitions(
+            {
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: [{ kind: 'account_field', field: AccountsTableAccountField.Name }],
+                customPropertyDefinitions: [],
+                relationshipDefinitions: [],
+            },
+            config.values.querySelectColumns
+        )
+        expect(logic.values.visibleColumnNames).toEqual(['name'])
+        expect(logic.values.accountsQuerySource).toEqual(request)
     })
 
     it('keeps overview metrics off the list query', () => {
@@ -289,9 +583,22 @@ describe('accountsLogic', () => {
         expect(logic.values.metricsQuery?.columns).toEqual([])
     })
 
-    it('setAllRolesUnassigned toggles the flag', () => {
-        logic.actions.setAllRolesUnassigned(true)
-        expect(logic.values.allRolesUnassigned).toBe(true)
+    it('setAssignmentStatus drives the canonical status and its query filter', () => {
+        logic.actions.setAssignmentStatus('unassigned')
+        expect(logic.values.assignmentStatus).toBe('unassigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'unassigned' })
+
+        logic.actions.setAssignmentStatus('assigned')
+        expect(logic.values.assignmentStatus).toBe('assigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
+
+        logic.actions.setAssignmentStatus('all')
+        expect(logic.values.assignmentStatus).toBe('all')
+        expect(
+            (logic.values.accountsQuerySource?.filters ?? []).some(
+                (filter) => filter.kind === 'assigned' || filter.kind === 'unassigned'
+            )
+        ).toBe(false)
     })
 
     describe('assignedTo filter and "my accounts" shortcut', () => {
@@ -323,11 +630,13 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToCurrentUser).toBe(false)
         })
 
-        it('toggling the checkbox off clears the filter', () => {
+        it('toggling the checkbox off restores all assignment statuses', () => {
             logic.actions.setAssignedToCurrentUser(true)
             logic.actions.setAssignedToCurrentUser(false)
+            expect(logic.values.assignmentStatus).toBe('all')
             expect(logic.values.assignedToFilter).toEqual([])
             expect(assignedToFilterOf(logic.values.accountsQuerySource)).toBeUndefined()
+            expect(logic.values.accountsQuerySource?.filters).not.toContainEqual({ kind: 'assigned' })
         })
 
         it('the Assigned to picker accepts explicit ids', () => {
@@ -342,29 +651,29 @@ describe('accountsLogic', () => {
             expect(logic.values.activeFilterCount).toBe(1)
         })
 
-        it('enabling it clears the unassigned flag', async () => {
-            logic.actions.setAllRolesUnassigned(true)
+        it('selecting users forces the assigned status', async () => {
+            logic.actions.setAssignmentStatus('unassigned')
             logic.actions.setAssignedToFilter([7])
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.assignedToFilter).toEqual([7])
-            expect(logic.values.allRolesUnassigned).toBe(false)
+            expect(logic.values.assignmentStatus).toBe('assigned')
         })
 
-        it('enabling the unassigned flag clears the assigned-to filter', async () => {
+        it('leaving the assigned status clears the assigned-to filter', async () => {
             logic.actions.setAssignedToFilter([7])
-            logic.actions.setAllRolesUnassigned(true)
+            logic.actions.setAssignmentStatus('unassigned')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.allRolesUnassigned).toBe(true)
+            expect(logic.values.assignmentStatus).toBe('unassigned')
             expect(logic.values.assignedToFilter).toEqual([])
         })
 
-        it('persists concrete ids in the view hash (shareable, not viewer-relative)', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setAssignedToCurrentUser(true)
-            }).toFinishAllListeners()
-            expect(router.values.hashParams.view).toEqual({ assignedTo: [CURRENT_USER_ID] })
+        it('keeps concrete assignee IDs in memory without writing URL snapshots', async () => {
+            await expectLogic(logic, () => logic.actions.setAssignedToCurrentUser(true)).toFinishAllListeners()
+            expect(logic.values.viewState.filters.assignedTo).toEqual([CURRENT_USER_ID])
+            expect(router.values.hashParams.view).toBeUndefined()
+            expect(router.values.searchParams.view).toBeUndefined()
         })
 
         it('restores the assigned-to filter from the view hash, independent of the viewer', async () => {
@@ -386,92 +695,280 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToCurrentUser).toBe(true)
         })
 
-        // The "mine only" choice is held in the shared scene logic so it survives a
-        // switch to the Notes tab. These guard the two-way link between the accounts
-        // assigned-to filter and that shared toggle.
-        describe('shared "mine only" toggle', () => {
-            it('toggling "My accounts" writes the shared toggle', async () => {
-                await expectLogic(logic, () => {
+        describe('independent My accounts filters', () => {
+            beforeEach(() => customerAnalyticsSceneLogic.mount())
+            afterEach(() => customerAnalyticsSceneLogic.unmount())
+
+            it.each([false, true])(
+                'keeps the Notes preference at %s when Accounts filters change',
+                async (notesMine) => {
+                    customerAnalyticsSceneLogic.actions.setMineOnly(notesMine)
                     logic.actions.setAssignedToCurrentUser(true)
-                }).toFinishAllListeners()
-                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(notesMine)
 
-                await expectLogic(logic, () => {
                     logic.actions.setAssignedToCurrentUser(false)
-                }).toFinishAllListeners()
-                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
-            })
-
-            it('picking explicit assignees clears the shared toggle', async () => {
-                customerAnalyticsSceneLogic.actions.setMineOnly(true)
-                await expectLogic(logic, () => {
                     logic.actions.setAssignedToFilter([7])
-                }).toFinishAllListeners()
-                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
-            })
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(notesMine)
+                    expect(logic.values.assignedToFilter).toEqual([7])
+                }
+            )
 
-            it('restores "my accounts" from the shared toggle when the URL has no view hash', async () => {
+            it.each([false, true])(
+                'discards Accounts My accounts=%s after visiting Notes without importing its preference',
+                async (accountsMine) => {
+                    logic.actions.setAssignedToCurrentUser(accountsMine)
+                    logic.actions.setSearchQuery('keep search')
+                    logic.unmount()
+                    router.actions.push(urls.customerAnalyticsNotes())
+                    customerAnalyticsSceneLogic.actions.setMineOnly(!accountsMine)
+                    router.actions.push(urls.customerAnalyticsAccounts())
+                    logic = accountsLogic()
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(logic.values.assignedToFilter).toEqual([])
+                    expect(logic.values.assignmentStatus).toBe('all')
+                    expect(logic.values.searchQuery).toBe('')
+                    expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(!accountsMine)
+                }
+            )
+
+            it('does not import Notes changes while the Accounts logic remains mounted', async () => {
+                logic.actions.setAssignedToFilter([7])
+                router.actions.push(urls.customerAnalyticsNotes())
                 customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                customerAnalyticsSceneLogic.actions.setMineOnly(false)
                 router.actions.push(urls.customerAnalyticsAccounts())
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
-                expect(logic.values.assignedToCurrentUser).toBe(true)
+                expect(logic.values.assignedToFilter).toEqual([])
+                expect(logic.values.assignmentStatus).toBe('all')
             })
 
-            it('an explicit shared link still wins over the shared toggle', async () => {
-                customerAnalyticsSceneLogic.actions.setMineOnly(true)
-                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+            it('discards unsaved My accounts when navigating to the bare list URL', async () => {
+                logic.actions.setAssignedToCurrentUser(true)
+                router.actions.push(urls.customerAnalytics())
+                router.actions.push(urls.customerAnalyticsAccounts())
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(logic.values.assignedToFilter).toEqual([7])
-                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
-            })
-
-            // Regression: on a fresh load the logic can run URL restore before userLogic
-            // resolves the user (currentUserId null), so the persisted choice can't be applied
-            // then. The user resolving later must apply it, without clearing the preference.
-            it('applies the persisted "my accounts" choice when the user resolves after restore', async () => {
-                customerAnalyticsSceneLogic.actions.setMineOnly(true)
                 expect(logic.values.assignedToFilter).toEqual([])
-
-                await expectLogic(logic, () => {
-                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
-                }).toFinishAllListeners()
-
-                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
-                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+                expect(logic.values.assignmentStatus).toBe('all')
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
             })
 
             it('the user resolving does not override an explicit assigned-to from the URL', async () => {
                 router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
                 await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
-                }).toFinishAllListeners()
+                userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                await expectLogic(logic).toFinishAllListeners()
 
                 expect(logic.values.assignedToFilter).toEqual([7])
             })
         })
     })
 
-    describe('sortOrder', () => {
-        it('adds a typed server-side sort after pagination', () => {
-            logic.actions.listLoadNextData()
-            logic.actions.toggleSort('notebook_count')
+    describe('account presence', () => {
+        const responseWithAccount = (): AccountsTableQueryResponse => ({
+            kind: NodeKind.AccountsTableQuery,
+            results: [
+                {
+                    id: ACCOUNT_ID,
+                    name: 'Acme',
+                    accountFields: {},
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                    noteCount: 0,
+                },
+            ],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+        })
+        const responsePayload = {
+            overrideQuery: undefined,
+            pollOnly: true,
+            queryId: 'presence-request',
+            refresh: undefined,
+        }
 
+        it('refreshes presence while account rows remain loaded', async () => {
+            jest.useFakeTimers()
+            mockAccountsPresenceList.mockResolvedValue([
+                { account_id: ACCOUNT_ID, viewers: [{ user_id: 1, display_name: 'Alex Rivera' }] },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.listLoadDataSuccess(responseWithAccount(), responsePayload)
+            }).toFinishAllListeners()
+
+            expect(logic.values.accountPresenceByAccountId[ACCOUNT_ID]).toHaveLength(1)
+
+            mockAccountsPresenceList.mockResolvedValue([])
+            await jest.advanceTimersByTimeAsync(ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPresenceList).toHaveBeenCalledTimes(2)
+            expect(logic.values.accountPresenceByAccountId).toEqual({})
+        })
+
+        it('ignores an in-flight response after the account list becomes empty', async () => {
+            let resolvePresence!: (presence: AccountPresenceApi[]) => void
+            mockAccountsPresenceList.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolvePresence = resolve
+                    })
+            )
+
+            logic.actions.loadAccountPresence([ACCOUNT_ID])
+            logic.actions.loadAccountPresence([])
+            resolvePresence([{ account_id: ACCOUNT_ID, viewers: [{ user_id: 1, display_name: 'Alex Rivera' }] }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountPresenceByAccountId).toEqual({})
+        })
+    })
+
+    describe('sortOrder', () => {
+        const response = (hasMore: boolean): AccountsTableQueryResponse => ({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore,
+            limit: 100,
+            offset: 0,
+        })
+
+        const receiveResponse = (queryId: string, hasMore: boolean): void => {
+            logic.actions.listLoadData(undefined, queryId)
+            logic.actions.listLoadDataSuccess(response(hasMore), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId,
+                refresh: undefined,
+            })
+        }
+
+        it('uses the requested server sort until the first response confirms pagination', () => {
+            logic.actions.toggleSort('notebook_count')
+            const initialQuery = logic.values.accountsQuerySource
+
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+            expect(initialQuery?.sort).toEqual({ column: { kind: 'note_count' }, direction: 'asc' })
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+
+            receiveResponse('paginated-request', true)
+
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+            expect(logic.values.accountsQuerySource).toBe(initialQuery)
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'note_count' },
+                direction: 'desc',
+            })
+        })
+
+        it('keeps the completed request query stable while sorting its rows in the browser', () => {
+            logic.actions.toggleSort('notebook_count')
+            const completedQuery = logic.values.accountsQuerySource
+            receiveResponse('complete-request', false)
+
+            expect(logic.values.listDataCompleteness).toBe('complete')
+            expect(logic.values.accountsQuerySource).toBe(completedQuery)
+            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+
+            logic.actions.toggleSort('notebook_count')
+            const rows = [1, 2].map((noteCount) => ({
+                result: {
+                    id: `account-${noteCount}`,
+                    name: `Account ${noteCount}`,
+                    accountFields: {},
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                    noteCount,
+                },
+            }))
+
+            expect(logic.values.accountsQuerySource).toBe(completedQuery)
             expect(logic.values.accountsQuerySource?.sort).toEqual({
                 column: { kind: 'note_count' },
                 direction: 'asc',
             })
+            expect(logic.values.sortedRowsTransformer?.(rows)).toEqual([rows[1], rows[0]])
+
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.accountsQuerySource?.sort).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
         })
 
-        it('sorts a fully loaded page in the browser without changing the query', () => {
-            logic.actions.toggleSort('notebook_count')
+        it('replaces a removed pinned server sort with the active client sort', async () => {
+            logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
+            receiveResponse('complete-request', false)
+            logic.actions.setSortOrder({ column: relationshipAlias(CSM_DEFINITION_ID), direction: 'asc' })
 
-            expect(logic.values.accountsQuerySource?.sort).toBeUndefined()
-            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+            expect(logic.values.serverSortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
+
+            await expectLogic(logic, () => {
+                accountsColumnConfigLogic
+                    .findMounted()!
+                    .actions.unselectColumn('accounts.notebooks.count AS notebook_count')
+            }).toFinishAllListeners()
+
+            expect(logic.values.visibleColumnNames).not.toContain('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: relationshipAlias(CSM_DEFINITION_ID), direction: 'asc' })
+            expect(logic.values.serverSortOrder).toEqual({
+                column: relationshipAlias(CSM_DEFINITION_ID),
+                direction: 'asc',
+            })
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                direction: 'asc',
+            })
+        })
+
+        it('tracks completeness per filter set and ignores stale responses', () => {
+            logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
+            receiveResponse('initial-small-request', false)
+            expect(logic.values.listDataCompleteness).toBe('complete')
+
+            logic.actions.setSearchQuery('large set')
+            logic.actions.listLoadData(undefined, 'stale-large-request')
+            logic.actions.setSearchQuery('latest large set')
+            logic.actions.listLoadData(undefined, 'latest-large-request')
+            logic.actions.listLoadDataSuccess(response(false), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId: 'stale-large-request',
+                refresh: undefined,
+            })
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+
+            logic.actions.listLoadDataSuccess(response(true), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId: 'latest-large-request',
+                refresh: undefined,
+            })
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+
+            dataNodeLogic
+                .findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })!
+                .actions.loadNextDataSuccess(response(false))
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'note_count' },
+                direction: 'asc',
+            })
+
+            logic.actions.setSearchQuery('small set')
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+            receiveResponse('next-small-request', false)
+            expect(logic.values.listDataCompleteness).toBe('complete')
         })
     })
 
@@ -480,57 +977,83 @@ describe('accountsLogic', () => {
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([
                 ...ACCOUNTS_DEFAULT_COLUMNS,
-                'csm',
-                'account_executive',
-                'account_owner',
+                CSM_COLUMN,
+                AE_COLUMN,
+                OWNER_COLUMN,
             ])
             expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
         })
 
-        it('translates legacy role columns into typed relationship columns', () => {
+        it('sends saved relationship IDs without waiting for catalogs', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.restoreSelectColumns(['name', CSM_COLUMN, AE_COLUMN, OWNER_COLUMN])
             expect(logic.values.accountsQuerySource?.columns).toEqual([
                 { kind: 'account_field', field: 'name' },
-                { kind: 'tags' },
-                { kind: 'note_count' },
                 { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
                 { kind: 'relationship', definitionId: AE_DEFINITION_ID },
                 { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
             ])
         })
 
-        it('drops legacy role columns from the query when no matching definition exists', () => {
-            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
-            expect(logic.values.accountsQuerySource?.columns).toEqual([
-                { kind: 'account_field', field: 'name' },
-                { kind: 'tags' },
-                { kind: 'note_count' },
-            ])
+        it('omits missing relationships from resolved default columns', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.hydrateTableDefinitions({
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: [],
+                relationshipDefinitions: [],
+            })
+            expect(logic.values.accountsQuerySource?.columns).toEqual([])
             expect(logic.values.visibleColumnNames).toEqual([ACCOUNTS_NAME_COLUMN, 'tag_names', 'notebook_count'])
         })
 
-        it('materializes pristine defaults into one column per definition once definitions load', () => {
+        it('materializes pristine defaults from the table response', () => {
             const config = accountsColumnConfigLogic.findMounted()!
-            config.actions.loadRelationshipDefinitionsSuccess([
+            const relationships = [
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
-            ])
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
+            ]
+            config.actions.hydrateTableDefinitions({
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: relationships.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+                relationshipDefinitions: relationships,
+            })
             expect(config.values.selectColumns).toEqual([
                 ...ACCOUNTS_DEFAULT_COLUMNS,
-                'csm',
-                'account_executive',
-                'account_owner',
+                CSM_COLUMN,
+                AE_COLUMN,
+                OWNER_COLUMN,
                 `accounts.relationships.values.\`def-os\` AS ${relationshipAlias('def-os')}`,
             ])
         })
 
         it('leaves customized columns alone when definitions load', () => {
             const config = accountsColumnConfigLogic.findMounted()!
-            config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
             config.actions.loadRelationshipDefinitionsSuccess([
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
             ])
-            expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+            expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
         })
 
         it('refuses to remove the name column via unselectColumn', () => {
@@ -541,19 +1064,19 @@ describe('accountsLogic', () => {
 
         it('re-inserts the name column when setSelectColumns omits it', () => {
             const config = accountsColumnConfigLogic.findMounted()
-            config?.actions.setSelectColumns(['csm', 'account_executive'])
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm', 'account_executive'])
+            config?.actions.setSelectColumns([CSM_COLUMN, AE_COLUMN])
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, CSM_COLUMN, AE_COLUMN])
         })
 
         it('keeps user ordering when setSelectColumns already contains name', () => {
             const config = accountsColumnConfigLogic.findMounted()
-            config?.actions.setSelectColumns(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
-            expect(config?.values.selectColumns).toEqual(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+            config?.actions.setSelectColumns([CSM_COLUMN, ACCOUNTS_NAME_COLUMN, AE_COLUMN])
+            expect(config?.values.selectColumns).toEqual([CSM_COLUMN, ACCOUNTS_NAME_COLUMN, AE_COLUMN])
         })
     })
 
-    describe('url persistence', () => {
-        it('writes active filters into the view hash param', async () => {
+    describe('legacy URLs and session edits', () => {
+        it('keeps active filters in memory without persisting snapshots', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('acme')
                 logic.actions.setTagsFilter(['enterprise'])
@@ -562,13 +1085,23 @@ describe('accountsLogic', () => {
                 logic.actions.setTileFilter(TILE_FILTER)
             }).toFinishAllListeners()
 
-            expect(router.values.hashParams.view).toEqual({
+            expect(logic.values.viewState.filters).toMatchObject({
                 search: 'acme',
                 tags: ['enterprise'],
                 assignedTo: [7],
-                sort: { column: 'name', direction: 'desc' },
                 tileFilter: TILE_FILTER,
             })
+            expect(router.values.hashParams.view).toBeUndefined()
+            expect(router.values.searchParams.view).toBeUndefined()
+            expect(sessionStorage.length).toBe(0)
+        })
+
+        it('reads a legacy hash without a status field as assigned-only', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { tags: ['enterprise'] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignmentStatus).toBe('assigned')
+            expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
         })
 
         it('keeps the hash empty for the default view', async () => {
@@ -580,23 +1113,63 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toBeUndefined()
         })
 
-        it('restores filters, sort, and tile filter from the view hash param', async () => {
+        it('discards filters, sort, and tiles on browser Back without the account return token', async () => {
             const tileFilter = TILE_FILTER
-            router.actions.push(
-                urls.customerAnalyticsAccounts(),
-                {},
-                {
-                    view: { search: 'beta', assignedTo: [7], sort: { column: 'name', direction: 'desc' }, tileFilter },
-                }
-            )
+            const view = {
+                search: 'beta',
+                assignedTo: [7],
+                sort: { column: 'name', direction: 'desc' as const },
+                tileFilter,
+            }
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view })
+            await expectLogic(logic).toFinishAllListeners()
+            const listLocation = router.values.currentLocation
+            logic.actions.setTiles(CUSTOM_TILES)
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.locationChanged({
+                ...listLocation,
+                url: `${listLocation.pathname}${listLocation.search}${listLocation.hash}`,
+                method: 'POP',
+            })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.searchQuery).toBe('beta')
-            expect(logic.values.searchInput).toBe('beta')
-            expect(logic.values.assignedToFilter).toEqual([7])
-            expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
-            expect(logic.values.tileFilter).toEqual(tileFilter)
+            expect(logic.values.searchQuery).toBe('')
+            expect(logic.values.searchInput).toBe('')
+            expect(logic.values.assignedToFilter).toEqual([])
+            expect(logic.values.sortOrder).toBeNull()
+            expect(logic.values.tileFilter).toBeNull()
+            expect(logic.values.tiles).toEqual(DEFAULT_TILES)
         })
+
+        it.each(['name', CSM_ALIAS])(
+            'discards the %s sort on browser Back without a return token while columns load',
+            async (column) => {
+                logic.actions.setSortOrder({ column, direction: 'desc' })
+                const listLocation = router.values.currentLocation
+                router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+                logic.unmount()
+
+                let resolveDefinitions!: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
+                mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
+                router.actions.locationChanged({
+                    ...listLocation,
+                    url: `${listLocation.pathname}${listLocation.search}${listLocation.hash}`,
+                    method: 'POP',
+                })
+                logic = accountsLogic()
+                logic.mount()
+                expect(logic.values.sortOrder).toBeNull()
+
+                resolveDefinitions({ count: DEFINITIONS.length, results: DEFINITIONS })
+                await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+                expect(logic.values.sortOrder).toBeNull()
+                expect(logic.values.listDataCompleteness).toBe('unknown')
+                expect(logic.values.sortedRowsTransformer).toBeUndefined()
+                expect(logic.values.accountsQuerySource).toBeNull()
+            }
+        )
 
         it('coerces a malformed scalar assignedTo from the view hash into an array', async () => {
             // normalizeRoleFilter defends the array-shaped filter against a stray
@@ -616,7 +1189,25 @@ describe('accountsLogic', () => {
                         search: 'acme',
                         tags: ['enterprise'],
                         assignedTo: [7],
-                        columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                        columns: [ACCOUNTS_NAME_COLUMN, CSM_COLUMN],
+                        customProperties: [
+                            {
+                                type: PropertyFilterType.Account,
+                                key: AccountsTableAccountField.Name,
+                                operator: PropertyOperator.IsSet,
+                                value: null,
+                            },
+                        ],
+                        filterGroups: [
+                            [
+                                {
+                                    type: PropertyFilterType.Account,
+                                    key: AccountsTableAccountField.ExternalId,
+                                    operator: PropertyOperator.IsSet,
+                                    value: null,
+                                },
+                            ],
+                        ],
                     },
                 }
             )
@@ -633,6 +1224,10 @@ describe('accountsLogic', () => {
                 { kind: 'tags', tagNames: ['enterprise'] },
                 { kind: 'assigned_to', userIds: [7] },
             ])
+            expect(source.filterGroups).toEqual([
+                [{ kind: 'account_field', field: 'name', operator: 'is_set', values: [] }],
+                [{ kind: 'account_field', field: 'external_id', operator: 'is_set', values: [] }],
+            ])
         })
 
         it('restores columns from the view hash param', async () => {
@@ -640,106 +1235,309 @@ describe('accountsLogic', () => {
                 urls.customerAnalyticsAccounts(),
                 {},
                 {
-                    view: { columns: [ACCOUNTS_NAME_COLUMN, 'csm'] },
+                    view: { columns: [ACCOUNTS_NAME_COLUMN, CSM_COLUMN] },
                 }
             )
             await expectLogic(logic).toFinishAllListeners()
 
             const config = accountsColumnConfigLogic.findMounted()
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
+        })
+
+        it.each([
+            ['a mounted list', false],
+            ['a remounted list', true],
+            ['a remounted account detail', 'detail'],
+        ])('discards unsaved settings on a plain return URL through %s', async (_, remountOnDetail) => {
+            mockCustomPropertiesList.mockResolvedValue({
+                count: 1,
+                results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })],
+            })
+            accountsColumnConfigLogic
+                .findMounted()!
+                .actions.loadCustomPropertyDefinitionsSuccess([
+                    buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID }),
+                ])
+            const columnConfig = accountsColumnConfigLogic.findMounted()!
+            columnConfig.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
+            columnConfig.actions.moveColumn(0, 1)
+            columnConfig.actions.setColumnDisplay(CSM_DEFINITION_ID, { mode: 'sparkline', window_days: 30 })
+            logic.actions.setSearchQuery('draft search')
+            logic.actions.setTagsFilter(['enterprise'])
+            logic.actions.setAssignedToFilter([7])
+            logic.actions.updateAccountFilters(ACCOUNT_FILTERS)
+            logic.actions.setSortOrder({ column: relationshipAlias(CSM_DEFINITION_ID), direction: 'desc' })
+            const overviewTiles = accountsOverviewTilesLogic.findMounted()!
+            overviewTiles.actions.addTile(CUSTOM_TILES[0])
+            overviewTiles.actions.moveTile(0, 1)
+            logic.actions.setTileFilter(TILE_FILTER)
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            if (remountOnDetail) {
+                logic.unmount()
+                logic = accountsLogic()
+            }
+            if (remountOnDetail === 'detail') {
+                logic.mount()
+                await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+            }
+            router.actions.push(urls.customerAnalyticsAccounts())
+            if (remountOnDetail === true) {
+                logic.mount()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.viewState.filters).toEqual({
+                search: '',
+                assignmentStatus: 'all',
+                assignedTo: [],
+                tags: [],
+                tileFilter: null,
+                customProperties: [],
+                filterGroups: [],
+            })
+            expect(logic.values.sortOrder).toBeNull()
+            expect(logic.values.columnDisplay).toEqual({})
+            expect(logic.values.selectColumns).toEqual(logic.values.defaultSelectColumns)
+
+            logic.actions.setTagsFilter(['renewal'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.tagsFilter).toEqual(['renewal'])
+            expect(router.values.hashParams.view).toBeUndefined()
+            expect(router.values.searchParams.view).toBeUndefined()
+            expect(sessionStorage.length).toBe(0)
+        })
+
+        it.each([
+            ['an empty shared view', {}, '', 'all'],
+            ['a populated shared view', { search: 'shared', assignmentStatus: 'all' }, 'shared', 'all'],
+        ])('uses %s instead of session edits and keeps it in memory', async (_, sharedView, search, status) => {
+            logic.actions.setSearchQuery('draft')
+            logic.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
+            logic.actions.setAssignedToFilter([7])
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            const customerAnalyticsScene = customerAnalyticsSceneLogic()
+            customerAnalyticsScene.mount()
+            customerAnalyticsScene.actions.setMineOnly(true)
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: sharedView })
+            logic = accountsLogic()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe(search)
+            expect(logic.values.assignmentStatus).toBe(status)
+            expect(logic.values.assignedToFilter).toEqual([])
+            expect(logic.values.selectColumns).toEqual(logic.values.defaultSelectColumns)
+            expect(
+                capture.mock.calls.some(([event]) =>
+                    [
+                        AccountsEvents.FilterChanged,
+                        AccountsEvents.OverviewTilesEdited,
+                        AccountsEvents.Searched,
+                        AccountsEvents.Sorted,
+                    ].some((interactionEvent) => interactionEvent === event)
+                )
+            ).toBe(false)
+
+            logic.unmount()
+            router.actions.push(urls.customerAnalyticsAccounts())
+            logic = accountsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('')
+            expect(logic.values.assignmentStatus).toBe('all')
+            expect(logic.values.assignedToFilter).toEqual([])
+            customerAnalyticsScene.unmount()
+        })
+
+        it('does not let a pending search overwrite a shared view restored from browser navigation', async () => {
+            jest.useFakeTimers()
+            logic.actions.setSearchInput('stale search')
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { search: 'shared search' } })
+            await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('shared search')
+            expect(logic.values.searchInput).toBe('shared search')
         })
     })
 
-    describe('deep link (path route)', () => {
-        // `/customer_analytics/accounts/:accountId/:tab` filters the list to one account and opens a tab.
-        const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+    it('opens an account detail route without changing list filters', () => {
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
 
-        const accountIdFilterOf = (query: AccountsTableQuery | null): string | undefined =>
-            query?.filters?.find((filter) => filter.kind === 'account_id')?.accountId
+        logic.actions.openAccount('0190da51-0b0e-7000-8000-000000000001', 'usage')
 
-        it('filters the list to the account, expands it, and opens the requested tab', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+        expect(router.values.location.pathname).toBe(
+            urls.currentProject(urls.customerAnalyticsAccount('0190da51-0b0e-7000-8000-000000000001', 'usage'))
+        )
+        expect(logic.values.accountFilters).toEqual([ACCOUNT_FILTERS[0]])
+        expect(logic.values.accountFilterGroups).toEqual([[ACCOUNT_FILTERS[0]]])
+    })
+
+    describe('updateAccountCustomProperty', () => {
+        it.each([42, 0, false, null])('writes %s and masks stale query data with the saved value', async (value) => {
+            const definition = buildCustomPropertyDefinition()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: value ?? 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
+
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(value)
+
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-            expect(accountIdFilterOf(logic.values.accountsQuerySource)).toBe(ACCOUNT_ID)
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.expandedAccountIds).toContain(ACCOUNT_ID)
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('usage')
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value,
+            })
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: false,
+            })
         })
 
-        it('defaults the tab when the path omits it', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
-            await expectLogic(logic).toFinishAllListeners()
+        it('blocks duplicate clear requests while a write is pending', async () => {
+            const definition = buildCustomPropertyDefinition()
+            let finishWrite!: (value: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>) => void
+            mockCustomPropertyValuesCreate.mockImplementationOnce(
+                () =>
+                    new Promise<Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>>(
+                        (resolve) => (finishWrite = resolve)
+                    )
+            )
 
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBeNull()
+
+            finishWrite({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
         })
 
-        it('falls back to the default tab for an unknown tab', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'bogus'))
+        it('clears only refreshed overrides when the refresh of an earlier write lands during a pending write', async () => {
+            const saved = buildCustomPropertyDefinition()
+            const pending = buildCustomPropertyDefinition({ id: 'custom-property-2' })
+            const pendingKey = customPropertySavingKey('acc-1', pending.id)
+            const writeResult: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>> = {
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: saved.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            }
+            let finishPendingWrite!: (value: typeof writeResult) => void
+            mockCustomPropertyValuesCreate
+                .mockResolvedValueOnce(writeResult)
+                .mockImplementationOnce(() => new Promise((resolve) => (finishPendingWrite = resolve)))
+
+            logic.actions.updateAccountCustomProperty('acc-1', saved, null)
+            logic.actions.updateAccountCustomProperty('acc-1', pending, null)
+            await expectLogic(logic).toDispatchActions(['listLoadDataSuccess'])
+
+            expect(logic.values.isCustomPropertySaving('acc-1', pending.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides).toEqual({ [pendingKey]: null })
+
+            finishPendingWrite({ ...writeResult, definition_id: pending.id })
             await expectLogic(logic).toFinishAllListeners()
 
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
+            expect(logic.values.customPropertyOverrides).toEqual({})
         })
 
-        it('ignores a non-UUID account id', async () => {
-            router.actions.push(urls.customerAnalyticsAccount('not-a-uuid', 'usage'))
+        it.each([
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), 42],
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), null],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), 42],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), null],
+        ] as const)('does not write a %s property', async (_, definition, value) => {
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.accountIdFilter).toBeNull()
+            expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
         })
 
-        it('resolves to the account even when the viewer has filters of their own', async () => {
-            logic.actions.setSearchQuery('something else')
-            logic.actions.setAssignedToFilter([99])
+        it('writes a workflow-managed property', async () => {
+            const definition = buildCustomPropertyDefinition({ has_workflow_reference: true })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
 
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.accountsQuerySource?.filters).toEqual([{ kind: 'account_id', accountId: ACCOUNT_ID }])
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value: 42,
+            })
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: true,
+            })
         })
 
-        it('survives a view-state restore rewriting the URL', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-            const deepLinkPath = router.values.location.pathname
+        it.each([42, null])('reverts the optimistic override after a failed write of %s', async (value) => {
+            const definition = buildCustomPropertyDefinition()
+            mockCustomPropertyValuesCreate.mockRejectedValueOnce(new Error('boom'))
 
-            // Landing on a deep link, the saved-view restore and the default-column upgrade both
-            // dispatch the setters that mirror view state into the URL. They must not rewrite the
-            // path, or the link bounces to the unfiltered list before the user sees the account.
-            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(router.values.location.pathname).toBe(deepLinkPath)
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-        })
-
-        it('clears the account filter when returning to the bare list', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-
-            router.actions.push(urls.customerAnalyticsAccounts())
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.accountIdFilter).toBeNull()
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
         })
     })
 
     describe('updateAccountRole', () => {
         it('assigns via the relationships API and masks the cell with an override', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             const user = buildUser()
             mockRelationshipsCreate.mockResolvedValue(buildRelationship())
 
-            logic.actions.updateAccountRole('acc-1', 'csm', user)
+            logic.actions.updateAccountRole('acc-1', CSM_ALIAS, user)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockRelationshipsCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
                 definition: CSM_DEFINITION_ID,
                 user: user.id,
             })
-            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([user.id])
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', CSM_ALIAS)]).toEqual([user.id])
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, expect.objectContaining({ role: 'csm' }))
         })
 
         it('unassigning ends only the active assignments of that definition', async () => {
@@ -751,16 +1549,16 @@ describe('accountsLogic', () => {
                 buildRelationship({ id: 'rel-csm', ended_at: '2026-01-02T00:00:00Z' })
             )
 
-            logic.actions.updateAccountRole('acc-1', 'csm', null)
+            logic.actions.updateAccountRole('acc-1', CSM_ALIAS, null)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockRelationshipsEnd).toHaveBeenCalledTimes(1)
             expect(mockRelationshipsEnd).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', 'rel-csm')
-            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([])
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', CSM_ALIAS)]).toEqual([])
         })
 
         it('flips savingRoles during the in-flight window', async () => {
-            const key = savingRoleKey('acc-1', 'account_executive')
+            const key = savingRoleKey('acc-1', AE_ALIAS)
             let resolveCreate!: (value: AccountRelationshipApi) => void
             mockRelationshipsCreate.mockReturnValueOnce(
                 new Promise<AccountRelationshipApi>((resolve) => {
@@ -768,26 +1566,26 @@ describe('accountsLogic', () => {
                 })
             )
 
-            logic.actions.updateAccountRole('acc-1', 'account_executive', buildUser())
+            logic.actions.updateAccountRole('acc-1', AE_ALIAS, buildUser())
             await new Promise<void>((r) => setTimeout(r, 0))
             expect(logic.values.savingRoles[key]).toBe(true)
-            expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(true)
+            expect(logic.values.isRoleSaving('acc-1', AE_ALIAS)).toBe(true)
 
             resolveCreate(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.savingRoles[key]).toBeUndefined()
-            expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(false)
+            expect(logic.values.isRoleSaving('acc-1', AE_ALIAS)).toBe(false)
         })
 
         it('leaves overrides untouched on failure', async () => {
             mockRelationshipsCreate.mockRejectedValueOnce(new Error('boom'))
 
-            logic.actions.updateAccountRole('acc-1', 'account_owner', buildUser())
+            logic.actions.updateAccountRole('acc-1', OWNER_ALIAS, buildUser())
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'account_owner')]).toBeUndefined()
-            expect(logic.values.isRoleSaving('acc-1', 'account_owner')).toBe(false)
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', OWNER_ALIAS)]).toBeUndefined()
+            expect(logic.values.isRoleSaving('acc-1', OWNER_ALIAS)).toBe(false)
         })
 
         it('is a no-op while a save for the same role is already in flight', async () => {
@@ -798,9 +1596,9 @@ describe('accountsLogic', () => {
                 })
             )
 
-            logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 1, email: 'first@example.com' }))
+            logic.actions.updateAccountRole('acc-1', CSM_ALIAS, buildUser({ id: 1, email: 'first@example.com' }))
             await new Promise<void>((r) => setTimeout(r, 0))
-            logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 2, email: 'second@example.com' }))
+            logic.actions.updateAccountRole('acc-1', CSM_ALIAS, buildUser({ id: 2, email: 'second@example.com' }))
             await new Promise<void>((r) => setTimeout(r, 0))
 
             expect(mockRelationshipsCreate).toHaveBeenCalledTimes(1)

@@ -6,8 +6,6 @@ import { Provider } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -33,6 +31,7 @@ jest.mock('products/alerts/frontend/generated/api', () => ({
 jest.mock('lib/utils/newInternalTab')
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    ...jest.requireActual('products/signals/frontend/generated/api'),
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
 }))
@@ -97,10 +96,6 @@ describe('AIObservabilitySelfDriving', () => {
             },
         } as AppContext
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
-            [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]: true,
-        })
         jest.mocked(newInternalTab).mockReset()
         jest.mocked(aiObservabilityApi.evaluationDirectoriesList).mockResolvedValue([])
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
@@ -198,6 +193,8 @@ describe('AIObservabilitySelfDriving', () => {
                     insight: 10,
                     insight_short_id: 'insight-cost',
                     insight_display_name: 'AI cost by model',
+                    llm_detector_available: null,
+                    pagerduty_available: false,
                     name: 'Unexpected AI cost',
                     subscribed_users: [],
                     threshold: {
@@ -228,6 +225,8 @@ describe('AIObservabilitySelfDriving', () => {
                     insight: 11,
                     insight_short_id: 'insight-errors',
                     insight_display_name: 'AI errors by model',
+                    llm_detector_available: null,
+                    pagerduty_available: false,
                     name: 'Unexpected error rate',
                     subscribed_users: [],
                     threshold: {
@@ -262,7 +261,7 @@ describe('AIObservabilitySelfDriving', () => {
             </Provider>
         )
 
-        expect(screen.getAllByText('Use template')).toHaveLength(3)
+        expect(screen.getAllByText('Use template')).toHaveLength(4)
 
         // Counting the labels alone passes even when every button is disabled, which is what
         // happens if the scene stops granting scout-creation access. Prove one actually opens.

@@ -1,6 +1,8 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
@@ -8,13 +10,12 @@ import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/util
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
@@ -61,6 +62,7 @@ export interface definitionPopoverLogicValues {
     isCohort: boolean
     isDataWarehouse: boolean
     isDataWarehousePersonProperty: boolean
+    isEditable: boolean
     isEvent: boolean
     isProperty: any
     isViewable: boolean
@@ -148,6 +150,11 @@ export interface definitionPopoverLogicMeta {
             localDefinition: Partial<TaxonomicDefinitionTypes>
         ) => boolean
         isViewable: (type: any) => boolean
+        isEditable: (
+            isViewable: boolean,
+            isEvent: boolean,
+            resolvedDefinition: Partial<TaxonomicDefinitionTypes>
+        ) => boolean
         isAction: (type: any) => boolean
         isEvent: (type: any) => boolean
         isProperty: (type: any) => any
@@ -164,7 +171,7 @@ export interface definitionPopoverLogicMeta {
                 s: TaxonomicFilterValue,
                 type: PropertyDefinitionType,
                 groupTypeIndex?: number
-            ) => PropertyDefinition | null
+            ) => PropertyDefinition | null // propertyDefinitionsModel
         ) => Partial<TaxonomicDefinitionTypes>
         viewFullDetailUrl: (
             resolvedDefinition: Partial<TaxonomicDefinitionTypes>,
@@ -221,6 +228,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         if (values.isAction) {
                             // Action Definitions
                             const _action = definition as ActionType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use actionsPartialUpdate() from 'products/actions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/actions/${_action.id}`,
                                 _action
@@ -229,6 +237,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use eventDefinitionsPartialUpdate() from 'products/event_definitions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/event_definitions/${_event.id}`,
                                 {
@@ -243,6 +252,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         ) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use propertyDefinitionsPartialUpdate() from '~/generated/core/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
@@ -253,9 +263,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/cohorts/${_cohort.id}`,
-                                _cohort
+                                { description: _cohort.description }
                             )
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
@@ -341,6 +352,12 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.EventFeatureFlags,
                 ].includes(type)
             },
+        ],
+        // An event with no id has no saved definition for Save to update, as with a hidden event's stand-in row.
+        isEditable: [
+            (s) => [s.isViewable, s.isEvent, s.resolvedDefinition],
+            (isViewable: boolean, isEvent: boolean, resolvedDefinition: Partial<TaxonomicDefinitionTypes>): boolean =>
+                isViewable && !(isEvent && !(resolvedDefinition as Partial<EventDefinition>)?.id),
         ],
         isAction: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Actions],
         isEvent: [
@@ -438,7 +455,13 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: ({ item }, __, ___, previousState) => {
+            if (values.isCohort && isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds((item as Partial<CohortType>).filters)
+                if (ids.length) {
+                    cohortsModel.findMounted()?.actions.loadCohortsByIds({ ids })
+                }
+            }
             // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
@@ -454,24 +477,20 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         },
         handleSaveSuccess: () => {
             if (cache.startTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportDataManagementDefinitionSaveSucceeded(
-                        values.type,
-                        performance.now() - cache.startTime
-                    )
+                posthog.capture('definition save succeeded', {
+                    type: values.type,
+                    load_time: performance.now() - cache.startTime,
+                })
                 cache.startTime = undefined
             }
         },
         handleSaveFailure: ({ error }) => {
             if (cache.startTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportDataManagementDefinitionSaveFailed(
-                        values.type,
-                        performance.now() - cache.startTime,
-                        error
-                    )
+                posthog.capture('definition save failed', {
+                    type: values.type,
+                    load_time: performance.now() - cache.startTime,
+                    error: error,
+                })
                 cache.startTime = undefined
             }
         },
@@ -479,13 +498,14 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             actions.setPopoverState(DefinitionPopoverState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
-            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
+            posthog.capture('definition cancelled', { type: values.type })
         },
         recordHoverActivity: async (_, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
-            eventUsageLogic
-                .findMounted()
-                ?.actions?.reportDataManagementDefinitionHovered(values.type, values.mediaPreviews.length)
+            posthog.capture('definition hovered', {
+                type: values.type,
+                media_preview_count: values.mediaPreviews.length ?? 0,
+            })
         },
     })),
     events(({ actions }) => ({

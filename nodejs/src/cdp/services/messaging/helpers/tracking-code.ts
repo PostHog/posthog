@@ -11,6 +11,10 @@ const SIGNATURE_BYTES = 16
 // (see generateShort) purely as a backwards-compat fallback.
 export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
 
+// Signed creation time of a keyed message, whose id holds no time, as `<ms>.<signature>`. It rides apart from the
+// tracking code so that header keeps its length under SES's 996-character header limit, and older pods ignore it.
+export const MESSAGE_CREATED_HEADER_NAME = 'X-PostHog-Message-Created'
+
 // Tracks the rotation curve from unsigned to signed tracking codes.
 export const trackingCodeFormatCounter = new Counter({
     name: 'email_tracking_code_format_total',
@@ -94,15 +98,17 @@ export type ParsedTrackingCode = {
 // layout and no version. It can't collide with a real payload because segment 0 is a UUID.
 const VERSIONED_PAYLOAD_MARKER = 'v2'
 
-// Phase one of a two-phase rollout: `parse` understands the marker, `generate` does not yet emit it.
-// The layouts are only compatible in one direction — a marked code read by a pod still running the
-// old parser shifts every field (functionId becomes the literal marker), the flow lookup misses, and
-// the engagement metric is dropped. Emitting before the fleet can parse would lose metrics for the
-// length of the rolling deploy.
-//
-// Phase two flips this to `true` in a follow-up, once this parser is everywhere. Until then no
-// engagement metric carries a version, and they land in the version-agnostic series alone.
-const EMIT_VERSIONED_PAYLOAD = false
+const EMIT_VERSIONED_PAYLOAD = true
+
+// The redirect signature binds the destination to the tracking code, so a link cannot be edited to
+// point somewhere else. A JSON array keeps the boundary between the two values unambiguous, and the
+// leading `[` keeps this payload apart from tracking-code payloads, which are bare base64url.
+const redirectSignaturePayload = (trackingCode: string, targetUrl: string): string =>
+    JSON.stringify(['redirect', trackingCode, targetUrl])
+
+// Binds the time to one message, and the leading tag keeps it apart from every other signed payload.
+const messageCreatedSignaturePayload = (messageId: string, createdMs: number): string =>
+    JSON.stringify(['message-created', messageId, createdMs])
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
@@ -254,6 +260,29 @@ export class EmailTrackingCodeSigner {
     }
 
     redirectUrl(invocation: TrackingInvocation, targetUrl: string, isTest = false): string {
-        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
+        const trackingCode = this.generate(invocation, isTest)
+        const signature = this.signPayload(redirectSignaturePayload(trackingCode, targetUrl), this.signingKeys[0])
+        return `${this.trackingUrl}/public/m/redirect?ph_id=${trackingCode}&ph_sig=${signature}&target=${encodeURIComponent(targetUrl)}`
+    }
+
+    messageCreatedHeaderValue(messageId: string, createdMs: number): string {
+        return `${createdMs}.${this.signPayload(messageCreatedSignaturePayload(messageId, createdMs), this.signingKeys[0])}`
+    }
+
+    verifyMessageCreatedHeaderValue(messageId: string, value: string | undefined): number | undefined {
+        const [time, signature, ...rest] = (value ?? '').split('.')
+        if (!signature || rest.length > 0 || !/^\d{1,16}$/.test(time)) {
+            return undefined
+        }
+        const createdMs = Number(time)
+        return Number.isSafeInteger(createdMs) &&
+            this.verifySignature(messageCreatedSignaturePayload(messageId, createdMs), signature)
+            ? createdMs
+            : undefined
+    }
+
+    // Links minted before the target was signed carry no `ph_sig`, so they fail this check.
+    verifyRedirectTarget(trackingCode: string, targetUrl: string, signature: string): boolean {
+        return this.verifySignature(redirectSignaturePayload(trackingCode, targetUrl), signature)
     }
 }

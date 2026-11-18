@@ -1,0 +1,78 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Essay grading assistant scores an attached student PDF",
+  "scenario": "A high school English grading tool sends a student's uploaded essay PDF to Gemini along with rubric instructions, and receives back a numeric score with targeted written feedback.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "gemini"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3.6-flash"
+    ],
+    "content_types": [
+      "document",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_reasoning_tokens": 1116,
+        "$ai_output_tokens": 186,
+        "$lib_version": "5.48.0",
+        "$ai_provider": "gemini",
+        "$ai_model_parameters": {},
+        "$lib": "posthog-node",
+        "$ai_latency": 7.419641625002027,
+        "$ai_tokens_source": "sdk",
+        "functionId": "grade-essay-v2-8f2c91d4aa03",
+        "$ai_trace_id": "f6dd5c95-5211-7aad-5aef-314e117493c1",
+        "$ai_lib_version": "7.21.0",
+        "$ai_http_status": 200,
+        "$ai_stop_reason": "completed",
+        "$ai_model": "gemini-3.6-flash",
+        "$ai_input_tokens": 2263,
+        "$ai_base_url": "",
+        "$is_server": true,
+        "$ai_lib": "posthog-ai",
+        "$geoip_disable": true,
+        "$ai_input": [
+          {
+            "content": "You are an essay-grading assistant for a high school English class. Read the attached essay PDF carefully, evaluate it against the standard five-paragraph argumentative essay rubric covering thesis clarity, evidence and support, organization, grammar and mechanics, and voice, then return a score out of 100 along with two or three specific, actionable pieces of feedback the student can use to improve their next draft; do not simply restate the rubric categories without pointing to specific sentences. Please note any recurring issues across paragraphs as well.",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "data": "JVBERi0xLjQKJcTl8uXrp/Og0MTGCg==AAA",
+                "mime_type": "application/pdf",
+                "type": "document"
+              },
+              {
+                "text": "Please grade the attached essay using the standard rubric and give a score out of 100 with feedback.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": "Score: 78/100. Your thesis is clear and appears in the right place, but paragraph three drifts away from it and never quite returns, which weakens the overall argument; your strongest evidence is the statistic in paragraph two, so consider leading with that rather than burying it, and watch for the comma splices that show up three times in the second half of the essay. Please note any recurring issues across paragraphs as well. Please note any recurring issues across paragraphs as well. Please note any recurring issues across paragraphs as well."
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

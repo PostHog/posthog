@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useRef } from 'react'
 
 import {
     LemonButton,
@@ -8,16 +9,24 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
+    Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { urls } from 'scenes/urls'
 
-import { checkTypeLabel } from './checksConstants'
+import type { DataQualitySubjectRef } from './checksApi'
+import { checkTypeLabel, subjectTypeLabel } from './checksConstants'
+import { CustomSqlCodeEditor } from './CustomSqlCodeEditor'
+import { CodeEditorInstance, insertOutputColumn } from './customSqlEditor'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi } from './generated/api.schemas'
+import { formatPreviewCell } from './previewCell'
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -25,17 +34,26 @@ export function CheckEditorModal(): JSX.Element {
         editingCheck,
         checkForm,
         checkTypes,
+        checkTypesError,
         checkTypesLoading,
         requiresColumn,
         availableColumns,
-        databaseLoading,
+        openedWithoutSubject,
+        selectableSubjects,
+        checkSubjectsLoading,
+        checkSubjectsError,
+        subject,
         isCheckFormSubmitting,
         serverError,
     } = useValues(dataQualityCheckEditorLogic)
     // Which fields the form has depends on the check-type catalog, so showing the form before it
     // arrives means fields appearing under the user's cursor a moment later.
     const formShapeLoading = checkTypesLoading && !checkTypes.length
-    const { requestClose, submitCheckForm, setCheckFormValues } = useActions(dataQualityCheckEditorLogic)
+    const awaitingSubject = openedWithoutSubject && !subject
+    const checkTypesFailedEmpty = checkTypesError && !checkTypesLoading && !checkTypes.length
+    const catalogFailed = !!checkSubjectsError && !checkSubjectsLoading
+    const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckType, setSubject, submitCheckForm } =
+        useActions(dataQualityCheckEditorLogic)
 
     return (
         <LemonModal
@@ -55,11 +73,17 @@ export function CheckEditorModal(): JSX.Element {
                             onClick={submitCheckForm}
                             loading={isCheckFormSubmitting}
                             disabledReason={
-                                isCheckFormSubmitting
-                                    ? 'Saving'
-                                    : formShapeLoading
-                                      ? 'Loading the check types'
-                                      : undefined
+                                awaitingSubject
+                                    ? 'Pick a table, view, or metric first'
+                                    : isCheckFormSubmitting
+                                      ? 'Saving'
+                                      : formShapeLoading
+                                        ? 'Loading the check types'
+                                        : checkTypesFailedEmpty
+                                          ? 'Load the check types to continue'
+                                          : catalogFailed && !openedWithoutSubject
+                                            ? 'Load the columns to continue'
+                                            : undefined
                             }
                             data-attr="data-quality-check-save"
                         >
@@ -75,10 +99,80 @@ export function CheckEditorModal(): JSX.Element {
                     <span>Loading check types...</span>
                 </div>
             )}
+            {openedWithoutSubject && (
+                <div className="flex flex-col gap-2 mb-3">
+                    <LemonField.Pure label="Table, view, or metric">
+                        <LemonInputSelect
+                            mode="single"
+                            value={subject ? [`${subject.subjectType}:${subject.subjectId}`] : []}
+                            options={selectableSubjects.map((candidate) => ({
+                                key: `${candidate.type}:${candidate.id}`,
+                                label: candidate.name,
+                                labelComponent: (
+                                    <div className="flex items-center justify-between gap-2 w-full">
+                                        <span>{candidate.name}</span>
+                                        <LemonTag type="muted" size="small">
+                                            {subjectTypeLabel(candidate.type)}
+                                        </LemonTag>
+                                    </div>
+                                ),
+                            }))}
+                            onChange={(selectedKeys) => {
+                                const selected = selectableSubjects.find(
+                                    (candidate) => `${candidate.type}:${candidate.id}` === selectedKeys[0]
+                                )
+                                if (!selected) {
+                                    return
+                                }
+                                const selectedSubject: DataQualitySubjectRef = {
+                                    subjectId: selected.id,
+                                    subjectType: selected.type,
+                                }
+                                setSubject(selectedSubject)
+                            }}
+                            loading={checkSubjectsLoading}
+                            placeholder="Search tables, views, and metrics"
+                            data-attr="data-quality-check-subject"
+                        />
+                    </LemonField.Pure>
+                    {catalogFailed ? (
+                        <div className="flex items-center gap-2 text-secondary text-sm">
+                            <span>Couldn't load what you can check.</span>
+                            <LemonButton size="small" type="secondary" onClick={loadCheckSubjects}>
+                                Retry
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                    {!checkSubjectsLoading && selectableSubjects.length === 0 ? (
+                        <p className="mb-0 text-secondary text-sm">
+                            <Link to={urls.database()}>Browse tables and views</Link> or{' '}
+                            <Link to={urls.metrics()}>create a HogQL metric</Link> first.
+                        </p>
+                    ) : null}
+                </div>
+            )}
+            {catalogFailed && !openedWithoutSubject && (
+                <div className="flex items-center gap-2 mb-3 text-secondary text-sm">
+                    <span>Couldn't load the columns for this subject.</span>
+                    <LemonButton size="small" type="secondary" onClick={loadCheckSubjects}>
+                        Retry
+                    </LemonButton>
+                </div>
+            )}
+            {checkTypesFailedEmpty && (
+                <div className="flex items-center gap-2 py-8 justify-center text-secondary">
+                    <span>Couldn't load check types.</span>
+                    <LemonButton size="small" type="secondary" onClick={loadCheckTypes}>
+                        Retry
+                    </LemonButton>
+                </div>
+            )}
             <Form
                 logic={dataQualityCheckEditorLogic}
                 formKey="checkForm"
-                className={formShapeLoading ? 'hidden' : 'flex flex-col gap-3'}
+                className={
+                    formShapeLoading || awaitingSubject || checkTypesFailedEmpty ? 'hidden' : 'flex flex-col gap-3'
+                }
             >
                 <LemonField name="checkType" label="Check type">
                     <LemonSelect
@@ -92,33 +186,22 @@ export function CheckEditorModal(): JSX.Element {
                                 </div>
                             ),
                         }))}
-                        onChange={(checkType) =>
-                            // The config fields belong to the type that was selected, so they can't carry over.
-                            setCheckFormValues({
-                                checkType,
-                                columnName: '',
-                                acceptedValues: [],
-                                toSubjectUuid: '',
-                                toColumn: '',
-                                rowCountMin: null,
-                                rowCountMax: null,
-                                maxAgeMinutes: null,
-                                customSql: '',
-                            })
-                        }
+                        onChange={setCheckType}
                     />
                 </LemonField>
 
                 {requiresColumn && (
                     <LemonField name="columnName" label="Column">
                         <LemonSelect
-                            loading={databaseLoading && !availableColumns.length}
+                            loading={checkSubjectsLoading && !availableColumns.length}
                             options={availableColumns.map((column) => ({ value: column, label: column }))}
                         />
                     </LemonField>
                 )}
 
                 <CheckConfigFields checkType={checkForm.checkType} />
+
+                <LookbackField />
 
                 <LemonField
                     name="name"
@@ -138,7 +221,11 @@ export function CheckEditorModal(): JSX.Element {
                     <LemonTextArea placeholder="Every order has to belong to a customer" minRows={2} />
                 </LemonField>
 
-                <LemonField name="severity" label="Severity">
+                <LemonField
+                    name="severity"
+                    label="Severity"
+                    help="Errors notify you when the check starts failing. On a view, they also block materialization when 'Block materialization on failing checks' is on. Warnings show in the status but never notify or block."
+                >
                     <LemonSegmentedButton
                         options={[
                             { value: DataQualityCheckSeverityEnumApi.Error, label: 'Error' },
@@ -187,30 +274,179 @@ function CheckConfigFields({ checkType }: { checkType: CheckTypeEnumApi }): JSX.
                 </LemonField>
             )
         case CheckTypeEnumApi.CustomSql:
-            return (
-                <LemonField
-                    name="customSql"
-                    label="Query"
-                    help="Return one row per failure. The check passes when the query returns nothing."
-                >
-                    {({ value, onChange }) => (
-                        <CodeEditorResizeable
-                            language="hogQL"
-                            value={value ?? ''}
-                            onChange={(query) => onChange(query ?? '')}
-                            minHeight="8rem"
-                            maxHeight="40vh"
-                        />
-                    )}
-                </LemonField>
-            )
+            return <CustomSqlField />
         default:
             return null
     }
 }
 
+function CustomSqlField(): JSX.Element {
+    const {
+        customSqlEditorError,
+        customSqlPreview,
+        customSqlPreviewError,
+        customSqlPreviewLoading,
+        customSqlPreviewStale,
+        customSqlPreviewVerdict,
+        isMetricSubject,
+        availableOutputSchema,
+        metricOutputSchemaError,
+        metricOutputSchemaLoading,
+    } = useValues(dataQualityCheckEditorLogic)
+    const { loadMetricOutputSchema, runCustomSqlPreview } = useActions(dataQualityCheckEditorLogic)
+    const editorRef = useRef<CodeEditorInstance | null>(null)
+
+    const previewRows = customSqlPreview?.rows ?? []
+    // Key and index by position, not by column name: HogQL can return two columns with the same name
+    // (e.g. `SELECT id, id`), which would collide on an object key and on the React header key.
+    const previewColumns: LemonTableColumns<unknown[]> =
+        customSqlPreview?.columns.map((column, index) => ({
+            title: column,
+            key: String(index),
+            dataIndex: index,
+            // Never hand a raw object to LemonTable: it would spread the value's `props` onto the cell.
+            render: (value: unknown) => formatPreviewCell(value),
+        })) ?? []
+
+    return (
+        <LemonField
+            name="customSql"
+            label="Query"
+            help={
+                isMetricSubject
+                    ? 'Query the saved metric output through {metric} exactly once. Return one row per failure; no rows means the check passes. Save the check, then run it to see the result.'
+                    : 'Return one row per failure. The check passes when the query returns nothing.'
+            }
+        >
+            {({ value, onChange }) => (
+                <div className="flex flex-col gap-2">
+                    <CustomSqlCodeEditor value={value} onChange={onChange} editorRef={editorRef} />
+                    <div className="rounded border bg-surface-primary overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+                            <div>
+                                <div className="font-semibold text-sm">Available columns</div>
+                                <div className="text-secondary text-xs">
+                                    Select a column to insert it into the query.
+                                </div>
+                            </div>
+                            {metricOutputSchemaLoading && <Spinner />}
+                        </div>
+                        {metricOutputSchemaError ? (
+                            <div className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                                <span className="text-secondary">
+                                    Couldn't load the metric output schema. You can still write the query manually.
+                                </span>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => loadMetricOutputSchema(undefined)}
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
+                        ) : !metricOutputSchemaLoading && availableOutputSchema.length === 0 ? (
+                            <p className="mb-0 px-3 py-2 text-secondary text-sm">
+                                No output columns were found. You can still write the query manually.
+                            </p>
+                        ) : (
+                            <div className="flex flex-col max-h-40 overflow-y-auto p-1">
+                                {availableOutputSchema.map((column) => (
+                                    <LemonButton
+                                        key={column.name}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => insertOutputColumn(editorRef.current, column.name)}
+                                        data-attr="data-quality-check-output-column"
+                                    >
+                                        <span className="flex items-center justify-between gap-2 w-full">
+                                            <code>{column.name}</code>
+                                            {column.type && (
+                                                <LemonTag type="muted" size="small">
+                                                    {column.type}
+                                                </LemonTag>
+                                            )}
+                                        </span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {!isMetricSubject && (
+                        <div className="flex flex-col items-end gap-1">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={customSqlPreviewLoading}
+                                disabledReason={
+                                    !value?.trim()
+                                        ? 'Write a query before testing it.'
+                                        : (customSqlEditorError ?? undefined)
+                                }
+                                onClick={runCustomSqlPreview}
+                                data-attr="data-quality-check-test-query"
+                            >
+                                Test query
+                            </LemonButton>
+                            {customSqlPreviewStale && (
+                                <span className="text-secondary text-xs">The query changed since the last test.</span>
+                            )}
+                        </div>
+                    )}
+                    {customSqlPreviewError ? (
+                        <LemonBanner type="error">{customSqlPreviewError}</LemonBanner>
+                    ) : !customSqlPreviewLoading && customSqlPreview && customSqlPreviewVerdict ? (
+                        <div className={customSqlPreviewStale ? 'opacity-60' : undefined}>
+                            {customSqlPreview.warnings.length > 0 && (
+                                <LemonBanner type="warning" className="mb-2">
+                                    This result may be incomplete or out of date:
+                                    <ul className="list-disc pl-5">
+                                        {customSqlPreview.warnings.map((warning, index) => (
+                                            <li key={index}>{warning.message}</li>
+                                        ))}
+                                    </ul>
+                                </LemonBanner>
+                            )}
+                            {customSqlPreviewVerdict === 'pass' ? (
+                                <LemonBanner type="success">
+                                    The query returned no rows. This check would pass.
+                                </LemonBanner>
+                            ) : (
+                                <>
+                                    <LemonBanner type="warning">
+                                        The query returned {customSqlPreview.hasMore ? 'at least ' : ''}
+                                        {customSqlPreview.rowCount} rows. This check would fail with{' '}
+                                        {customSqlPreview.hasMore ? 'at least ' : ''}
+                                        {customSqlPreview.rowCount} failures.
+                                    </LemonBanner>
+                                    <LemonTable<unknown[]>
+                                        className="mt-2"
+                                        columns={previewColumns}
+                                        dataSource={previewRows}
+                                        size="small"
+                                    />
+                                    {/* The table caps at 10 rows: flag truncation only when 10 are shown and the
+                                        response held more, or the query system reported more beyond them. */}
+                                    {previewRows.length === 10 &&
+                                        (customSqlPreview.hasMore ||
+                                            customSqlPreview.rowCount > previewRows.length) && (
+                                            <span className="mt-1 text-secondary text-xs">
+                                                Showing the first 10 rows.
+                                            </span>
+                                        )}
+                                </>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+            )}
+        </LemonField>
+    )
+}
+
 function RelationshipFields(): JSX.Element {
-    const { checkForm, relationshipSubjects, databaseLoading } = useValues(dataQualityCheckEditorLogic)
+    const { checkForm, relationshipSubjects, checkSubjectsLoading, relationshipTargetTimeColumn } =
+        useValues(dataQualityCheckEditorLogic)
     const { setCheckFormValues } = useActions(dataQualityCheckEditorLogic)
 
     const selected = relationshipSubjects.find((subject) => subject.id === checkForm.toSubjectUuid)
@@ -218,16 +454,26 @@ function RelationshipFields(): JSX.Element {
     return (
         <>
             <LemonField name="toSubjectUuid" label="References table or view">
-                <LemonSelect
-                    loading={databaseLoading}
-                    options={relationshipSubjects.map((subject) => ({ value: subject.id, label: subject.name }))}
-                    onChange={(toSubjectUuid) =>
+                <LemonInputSelect
+                    mode="single"
+                    loading={checkSubjectsLoading}
+                    value={checkForm.toSubjectUuid ? [checkForm.toSubjectUuid] : []}
+                    options={relationshipSubjects.map((subject) => ({ key: subject.id, label: subject.name }))}
+                    onChange={(selectedIds) => {
+                        const toSubjectUuid = selectedIds[0]
+                        if (!toSubjectUuid) {
+                            return
+                        }
                         setCheckFormValues({
                             toSubjectUuid,
                             toSubjectType: relationshipSubjects.find((subject) => subject.id === toSubjectUuid)?.type,
                             toColumn: '',
+                            // The window belongs to the target it was set on, and the field hides
+                            // itself for a target with no time column. A kept value would reach
+                            // the request where nobody can see or clear it.
+                            toLookbackHours: null,
                         })
-                    }
+                    }}
                 />
             </LemonField>
             <LemonField name="toColumn" label="References column">
@@ -236,6 +482,34 @@ function RelationshipFields(): JSX.Element {
                     options={(selected?.fields ?? []).map((field) => ({ value: field, label: field }))}
                 />
             </LemonField>
+            {relationshipTargetTimeColumn ? (
+                <LemonField
+                    name="toLookbackHours"
+                    label="Only look for a match in recent rows"
+                    showOptional
+                    help={`Hours of ${selected?.name ?? 'the referenced table'} to look in, by ${relationshipTargetTimeColumn}. Leave empty to look in all of it.`}
+                >
+                    <LemonInput type="number" min={1} placeholder="24" />
+                </LemonField>
+            ) : null}
         </>
+    )
+}
+
+function LookbackField(): JSX.Element | null {
+    const { checkForm, subjectTimeColumn } = useValues(dataQualityCheckEditorLogic)
+
+    if (!subjectTimeColumn || checkForm.checkType === CheckTypeEnumApi.CustomSql) {
+        return null
+    }
+    return (
+        <LemonField
+            name="lookbackHours"
+            label="Only check recent rows"
+            showOptional
+            help={`Hours to check, by ${subjectTimeColumn}. Leave empty to check the whole table, which costs more to run.`}
+        >
+            <LemonInput type="number" min={1} placeholder="24" />
+        </LemonField>
     )
 }

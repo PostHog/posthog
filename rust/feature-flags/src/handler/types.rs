@@ -30,6 +30,9 @@ pub struct RequestContext {
     /// Client IP
     pub ip: IpAddr,
 
+    /// Host of the `Origin` header, or of `Referer` without one.
+    pub origin_host: Option<String>,
+
     /// HTTP headers
     pub headers: HeaderMap,
 
@@ -41,6 +44,9 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// When the request arrived, before it waited for a concurrency permit.
+    pub request_entered_at: tokio::time::Instant,
 
     /// Side channel for body logging: when at least one team is opted into
     /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
@@ -97,11 +103,14 @@ pub struct FeatureFlagEvaluationContext {
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
+    pub use_explicit_exact_matching: bool,
     pub membership_stamp_policy: MembershipStampPolicy,
     /// Whether to include detailed condition analysis in flag evaluation results.
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     pub only_use_override_person_properties: bool,
+    /// Persons DB calls in this evaluation fail after this instant. `None` disables the deadline.
+    pub persons_db_deadline: Option<tokio::time::Instant>,
 }
 
 /// SDK type classification based on user-agent parsing.
@@ -116,18 +125,35 @@ pub enum Library {
     PosthogJs,
     /// posthog-node SDK (server-side Node.js)
     PosthogNode,
+    /// posthog-node-mcp integration
+    PosthogNodeMcp,
+    /// posthog-edge SDK
+    PosthogEdge,
+    /// posthog-convex integration
+    PosthogConvex,
     /// posthog-python SDK
     PosthogPython,
+    /// posthog-python-mcp integration
+    PosthogPythonMcp,
+    PosthogRsMcp,
+    PosthogGoMcp,
+    PosthogRubyMcp,
     /// posthog-php SDK
     PosthogPhp,
+    /// Laravel has a separate identity for SDK-specific usage attribution.
+    PosthogLaravel,
     /// posthog-ruby SDK
     PosthogRuby,
+    /// posthog-rails integration
+    PosthogRails,
     /// posthog-go SDK
     PosthogGo,
     /// posthog-java SDK
     PosthogJava,
     /// posthog-dotnet SDK
     PosthogDotnet,
+    /// posthog-aspnetcore integration
+    PosthogAspnetcore,
     /// posthog-elixir SDK
     PosthogElixir,
     /// posthog-rs SDK
@@ -140,6 +166,12 @@ pub enum Library {
     PosthogReactNative,
     /// posthog-flutter SDK
     PosthogFlutter,
+    /// posthog-kmp SDK
+    PosthogKmp,
+    /// posthog-unity SDK
+    PosthogUnity,
+    PosthogGodot,
+    PosthogUnreal,
     /// posthog-server SDK (deprecated: users are migrating to posthog-java)
     PosthogServer,
     /// Unknown or unrecognized SDK
@@ -155,18 +187,32 @@ impl Library {
         match self {
             Library::PosthogJs => "posthog-js",
             Library::PosthogNode => "posthog-node",
+            Library::PosthogNodeMcp => "posthog-node-mcp",
+            Library::PosthogEdge => "posthog-edge",
+            Library::PosthogConvex => "posthog-convex",
             Library::PosthogPython => "posthog-python",
+            Library::PosthogPythonMcp => "posthog-python-mcp",
+            Library::PosthogRsMcp => "posthog-rs-mcp",
+            Library::PosthogGoMcp => "posthog-go-mcp",
+            Library::PosthogRubyMcp => "posthog-ruby-mcp",
             Library::PosthogPhp => "posthog-php",
+            Library::PosthogLaravel => "posthog-laravel",
             Library::PosthogRuby => "posthog-ruby",
+            Library::PosthogRails => "posthog-rails",
             Library::PosthogGo => "posthog-go",
             Library::PosthogJava => "posthog-java",
             Library::PosthogDotnet => "posthog-dotnet",
+            Library::PosthogAspnetcore => "posthog-aspnetcore",
             Library::PosthogElixir => "posthog-elixir",
             Library::PosthogRs => "posthog-rs",
             Library::PosthogAndroid => "posthog-android",
             Library::PosthogIos => "posthog-ios",
             Library::PosthogReactNative => "posthog-react-native",
             Library::PosthogFlutter => "posthog-flutter",
+            Library::PosthogKmp => "posthog-kmp",
+            Library::PosthogUnity => "posthog-unity",
+            Library::PosthogGodot => "posthog-godot",
+            Library::PosthogUnreal => "posthog-unreal",
             Library::PosthogServer => "posthog-server",
             Library::Other => "other",
         }
@@ -178,18 +224,32 @@ impl Library {
     pub const ALL_KNOWN: &'static [Library] = &[
         Library::PosthogJs,
         Library::PosthogNode,
+        Library::PosthogNodeMcp,
+        Library::PosthogEdge,
+        Library::PosthogConvex,
         Library::PosthogPython,
+        Library::PosthogPythonMcp,
+        Library::PosthogRsMcp,
+        Library::PosthogGoMcp,
+        Library::PosthogRubyMcp,
         Library::PosthogPhp,
+        Library::PosthogLaravel,
         Library::PosthogRuby,
+        Library::PosthogRails,
         Library::PosthogGo,
         Library::PosthogJava,
         Library::PosthogDotnet,
+        Library::PosthogAspnetcore,
         Library::PosthogElixir,
         Library::PosthogRs,
         Library::PosthogAndroid,
         Library::PosthogIos,
         Library::PosthogReactNative,
         Library::PosthogFlutter,
+        Library::PosthogKmp,
+        Library::PosthogUnity,
+        Library::PosthogGodot,
+        Library::PosthogUnreal,
         Library::PosthogServer,
     ];
 }
@@ -255,7 +315,7 @@ impl Library {
     /// parsing and serialization.
     pub(crate) fn from_sdk_name(sdk_name: &str) -> Self {
         // posthog-js reports its library as "web" in request body properties.
-        if sdk_name == "web" {
+        if matches!(sdk_name, "web" | "js") {
             return Library::PosthogJs;
         }
 
@@ -284,13 +344,20 @@ mod tests {
     #[rstest]
     // Server-side SDKs
     #[case("posthog-node/3.1.0", Library::PosthogNode)]
+    #[case("posthog-node-mcp/0.7.0", Library::PosthogNodeMcp)]
+    #[case("posthog-edge/3.1.0", Library::PosthogEdge)]
+    #[case("posthog-convex/0.2.0", Library::PosthogConvex)]
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
+    #[case("posthog-python-mcp/0.1.0", Library::PosthogPythonMcp)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
+    #[case("posthog-laravel/0.1.0", Library::PosthogLaravel)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
+    #[case("posthog-rails/3.18.0", Library::PosthogRails)]
     #[case("posthog-go/1.0.0", Library::PosthogGo)]
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
+    #[case("posthog-aspnetcore/1.0.0", Library::PosthogAspnetcore)]
     #[case("posthog-elixir/0.2.0", Library::PosthogElixir)]
     #[case("posthog-rs/0.10.0", Library::PosthogRs)]
     #[case("posthog-server/1.0.0", Library::PosthogServer)]
@@ -301,6 +368,13 @@ mod tests {
     #[case("posthog-ios/3.1.0", Library::PosthogIos)]
     #[case("posthog-react-native/2.0.0", Library::PosthogReactNative)]
     #[case("posthog-flutter/2.0.0", Library::PosthogFlutter)]
+    #[case("posthog-kmp/0.6.0", Library::PosthogKmp)]
+    #[case("posthog-rs-mcp/1.0.0", Library::PosthogRsMcp)]
+    #[case("posthog-go-mcp/1.0.0", Library::PosthogGoMcp)]
+    #[case("posthog-ruby-mcp/1.0.0", Library::PosthogRubyMcp)]
+    #[case("posthog-godot/1.0.0", Library::PosthogGodot)]
+    #[case("posthog-unreal/1.0.0", Library::PosthogUnreal)]
+    #[case("posthog-unity/4.5.0", Library::PosthogUnity)]
     // Browser user-agents (detected as posthog-js)
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", Library::PosthogJs)]
     #[case(
@@ -370,18 +444,32 @@ mod tests {
     #[rstest]
     #[case(Library::PosthogJs, "posthog-js")]
     #[case(Library::PosthogNode, "posthog-node")]
+    #[case(Library::PosthogNodeMcp, "posthog-node-mcp")]
+    #[case(Library::PosthogEdge, "posthog-edge")]
+    #[case(Library::PosthogConvex, "posthog-convex")]
     #[case(Library::PosthogPython, "posthog-python")]
+    #[case(Library::PosthogPythonMcp, "posthog-python-mcp")]
     #[case(Library::PosthogPhp, "posthog-php")]
+    #[case(Library::PosthogLaravel, "posthog-laravel")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
+    #[case(Library::PosthogRails, "posthog-rails")]
     #[case(Library::PosthogGo, "posthog-go")]
     #[case(Library::PosthogJava, "posthog-java")]
     #[case(Library::PosthogDotnet, "posthog-dotnet")]
+    #[case(Library::PosthogAspnetcore, "posthog-aspnetcore")]
     #[case(Library::PosthogElixir, "posthog-elixir")]
     #[case(Library::PosthogRs, "posthog-rs")]
     #[case(Library::PosthogAndroid, "posthog-android")]
     #[case(Library::PosthogIos, "posthog-ios")]
     #[case(Library::PosthogReactNative, "posthog-react-native")]
     #[case(Library::PosthogFlutter, "posthog-flutter")]
+    #[case(Library::PosthogKmp, "posthog-kmp")]
+    #[case(Library::PosthogRsMcp, "posthog-rs-mcp")]
+    #[case(Library::PosthogGoMcp, "posthog-go-mcp")]
+    #[case(Library::PosthogRubyMcp, "posthog-ruby-mcp")]
+    #[case(Library::PosthogGodot, "posthog-godot")]
+    #[case(Library::PosthogUnreal, "posthog-unreal")]
+    #[case(Library::PosthogUnity, "posthog-unity")]
     #[case(Library::PosthogServer, "posthog-server")]
     #[case(Library::Other, "other")]
     fn test_library_display(#[case] library: Library, #[case] expected: &str) {
@@ -391,18 +479,32 @@ mod tests {
     #[rstest]
     #[case(Library::PosthogJs, "\"posthog-js\"")]
     #[case(Library::PosthogNode, "\"posthog-node\"")]
+    #[case(Library::PosthogNodeMcp, "\"posthog-node-mcp\"")]
+    #[case(Library::PosthogEdge, "\"posthog-edge\"")]
+    #[case(Library::PosthogConvex, "\"posthog-convex\"")]
     #[case(Library::PosthogPython, "\"posthog-python\"")]
+    #[case(Library::PosthogPythonMcp, "\"posthog-python-mcp\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
+    #[case(Library::PosthogLaravel, "\"posthog-laravel\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
+    #[case(Library::PosthogRails, "\"posthog-rails\"")]
     #[case(Library::PosthogGo, "\"posthog-go\"")]
     #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]
+    #[case(Library::PosthogAspnetcore, "\"posthog-aspnetcore\"")]
     #[case(Library::PosthogElixir, "\"posthog-elixir\"")]
     #[case(Library::PosthogRs, "\"posthog-rs\"")]
     #[case(Library::PosthogAndroid, "\"posthog-android\"")]
     #[case(Library::PosthogIos, "\"posthog-ios\"")]
     #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]
     #[case(Library::PosthogFlutter, "\"posthog-flutter\"")]
+    #[case(Library::PosthogKmp, "\"posthog-kmp\"")]
+    #[case(Library::PosthogRsMcp, "\"posthog-rs-mcp\"")]
+    #[case(Library::PosthogGoMcp, "\"posthog-go-mcp\"")]
+    #[case(Library::PosthogRubyMcp, "\"posthog-ruby-mcp\"")]
+    #[case(Library::PosthogGodot, "\"posthog-godot\"")]
+    #[case(Library::PosthogUnreal, "\"posthog-unreal\"")]
+    #[case(Library::PosthogUnity, "\"posthog-unity\"")]
     #[case(Library::PosthogServer, "\"posthog-server\"")]
     #[case(Library::Other, "\"other\"")]
     fn test_library_serialization(#[case] library: Library, #[case] expected_json: &str) {
@@ -422,9 +524,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_from_sdk_name_maps_web_to_posthog_js() {
-        assert_eq!(Library::from_sdk_name("web"), Library::PosthogJs);
+    #[rstest]
+    #[case("web")]
+    #[case("js")]
+    fn test_from_sdk_name_maps_browser_aliases_to_posthog_js(#[case] sdk_name: &str) {
+        assert_eq!(Library::from_sdk_name(sdk_name), Library::PosthogJs);
     }
 
     #[test]

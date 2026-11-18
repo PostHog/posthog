@@ -307,6 +307,7 @@ def _ctx(**overrides: Any) -> RunContext:
         "confirmed_days": frozenset({date(2026, 7, 17), date(2026, 7, 18)}),
         "non_confirmed_chunks": 0,
         "shape_hash_drift": False,
+        "trailing_day_planned": False,
     }
     defaults.update(overrides)
     return RunContext(**defaults)
@@ -344,7 +345,7 @@ class TestMissingSegmentation(SimpleTestCase):
             ("grace", [_dm(date(2026, 7, 24), "grace")], "missing_grace", "PASS"),
             # 2026-07-18 is a confirmed seed day -> should have been seeded (gates FAIL).
             ("seed_domain", [_dm(date(2026, 7, 18), "pre_boundary")], "missing_seed_domain", "FAIL"),
-            # 2026-07-20 is the boundary day, pre-boundary -> the decaying gap.
+            # 2026-07-20 is the boundary day, pre-boundary, before its trailing chunk confirms.
             ("boundary_day", [_dm(date(2026, 7, 20), "pre_boundary")], "missing_boundary_day", "PASS"),
             # 2026-07-19 is a pre-boundary window day with no confirmed chunk (gates FAIL).
             ("unseeded_day", [_dm(date(2026, 7, 19), "pre_boundary")], "missing_unseeded_day", "FAIL"),
@@ -364,6 +365,15 @@ class TestMissingSegmentation(SimpleTestCase):
         self.assertEqual(row.missing, 1)
         self.assertEqual(row.verdict, verdict, name)
         self.assertEqual(row.samples[expected_field], ("p",))
+
+    def test_a_boundary_day_seeded_by_its_trailing_chunk_gates_like_any_seed_day(self) -> None:
+        row = _classify(
+            oracle_members={"p"},
+            day_counts={"p": [_dm(date(2026, 7, 20), "pre_boundary")]},
+            ctx=_ctx(confirmed_days=frozenset({date(2026, 7, 17), date(2026, 7, 18), date(2026, 7, 20)})),
+        )
+        self.assertEqual(row.missing_seed_domain, 1)
+        self.assertEqual(row.verdict, "FAIL")
 
     def test_seed_domain_precedence_over_boundary(self) -> None:
         # A person qualifying via both a confirmed seed day and the boundary day is a seed-domain miss:
@@ -463,7 +473,15 @@ class TestExpiryCurve(SimpleTestCase):
         self.assertEqual(row.missing_boundary_day, 1)
         self.assertEqual(row.expires_by_day, {"2026-07-26": 1})  # 2026-07-18 + 7 + 1
 
-    def test_expiry_counts_group_by_date(self) -> None:
+    @parameterized.expand(
+        [
+            ("decays_with_no_trailing_chunk", False, {"2026-07-28": 2}),  # 2026-07-20 + 7 + 1
+            ("fills_after_midnight_with_a_trailing_chunk", True, {}),
+        ]
+    )
+    def test_expiry_counts_group_by_date(
+        self, _name: str, trailing_day_planned: bool, expected: dict[str, int]
+    ) -> None:
         row = _classify(
             spec=_spec(window_days=7),
             oracle_members={"p1", "p2"},
@@ -471,8 +489,10 @@ class TestExpiryCurve(SimpleTestCase):
                 "p1": [_dm(date(2026, 7, 20), "pre_boundary")],
                 "p2": [_dm(date(2026, 7, 20), "pre_boundary")],
             },
+            ctx=_ctx(trailing_day_planned=trailing_day_planned),
         )
-        self.assertEqual(row.expires_by_day, {"2026-07-28": 2})  # 2026-07-20 + 7 + 1
+        self.assertEqual(row.missing_boundary_day, 2)
+        self.assertEqual(row.expires_by_day, expected)
 
 
 class TestOpWhitelistParity(SimpleTestCase):

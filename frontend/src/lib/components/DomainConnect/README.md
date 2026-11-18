@@ -47,7 +47,8 @@ Single module with all Domain Connect logic:
 - **URL building**: `build_sync_apply_url()` — constructs the redirect URL
 - **Signing**: `sign_query_string()` — RSA-SHA256 signs the query string (required by Cloudflare)
 - **Domain parsing**: `extract_root_domain_and_host()` — splits FQDNs handling multi-part TLDs
-- **Context resolvers**: `resolve_email_context()` / `resolve_proxy_context()` — extracts template variables from the relevant PostHog resource
+- **Context resolvers**: `resolve_email_context()` / `resolve_proxy_context()` — extract template variables from the relevant PostHog resource.
+  Both return a `DomainConnectContext`, which also carries the root domain that discovery runs against and the host that scopes the records to a subdomain.
 - **Provider allowlist**: `DOMAIN_CONNECT_PROVIDERS` dict — empty until providers accept our templates
 
 ### API endpoints (`posthog/api/integration.py`)

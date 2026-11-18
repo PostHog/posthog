@@ -1,7 +1,11 @@
+from datetime import timedelta
+
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -59,6 +63,19 @@ class TestSetupPlanEndpoint(APIBaseTest):
         flag = patch(_FLAG_TARGET, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+
+    @time_machine.travel("2026-10-07T12:00:00Z", tick=False)
+    def test_cached_plan_reports_the_actual_seven_day_scan_time(self) -> None:
+        scanned_at = timezone.now() - timedelta(days=6)
+        cache.set(f"marketing_analytics:source_scan:v1:{self.team.pk}:7:scanned_at", scanned_at)
+        cache.set(f"marketing_analytics:source_scan:v1:{self.team.pk}:90:scanned_at", timezone.now())
+        with patch(_PLAN_TARGET, return_value=_plan().model_copy(update={"degraded": []})) as build:
+            first = self.client.get(self.url)
+            second = self.client.get(self.url)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.json()["source_scanned_at"], scanned_at.isoformat())
+        self.assertEqual(first.json()["source_scanned_at"], second.json()["source_scanned_at"])
+        build.assert_called_once()
 
     def test_returns_the_plan(self):
         with patch(_PLAN_TARGET, return_value=_plan()):
@@ -143,41 +160,16 @@ class TestSetupPlanEndpoint(APIBaseTest):
         assert response.status_code in (403, 404)
 
 
-class TestSetupPlanFeatureFlag(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.url = f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan"
-        cache.clear()
+class TestSetupPlanAvailability(APIBaseTest):
+    def test_the_plan_needs_no_feature_flag(self) -> None:
+        with (
+            patch(_FLAG_TARGET, return_value=False),
+            patch(_PLAN_TARGET, return_value=_plan()) as build,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan")
 
-    def test_the_endpoint_is_absent_when_the_flag_is_off(self):
-        with patch(_FLAG_TARGET, return_value=False), patch(_PLAN_TARGET, return_value=_plan()) as build:
-            response = self.client.get(self.url)
-
-        assert response.status_code == 404
-        # 404 rather than 403 so an unreleased endpoint looks absent, not forbidden.
-        assert build.call_count == 0
-
-    def test_the_flag_is_evaluated_once_per_request(self):
-        # A second call in the same request would fire a redundant `$feature_flag_called`.
-        with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
-            self.client.get(self.url)
-
-        assert flag.call_count == 1
-
-    def test_the_flag_is_evaluated_for_the_requesting_person(self):
-        # The flag targets people, and the frontend renders the Setup tab off that same
-        # per-person answer. Evaluating it against the team instead answers for nobody, so
-        # the tab lands on an endpoint that 404s. Two people to also catch an answer
-        # cached somewhere that outlives one request.
-        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
-
-        with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
-            self.client.get(self.url)
-            self.client.force_login(other_user)
-            self.client.get(self.url)
-
-        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
-        assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
+        assert response.status_code == 200
+        build.assert_called_once()
 
 
 def _clean_plan() -> SetupPlan:
@@ -219,6 +211,7 @@ class TestSetupPlanCaching(APIBaseTest):
             self.client.get(f"{self.url}?refresh=true")
 
         assert build.call_count == 2
+        assert build.call_args.kwargs["refresh_source_scan"] is True
 
     def test_a_different_window_is_a_different_question(self):
         with patch(_PLAN_TARGET, return_value=_clean_plan()) as build:

@@ -1,14 +1,19 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
+import { recordingDisabledReason } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Button, TabsContent } from 'lib/ui/quill'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
+import { RecordingEmptyState } from '../RecordingEmptyState'
 import { SubHeader } from '../SubHeader'
 import { sessionTabLogic } from './sessionTabLogic'
 
@@ -21,7 +26,31 @@ export function SessionRecordingTab(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
+    const { recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
+    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
+
+    useEffect(() => {
+        checkRecordingInfo(sessionId)
+    }, [sessionId, checkRecordingInfo])
+
+    // The event's own `$has_recording` is not authoritative: it can be missing, or snapshot false
+    // before the replay rows land. So the existence lookup decides whether there is anything to
+    // play, and until it answers the player stays and shows its own loading state. Only a confirmed
+    // miss gets the explanation, with `$recording_status` choosing the wording.
+    const noRecordingReason =
+        getRecordingExists(sessionId) === false ? recordingDisabledReason(sessionId, recordingStatus, false) : null
+
+    if (noRecordingReason) {
+        // A plain-string reason only says "no recording", which the title already says.
+        return (
+            <RecordingEmptyState
+                title="No recording for this exception"
+                description={typeof noRecordingReason === 'string' ? undefined : noRecordingReason}
+            />
+        )
+    }
 
     const replayUrl = urls.replaySingle(
         sessionId,

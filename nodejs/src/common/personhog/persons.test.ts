@@ -11,7 +11,14 @@ import type {
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 
-import { PersonHogPersonOperations, PersonhogPropertiesSizeError } from './persons'
+import {
+    PersonHogPersonOperations,
+    PersonhogFencedError,
+    PersonhogPersonNotFoundError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+    PersonhogUnprocessablePersonError,
+} from './persons'
 
 const textEncoder = new TextEncoder()
 
@@ -71,12 +78,31 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
+    deleteTombstonedPersons: () => ({
+        deletedCount: 0n,
+        skippedLiveCount: 0n,
+        blockedPersonUuids: [],
+        pendingPersonUuids: [],
+        rowsDeleted: 0n,
+    }),
+    getPersonTombstones: () => ({ tombstones: [] }),
+    ackPersonTombstones: () => ({ clearedCount: 0n }),
+    listPersonTombstoneQueue: () => ({ entries: [] }),
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
+    ensurePersonVersionFloors: () => ({ results: [] }),
+    getDistinctIdRows: () => ({ rows: [] }),
+    listPersonsForTeam: () => ({ persons: [] }),
+    raisePersonVersionFloors: () => ({ results: [] }),
+    restorePersons: () => ({ results: [] }),
+    writeDistinctIds: () => ({ results: [] }),
     fencePerson: () => ({}),
+    fencePersons: () => ({}),
     releaseFence: () => ({}),
+    releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {
@@ -185,6 +211,22 @@ describe('PersonHogPersonOperations', () => {
         })
     })
 
+    describe('fetchPersonById', () => {
+        it('marks a person whose stored row the leader cannot parse as non-retriable', async () => {
+            const { ops } = createOperations({
+                getPerson: () => {
+                    throw new ConnectError('stored person properties cannot be parsed', Code.DataLoss)
+                },
+            })
+
+            const error = await ops.fetchPersonById(7, '42', undefined, { consistency: 'strong' }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogUnprocessablePersonError)
+            expect(error.isRetriable).toBe(false)
+            expect(error.handledVerdict).toBe('unprocessable_person')
+        })
+    })
+
     describe('updatePersonProperties', () => {
         it('maps each op onto its own proto field and decodes the response person', async () => {
             const handler = jest.fn()
@@ -260,7 +302,11 @@ describe('PersonHogPersonOperations', () => {
                     throw new ConnectError('person 42 not found', Code.NotFound)
                 },
             })
-            await expect(notFoundOps.updatePersonProperties(foldedUpdate)).rejects.toBeInstanceOf(NoRowsUpdatedError)
+            const notFoundError = await notFoundOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(notFoundError).toBeInstanceOf(PersonhogPersonNotFoundError)
+            expect(notFoundError).toBeInstanceOf(NoRowsUpdatedError)
+            expect(notFoundError.handledVerdict).toBe('person_not_found')
+            expect(notFoundError.personId).toBe('42')
 
             const { ops: tooBigOps } = createOperations({
                 updatePersonProperties: () => {
@@ -275,6 +321,14 @@ describe('PersonHogPersonOperations', () => {
             expect(sizeError.teamId).toBe(7)
             expect(sizeError.personId).toBe('42')
 
+            const { ops: tooDeepOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError('set_properties exceeds the nesting limit', Code.InvalidArgument)
+                },
+            })
+            const depthError = await tooDeepOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(depthError).toBeInstanceOf(PersonhogPropertiesDepthError)
+
             // Codes without a domain meaning pass through untouched for the
             // caller's generic retry handling.
             const { ops: unavailableOps } = createOperations({
@@ -285,6 +339,39 @@ describe('PersonHogPersonOperations', () => {
             const passthrough = await unavailableOps.updatePersonProperties(foldedUpdate).catch((e) => e)
             expect(passthrough).toBeInstanceOf(ConnectError)
             expect(passthrough.code).toBe(Code.Unavailable)
+        })
+
+        // The leader raises FAILED_PRECONDITION, but the router that
+        // ingestion actually dials substitutes UNAVAILABLE after its
+        // retries while forwarding the fence metadata. Keying on the status
+        // code would read the routed shape as a generic outage.
+        it.each([
+            ['the leader answers directly', Code.FailedPrecondition],
+            ['the router substitutes its own status after exhausting retries', Code.Unavailable],
+        ])('reads a fence refusal as a fence when %s', async (_case, code) => {
+            const { ops } = createOperations({
+                updatePersonProperties: () => {
+                    const metadata = new Headers()
+                    metadata.set('x-person-fenced', 'true')
+                    metadata.set('x-person-fenced-op-id', 'merge:op-77')
+                    throw new ConnectError('person 42 is held by a lifecycle operation', code, metadata)
+                },
+            })
+
+            const error = await ops
+                .updatePersonProperties({
+                    teamId: 7,
+                    personId: '42',
+                    eventName: '$folded_person_update',
+                    setProperties: { a: '1' },
+                    setOnceProperties: {},
+                    unsetProperties: [],
+                })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogFencedError)
+            expect(error.personId).toBe('42')
+            expect(error.fencingOpId).toBe('merge:op-77')
         })
     })
 })

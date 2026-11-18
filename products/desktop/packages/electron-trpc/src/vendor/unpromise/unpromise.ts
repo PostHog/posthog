@@ -330,7 +330,7 @@ export class Unpromise<T> implements ProxyPromise<T> {
  * may be ambiguous and therefore hard to identify as the winner of a race).
  * You can call unsubscribe on the Promise to mitigate memory leaks.
  * */
-export function resolveSelfTuple<TPromise extends Promise<unknown>>(
+function resolveSelfTuple<TPromise extends Promise<unknown>>(
   promise: TPromise,
 ): SubscribedPromise<readonly [TPromise]> {
   return Unpromise.proxy(promise).then(() => [promise] as const);

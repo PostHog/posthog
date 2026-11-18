@@ -4,6 +4,8 @@ use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod client;
+mod pool;
+mod publish;
 mod report;
 mod scenarios;
 mod seed;
@@ -41,5 +43,6 @@ async fn main() -> Result<()> {
         Command::Consistency(args) => scenarios::consistency::run(args).await,
         Command::Gate(args) => scenarios::gate::run(*args).await,
         Command::Traffic(args) => scenarios::traffic::run(*args).await,
+        Command::Stack(args) => scenarios::stack_cmd::run(args).await,
     }
 }

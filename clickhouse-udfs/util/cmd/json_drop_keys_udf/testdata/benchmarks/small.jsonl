@@ -1,0 +1,1 @@
+{"id":1,"identity":"abc","properties":{"secret":"drop","public":"keep"},"events":[{"identity":"nested","value":1}],"amount":934504962295726700000}

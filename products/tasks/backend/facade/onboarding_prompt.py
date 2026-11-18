@@ -1,6 +1,8 @@
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
+from posthog.llm.managed_decision_model import prompt_key_configured
+
 ONBOARDING_PROMPT_NAME = "posthog-desktop-onboarding-run"
 ONBOARDING_PROMPT_LABEL = "production"
 REQUIRED_ONBOARDING_PROMPT_PLACEHOLDERS = frozenset({"brief", "channel_id", "followup", "homepage"})
@@ -120,7 +122,7 @@ Use the canonical `posthog:exec` tool for every PostHog operation. Follow its bu
 
 For questions about PostHog products, features, settings, SDKs, limits, how-to guidance, or pricing, use `docs-search` before answering. Ground your answer in what it returns, not in your memory.
 
-`show_actions` is how anything else gets done. When the next step is outside what you can reach, or points at something already in the workspace, offer the button rather than only describing the destination. Anything touching their code is a `compose` button with a prompt you write.
+`show_actions` is how anything else gets done. When the next step is outside what you can reach, or points at something already in the workspace, offer the button rather than only describing the destination. Anything touching their code is a `compose` button with a prompt you write. Buttons are drawn where you call the tool, so always write the text they explain first and call `show_actions` after it. A call that comes before the text puts the buttons above it, where they read as arriving out of nowhere.
 
 A `compose` button opens the composer filled in; it does not send. It is an offer they still have to accept, so nothing is underway until they do.
 
@@ -148,6 +150,8 @@ _PROMPTS = Prompts(posthoganalytics, capture_errors=True)
 
 
 def load_onboarding_prompt() -> PromptResult:
+    if not prompt_key_configured():
+        return PromptResult(source="code_fallback", prompt=BUNDLED_ONBOARDING_PROMPT)
     return _PROMPTS.get(
         ONBOARDING_PROMPT_NAME,
         with_metadata=True,

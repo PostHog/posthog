@@ -1,34 +1,47 @@
 import datetime
+import dataclasses
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from django.db import OperationalError
 
 import structlog
 
-from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
+from posthog.schema import (
+    CachedErrorTrackingQueryResponse,
+    ErrorTrackingIssueTagFilter,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.facade.query_utils import trend_volume_resolution
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
     RecentIssueState,
+    issue_state_changed_within_window,
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
+from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.reader import group_issue_tags
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +55,8 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     CACHE_VERSION = 4
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, align_volume_buckets_to_midpoint: bool = False, **kwargs) -> None:
+        self.align_volume_buckets_to_midpoint = align_volume_buckets_to_midpoint
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.query.personId = validate_uuid_param(self.query.personId, "personId")
@@ -53,7 +67,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         )
         self.date_to = ErrorTrackingQueryRunner.parse_relative_date_to(self.query.dateRange.date_to)
         self.date_from = ErrorTrackingQueryRunner.parse_relative_date_from(
-            self.query.dateRange.date_from, default_end=self.date_to
+            self.query.dateRange.date_from, self.team.timezone_info, default_end=self.date_to
         )
 
         if self.query.withAggregations is None:
@@ -67,13 +81,43 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
+        # Defaults to reading, so an entry point that never builds a cache key keeps the overlay.
+        self._overlay_read_needed: bool = True
+
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
-        return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
+        return self._make_builder(include_recent_issue_state=False)
+
+    def _make_builder(self, *, include_recent_issue_state: bool) -> ErrorTrackingQueryBuilder:
+        query = self.query
+        if self.align_volume_buckets_to_midpoint:
+            # Trend buckets can exceed the public schema limit, so derive them without revalidating the query.
+            query = query.model_copy(update={"volumeResolution": trend_volume_resolution(query.volumeResolution)})
+        return ErrorTrackingQueryBuilder(
+            query,
+            self.team,
+            self.date_from,
+            self.date_to,
+            include_recent_issue_state=include_recent_issue_state,
+            issue_tag_filter=self._issue_tag_filter,
+        )
+
+    @cached_property
+    def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
+        return enabled_issue_tag_definitions(self.team.pk, self.user)
+
+    @cached_property
+    def _issue_tag_filter(self) -> ErrorTrackingIssueTagFilter | None:
+        tag_filter = self.query.issueTag
+        if tag_filter is None or tag_filter.key not in {definition.key for definition in self._enabled_tag_definitions}:
+            return None
+        return tag_filter
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        if self.align_volume_buckets_to_midpoint:
+            payload["align_volume_buckets_to_midpoint"] = True
         # Use a stable marker when the primary read fails so an existing cached result can still load.
         try:
             watermark = latest_issue_state_watermark(self.team.pk)
@@ -82,12 +126,13 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="watermark").inc()
             payload["error_tracking_issue_state_watermark"] = "unavailable"
         else:
+            self._overlay_read_needed = issue_state_changed_within_window(watermark)
             payload["error_tracking_issue_state_watermark"] = watermark.isoformat() if watermark is not None else None
         return payload
 
     @classmethod
     def parse_relative_date_from(
-        cls, date: str | None, default_end: datetime.datetime | None = None
+        cls, date: str | None, timezone_info: ZoneInfo, default_end: datetime.datetime | None = None
     ) -> datetime.datetime:
         if date == "all":
             return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=365 * 4)
@@ -95,7 +140,9 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             # A missing date_from must not silently mean "all time" — that's a 4-year events
             # scan. Anchor the default window to the range end so date_to-only queries stay valid.
             return (default_end or datetime.datetime.now(tz=ZoneInfo("UTC"))) - datetime.timedelta(days=7)
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        return relative_date_parse(
+            date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=timezone_info, always_truncate=True
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:
@@ -121,23 +168,22 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             ]
         return ctx
 
-    def _calculate(self):
+    def recent_issue_states(self) -> list[RecentIssueState]:
+        if not self._overlay_read_needed:
+            return []
         with self.timings.measure("error_tracking_query_recent_issue_state"):
             # Keep ClickHouse available when the primary read fails.
             try:
-                recent_issue_states = load_recent_issue_states(self.team.pk)
+                return load_recent_issue_states(self.team.pk)
             except OperationalError:
                 logger.warning("error_tracking_recent_issue_states_unavailable", team_id=self.team.pk, exc_info=True)
                 RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="recent_states").inc()
-                recent_issue_states = []
+                return []
+
+    def _calculate(self):
+        recent_issue_states = self.recent_issue_states()
         context = self._hogql_context(recent_issue_states)
-        builder = ErrorTrackingQueryBuilder(
-            self.query,
-            self.team,
-            self.date_from,
-            self.date_to,
-            include_recent_issue_state=bool(recent_issue_states),
-        )
+        builder = self._make_builder(include_recent_issue_state=bool(recent_issue_states))
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=builder.build_query(),
@@ -155,12 +201,36 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=builder.process_results(columns, results),
+            results=self._attach_tags(builder.process_results(columns, results), context.database),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _attach_tags(self, results: list[dict], database: Database | None) -> list[dict]:
+        if not results or not self._enabled_tag_definitions:
+            return results
+        keys = [definition.key for definition in self._enabled_tag_definitions]
+        with self.timings.measure("error_tracking_query_tags"):
+            response = execute_hogql_query(
+                query=applied_issue_tags_query(keys, [result["id"] for result in results]),
+                team=self.team,
+                query_type="ErrorTrackingIssueTagsQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                # The list query built this database already, and building another costs tens of milliseconds.
+                context=HogQLContext(
+                    team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+                ),
+            )
+        rows = ((issue_id, key, None) for _latest_value, issue_id, key in response.results)
+        tags_by_issue = group_issue_tags(rows, self._enabled_tag_definitions)
+        for result in results:
+            result["tags"] = [dataclasses.asdict(tag) for tag in tags_by_issue.get(result["id"], [])]
+        return results
 
     # Aggregation queries return only event uuids for first/last event (reading the
     # properties blob inside argMin/argMax decompresses every matching event's blob);

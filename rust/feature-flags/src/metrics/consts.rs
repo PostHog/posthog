@@ -20,15 +20,21 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
-// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter)
-// skipped during dependency extraction, instead of failing the whole cohort parse.
+// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter) or
+// unsupported group type (e.g. `XOR`) skipped during dependency extraction, instead of
+// failing the whole cohort parse.
 pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_filter_total";
 // Incremented once per cohort whose filters fail dependency extraction or evaluation
 // with CohortFiltersParsingError — most commonly a malformed leaf of a known type
 // (CohortValuesItem::MalformedKnownType), but also excessive nesting depth or other
-// structural errors. Cohort and team ids are in the companion debug log, not metric
+// structural errors. Cohort and team ids are in the companion warn log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
+// Incremented once per evaluation whose requested cohort's membership stays unknown
+// because no sibling decided an unsupported group (e.g. `XOR`), possibly inside a
+// referenced cohort. The evaluation fails with CohortFiltersParsingError. Cohort and
+// team ids are in the companion warn log, not metric labels (cardinality).
+pub const COHORT_UNKNOWN_MEMBERSHIP_COUNTER: &str = "flags_cohort_unknown_membership_total";
 // Counts evaluated cohorts the two MembershipStampPolicy variants route differently.
 // Labels: direction="would_lose" | "would_gain", active_policy = the policy this process
 // runs, which says whether the reroute is still pending or already applied. Cohort and
@@ -88,6 +94,7 @@ pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
 // (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
 pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
 pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER: &str = "flags_batch_eval_person_retries_total";
 pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
@@ -230,8 +237,13 @@ pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_
 // Counters: records the usage-ingestion mirror accepted / gave up on. A gap
 // between them and `flags_billing_entries_flushed_total` is expected while the
 // mirror is rolled out to a subset of teams.
+// `flags_usage_records_failed_total` carries an `error_code` label naming why the
+// records went nowhere: a gRPC code, `rejected` for what the service declined, or
+// `queue_full`. Retries that later succeeded read on `flags_usage_retries_total`
+// instead, so a drop here means the records really were lost.
 pub const FLAGS_USAGE_RECORDS_SENT: &str = "flags_usage_records_sent_total";
 pub const FLAGS_USAGE_RECORDS_FAILED: &str = "flags_usage_records_failed_total";
+pub const FLAGS_USAGE_RETRIES: &str = "flags_usage_retries_total";
 
 // Histogram of per-call `record()` latency in microseconds, with no labels
 // to keep the hot-path emission allocation-free. The expected uncontended
@@ -372,16 +384,32 @@ pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cac
 pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
 
 // Flag definitions ETag metrics
-// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag,
+// redis_missing = Redis answered and held no etag key,
+// redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
-// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
-// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+// Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
+// unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
+// unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
+pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
+    "flags_flag_definitions_not_modified_billing_total";
+
+// Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
+// 0 on the shared one. Every emission carries a `reason` label, so
+// `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
+// not get one from a pod nobody has flipped yet.
+pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
+    "flags_flag_definitions_reads_dedicated_redis";
+
+// Flag definitions self-heal: a request enqueued a rebuild request for a Celery worker to
+// drain. Labels: result (ok = enqueued, error = redis zadd failed), trigger (cache_miss =
+// nothing served the request, s3_hit = Redis lost the entry and S3 answered).
 pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 
 // Flag definitions auth method
-// Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
+// Labels: method (project_secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
 // Counter for /flags requests classified as bot traffic. Fires regardless
@@ -396,8 +424,16 @@ pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_tot
 // Loki.
 pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
+// Requests refused by the team's request blocklist. Labeled only by `reason`
+// (`host` or `ip`). The blocked host and IP are unbounded, so they go to the
+// canonical log line, never to a label.
+pub const FLAG_REQUEST_BLOCKED_COUNTER: &str = "flags_request_blocked_total";
+
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
+// One count per /flags request, labeled `outcome` and `needs_persons`.
+pub const FLAG_REQUEST_OUTCOME_COUNTER: &str = "flags_request_outcome_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
@@ -416,6 +452,26 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Conditions skipped during evaluation because required context was absent.
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
+
+// V2 ingress outcomes use fixed labels and never include configuration values.
+pub const FLAG_V2_PARSE_COUNTER: &str = "flags_v2_config_parse_total";
+
+// Incremented once per flag left out of a team's payload because its JSON does not
+// deserialize: the `filters` column on the PG read, or the whole flag object on the
+// hypercache read. A property filter with no `"type"` key is one such blob, because
+// PropertyFilter requires prop_type, and serde fails the whole outer struct. This
+// counts every dropped flag, which is a superset of the flags the two builders
+// disagree about: Python keeps an active or referenced flag that this drops, but an
+// inactive, unreferenced flag is dropped by both builders. The `operation` label on
+// the companion tombstone counter says which read path dropped it. Team id and flag
+// key are in the companion warn log, not in metric labels (cardinality).
+pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
+// Incremented once per team read that left out at least one flag for the reason
+// above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags
+// dropped per affected read. It does not measure how many teams are affected,
+// because neither counter carries a team label and one team read many times
+// inflates this denominator. Read the warn log for team identity and breadth.
+pub const FLAG_MALFORMED_FILTER_READ_COUNTER: &str = "flags_flag_malformed_filter_reads_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

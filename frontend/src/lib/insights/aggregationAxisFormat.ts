@@ -1,0 +1,184 @@
+import posthog from 'posthog-js'
+
+import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { formatCurrency } from 'lib/utils/currency'
+import { formatDurationMilliseconds } from 'lib/utils/durations'
+import {
+    compactNumber,
+    humanFriendlyCurrency,
+    humanFriendlyNumber,
+    percentage,
+    significantDecimalPlaces,
+} from 'lib/utils/numbers'
+
+import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
+
+const formats = [
+    'numeric',
+    'duration',
+    'duration_ms',
+    'duration_ns',
+    'percentage',
+    'percentage_scaled',
+    'currency',
+    'short',
+] as const
+export type AggregationAxisFormat = (typeof formats)[number]
+
+export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [
+    { value: 'numeric', label: 'None' },
+    { value: 'duration', label: 'Duration (s)' },
+    { value: 'duration_ms', label: 'Duration (ms)' },
+    { value: 'duration_ns', label: 'Duration (ns)' },
+    { value: 'percentage', label: 'Percent (0-100)' },
+    { value: 'percentage_scaled', label: 'Percent (0-1)' },
+    { value: 'currency', label: 'Currency ($)' },
+    { value: 'short', label: 'Short Number' },
+]
+
+// The Metric display type reads as a single headline number, so it defaults to short numbers (e.g. "1.2k");
+// other displays have no default unit. Returns the format to fall back to when none is explicitly set.
+export const defaultAggregationAxisFormatForDisplay = (
+    display: ChartDisplayType | null | undefined
+): AggregationAxisFormat | undefined => (display === ChartDisplayType.Metric ? 'short' : undefined)
+
+export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> = {
+    numeric: '',
+    duration: 's',
+    duration_ms: 'ms',
+    duration_ns: 'ns',
+    percentage: '%',
+    percentage_scaled: '%',
+    currency: '$',
+    short: 'Short',
+}
+
+const formatNanoseconds = (value: number): string => {
+    if (value < 0) {
+        return `-${formatNanoseconds(-value)}`
+    }
+    const absoluteValue = Math.abs(value)
+    if (absoluteValue < 1_000) {
+        return `${humanFriendlyNumber(value)}ns`
+    }
+    if (absoluteValue < 1_000_000) {
+        return `${humanFriendlyNumber(value / 1_000)}µs`
+    }
+    return formatDurationMilliseconds(value / 1_000_000)
+}
+
+// this function needs to support a trendsFilter as part of an insight query and
+// legacy trend filters, as we still return these as part of a data response
+export const formatAggregationAxisValue = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string,
+    currency?: CurrencyCode
+): string => {
+    value = Number(value)
+    const maxDecimalPlaces =
+        (trendsFilter as TrendsFilter)?.decimalPlaces ?? (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+    const minDecimalPlaces =
+        (trendsFilter as TrendsFilter)?.minDecimalPlaces ??
+        (trendsFilter as Partial<TrendsFilterType>)?.min_decimal_places
+    const aggregationAxisFormat =
+        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
+    const aggregationAxisPrefix =
+        (trendsFilter as TrendsFilter)?.aggregationAxisPrefix ??
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_prefix
+    const aggregationAxisPostfix =
+        (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
+    let formattedValue = humanFriendlyNumber(
+        value,
+        maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
+        minDecimalPlaces
+    )
+    if (aggregationAxisFormat) {
+        switch (aggregationAxisFormat) {
+            case 'duration':
+                formattedValue = formatDurationMilliseconds(value * 1000)
+                break
+            case 'duration_ms':
+                formattedValue = formatDurationMilliseconds(value)
+                break
+            case 'duration_ns':
+                formattedValue = formatNanoseconds(value)
+                break
+            case 'percentage':
+                formattedValue = percentage(
+                    value / 100,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces)
+                )
+                break
+            case 'percentage_scaled':
+                formattedValue = percentage(
+                    value,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces)
+                )
+                break
+            case 'currency':
+                // In the rare case where we get an error because we have an invalid currency code
+                // let's make sure we fallback to the human friendly one
+                try {
+                    formattedValue = currency ? formatCurrency(value, currency) : humanFriendlyCurrency(value)
+                } catch (error) {
+                    posthog.captureException(error, { value, currency })
+                    formattedValue = humanFriendlyCurrency(value)
+                }
+                break
+            case 'short':
+                formattedValue = compactNumber(value)
+                break
+            case 'numeric': // numeric is default
+            default:
+                break
+        }
+    }
+    // Currency format already embeds the symbol, so a matching prefix ("$" + "$94.02") would double it.
+    const effectivePrefix =
+        aggregationAxisFormat === 'currency' &&
+        aggregationAxisPrefix &&
+        formattedValue.startsWith(aggregationAxisPrefix)
+            ? ''
+            : aggregationAxisPrefix || ''
+    return `${effectivePrefix}${formattedValue}${aggregationAxisPostfix || ''}`
+}
+
+export const formatPercentStackAxisValue = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string,
+    isPercentStackView: boolean,
+    currency?: CurrencyCode
+): string => {
+    if (isPercentStackView) {
+        value = Number(value)
+        return percentage(value / 100)
+    }
+
+    return formatAggregationAxisValue(trendsFilter, value, currency)
+}
+
+// Formats a value and appends its share of the total, e.g. "1,234 (37.5%)".
+// Skips the share-of-total suffix when the axis is already formatted as a percentage
+// to avoid confusing output like "37% (60%)" (metric value vs share of total).
+export const formatAggregationAxisValueWithShareOfTotal = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string,
+    total: number,
+    currency?: CurrencyCode
+): string => {
+    const formatted = formatAggregationAxisValue(trendsFilter, value, currency)
+    const aggregationAxisFormat =
+        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
+    if (aggregationAxisFormat === 'percentage' || aggregationAxisFormat === 'percentage_scaled') {
+        return formatted
+    }
+    if (!total) {
+        return formatted
+    }
+    const shareOfTotal = parseFloat(((Number(value) / total) * 100).toFixed(1))
+    return `${formatted} (${shareOfTotal}%)`
+}

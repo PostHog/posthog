@@ -11,7 +11,6 @@ from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.limiter import (
     _IDLE_RESERVE,
-    _RESERVE,
     GitHubRateResource,
     _interactive_last_written,
     _interactive_memo,
@@ -29,7 +28,7 @@ from posthog.egress.github.limiter import (
     observed_core_limit_cache_key,
     remember_observed_core_limit,
 )
-from posthog.egress.limiter.policies import Priority, resolve_policy
+from posthog.egress.limiter.policies import DEFAULT_RESERVE, Priority, resolve_policy
 
 
 def _response(*, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
@@ -83,7 +82,7 @@ class TestGitHubTierBudgets(GitHubLimiterTestCase):
 
     @parameterized.expand(
         [
-            ("interactive_demand_holds_the_full_reserve", True, _RESERVE),
+            ("interactive_demand_holds_the_full_reserve", True, DEFAULT_RESERVE),
             ("idle_installation_releases_it_to_batch", False, _IDLE_RESERVE),
         ]
     )

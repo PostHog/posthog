@@ -1,13 +1,7 @@
 import { z } from "zod";
 import { cloudRegion, type oAuthTokenResponse } from "./oauth.schemas";
 
-export const authStatusSchema = z.enum([
-  "anonymous",
-  "restoring",
-  "authenticated",
-]);
-export type AuthStatus = z.infer<typeof authStatusSchema>;
-
+const authStatusSchema = z.enum(["anonymous", "restoring", "authenticated"]);
 export const orgProjectsSchema = z.object({
   orgName: z.string(),
   projects: z.array(z.object({ id: z.number(), name: z.string() })),
@@ -71,12 +65,7 @@ export function pickInitialProjectId(args: {
   return allProjectIds[0] ?? null;
 }
 
-export const desktopAccessReasonSchema = z.enum([
-  "startup_plan",
-  "prepaid_credits",
-]);
-export type DesktopAccessReason = z.infer<typeof desktopAccessReasonSchema>;
-
+const desktopAccessReasonSchema = z.enum(["startup_plan", "prepaid_credits"]);
 export const desktopAccessResponseSchema = z.union([
   z.object({ allowed: z.literal(true), reason: z.null() }),
   z.object({
@@ -132,13 +121,9 @@ export type AuthState = z.infer<typeof authStateSchema>;
 export const loginInput = z.object({
   region: cloudRegion,
 });
-export type LoginInput = z.infer<typeof loginInput>;
-
 export const loginOutput = z.object({
   state: authStateSchema,
 });
-export type LoginOutput = z.infer<typeof loginOutput>;
-
 export const selectProjectInput = z.object({
   projectId: z.number(),
 });
@@ -146,8 +131,6 @@ export const selectProjectInput = z.object({
 export const switchOrgInput = z.object({
   orgId: z.string().min(1),
 });
-export type SwitchOrgInput = z.infer<typeof switchOrgInput>;
-
 export const validAccessTokenOutput = z.object({
   accessToken: z.string(),
   apiHost: z.string(),

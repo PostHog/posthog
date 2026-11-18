@@ -682,6 +682,7 @@ fn build_directive(
     WatchDirective {
         run_id: completion.run_id,
         team_id: completion.team_id,
+        kind: completion.kind,
         epoch: dispatched.epoch,
         start: dispatched.watch.positions.clone(),
         seeded,

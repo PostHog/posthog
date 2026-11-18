@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { InstructionsBuilder } from '@/hono/instructions'
+import { type ExecToolState, InstructionsBuilder } from '@/hono/instructions'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 
@@ -14,7 +14,8 @@ describe('formatExecuteSqlDescription', () => {
         expect(rendered).toContain('confidence')
         expect(rendered).toContain('reasoning')
         expect(rendered).toContain('#### Metric discovery (semantic layer)')
-        expect(rendered).toContain('system.information_schema.metrics')
+        expect(rendered).toContain('metric-list')
+        expect(rendered).toContain('metric-describe')
         expect(rendered).toContain('data-catalog-metric-run')
         expect(rendered).toContain('#### Regular schema discovery')
         // The tool's own intro must stay first; metric discovery sits after the
@@ -26,15 +27,27 @@ describe('formatExecuteSqlDescription', () => {
         expect(metricRoutingPosition).toBeLessThan(rendered.indexOf('#### Regular schema discovery'))
     })
 
+    it('swaps the metric rule for the save offer when a project has no saved metrics', () => {
+        const rendered = builder.formatExecuteSqlDescription({
+            metricCatalog: { hasMetrics: false },
+        } as unknown as ExecToolState)
+
+        expect(rendered).not.toContain('The first call for that shape is `metric-list`')
+        expect(rendered).toContain(
+            'This project has no saved metrics, so skip `metric-list`, even where a skill says to call it first.'
+        )
+        expect(rendered).toContain('#### Regular schema discovery')
+    })
+
     // The description ships to every MCP client on every tools/list; keep the catalog
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
-    // Budget 2500 covers the metric-discovery section (carrying the catalog-vs-query-*
-    // precedence rule, synonym/derived-form and definition-question routing, and the
-    // no-match offer to save a settled measure as a proposed metric) plus the
-    // certification/verified-join trust checklist; keep future additions under this so
-    // bloat still fails the build.
+    // Budget 3250 covers the metric-discovery section (carrying the catalog-vs-query-*
+    // precedence rule, the search-first rule, synonym/derived-form and definition-question routing, the
+    // plain-language one-off caveat the answer owes the reader, the trust badges, and the no-match offer
+    // to save a settled measure as a proposed metric) plus the certification/verified-join
+    // trust checklist and the late-view rule; keep future additions under this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const catalogSections = `${METRIC_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-        expect(catalogSections.length).toBeLessThan(2500)
+        expect(catalogSections.length).toBeLessThan(3250)
     })
 })

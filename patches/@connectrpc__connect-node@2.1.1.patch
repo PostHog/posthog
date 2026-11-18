@@ -1,0 +1,38 @@
+diff --git a/dist/cjs/http2-session-manager.js b/dist/cjs/http2-session-manager.js
+index 1df02ec9a15e173e13eb8a3a1ed0b56db9be4659..b324e7a8590ca8a3bb7a5a15142958ae9774e1f3 100644
+--- a/dist/cjs/http2-session-manager.js
++++ b/dist/cjs/http2-session-manager.js
+@@ -470,6 +470,14 @@ function ready(conn, options) {
+             // destroying the session), but later versions do not.
+             // We call conn.destroy() because calling conn.close() ourselves is ineffective
+             // here - it appears that the method is already being called, see https://github.com/nodejs/node/blob/198affc63973805ce5102d246f6b7822be57f5fc/lib/internal/http2/core.js#L681
++            conn.once("error", () => {
++                // conn.destroy() defers the error until the socket has closed. If the
++                // manager exits the "ready" state before that (for example because a
++                // new request sees the destroyed connection and reconnects), our error
++                // listeners are removed in onExitState(), and the deferred error would
++                // be raised as an uncaught exception, crashing the process.
++                // We attach this one to swallow uncaught exceptions.
++            });
+             conn.destroy(new connect_1.ConnectError("received GOAWAY without any open streams", connect_1.Code.Canceled), http2.constants.NGHTTP2_NO_ERROR);
+             return;
+         }
+diff --git a/dist/esm/http2-session-manager.js b/dist/esm/http2-session-manager.js
+index 4d4517b737039e014d11a077cc540f9d29eab359..ea24c3df8f1ee883b8ee3544f4b8f9f15be1c0da 100644
+--- a/dist/esm/http2-session-manager.js
++++ b/dist/esm/http2-session-manager.js
+@@ -466,6 +466,14 @@ function ready(conn, options) {
+             // destroying the session), but later versions do not.
+             // We call conn.destroy() because calling conn.close() ourselves is ineffective
+             // here - it appears that the method is already being called, see https://github.com/nodejs/node/blob/198affc63973805ce5102d246f6b7822be57f5fc/lib/internal/http2/core.js#L681
++            conn.once("error", () => {
++                // conn.destroy() defers the error until the socket has closed. If the
++                // manager exits the "ready" state before that (for example because a
++                // new request sees the destroyed connection and reconnects), our error
++                // listeners are removed in onExitState(), and the deferred error would
++                // be raised as an uncaught exception, crashing the process.
++                // We attach this one to swallow uncaught exceptions.
++            });
+             conn.destroy(new ConnectError("received GOAWAY without any open streams", Code.Canceled), http2.constants.NGHTTP2_NO_ERROR);
+             return;
+         }

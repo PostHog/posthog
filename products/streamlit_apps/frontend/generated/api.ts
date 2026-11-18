@@ -13,13 +13,16 @@ import type {
     ActivateVersionResponseApi,
     AppContractApi,
     AppVersionContractApi,
+    AppVersionSourceContractApi,
     CreateAppInputApi,
     CreateVersionFromSourceInputApi,
+    EditVersionSourceInputApi,
     PaginatedAppSummaryContractListApi,
     PatchedUpdateAppInputApi,
     StreamlitAppStatusApi,
     StreamlitAppVersionListApi,
     StreamlitAppsListParams,
+    StreamlitAppsSourceRetrieveParams,
     StreamlitConnectInfoApi,
     UpdateAppInputApi,
     UploadVersionRequestApi,
@@ -213,6 +216,28 @@ export const streamlitAppsCreateVersionFromSourceCreate = async (
     })
 }
 
+export const getStreamlitAppsEditSourceCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/streamlit_apps/${shortId}/edit_source/`
+}
+
+/**
+ * Applies exact text edits, file creations, and file deletions to base_version, then stores the result as a new active version. Files that no change touches stay byte-for-byte the same.
+ * @summary Create an app version by editing an existing version
+ */
+export const streamlitAppsEditSourceCreate = async (
+    projectId: string,
+    shortId: string,
+    editVersionSourceInputApi: EditVersionSourceInputApi,
+    options?: RequestInit
+): Promise<AppVersionContractApi> => {
+    return apiMutator<AppVersionContractApi>(getStreamlitAppsEditSourceCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(editVersionSourceInputApi),
+    })
+}
+
 export const getStreamlitAppsRestartCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/streamlit_apps/${shortId}/restart/`
 }
@@ -228,6 +253,42 @@ export const streamlitAppsRestartCreate = async (
     return apiMutator<AppContractApi>(getStreamlitAppsRestartCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getStreamlitAppsSourceRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    params?: StreamlitAppsSourceRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/streamlit_apps/${shortId}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/streamlit_apps/${shortId}/source/`
+}
+
+/**
+ * Returns the file manifest of a version and the text of each text file. Binary files appear in the manifest without content.
+ * @summary Read the source of an app version
+ */
+export const streamlitAppsSourceRetrieve = async (
+    projectId: string,
+    shortId: string,
+    params?: StreamlitAppsSourceRetrieveParams,
+    options?: RequestInit
+): Promise<AppVersionSourceContractApi> => {
+    return apiMutator<AppVersionSourceContractApi>(getStreamlitAppsSourceRetrieveUrl(projectId, shortId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

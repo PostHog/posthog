@@ -9,9 +9,10 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
+import type { BillingAlertConfigurationApi } from 'products/billing/frontend/generated/api.schemas'
+
 import { destinationLabel, metricLabel, stateLabel, stateTagType, thresholdDescription } from './billingAlertDisplay'
 import { billingAlertsLogic } from './billingAlertsLogic'
-import type { BillingAlertConfigurationApi } from './generated/api.schemas'
 
 export function BillingAlertsList(): JSX.Element {
     const { alerts, alertsPage, alertsPageLoading, checkingAlertId, deletingAlertIds } = useValues(billingAlertsLogic)

@@ -1,17 +1,19 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { WorkflowActivityLink } from './WorkflowActivityLink'
+import { WorkflowActivityLink } from './components/WorkflowActivityLink/WorkflowActivityLink'
 
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,
@@ -166,13 +168,14 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         trigger?.job_type === 'hog_flow' && trigger.job_id ? (
             <WorkflowActivityLink id={trigger.job_id} />
         ) : (
-            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+            <ActivityLogUserName logItem={logItem} />
         )
     const ticketNumber = logItem.detail.name?.replace(/^Ticket #/, '')
     const ticketLink = nameOrLinkToTicket(ticketNumber, logItem.detail.name)
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the ticket', ticketLink, undefined, actor),
             description: (
                 <>
                     {actor} created {ticketLink}
@@ -190,6 +193,13 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
             role?: { name?: string }
         } | null
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>Assigned to {formatAssignee(after)}</>,
+                ticketLink,
+                undefined,
+                actor
+            ),
             description: (
                 <>
                     {actor} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
@@ -215,6 +225,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
 
         if (allChanges.length === 1) {
             return {
+                summary: activityLogSummary(logItem, allChanges[0], ticketLink, undefined, actor),
                 description: (
                     <>
                         {actor} {allChanges[0]} on {ticketLink}
@@ -225,6 +236,13 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
 
         if (allChanges.length > 1) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={allChanges} />,
+                    ticketLink,
+                    undefined,
+                    actor
+                ),
                 description: (
                     <>
                         {actor} made changes to {ticketLink}:

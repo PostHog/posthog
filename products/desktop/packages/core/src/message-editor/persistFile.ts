@@ -62,7 +62,7 @@ export async function persistTextContent(
   return { path: result.path, name: result.name };
 }
 
-export async function persistGenericFile(
+async function persistGenericFile(
   host: FilePersistHost,
   file: File,
 ): Promise<PersistedFile> {

@@ -1,6 +1,6 @@
 import { FilterLogicalOperator } from '~/types'
 
-import { LogsSamplingRuleApi, RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsSamplingRuleApi, LogsExclusionRuleRuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import {
     buildSamplingConfigPayload,
@@ -12,7 +12,7 @@ import {
 const rateLimitForm = (overrides: Partial<LogsSamplingFormType> = {}): LogsSamplingFormType => ({
     name: 'cap smokescreen',
     enabled: true,
-    rule_type: RuleTypeEnumApi.RateLimit,
+    rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
     filter_group: { type: FilterLogicalOperator.And, values: [] },
     rate_limit_amount: '1',
     rate_limit_unit: 'MB/s',
@@ -27,7 +27,7 @@ describe('logsSamplingFormLogic serialization', () => {
         } as LogsSamplingFormType['filter_group']
 
         const config = buildSamplingConfigPayload(
-            rateLimitForm({ rule_type: RuleTypeEnumApi.PathDrop, filter_group: innerGroup })
+            rateLimitForm({ rule_type: LogsExclusionRuleRuleTypeEnumApi.PathDrop, filter_group: innerGroup })
         )
 
         // The whole config is the wrapped filter group — the worker evaluates
@@ -70,7 +70,7 @@ describe('logsSamplingFormLogic serialization', () => {
         const rule = {
             name: 'cap smokescreen',
             enabled: true,
-            rule_type: RuleTypeEnumApi.RateLimit,
+            rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
             config: { kb_per_second: 1000, burst_kb: 10000, filter_group: { type: 'AND', values: [] } },
         } as unknown as LogsSamplingRuleApi
 
@@ -83,7 +83,7 @@ describe('logsSamplingFormLogic serialization', () => {
         const legacy = {
             name: 'legacy cap',
             enabled: true,
-            rule_type: RuleTypeEnumApi.RateLimit,
+            rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
             config: { logs_per_second: 50, burst_logs: 500 },
         } as unknown as LogsSamplingRuleApi
 

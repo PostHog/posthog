@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "out/app.js.map.bin.js": "utf8:a();\n//# chunkId=x",
+    "out/app.js.map.bin.js.map": "utf8:{\"version\":3,\"sources\":[\"a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}"
+  }
+}

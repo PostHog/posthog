@@ -22,5 +22,8 @@ class CleanupCheckRunsWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             cleanup_check_runs_activity,
             start_to_close_timeout=dt.timedelta(minutes=30),
+            # The sweep heartbeats per team and per delete batch; without a timeout to compare them
+            # against, those heartbeats are inert and a stuck pass holds the slot for the full 30.
+            heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

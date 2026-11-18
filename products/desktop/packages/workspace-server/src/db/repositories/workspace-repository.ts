@@ -9,7 +9,8 @@ import type { DatabaseService } from "../service";
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 export type { WorkspaceMode } from "@posthog/shared";
-export type CachedPrState = "open" | "merged" | "closed" | "draft";
+
+type CachedPrState = "open" | "merged" | "closed" | "draft";
 
 export interface CreateWorkspaceData {
   taskId: string;

@@ -27,6 +27,7 @@ export interface LemonCheckboxProps {
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     'data-attr'?: string
+    'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     /** Removes input semantics when an ancestor owns the interaction. */
@@ -60,6 +61,7 @@ export function LemonCheckbox({
     color,
     size,
     'data-attr': dataAttr,
+    'aria-label': ariaLabel,
     stopPropagation,
     decorative,
 }: LemonCheckboxProps): JSX.Element {
@@ -122,6 +124,7 @@ export function LemonCheckbox({
                     }}
                     id={id}
                     disabled={disabled}
+                    aria-label={ariaLabel}
                     tabIndex={decorative ? -1 : undefined}
                     aria-hidden={decorative || undefined}
                 />

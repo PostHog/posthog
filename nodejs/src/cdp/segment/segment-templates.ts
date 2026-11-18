@@ -372,12 +372,16 @@ const SECRET_FIELD_NAMES = [
     'refresh_token',
     'token_type',
     'apikey',
+    'api_key',
+    'apitoken',
     'apisecret',
     'clientsecret',
+    'clevertappasscode',
     'password',
     'secretkey',
     'secret',
     'securitytoken',
+    'server_token',
 ]
 
 const translateInputsSchema = (
@@ -431,22 +435,6 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] + '.png' : `${slug}.com.png`
     }`
 }
-
-// hide all destinations for now
-const APPROVED_DESTINATIONS: string[] = [
-    'segment-actions-mixpanel',
-    'segment-actions-amplitude',
-    'segment-actions-launchdarkly',
-    'segment-actions-canny',
-    'segment-actions-fullstory-cloud',
-    'segment-actions-drip',
-    'segment-actions-pipedrive',
-    'segment-inleads-ai',
-    'segment-actions-koala-cloud',
-    'segment-actions-pushwoosh',
-    'segment-actions-schematic',
-    'segment-actions-usermotion',
-]
 
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
@@ -515,7 +503,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
+                status: 'stable',
                 type: 'destination',
                 id,
                 name,

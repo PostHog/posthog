@@ -11,9 +11,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
-    AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
+    AIObservabilityTrace: () => import('../../products/ai_observability/frontend/redesign/trace/TraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
     AIObservabilityUsers: () => import('../../products/ai_observability/frontend/AIObservabilityUsers'),
     AIObservabilityPlayground: () =>
@@ -22,14 +21,23 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
     AIObservabilityDataset: () =>
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
-    AIObservabilityEvaluations: () =>
-        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
+    AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
+    AIObservabilityScorers: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityScorer: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
+    AIObservabilityOfflineExperiments: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
+    AIObservabilityOfflineExperiment: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentScene'),
+    AIObservabilityOfflineScorerHistory: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineScorerHistoryScene'),
     AIObservabilityEvaluation: () =>
         import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
     AIObservabilityEvaluationTemplates: () =>
         import('../../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
     AIObservabilityTags: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
-    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
+    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagScene'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
     AIObservabilityClusters: () =>
@@ -37,15 +45,43 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
-    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
+    PlatformAlerts: () => import('../../products/alerts_platform/frontend/PlatformAlertsScene'),
+    PlatformAlert: () => import('../../products/alerts_platform/frontend/PlatformAlertScene'),
+    PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
+    Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
+    ApplicationObservability: () => import('../../products/apm/frontend/ApplicationObservabilityScene'),
+    ApplicationObservabilityService: () => import('../../products/apm/frontend/servicePage/ServicePageScene'),
+    Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
+    AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
+    BusinessIntelligenceHome: () => import('../../products/business_intelligence/frontend/BIWorksheetsScene'),
+    BusinessIntelligence: () => import('../../products/business_intelligence/frontend/BusinessIntelligenceScene'),
+    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
+    BusinessKnowledgePlayground: () =>
+        import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
+    BusinessKnowledgeUsage: () =>
+        import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
+    BusinessKnowledgeSettings: () =>
+        import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeSource: () =>
+        import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
+    CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
+    Canvases: () => import('../../products/canvas/frontend/list/CanvasesScene'),
+    CanvasDetail: () => import('../../products/canvas/frontend/scene/CanvasScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),
+    SupportOverview: () => import('../../products/conversations/frontend/scenes/overview/SupportOverviewScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     MyTickets: () => import('../../products/conversations/frontend/scenes/myTickets/MyTicketsScene'),
+    CrossProjectDashboards: () =>
+        import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardsScene'),
+    CrossProjectDashboard: () => import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    CustomerAnalyticsAccount: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/CustomerAnalyticsAccountScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
@@ -56,15 +92,22 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
-    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
-    Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
-    NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
+    DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
+    Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
+    NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
+    DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
+    DataWarehouseMigrationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    WarehouseDestinations: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
+    WarehouseDestinationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -73,6 +116,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
     EngineeringAnalyticsPullRequest: () =>
         import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
+    EngineeringAnalyticsCIExplorer: () =>
+        import('../../products/engineering_analytics/frontend/scenes/CIExplorerScene'),
     EngineeringAnalyticsWorkflowRun: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
@@ -84,22 +129,22 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
-    ErrorTrackingIssueFingerprints: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
     Experiments: () => import('../../products/experiments/frontend/scenes/ExperimentsScene'),
+    ExperimentsStaffTools: () => import('../../products/experiments/frontend/scenes/ExperimentsStaffToolsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
+    ShipIt: () => import('../../products/games/frontend/ShipIt/ShipIt'),
+    Group: () => import('../../products/groups/frontend/pages/Group'),
+    Groups: () => import('../../products/groups/frontend/pages/Groups'),
+    GroupsNew: () => import('../../products/groups/frontend/pages/GroupsNew'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
     AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
-    Links: () => import('../../products/links/frontend/LinksScene'),
-    Link: () => import('../../products/links/frontend/LinkScene'),
-    LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     LogsAlertNotificationDetail: () =>
@@ -119,22 +164,33 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    MetricsDashboardReview: () => import('../../products/metrics/frontend/dashboardReview/MetricsDashboardReviewScene'),
+    DecisionPlayground: () => import('../../products/ml_inference/frontend/DecisionPlaygroundScene'),
+    ReusableWidget: () => import('../../products/notebooks/frontend/ReusableWidget/ReusableWidgetScene'),
+    Person: () => import('../../products/persons/frontend/pages/PersonScene'),
+    Persons: () => import('../../products/persons/frontend/pages/PersonsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
+    ReleaseCalendar: () => import('../../products/release/frontend/ReleaseCalendar'),
+    Releases: () => import('../../products/release/frontend/ReleaseList'),
+    ReleaseAll: () => import('../../products/release/frontend/ReleaseAll'),
+    Release: () => import('../../products/release/frontend/Release'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
-    ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
-    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
-    ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
+    InboxActivate: () => import('../../products/signals/frontend/inbox/InboxActivateScene'),
+    ScoutTrials: () => import('../../products/signals/frontend/inbox/ScoutTrialsScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
+    SlackAppWorkspaceSetup: () =>
+        import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
     StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
+    StamphogArea: () => import('../../products/stamphog/frontend/scenes/StamphogAreaScene/StamphogAreaScene'),
     StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
@@ -142,11 +198,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
+    TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
+    TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
+    TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
-    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
-    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
+    TracingRetentionNew: () =>
+        import('../../products/tracing/frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
+    TracingRetentionDetail: () =>
+        import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
+    UptimeMonitoring: () =>
+        import('../../products/uptime_monitoring/frontend/scenes/UptimeMonitoringScene/UptimeMonitoringScene'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
@@ -156,12 +218,22 @@ export const productScenes: Record<string, () => Promise<any>> = {
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
     VisualReviewFlakiness: () => import('../../products/visual_review/frontend/scenes/VisualReviewFlakinessScene'),
+    PipelineOverview: () =>
+        import('../../products/warehouse_sources/frontend/scenes/PipelineOverviewScene/PipelineOverviewScene'),
     Heatmaps: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmaps/HeatmapsScene'),
     Heatmap: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapScene'),
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),
     HeatmapRecording: () =>
         import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene'),
+    WizardRuns: () => import('../../products/wizard/frontend/scenes/WizardRunsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
+    Broadcasts: () => import('../../products/workflows/frontend/Broadcasts/BroadcastsScene'),
+    Broadcast: () => import('../../products/workflows/frontend/Broadcasts/BroadcastScene'),
+    Transactional: () => import('../../products/workflows/frontend/Transactional/TransactionalScene'),
+    TransactionalEmailLogEntry: () =>
+        import('../../products/workflows/frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+    TransactionalCodeEmail: () => import('../../products/workflows/frontend/Transactional/code/CodeEmailScene'),
+    WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
 }

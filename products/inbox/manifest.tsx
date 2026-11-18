@@ -14,10 +14,18 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Inbox',
+            displayLabel: 'Self-driving inbox',
             intents: [],
             category: ProductItemCategory.TOOLS,
             iconType: 'inbox' as FileSystemIconType,
             href: urls.inbox(),
+            searchKeywords: ['signals', 'triage', 'findings'],
+            searchTabs: [
+                { name: 'Reports', href: urls.inbox('reports') },
+                { name: 'Scouts', href: urls.inbox('scouts') },
+                { name: 'Sources', href: urls.inbox('sources') },
+                { name: 'Settings', href: urls.inbox('settings') },
+            ],
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             sceneKey: 'Inbox',
             sceneKeys: ['Inbox'],

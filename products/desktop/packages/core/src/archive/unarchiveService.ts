@@ -3,11 +3,8 @@ import {
   ARCHIVE_CLIENT,
   type ArchiveClient,
   type ArchivedTaskContextMenuAction,
-  UNARCHIVE_SERVICE,
 } from "./identifiers";
 import { parseUnarchiveError } from "./parseUnarchiveError";
-
-export { UNARCHIVE_SERVICE };
 
 export type UnarchiveResult =
   | { ok: true }

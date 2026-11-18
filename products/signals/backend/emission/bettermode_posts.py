@@ -1,0 +1,42 @@
+"""Signal emitter for bettermode `posts` (record kind: feedback).
+
+`created_at` is an ISO string; `text_content` is the plain-text post body.
+Only published top-level posts are read, so replies do not flood the inbox.
+"""
+
+from products.signals.backend.emission._common import make_flat_emitter
+from products.signals.backend.emission._prompts import FEEDBACK_ACTIONABILITY_PROMPT, FEEDBACK_SUMMARIZATION_PROMPT
+from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.registry import SignalSourceTableConfig
+
+BETTERMODE_FIELDS = (
+    "id",
+    "title",
+    "text_content",
+    "status",
+    "url",
+    "created_at",
+)
+
+BETTERMODE_CONFIG = SignalSourceTableConfig(
+    source_product="bettermode",
+    source_type="feedback",
+    emitter=make_flat_emitter(
+        source_product="bettermode",
+        source_type="feedback",
+        id_field="id",
+        title_field="title",
+        body_field="text_content",
+        extra_fields=("status", "url", "created_at"),
+    ),
+    record_fetcher=data_warehouse_record_fetcher,
+    partition_field="created_at",
+    partition_field_is_datetime_string=True,
+    fields=BETTERMODE_FIELDS,
+    where_clause="(replied_to_id IS NULL OR replied_to_id = '') AND status = 'PUBLISHED'",
+    max_records=200,
+    first_sync_lookback_days=1,
+    actionability_prompt=FEEDBACK_ACTIONABILITY_PROMPT,
+    summarization_prompt=FEEDBACK_SUMMARIZATION_PROMPT,
+    description_summarization_threshold_chars=2000,
+)

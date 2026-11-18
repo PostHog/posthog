@@ -98,20 +98,73 @@ describe('toolResolver', () => {
             })
         })
 
-        it('resolves exec invocations when the canonical tool name only arrives in metadata', () => {
+        it.each([
+            { claudeCode: { toolName: 'mcp__posthog__exec' } },
+            { posthog: { toolName: 'mcp__posthog__exec' } },
+            { posthog: { mcp: { server: 'posthog', tool: 'exec' } } },
+        ])('resolves exec invocations from adapter metadata %j', (meta) => {
             expect(
                 resolveToolCall({
                     rawServerName: 'posthog',
                     rawToolName: '',
                     input: { command: 'call query-trends {"kind":"TrendsQuery","series":[]}' },
-                    meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    meta,
                 })
             ).toEqual({
                 resolvedKey: 'query-trends',
                 innerToolName: 'query-trends',
                 innerInput: { kind: 'TrendsQuery', series: [] },
-                claudeToolName: 'mcp__posthog__exec',
+                claudeToolName: meta.claudeCode?.toolName,
             })
+        })
+
+        it.each([
+            {
+                caseName: 'a Pi proxy search as a tool search with the query as its input',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'search', query: 'issue' } } },
+                expected: { resolvedKey: 'ToolSearch', innerInput: { query: 'issue' } },
+            },
+            {
+                caseName: 'a Pi proxy call by the tool it names until the server reports the MCP server',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'tool', name: 'linear_create_issue' } } },
+                expected: { resolvedKey: 'mcp', proxiedToolName: 'linear_create_issue' },
+            },
+            {
+                caseName: 'a Pi proxy call by its MCP descriptor once the server reports it',
+                meta: {
+                    posthog: {
+                        toolName: 'mcp__linear__create_issue',
+                        mcp: { server: 'linear', tool: 'create_issue' },
+                        mcpProxy: { kind: 'tool', name: 'linear_create_issue' },
+                    },
+                },
+                expected: { resolvedKey: 'mcp__linear__create_issue' },
+            },
+        ])('resolves $caseName', ({ meta, expected }) => {
+            expect(
+                resolveToolCall({ rawServerName: 'posthog', rawToolName: '', input: { search: 'issue' }, meta })
+            ).toEqual({ ...expected, claudeToolName: undefined })
+        })
+
+        it.each([
+            [{ posthog: { mcp: { server: 'other', tool: 'exec' } } }, 'exec', 'mcp__other__exec'],
+            [{ posthog: { toolName: 'mcp__other__exec' } }, 'exec', 'mcp__other__exec'],
+            [
+                { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'other', tool: 'exec' } } },
+                'exec',
+                'mcp__other__exec',
+            ],
+            [{ claudeCode: { toolName: 'mcp__gitlab__clone_repo' } }, '', 'mcp__gitlab__clone_repo'],
+            [{ posthog: { mcp: { server: 'gitlab', tool: 'list_repos' } } }, '', 'mcp__gitlab__list_repos'],
+        ])('preserves external MCP identity from metadata %j', (meta, rawToolName, resolvedKey) => {
+            expect(
+                resolveToolCall({
+                    rawServerName: 'posthog',
+                    rawToolName,
+                    input: { command: 'call query-trends {}' },
+                    meta,
+                })
+            ).toMatchObject({ resolvedKey })
         })
 
         it('resolves a raw built-in invocation from metadata at render time', () => {

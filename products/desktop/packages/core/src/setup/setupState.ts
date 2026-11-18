@@ -1,6 +1,6 @@
 import type { DiscoveredTask } from "@posthog/core/setup/types";
 
-export type DiscoveryStatus = "idle" | "running" | "done" | "error";
+type DiscoveryStatus = "idle" | "running" | "done" | "error";
 export type EnricherStatus = "idle" | "running" | "done" | "error";
 
 export interface ActivityEntry {
@@ -49,7 +49,7 @@ export const DEFAULT_DISCOVERY: RepoDiscoveryState = {
   error: null,
 };
 
-export const DEFAULT_ENRICHER: RepoEnricherState = { status: "idle" };
+const DEFAULT_ENRICHER: RepoEnricherState = { status: "idle" };
 
 export const INITIAL_SETUP_STATE: SetupStoreState = {
   discoveredTasks: [],

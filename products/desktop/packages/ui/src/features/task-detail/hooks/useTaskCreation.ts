@@ -1,4 +1,4 @@
-import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
+import { buildTaskSpaceContextProps } from "@posthog/core/canvas/canvasAnalytics";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -9,36 +9,37 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
-import { useService } from "@posthog/di/react";
+import type { WarmTaskDraft } from "@posthog/core/task-detail/warmTaskService";
+import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
+import { useService, useServiceOptional } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
-  type CodexModelAccess,
-  PROJECT_BLUEBIRD_FLAG,
+  type ModelAccess,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
-import {
-  getCurrentBrowserTabId,
-  navigateBrowserTab,
-} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
+import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
-  effectiveCodexModelAccess,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
-import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
+import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
-import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
@@ -53,7 +54,6 @@ import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
 import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
-  contentToPlainText,
   contentToXml,
   type EditorContent,
   extractFilePaths,
@@ -63,6 +63,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -77,6 +81,7 @@ import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore"
 const log = logger.scope("task-creation");
 
 interface UseTaskCreationOptions {
+  warmDraft?: WarmTaskDraft | null;
   editorRef: React.RefObject<EditorHandle | null>;
   /** Draft-store session id for the editor; cleared on successful creation. */
   sessionId: string;
@@ -85,6 +90,8 @@ interface UseTaskCreationOptions {
   repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
+  /** GitLab integration when `selectedRepository` is a GitLab project path. */
+  repositoryIntegrationId?: number;
   workspaceMode: WorkspaceMode;
   branch?: string | null;
   editorIsEmpty: boolean;
@@ -128,19 +135,22 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
-  /** The task is on its way; the composer fades out before the chat replaces it. */
-  isExitingComposer: boolean;
   canSubmit: boolean;
-  handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
+  handleSubmit: (
+    contentOverride?: EditorContent,
+    promptContent?: EditorContent,
+  ) => Promise<boolean>;
   additionalDirectories: string[];
   setAdditionalDirectories: (next: string[]) => void;
 }
 
 async function trackTaskCreated(
   input: TaskCreationInput,
+  taskId: string,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
-  codexModelAccess?: CodexModelAccess,
+  codexModelAccess?: ModelAccess,
+  claudeModelAccess?: ModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -162,9 +172,14 @@ async function trackTaskCreated(
     }
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
+      task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
-      repository_provider: input.repository ? "github" : "none",
+      repository_provider: input.repository
+        ? input.repositoryIntegrationId !== undefined
+          ? "gitlab"
+          : "github"
+        : "none",
       workspace_mode: workspaceMode,
       has_branch: !!input.branch,
       has_environment_setup:
@@ -182,6 +197,13 @@ async function trackTaskCreated(
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
+      claude_model_access: claudeModelAccess,
+      ...buildTaskSpaceContextProps({
+        channelId: input.channelId,
+        channelContextId: input.channelContextId,
+        channelContext: input.channelContext,
+        channelContextPath: input.channelContextPath,
+      }),
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -189,6 +211,7 @@ async function trackTaskCreated(
 }
 
 export function useTaskCreation({
+  warmDraft,
   editorRef,
   sessionId,
   selectedDirectory,
@@ -196,6 +219,7 @@ export function useTaskCreation({
   repositories,
   githubIntegrationId,
   githubUserIntegrationId,
+  repositoryIntegrationId,
   workspaceMode,
   branch,
   editorIsEmpty,
@@ -221,9 +245,10 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [isExitingComposer, setIsExitingComposer] = useState(false);
+  const submissionInFlight = useRef(false);
   const hostClient = useHostTRPCClient();
-  const codexSubscription = useCodexSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -251,14 +276,11 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me channel so they
-  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
-  // cannot collide across teammates; before the list loads the task is created unfiled.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
+  const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
+    CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
-  const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
+  const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo
     ? true
@@ -274,27 +296,84 @@ export function useTaskCreation({
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
-    async (contentOverride?: EditorContent): Promise<boolean> => {
+    async (
+      contentOverride?: EditorContent,
+      /**
+       * The composer content the person typed, when a wrapper transformed it
+       * for the task request. The prompt record and history restore this, so
+       * generated request text never reaches the composer on recovery.
+       */
+      promptContent?: EditorContent,
+    ): Promise<boolean> => {
       const editor = editorRef.current;
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
-      if (!allowSubmit) return false;
+      if (!allowSubmit || submissionInFlight.current) return false;
 
       // Capture everything owned by the mounted composer before the first
       // await. Switching tabs unmounts it, but task creation must continue with
       // the exact prompt and tab that the user submitted.
       const originTabId = getCurrentBrowserTabId();
       const content = contentOverride ?? editor.getContent();
-      const plainPromptText = contentToPlainText(content).trim();
+      const promptRecord = pendingPromptRecordFromContent(
+        promptContent ?? content,
+      );
+      const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
+      // History is where the person recovers a prompt when creation fails, so
+      // it must be written before any preflight call that can fail. The write
+      // persists to local storage, which throws when the quota is full, and
+      // history is only a recovery aid, so it must not block the task.
+      if (plainPromptText) {
+        try {
+          useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        } catch (error) {
+          log.warn("Failed to save the prompt to history", { error });
+        }
+      }
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
+      const warmSubmission = warmDraft?.beginSubmission();
+      if (warmDraft && !warmSubmission) return false;
+      let submissionSucceeded = false;
+      let submittedTaskId: string | undefined;
+
+      submissionInFlight.current = true;
       setIsCreatingTask(true);
 
       try {
-        // Block over-limit cloud creation before the pending view so it doesn't flash.
+        if (
+          workspaceMode === "cloud" &&
+          runtime !== "pi" &&
+          adapter === "claude" &&
+          claudeSubscription.cloudSubscriptionOn
+        ) {
+          if (!claudeSubscription.cloudFlagEnabled) {
+            toast.error("Claude plan billing is unavailable for cloud tasks", {
+              description:
+                "Try again later, or select PostHog in the Billing menu.",
+            });
+            return false;
+          }
+          try {
+            if (!claudeTokenStore || !(await claudeTokenStore.has())) {
+              toast.error("Add your Claude token before starting this task", {
+                description:
+                  "Open Settings > Harness and save a token for cloud tasks.",
+              });
+              return false;
+            }
+          } catch {
+            toast.error("Cannot check your Claude token", {
+              description: "Open Settings > Harness and try again.",
+            });
+            return false;
+          }
+        }
+
         if (workspaceMode === "cloud" && !(await assertCloudUsageAvailable())) {
           return false;
         }
@@ -310,9 +389,8 @@ export function useTaskCreation({
         }
 
         // Confirm a couple of worktree branch situations before starting the
-        // task. Done before the pending view so a dialog (and a cancel) don't
-        // leave a half-started task on screen. Reusing an existing worktree takes
-        // priority over checking out a remote branch.
+        // task. Reusing an existing worktree takes priority over checking out a
+        // remote branch.
         let allowRemoteBranchCheckout = false;
         let reuseExistingWorktree = false;
         if (workspaceMode === "worktree" && branch && selectedDirectory) {
@@ -357,53 +435,42 @@ export function useTaskCreation({
           }
         }
 
-        const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
-        const pendingTaskKey = shouldShowPendingView
+        const shouldPersistPromptRecord = !onTaskCreated && !!plainPromptText;
+        const pendingTaskKey = shouldPersistPromptRecord
           ? generatePendingTaskKey()
           : null;
 
         if (pendingTaskKey) {
           pendingTaskPromptStoreApi.set(pendingTaskKey, {
-            promptText: plainPromptText,
-            attachments: (content.attachments ?? []).map((a) => ({
-              id: a.id,
-              label: a.label,
-            })),
+            promptText: promptRecord.promptText,
+            attachments: promptRecord.attachments,
             // The serialized content restores file chips and attachments on
             // recovery, so an interrupted prompt comes back whole, not as bare
             // text.
-            contentXml: serializedContent,
+            contentXml: promptRecord.contentXml,
             // Reopen recovery in the space the prompt was submitted in.
             channelId: channelId ?? undefined,
           });
-          // Fade the composer out before the chat fades in, so the phases
-          // hand over instead of cutting.
-          setIsExitingComposer(true);
-          await waitForComposerExit();
-          navigateBrowserTab(
-            originTabId,
-            {
-              href: `/tasks/pending/${pendingTaskKey}`,
-              title: "New task",
-            },
-            () => navigateToTaskPending(pendingTaskKey),
-          );
         }
 
         let createdTaskId: string | undefined;
 
-        try {
-          if (!contentOverride) {
-            if (plainPromptText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
-            }
-          }
+        const settlePromptRecord = () => {
+          settleFailedPromptRecord({
+            recordKey: pendingTaskKey,
+            createdTaskId,
+            originTabId,
+          });
+        };
 
+        try {
           const settings = useSettingsStore.getState();
+          // Tasks created without a channel default into the user's private #me
+          // channel so they surface in the Channels space instead of staying
+          // unfiled. #me is per-user, so this cannot collide across teammates;
+          // before the list loads the task is created unfiled.
           const defaultedChannelId =
-            bluebirdEnabled && !channelId && !channelName
-              ? personalChannel?.id
-              : undefined;
+            !channelId && !channelName ? personalChannel?.id : undefined;
 
           const localMcpServersForRun = partitionLocalMcpServersForRun(
             localMcpServers,
@@ -411,12 +478,11 @@ export function useTaskCreation({
           );
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
-              ? effectiveCodexModelAccess({
-                  flagEnabled: codexSubscription.flagEnabled,
-                  subscriptionOn: codexSubscription.subscriptionOn,
-                  loggedIn: codexSubscription.loggedIn,
-                  workspaceMode,
-                })
+              ? subscriptionModelAccess(codexSubscription, workspaceMode)
+              : undefined;
+          const claudeModelAccess =
+            runtime !== "pi" && adapter === "claude"
+              ? subscriptionModelAccess(claudeSubscription, workspaceMode)
               : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
@@ -426,6 +492,7 @@ export function useTaskCreation({
             repositories,
             githubIntegrationId,
             githubUserIntegrationId,
+            repositoryIntegrationId,
             workspaceMode,
             branch,
             allowRemoteBranchCheckout,
@@ -433,6 +500,11 @@ export function useTaskCreation({
             executionMode,
             adapter,
             codexModelAccess,
+            claudeModelAccess,
+            claudeCloudModelAccess:
+              workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            codexCloudModelAccess:
+              workspaceMode === "cloud" ? codexModelAccess : undefined,
             runtime,
             model,
             reasoningLevel,
@@ -448,7 +520,19 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
-            customInstructions: getEffectiveCustomInstructions(settings),
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
+            customInstructions:
+              workspaceMode === "cloud" &&
+              !cloudTaskCarriesLocalInstructions({
+                projectId: currentProjectId,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
+              })
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
+                : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
             allowNoRepo,
@@ -524,7 +608,10 @@ export function useTaskCreation({
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
             },
-            { skipCloudUsagePreflight: true },
+            {
+              skipCloudUsagePreflight: true,
+              warmSubmission: warmSubmission ?? undefined,
+            },
           );
 
           if (result.success && result.data.provisioningError) {
@@ -547,7 +634,9 @@ export function useTaskCreation({
                 pendingTaskPromptStoreApi.clear(pendingTaskKey);
               }
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                // Cloud creation succeeds before the transcript arrives.
+                // SessionView clears the prompt when initialization ends.
+                pendingTaskPromptStoreApi.markSubmitted(createdTaskId);
               }
             }
             setAdditionalDirectoriesOverride(null);
@@ -567,9 +656,11 @@ export function useTaskCreation({
             }
             void trackTaskCreated(
               input,
+              result.data.task.id,
               selectedDirectory,
               hostClient,
               input.codexModelAccess,
+              input.claudeModelAccess,
             );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
@@ -599,35 +690,10 @@ export function useTaskCreation({
                 error: result.error,
               });
             }
-            if (pendingTaskKey) {
-              // Never drop the prompt on failure. Keep the record and flag it
-              // interrupted so the pending view offers to recover or discard it,
-              // instead of navigating back to a composer that may not have it.
-              const interruptedKey = createdTaskId ?? pendingTaskKey;
-              // Read connectivity live, not the value captured at submit: the
-              // submit guard forced isOnline true then, so a connection dropped
-              // during setup only shows in the store now.
-              pendingTaskPromptStoreApi.markInterrupted(
-                interruptedKey,
-                getIsOnline() ? "failed" : "offline",
-              );
-              // If onTaskReady already navigated the origin tab to
-              // /tasks/$taskId (the worktree path notifies ready before later
-              // steps), a rolled-back task leaves it on a dead detail view.
-              // Return it to the pending route for the moved record so the
-              // Recover/Discard actions actually show.
-              if (createdTaskId) {
-                navigateBrowserTab(
-                  originTabId,
-                  {
-                    href: `/tasks/pending/${interruptedKey}`,
-                    title: "New task",
-                  },
-                  () => navigateToTaskPending(interruptedKey),
-                );
-              }
-            }
+            settlePromptRecord();
           }
+          submissionSucceeded = result.success;
+          if (result.success) submittedTaskId = result.data.task.id;
           return result.success;
         } catch (error) {
           track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
@@ -635,36 +701,20 @@ export function useTaskCreation({
           });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
-          if (pendingTaskKey) {
-            // Keep the prompt recoverable from the pending view.
-            const interruptedKey = createdTaskId ?? pendingTaskKey;
-            // Live connectivity, not the submit-time value, so a drop during
-            // setup is classified as offline (see the failed-result branch).
-            pendingTaskPromptStoreApi.markInterrupted(
-              interruptedKey,
-              getIsOnline() ? "failed" : "offline",
-            );
-            // A throw after onTaskReady leaves the origin tab on the
-            // rolled-back task's detail view; return it to the pending route so
-            // recovery stays reachable.
-            if (createdTaskId) {
-              navigateBrowserTab(
-                originTabId,
-                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
-                () => navigateToTaskPending(interruptedKey),
-              );
-            }
-          }
+          settlePromptRecord();
           return false;
         }
       } finally {
+        warmSubmission?.finish(submissionSucceeded, submittedTaskId);
+        submissionInFlight.current = false;
         setIsCreatingTask(false);
-        setIsExitingComposer(false);
       }
     },
     [
+      warmDraft,
       canSubmit,
       canSubmitBase,
+      currentProjectId,
       editorRef,
       sessionId,
       selectedDirectory,
@@ -672,6 +722,7 @@ export function useTaskCreation({
       repositories,
       githubIntegrationId,
       githubUserIntegrationId,
+      repositoryIntegrationId,
       workspaceMode,
       branch,
       executionMode,
@@ -692,7 +743,6 @@ export function useTaskCreation({
       channelId,
       channelContextId,
       allowNoRepo,
-      bluebirdEnabled,
       personalChannel?.id,
       localMcpServers,
       localMcpServersLoading,
@@ -706,14 +756,19 @@ export function useTaskCreation({
       taskService,
       tasks,
       codexSubscription.flagEnabled,
-      codexSubscription.loggedIn,
+      codexSubscription.loginState,
       codexSubscription.subscriptionOn,
+      claudeSubscription.flagEnabled,
+      claudeSubscription.loginState,
+      claudeSubscription.subscriptionOn,
+      claudeSubscription,
+      codexSubscription,
+      claudeTokenStore,
     ],
   );
 
   return {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

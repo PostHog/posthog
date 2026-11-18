@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 from django.test import override_settings
@@ -108,7 +108,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
                 self._create_exposure(feature_flag, distinct_id, variant, "2020-01-10T12:00:00Z")
                 self._create_purchase(feature_flag, distinct_id, "2020-01-10T13:00:00Z", post_amount)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_disabled_cuped_does_not_collect_covariate_columns(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -139,7 +139,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertIsNone(result.baseline.covariate_sum)
         self.assertIsNone(result.variant_results[0].covariate_sum)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_mean_metric_collects_covariate_columns(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -180,7 +180,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.covariate_sum_squares, 61)
         self.assertEqual(test_variant.covariate_sum_product, 390)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_uses_pre_exposure_window_relative_to_first_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -221,7 +221,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.covariate_sum, 6)
         self.assertEqual(test_variant.covariate_sum_product, 48)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_respects_conversion_window_for_post_values(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -267,7 +267,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_works_with_precomputed_exposures(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
@@ -308,7 +308,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(result.baseline.covariate_sum, 3)
         self.assertEqual(result.variant_results[0].covariate_sum, 5)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_query_uses_single_metric_events_scan(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -331,7 +331,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertNotIn("pre_metric_events", result.hogql)
         self.assertEqual(result.hogql.count("metric_events AS"), 1)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_adjusts_statistical_result(self):
         metric = self._build_sum_metric()
 
@@ -379,7 +379,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         cuped_interval_width = cuped_variant.confidence_interval[1] - cuped_variant.confidence_interval[0]
         self.assertLess(cuped_interval_width, no_cuped_interval_width)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_adjusts_bayesian_statistical_result(self):
         metric = self._build_sum_metric()
 
@@ -427,7 +427,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         cuped_interval_width = cuped_variant.credible_interval[1] - cuped_variant.credible_interval[0]
         self.assertLess(cuped_interval_width, no_cuped_interval_width)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_handles_zero_pre_exposure_data(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -454,7 +454,7 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(variant.covariate_sum_product, 0)
         assert variant.p_value is not None
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_unique_session_metric_collects_distinct_covariates(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(

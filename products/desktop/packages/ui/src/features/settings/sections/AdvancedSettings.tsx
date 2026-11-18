@@ -1,6 +1,9 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { ONBOARDING_TEST_TOOLS_FLAG } from "@posthog/shared";
+import {
+  BACKGROUND_AGENT_LOGS_FLAG,
+  ONBOARDING_TEST_TOOLS_FLAG,
+} from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
@@ -20,10 +23,11 @@ import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
+import { SettingsBackup } from "./SettingsBackup";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
-    useFeatureFlag("posthog-code-background-agent-logs") || import.meta.env.DEV;
+    useFeatureFlag(BACKGROUND_AGENT_LOGS_FLAG) || import.meta.env.DEV;
   const debugLogsCloudRuns = useSettingsStore((s) => s.debugLogsCloudRuns);
   const setDebugLogsCloudRuns = useSettingsStore(
     (s) => s.setDebugLogsCloudRuns,
@@ -43,6 +47,7 @@ export function AdvancedSettings() {
 
   return (
     <div className="flex flex-col gap-7">
+      <SettingsBackup />
       <SettingsCard>
         <SettingsCardRow
           label="Always create pull requests for cloud runs"

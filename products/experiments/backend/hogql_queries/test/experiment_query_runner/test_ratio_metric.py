@@ -1,6 +1,6 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -23,9 +23,11 @@ from posthog.schema import (
 
 from posthog.test.test_journeys import journeys_for
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.llm_metric_templates import build_eval_pass_rate_metric
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -38,7 +40,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_basic_ratio_metric(self, name, use_precomputation):
         """Test basic ratio metric functionality with revenue per purchase event"""
@@ -153,6 +155,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.baseline is not None
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
@@ -185,7 +190,73 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_eval_pass_rate_grades_with_current_evaluation_rules(self, name: str, use_precomputation: bool) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        metric = build_eval_pass_rate_metric("my-prompt")
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+        detector = Evaluation.objects.create(
+            team=self.team,
+            name="detector",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={"true_is_failure": True},
+        )
+
+        # A detector run passes when it detects nothing, so control passes 3 of 4 runs and test passes 1 of 4.
+        for variant, results in (("control", [False, False, False, True]), ("test", [False, True, True, True])):
+            for i, result in enumerate(results):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={"$feature_flag_response": variant, "$feature_flag": feature_flag.key},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$ai_evaluation",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        "$ai_prompt_name": "my-prompt",
+                        "$ai_evaluation_id": str(detector.id),
+                        "$ai_evaluation_result": result,
+                    },
+                )
+        flush_persons_and_events()
+
+        def passed_and_graded() -> list[tuple[float, float | None]]:
+            query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+            runner = ExperimentQueryRunner(query=query, team=self.team)
+            result = cast(ExperimentQueryResponse, runner.calculate())
+            assert runner._metric_events_precomputed is use_precomputation
+            assert result.baseline is not None and result.variant_results is not None
+            assert result.hogql is None and result.clickhouse_sql is None
+            return [(variant.sum, variant.denominator_sum) for variant in [result.baseline, *result.variant_results]]
+
+        self.assertEqual(passed_and_graded(), [(3, 4), (1, 4)])
+
+        # The experiment stores no rules, so the next query grades with the edited ones. On the precomputed path this
+        # also proves that the edit changed the job hash, because reused jobs would still hold the old pass counts.
+        detector.output_config = {}
+        detector.save()
+        self.assertEqual(passed_and_graded(), [(1, 4), (3, 4)])
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_different_math_types(self, name, use_precomputation):
         """Test ratio metric with different math types for numerator and denominator"""
@@ -275,6 +346,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.baseline is not None
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
@@ -298,7 +372,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_conversion_window(self, name, use_precomputation):
         """Test ratio metric with conversion window"""
@@ -502,12 +576,12 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        with freeze_time("2020-01-04T00:00:00Z"):
+        with time_machine.travel("2020-01-04T00:00:00Z", tick=False):
             early = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
             )
-        with freeze_time("2020-01-07T00:00:00Z"):
+        with time_machine.travel("2020-01-07T00:00:00Z", tick=False):
             late = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
@@ -526,7 +600,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_zero_denominator(self, name, use_precomputation):
         """Test ratio metric behavior when denominator is zero"""
@@ -635,7 +709,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_same_event_different_properties(self, name, use_precomputation):
         """Test ratio metric using the same event with different math properties"""
@@ -761,7 +835,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_action_and_event_sources(self, name, use_precomputation):
         """Test ratio metric with action source numerator and event source denominator"""
@@ -775,10 +849,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
 
         # Create an action for purchase events
-        purchase_action = Action.objects.create(
-            name="Purchase Action", team=self.team, steps_json=[{"event": "purchase"}]
-        )
-        purchase_action.save()
+        purchase_action = create_action(name="Purchase Action", team=self.team, steps_json=[{"event": "purchase"}])
 
         # Create a ratio metric: action-based purchase revenue / event-based page views
         # This demonstrates using ActionsNode vs EventsNode as different source types
@@ -962,7 +1033,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -993,7 +1064,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_parametric_aggregation(self, name, use_precomputation):
         """Test parametric aggregations in ratio metrics.
@@ -1099,7 +1170,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         from datetime import datetime
@@ -1301,7 +1372,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_numerator_only(self, name, use_precomputation):
         """Capping only the numerator leaves the denominator untouched."""
@@ -1361,7 +1432,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_numerator_and_denominator_independent(self, name, use_precomputation):
         """Numerator and denominator are capped independently, each at its own threshold."""
@@ -1416,7 +1487,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.denominator_sum, 26)
         self.assertEqual(test_variant.denominator_sum, 20)
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_with_breakdown(self):
         """Winsorization computes per-breakdown thresholds for ratio metrics, not global ones."""

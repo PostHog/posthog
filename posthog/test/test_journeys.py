@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, Team
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.event.util import _json_dumps_for_clickhouse
 from posthog.models.group.util import get_group_by_key
 from posthog.models.person.util import get_person_by_distinct_id
@@ -128,8 +128,8 @@ def journeys_for(
 
 
 def _create_all_events_raw(all_events: list[dict]):
-    legacy_rows = ""
-    json_rows = ""
+    legacy_rows = []
+    json_rows = []
     for event in all_events:
         timestamp = timezone.now()
         data: dict[str, Any] = {
@@ -164,23 +164,27 @@ def _create_all_events_raw(all_events: list[dict]):
                 data[key] = timestamp
         in_memory_event = InMemoryEvent(**data)
         created_at = timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        legacy_rows += _event_row_values(
-            in_memory_event,
-            properties=json.dumps(in_memory_event.properties),
-            person_properties=json.dumps(in_memory_event.person_properties),
-            created_at=created_at,
-        )
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            json_rows += _event_row_values(
+        legacy_rows.append(
+            _event_row_values(
                 in_memory_event,
-                properties=_json_dumps_for_clickhouse(in_memory_event.properties),
-                person_properties=_json_dumps_for_clickhouse(in_memory_event.person_properties),
+                properties=json.dumps(in_memory_event.properties),
+                person_properties=json.dumps(in_memory_event.person_properties),
                 created_at=created_at,
             )
+        )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            json_rows.append(
+                _event_row_values(
+                    in_memory_event,
+                    properties=_json_dumps_for_clickhouse(in_memory_event.properties),
+                    person_properties=_json_dumps_for_clickhouse(in_memory_event.person_properties),
+                    created_at=created_at,
+                )
+            )
 
-    _insert_event_rows_raw(EVENTS_DATA_TABLE(), legacy_rows)
+    _insert_event_rows_raw(EVENTS_DATA_TABLE(), ", ".join(legacy_rows))
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        _insert_event_rows_raw(EVENTS_JSON_DATA_TABLE, json_rows)
+        _insert_event_rows_raw(EVENTS_JSON_DATA_TABLE, ", ".join(json_rows))
 
 
 def _event_row_values(
@@ -211,6 +215,7 @@ def _event_row_values(
         f"'{_format_clickhouse_timestamp(in_memory_event.group2_created_at)}'",
         f"'{_format_clickhouse_timestamp(in_memory_event.group3_created_at)}'",
         f"'{_format_clickhouse_timestamp(in_memory_event.group4_created_at)}'",
+        "'full'",
         f"'{created_at}'",
         "now()",
         "0",
@@ -223,12 +228,7 @@ def _format_clickhouse_timestamp(value: datetime) -> str:
 
 
 def _insert_event_rows_raw(table_name: str, rows: str) -> None:
-    sync_execute(
-        f"""
-    INSERT INTO {table_name} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
-    {rows}
-    """
-    )
+    sync_execute(BULK_INSERT_EVENT_SQL(table_name=table_name, values=rows))
 
 
 def create_all_events(all_events: list[dict]):

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
@@ -25,6 +26,7 @@ export const scene: SceneExport<ResourceTransferLogicProps> = {
 }
 
 export function ResourceTransfer(props: ResourceTransferLogicProps): JSX.Element {
+    const { searchParams } = useValues(router)
     const logic = resourceTransferLogic(props)
     const {
         destinationTeamId,
@@ -49,7 +51,7 @@ export function ResourceTransfer(props: ResourceTransferLogicProps): JSX.Element
                 resourceType={{ type: 'Resource Transfer' }}
                 forceBackTo={{
                     name: rootResourceName ?? props.resourceKind,
-                    path: sourceResourceUrl(props.resourceKind, props.resourceId),
+                    path: sourceResourceUrl(props.resourceKind, props.resourceId, searchParams.insight_short_id),
                     key: 'resource-transfer-back',
                 }}
             />
@@ -127,12 +129,12 @@ export function ResourceTransfer(props: ResourceTransferLogicProps): JSX.Element
     )
 }
 
-function sourceResourceUrl(resourceKind: string, resourceId: string): string {
+export function sourceResourceUrl(resourceKind: string, resourceId: string, insightShortId?: string): string {
     switch (resourceKind) {
         case 'Dashboard':
             return urls.dashboard(resourceId)
         case 'Insight':
-            return urls.insightView(resourceId as InsightShortId)
+            return insightShortId ? urls.insightView(insightShortId as InsightShortId) : urls.insights()
         case 'Survey':
             return urls.survey(resourceId)
         default:

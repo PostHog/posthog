@@ -24,6 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { formatMarketingMoney } from '../../logic/utils'
 import type {
     AggregatedUtmSource,
     CampaignAuditResult,
@@ -32,7 +33,7 @@ import type {
     UtmIssueKind,
 } from '../../logic/utmAuditLogic'
 import { utmAuditLogic } from '../../logic/utmAuditLogic'
-import { NonIntegratedConversionsCellActions } from '../NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
+import { CampaignMappingCellActions } from '../CampaignMapping/CampaignMappingCellActions'
 import { CampaignFieldPreferencesConfiguration } from '../settings/CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from '../settings/CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from '../settings/CustomSourceMappingsConfiguration'
@@ -125,10 +126,6 @@ function issueLabel(record: CampaignAuditResult): string {
     return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
 }
 
-function formatCurrency(value: number, currency: string = 'USD'): string {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
-}
-
 function formatNumber(value: number): string {
     return new Intl.NumberFormat('en-US').format(value)
 }
@@ -165,7 +162,7 @@ function ActionsMenu({ columnName, value }: { columnName: string; value: string 
         <Popover
             visible={showActions}
             onClickOutside={() => setShowActions(false)}
-            overlay={<NonIntegratedConversionsCellActions columnName={columnName} value={value} />}
+            overlay={<CampaignMappingCellActions columnName={columnName} value={value} />}
         >
             <LemonButton size="xsmall" icon={<IconEllipsis />} onClick={() => setShowActions(!showActions)} />
         </Popover>
@@ -252,7 +249,7 @@ function CampaignTabContent(): JSX.Element {
                                             <div className="font-medium">{record.campaign_name}</div>
                                             <div className="text-xs text-secondary">
                                                 {record.source_name} · ID: {record.campaign_id} ·{' '}
-                                                {formatCurrency(record.spend, baseCurrency)} ·{' '}
+                                                {formatMarketingMoney(record.spend, baseCurrency)} ·{' '}
                                                 {formatNumber(record.clicks)} clicks
                                             </div>
                                         </div>

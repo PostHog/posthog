@@ -17,9 +17,19 @@ import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { storageProviderFromUrl } from '../storageProvider'
 import { supportsDirectQuery } from './forms/schemaGroupingUtils'
 // eslint-disable-next-line import/no-cycle
 import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
+
+/**
+ * A catalog `iconPath` is a relative `/static/...` URL, which loads from the app server. Prefixing it with
+ * `window.JS_URL` loads it from the static host that serves the JS bundle. Without a JS_URL the path stays
+ * relative, as before.
+ */
+function staticIconUrl(iconPath: string): string {
+    return iconPath.startsWith('/static/') ? `${window.JS_URL || ''}${iconPath}` : iconPath
+}
 
 /**
  * In some cases we don't have the backend telling us what provider we have for blob storage, so we can have some
@@ -27,19 +37,7 @@ import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
  * @param url
  */
 export function mapUrlToProvider(url: string | undefined): string {
-    if (!url) {
-        return 'BlushingHog'
-    }
-    if (url.includes('amazonaws.com')) {
-        return 'aws'
-    } else if (url.startsWith('https://storage.googleapis.com')) {
-        return 'google-cloud'
-    } else if (url.includes('.blob.')) {
-        return 'azure'
-    } else if (url.includes('.r2.cloudflarestorage.com')) {
-        return 'cloudflare-r2'
-    }
-    return 'BlushingHog'
+    return storageProviderFromUrl(url) ?? 'BlushingHog'
 }
 
 export function mapUrlToSourceName(url: string): string {
@@ -128,7 +126,7 @@ export function SourceIcon({
 
         const sourceConfig = availableSources[type]
         if (sourceConfig) {
-            return sourceConfig.iconPath
+            return staticIconUrl(sourceConfig.iconPath)
         }
 
         const icon = DATA_WAREHOUSE_SOURCE_ICON_MAP[type]

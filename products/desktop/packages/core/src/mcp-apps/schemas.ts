@@ -153,6 +153,10 @@ export const mcpAppsSubscriptionInput = z.object({
   toolKey: z.string(),
 });
 
+export const serverConfigChangedSubscriptionInput = z.object({
+  serverName: z.string(),
+});
+
 /**
  * Fetch a UI resource directly by URI. Used by the built-in PostHog `exec`
  * path, where the renderer resolves the `ui://` URI from the tool result's
@@ -188,11 +192,17 @@ export interface McpAppsDiscoveryCompleteEvent {
   toolKeys: string[];
 }
 
+export interface McpAppsServerConfigChangedEvent {
+  serverName: string;
+  configGeneration: number;
+}
+
 export const McpAppsServiceEvent = {
   ToolInput: "tool-input",
   ToolResult: "tool-result",
   ToolCancelled: "tool-cancelled",
   DiscoveryComplete: "discovery-complete",
+  ServerConfigChanged: "server-config-changed",
 } as const;
 
 export interface McpAppsServiceEvents {
@@ -200,6 +210,7 @@ export interface McpAppsServiceEvents {
   [McpAppsServiceEvent.ToolResult]: McpAppsToolResultEvent;
   [McpAppsServiceEvent.ToolCancelled]: McpAppsToolCancelledEvent;
   [McpAppsServiceEvent.DiscoveryComplete]: McpAppsDiscoveryCompleteEvent;
+  [McpAppsServiceEvent.ServerConfigChanged]: McpAppsServerConfigChangedEvent;
 }
 
 // --- MCP server connection config ---

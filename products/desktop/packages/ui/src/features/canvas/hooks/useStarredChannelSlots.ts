@@ -4,7 +4,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useMemo } from "react";
 
-export const STARRED_HOTKEY_SLOTS = 9;
+const STARRED_HOTKEY_SLOTS = 9;
 
 export function useStarredChannelSlots(): {
   slots: Channel[];

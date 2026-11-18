@@ -12,8 +12,13 @@ export interface CloudLogGapReconcileRequest {
   taskRunId: string;
   expectedCount: number;
   currentCount: number;
-  newEntries: StoredLogEntry[];
+  entryBatches: CloudLogGapEntryBatch[];
   logUrl?: string;
+}
+
+export interface CloudLogGapEntryBatch {
+  endCount: number;
+  entries: StoredLogEntry[];
 }
 
 export interface CloudLogGapDeficiency {
@@ -26,8 +31,8 @@ const CLOUD_LOG_GAP_STALLED_PASS_LIMIT = 3;
 
 /**
  * Coalesce a queued reconcile request with a newer one, widening the range to
- * cover both (lowest currentCount, highest expectedCount) and concatenating
- * their entries so no observed event is dropped.
+ * cover both (lowest currentCount, highest expectedCount) while preserving
+ * each observed batch's position.
  */
 export function mergeCloudLogGapRequests(
   current: CloudLogGapReconcileRequest | undefined,
@@ -40,7 +45,7 @@ export function mergeCloudLogGapRequests(
     taskRunId: next.taskRunId,
     currentCount: Math.min(current.currentCount, next.currentCount),
     expectedCount: Math.max(current.expectedCount, next.expectedCount),
-    newEntries: [...current.newEntries, ...next.newEntries],
+    entryBatches: [...current.entryBatches, ...next.entryBatches],
     logUrl: next.logUrl ?? current.logUrl,
   };
 }

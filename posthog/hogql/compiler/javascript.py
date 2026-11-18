@@ -12,6 +12,13 @@ from posthog.hogql.parser import parse_expr, parse_program
 from posthog.hogql.visitor import Visitor
 
 _JS_GET_GLOBAL = "__getGlobal"
+# Emitted for the ordering comparisons, so a Hog program must not be able to declare these names.
+_JS_ORDERING_HELPERS = {
+    ast.CompareOperationOp.Gt: "__gt",
+    ast.CompareOperationOp.GtEq: "__gte",
+    ast.CompareOperationOp.Lt: "__lt",
+    ast.CompareOperationOp.LtEq: "__lte",
+}
 _JS_KEYWORDS = {
     "await",
     "break",
@@ -63,6 +70,7 @@ _JS_KEYWORDS = {
     "eval",
     "Error",
     _JS_GET_GLOBAL,  # don't let this get overridden
+    *_JS_ORDERING_HELPERS.values(),
 }
 
 
@@ -195,6 +203,9 @@ class JavaScriptCompiler(Visitor):
             ast.CompareOperationOp.LtEq: "<=",
         }
 
+        if op in _JS_ORDERING_HELPERS:
+            self.stl_functions.add(_JS_ORDERING_HELPERS[op])
+            return f"{_JS_ORDERING_HELPERS[op]}({left_code}, {right_code})"
         if op in op_map:
             return f"({left_code} {op_map[op]} {right_code})"
         elif op == ast.CompareOperationOp.In:
@@ -550,8 +561,8 @@ class JavaScriptCompiler(Visitor):
         self._start_scope()
         for arg in node.params:
             self._declare_local(arg)
-        if isinstance(node.body, ast.Placeholder):  # type: ignore[unreachable]
-            body_code = ast.Block(declarations=[ast.ExprStatement(expr=node.body.expr), ast.ReturnStatement(expr=None)])  # type: ignore[unreachable]
+        if isinstance(node.body, ast.Placeholder):
+            body_code = ast.Block(declarations=[ast.ExprStatement(expr=node.body.expr), ast.ReturnStatement(expr=None)])
         else:
             body_code = self.visit(_as_block(node.body))
         self._end_scope()

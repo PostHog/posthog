@@ -1,0 +1,74 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"metadata\":{\"git\":{\"branch\":\"main\",\"commit_id\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"remote_url\":\"https://github.com/PostHog/example-app.git\",\"repo_name\":\"example-app\"}},\"hash_id\":\"1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f\",\"version\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"project\":\"example-app\"}",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"release_id\":null,\"content_hash\":\"320a5642a5679518ebdd2c73c560f1893a2bfc93025a266fa57d608800e4be9023860a5aa9aee8d92597c65bfc52979f509dfe051536b216c50dc5cf945623e4\",\"content_length\":385}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"release_id\":null,\"content_hash\":\"320a5642a5679518ebdd2c73c560f1893a2bfc93025a266fa57d608800e4be9023860a5aa9aee8d92597c65bfc52979f509dfe051536b216c50dc5cf945623e4\",\"content_length\":385}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/757532d7-8438-5a33-8492-c49b7106884b?length=385",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "320a5642a5679518ebdd2c73c560f1893a2bfc93025a266fa57d608800e4be9023860a5aa9aee8d92597c65bfc52979f509dfe051536b216c50dc5cf945623e4",
+        "length": 385
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"757532d7-8438-5a33-8492-c49b7106884b\":\"320a5642a5679518ebdd2c73c560f1893a2bfc93025a266fa57d608800e4be9023860a5aa9aee8d92597c65bfc52979f509dfe051536b216c50dc5cf945623e4\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    ".git/HEAD": null,
+    ".git/config": null,
+    ".git/refs/heads/main": null,
+    "android/hbc/index.android.bundle.hbc.composed.map": "utf8:{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"mappings\":\"AAAA,SACA,cAAAC\",\"names\":[\"App\",\"<global>\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}",
+    "android/index.android.bundle": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\")}catch(e){}}();var __BUNDLE_START_TIME__=this.nativePerformanceNow?nativePerformanceNow():Date.now();\nfunction App(){return \"héllo\"}App();\n//# sourceMappingURL=index.android.bundle.map\n//# chunkId=26ad4cc5-09ee-599e-8a76-35ae37bf8c39",
+    "android/index.android.bundle.map": "utf8:{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"mappings\":\"qTACA;AAAA,SAAUA\",\"names\":[\"App\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_test\":{\"a\":\" /é\\u0001\",\"b\":1.0,\"big\":1.8446744073709552e19,\"n\":-0.0,\"z\":1e21}}"
+  }
+}

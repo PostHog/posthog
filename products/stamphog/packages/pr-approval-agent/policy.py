@@ -1,10 +1,11 @@
 """Declarative merge-gate policy: loader, resolver, and prompt sanitizer.
 
-The engine's deny/allow/size/tier data lives in `.stamphog/policy.yml`
-(global, trusted) and optional per-folder `AGENT_APPROVALS.md` overrides
-(untrusted, positive allow-list). This module loads and validates the global
-policy, resolves the effective policy for a given set of changed files, and
-owns the untrusted-text sanitizer shared with the reviewer prompt.
+The engine's deny/allow/size/tier data lives in the shipped `defaults/policy.yml`,
+the repository's own `.stamphog/policy.yml` merged onto it (global, trusted), and
+optional per-folder `AGENT_APPROVALS.md` overrides (untrusted, positive
+allow-list). This module merges and validates the global policy, resolves the
+effective policy for a given set of changed files, and owns the untrusted-text
+sanitizer shared with the reviewer prompt.
 
 Security posture (see .stamphog/README.md):
 - All files are read from the checked-out working tree - the repo root is
@@ -22,10 +23,11 @@ Security posture (see .stamphog/README.md):
   it reaches the reviewer prompt, where it sits inside the untrusted region.
 """
 
+import os
 import re
 import functools
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -67,7 +69,14 @@ def repo_root() -> Path:
     same checked-out tree as this script, never from wherever the process runs.
     The single resolver for the whole tool; cached, the tree never moves
     mid-process.
+
+    A hosted run names the checkout in STAMPHOG_REPO_ROOT. The checkout is the
+    untrusted PR head, so a `.stamphog/` that the PR adds between the checkout
+    root and the engine would otherwise become the root.
     """
+    explicit_root = os.environ.get("STAMPHOG_REPO_ROOT")
+    if explicit_root:
+        return Path(explicit_root).resolve()
     here = Path(__file__).resolve().parent
     for parent in [here, *here.parents]:
         if (parent / ".stamphog").is_dir() or (parent / ".git").exists():
@@ -75,12 +84,19 @@ def repo_root() -> Path:
     raise RuntimeError("Cannot locate repo root (no .stamphog/ or .git found above policy.py)")
 
 
-def default_policy_path() -> Path:
+def bundled_defaults_dir() -> Path:
+    """The shipped defaults beside this module, which the server copies into the sandbox with the engine."""
+    return Path(__file__).resolve().parent / "defaults"
+
+
+def repo_policy_path() -> Path:
     return repo_root() / ".stamphog" / "policy.yml"
 
 
 def review_guidance_path() -> Path:
-    return repo_root() / ".stamphog" / "review-guidance.md"
+    """The repository's own guidance, which replaces the shipped default whole, or the shipped default."""
+    repo_guidance = repo_root() / ".stamphog" / "review-guidance.md"
+    return repo_guidance if repo_guidance.is_file() else bundled_defaults_dir() / "review-guidance.md"
 
 
 def steering_path() -> Path:
@@ -97,7 +113,14 @@ class DenyCategory:
     # Only the scopes present in the policy file, preserving pattern order.
     # Scope keys are a subset of {"any", "titles", "paths"}.
     match: dict[str, tuple[str, ...]]
-    exempt_path_prefixes: tuple[str, ...] = ()
+    exempt_author_teams: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class DenyException:
+    keyword: str | None
+    path_prefixes: tuple[str, ...]
+    extensions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -161,6 +184,40 @@ class OwnershipSource:
     glob: str | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class Attestation:
+    """A CI check that may lift deny categories for the files it vouches for.
+
+    `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
+    check run under any name as github-actions. `lifts` names the deny categories the check may
+    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
+    lifted with a file beside them. `publisher_files` are the default-branch paths the publisher runs
+    from. When set, a result counts only when it pins each of them to a blob, and only while the
+    default branch still holds every blob the result pins.
+    """
+
+    name: str
+    check: str
+    app_id: int
+    lifts: tuple[str, ...]
+    paths: tuple[str, ...]
+    sibling_files: tuple[str, ...] = ()
+    publisher_files: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class BotAuthor:
+    """A bot whose PRs the hosted server may admit to review.
+
+    `login` and `id` together name one GitHub account, because a login can be renamed and claimed
+    by someone else while the numeric id cannot.
+    """
+
+    name: str
+    login: str
+    id: int
+
+
 @dataclass(frozen=True)
 class Policy:
     version: int
@@ -172,6 +229,9 @@ class Policy:
     overrides: dict[str, OverrideContract]
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
+    deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
+    attestations: tuple[Attestation, ...] = ()
+    bot_authors: tuple[BotAuthor, ...] = ()
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -182,15 +242,16 @@ class Policy:
 
 @dataclass(frozen=True)
 class ScopeBudget:
-    """One size-gate budget: a folder override's files, or the global pool.
+    """One size-gate ceiling and the files it governs.
 
-    `path` is the granting AGENT_APPROVALS.md (repo-relative); None is the global
-    pool, which absorbs every file whose chain grants no valid max_files so
-    splitting files across pseudo-scopes can never inflate the allowance.
+    `path` is the nearest AGENT_APPROVALS.md granting that ceiling (repo-relative);
+    None is the global pool, which absorbs every file whose chain grants that
+    ceiling nowhere, so splitting files across pseudo-scopes can never inflate
+    the allowance.
     """
 
     path: str | None
-    max_files: int
+    ceiling: int
     files: tuple[str, ...]
 
 
@@ -199,17 +260,50 @@ class EffectivePolicy:
     """Per-PR resolved policy: per-scope size budgets plus advisory prose.
 
     Mixed PRs get mixed leniency: every AGENT_APPROVALS.md at or above a changed
-    file governs it, and the file is budgeted by the nearest folder on that
-    chain with a valid max_files grant. Each scope's files must fit that scope's
-    own ceiling; files with no valid grant on their chain keep the global
-    ceiling. No file ever gets more leniency than its own chain grants.
-    max_lines stays a single global total; it is not delegable.
+    file governs it, and each ceiling resolves on its own - a file is budgeted by
+    the nearest folder on its chain granting that ceiling, and by the global pool
+    when no folder on the chain grants it. Lines and files therefore partition
+    independently, so a folder that raises one ceiling never opens a second
+    budget for the other. No file ever gets more leniency than its own chain
+    grants.
+
+    Per-scope budgets alone would let a PR's total grow with the number of
+    scopes it touches, so each ceiling also carries a roof over the whole PR.
     """
 
-    max_lines: int
-    scopes: tuple[ScopeBudget, ...]
+    file_scopes: tuple[ScopeBudget, ...]
+    line_scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
     invalid_folder_files: tuple[str, ...] = ()
+
+    @property
+    def line_roof(self) -> int:
+        """Whole-PR substantive line ceiling: the most generous one in play.
+
+        Every grant is validated at or under the delegation ceiling, the global
+        pool is always a scope, and the loader rejects a ceiling under its own
+        global default, so the roof stays between the global default and that
+        ceiling. With no grant in play it equals the global default, which is
+        the single global total the gate had before ceilings became delegable.
+        """
+        return max(scope.ceiling for scope in self.line_scopes)
+
+    @property
+    def file_roof(self) -> int:
+        """Whole-PR substantive file ceiling. See `line_roof`."""
+        return max(scope.ceiling for scope in self.file_scopes)
+
+    def governed_file_counts(self) -> tuple[tuple[str, int], ...]:
+        """Changed files each granting AGENT_APPROVALS.md governs, path-sorted.
+
+        A folder can govern a file's line ceiling, its file ceiling, or both, so
+        each file counts once per folder.
+        """
+        governed: dict[str, set[str]] = {}
+        for scope in (*self.file_scopes, *self.line_scopes):
+            if scope.path is not None:
+                governed.setdefault(scope.path, set()).update(scope.files)
+        return tuple((path, len(files)) for path, files in sorted(governed.items()))
 
 
 class PolicyError(ValueError):
@@ -226,12 +320,20 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
+# GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
+# proves nothing about who produced it.
+_GITHUB_ACTIONS_APP_ID = 15368
+_ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
+_BOT_AUTHOR_KEYS = {"name", "login", "id"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
-# The delegation contract's only delegable key. Everything else (deny, allow,
-# tiers, size_gate.max_lines) is non-delegable by construction.
-_DELEGABLE_KEYS = {"size_gate.max_files"}
+# The delegation contract's delegable keys. Everything else (deny, allow, tiers)
+# is non-delegable by construction.
+_DELEGABLE_KEYS = {"size_gate.max_files", "size_gate.max_lines"}
+_SIZE_GATE_DELEGATIONS = {"max_files": "size_gate.max_files", "max_lines": "size_gate.max_lines"}
 
 # Invariant 7: self-governance deny must cover these path families so a future
 # policy edit cannot silently drop stamphog's protection of its own files.
@@ -250,6 +352,26 @@ def _compile_or_raise(pattern: str, context: str) -> None:
         re.compile(pattern)
     except re.error as exc:
         raise PolicyError(f"{context}: pattern {pattern!r} does not compile: {exc}") from exc
+
+
+_TEAM_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_DENY_EXCEPTION_KEYS = {"keyword", "path_prefixes", "extensions"}
+_LITERAL_KEYWORD_RE = re.compile(r"[A-Za-z0-9_-]+")
+_DENY_EXCEPTION_METACHARS_RE = re.compile(r"[\\*?\[\]{}()+|^$\x00-\x1f\x7f-\x9f]")
+
+
+def _parse_exempt_author_teams(category: str, raw: Any) -> tuple[str, ...]:
+    context = f"deny.{category}.exempt_author_teams"
+    _require(isinstance(raw, list), f"{context}: must be a list")
+    # A team that may approve edits to the policy could widen its own exemption.
+    _require(not (raw and category == "stamphog_policy"), f"{context}: the self-governance category exempts nobody")
+    for team in raw:
+        # Membership is matched against bare slugs, so `@PostHog/team-x` would exempt nobody without an error.
+        _require(
+            isinstance(team, str) and bool(_TEAM_SLUG_RE.match(team)),
+            f"{context}: {team!r} is not a bare GitHub team slug like 'team-workflows'",
+        )
+    return tuple(raw)
 
 
 def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCategory]:
@@ -279,13 +401,15 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
                 _compile_or_raise(pattern, f"deny.{category}.match.{scope}")
             match[scope] = tuple(values)
 
-        exempt = spec.get("exempt_path_prefixes", [])
-        _require(isinstance(exempt, list), f"deny.{category}.exempt_path_prefixes: must be a list")
+        _require(
+            "exempt_path_prefixes" not in spec,
+            f"deny.{category}.exempt_path_prefixes: removed, declare deny_exceptions.{category} with path_prefixes instead",
+        )
         deny[category] = DenyCategory(
             description=str(spec.get("description", "")),
             rationale=str(spec.get("rationale", "")),
             match=match,
-            exempt_path_prefixes=tuple(str(p) for p in exempt),
+            exempt_author_teams=_parse_exempt_author_teams(category, spec.get("exempt_author_teams", [])),
         )
 
     _assert_self_governance(deny)
@@ -297,6 +421,162 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             "deny: missing 'deps_toolchain' category (the code-derived lockfile patterns splice into it)",
         )
     return deny
+
+
+def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Attestation, ...]:
+    _require(isinstance(raw, list), "attestations: must be a list")
+    attestations: list[Attestation] = []
+    for index, entry in enumerate(raw):
+        context = f"attestations[{index}]"
+        _require(isinstance(entry, dict), f"{context}: must be a mapping")
+        unknown = set(entry) - _ATTESTATION_KEYS
+        _require(not unknown, f"{context}: unknown keys {sorted(unknown)}")
+        missing = _ATTESTATION_REQUIRED_KEYS - set(entry)
+        _require(not missing, f"{context}: missing keys {sorted(missing)}")
+        name = entry["name"]
+        _require(isinstance(name, str) and bool(name), f"{context}.name: must be a non-empty string")
+        _require(name not in {a.name for a in attestations}, f"{context}.name: duplicate {name!r}")
+        _require(
+            isinstance(entry["check"], str) and bool(entry["check"]), f"{context}.check: must be a non-empty string"
+        )
+        app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
+        _require(
+            app_id != _GITHUB_ACTIONS_APP_ID, f"{context}.app_id: github-actions cannot attest, pin the publisher App"
+        )
+        lifts = _parse_string_list(entry["lifts"], f"{context}.lifts", non_empty=True)
+        for category in lifts:
+            _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
+            _require(category != "stamphog_policy", f"{context}.lifts: stamphog_policy cannot be lifted")
+        paths = _parse_string_list(entry["paths"], f"{context}.paths", non_empty=True)
+        for pattern in paths:
+            _compile_or_raise(pattern, f"{context}.paths")
+        siblings = _parse_string_list(entry.get("sibling_files", []), f"{context}.sibling_files")
+        for sibling in siblings:
+            _require("/" not in sibling, f"{context}.sibling_files: {sibling!r} must be a bare filename")
+        publisher_files = _parse_string_list(entry.get("publisher_files", []), f"{context}.publisher_files")
+        for path in publisher_files:
+            _require_repo_relative(path, f"{context}.publisher_files")
+        attestations.append(
+            Attestation(
+                name=name,
+                check=entry["check"],
+                app_id=app_id,
+                lifts=lifts,
+                paths=paths,
+                sibling_files=siblings,
+                publisher_files=publisher_files,
+            )
+        )
+    return tuple(attestations)
+
+
+def _parse_bot_authors(raw: Any) -> tuple[BotAuthor, ...]:
+    _require(isinstance(raw, list), "bot_authors: must be a list")
+    bot_authors: list[BotAuthor] = []
+    for index, entry in enumerate(raw):
+        context = f"bot_authors[{index}]"
+        _require(isinstance(entry, dict), f"{context}: must be a mapping")
+        _require(set(entry) == _BOT_AUTHOR_KEYS, f"{context}: keys must be {sorted(_BOT_AUTHOR_KEYS)}")
+        name, login = entry["name"], entry["login"]
+        _require(isinstance(name, str) and bool(name), f"{context}.name: must be a non-empty string")
+        _require(name not in {b.name for b in bot_authors}, f"{context}.name: duplicate {name!r}")
+        # GitHub appends [bot] to every App's login, so a bare login names a person or a machine user.
+        _require(isinstance(login, str) and login.endswith("[bot]"), f"{context}.login: must end with [bot]")
+        _require(login not in {b.login for b in bot_authors}, f"{context}.login: duplicate {login!r}")
+        bot_authors.append(BotAuthor(name=name, login=login, id=_require_positive_int(entry["id"], f"{context}.id")))
+    return tuple(bot_authors)
+
+
+def _parse_string_list(raw: object, context: str, *, non_empty: bool = False) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise PolicyError(f"{context}: must be a list")
+    _require(not non_empty or bool(raw), f"{context}: must be a non-empty list")
+    _require(all(isinstance(v, str) and bool(v) for v in raw), f"{context}: entries must be non-empty strings")
+    return tuple(raw)
+
+
+def _parse_deny_exception_prefixes(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    prefixes: list[str] = []
+    for prefix in raw:
+        if not isinstance(prefix, str):
+            raise PolicyError(f"{context}: prefixes must be strings")
+        _require(
+            prefix.endswith("/")
+            and all(segment not in {"", ".", ".."} for segment in prefix[:-1].split("/"))
+            and not any(character.isspace() for character in prefix)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(prefix),
+            f"{context}: {prefix!r} must be a literal relative POSIX directory prefix with a trailing slash",
+        )
+        prefixes.append(prefix.lower())
+    return tuple(prefixes)
+
+
+def _parse_deny_exception_extensions(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    extensions: list[str] = []
+    for extension in raw:
+        if not isinstance(extension, str):
+            raise PolicyError(f"{context}: extensions must be strings")
+        _require(
+            extension.startswith(".")
+            and all(extension[1:].split("."))
+            and "/" not in extension
+            and not any(character.isspace() for character in extension)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(extension),
+            f"{context}: {extension!r} must be a literal dot-prefixed suffix",
+        )
+        extensions.append(extension.lower())
+    return tuple(extensions)
+
+
+def _parse_deny_exceptions(raw: object, deny: dict[str, DenyCategory]) -> dict[str, tuple[DenyException, ...]]:
+    if not isinstance(raw, dict):
+        raise PolicyError("deny_exceptions: must be a mapping")
+    exceptions: dict[str, tuple[DenyException, ...]] = {}
+    for category, rules in raw.items():
+        context = f"deny_exceptions.{category}"
+        if not isinstance(category, str) or category not in deny:
+            raise PolicyError(f"{context}: unknown deny category")
+        _require(category != "stamphog_policy", f"{context}: the self-governance category exempts nobody")
+        if not isinstance(rules, list) or not rules:
+            raise PolicyError(f"{context}: must be a non-empty list")
+        parsed: list[DenyException] = []
+        for index, rule in enumerate(rules):
+            rule_context = f"{context}[{index}]"
+            if not isinstance(rule, dict):
+                raise PolicyError(f"{rule_context}: must be a mapping")
+            unknown = set(rule) - _DENY_EXCEPTION_KEYS
+            _require(not unknown, f"{rule_context}: unknown keys {sorted(unknown, key=str)}")
+            prefixes = _parse_deny_exception_prefixes(rule.get("path_prefixes"), f"{rule_context}.path_prefixes")
+            extensions = (
+                _parse_deny_exception_extensions(rule["extensions"], f"{rule_context}.extensions")
+                if "extensions" in rule
+                else ()
+            )
+            keyword = None
+            if "keyword" in rule:
+                requested = rule["keyword"]
+                if not isinstance(requested, str) or not _LITERAL_KEYWORD_RE.fullmatch(requested):
+                    raise PolicyError(f"{rule_context}.keyword: must be a non-empty literal ASCII token")
+                keyword = next(
+                    (
+                        pattern
+                        for scope in ("any", "paths")
+                        for pattern in deny[category].match.get(scope, ())
+                        if _LITERAL_KEYWORD_RE.fullmatch(pattern) and pattern.lower() == requested.lower()
+                    ),
+                    None,
+                )
+                _require(
+                    keyword is not None,
+                    f"{rule_context}.keyword: {requested!r} is not a path-capable literal pattern in this deny category",
+                )
+            parsed.append(DenyException(keyword=keyword, path_prefixes=prefixes, extensions=extensions))
+        exceptions[category] = tuple(parsed)
+    return exceptions
 
 
 def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
@@ -360,6 +640,25 @@ def _parse_overrides(raw: Any) -> dict[str, OverrideContract]:
         )
         overrides[key] = OverrideContract(ceiling=ceiling)
     return overrides
+
+
+def _require_ceilings_cover_globals(size_gate: SizeGate, overrides: dict[str, OverrideContract]) -> None:
+    """A delegation ceiling under its own global default is incoherent - fail closed.
+
+    The ceiling is what bounds a PR's whole-PR roof. Under the global default it
+    would bound nothing, because the always-present global pool already carries
+    the roof past it, and delegation could then only ever lower a folder's
+    allowance.
+    """
+    globals_by_key = {"size_gate.max_lines": size_gate.max_lines, "size_gate.max_files": size_gate.max_files}
+    for key, contract in overrides.items():
+        global_value = globals_by_key.get(key)
+        if global_value is None:
+            continue
+        _require(
+            contract.ceiling >= global_value,
+            f"overrides.{key}.ceiling: {contract.ceiling} is under the global {key} ({global_value})",
+        )
 
 
 _FAMILIARITY_STRONG_KEYS = {"min_blame_overlap_pct"}
@@ -450,10 +749,85 @@ def _parse_ownership(raw: Any, known_formats: Mapping[str, str]) -> tuple[Owners
     return tuple(sources)
 
 
-def load_policy(
-    policy_path: Path | None = None, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]
-) -> Policy:
-    """Parse and validate `.stamphog/policy.yml`, splicing code-derived data.
+_EXTEND_PREFIX = "extend_"
+
+
+def _merge_mapping(base: Mapping[str, Any], overlay: Mapping[str, Any], context: str) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        key_context = f"{context}{key}"
+        if isinstance(key, str) and key.startswith(_EXTEND_PREFIX):
+            target = key.removeprefix(_EXTEND_PREFIX)
+            _require(target not in overlay, f"{key_context}: cannot both replace and extend {context}{target}")
+            inherited = base.get(target)
+            _require(isinstance(inherited, list), f"{key_context}: no inherited list {context}{target} to extend")
+            _require(isinstance(value, list), f"{key_context}: must be a list")
+            merged[target] = inherited + [item for item in value if item not in inherited]
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            merged[key] = _merge_mapping(base[key], value, f"{key_context}.")
+        else:
+            merged[key] = value
+    return merged
+
+
+def merge_policy(default: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """A repository's policy.yml merged onto the shipped default.
+
+    Mappings merge key by key, so a repository declares only what it changes: one deny category,
+    one field of a category, one threshold. A list the repository declares replaces the default's
+    list, and an `extend_<name>` key appends to the default's `<name>` list instead. Lists never
+    merge silently, because a repository could then not drop an inherited entry.
+    """
+    _require(isinstance(overlay, dict), "policy root: must be a mapping")
+    return _merge_mapping(default, overlay, "")
+
+
+def _assert_self_governance_floor(default: dict[str, Any], merged: dict[str, Any]) -> None:
+    """A repository may extend the self-governance deny, but never drop a shipped pattern from it."""
+    shipped = default["deny"]["stamphog_policy"]["match"]["paths"]
+    effective = ((merged.get("deny") or {}).get("stamphog_policy") or {}).get("match") or {}
+    missing = [pattern for pattern in shipped if pattern not in (effective.get("paths") or [])]
+    _require(not missing, f"deny.stamphog_policy.match.paths: drops the shipped self-governance patterns {missing}")
+
+
+def _read_policy_yaml(path: Path) -> Any:
+    try:
+        return yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        raise PolicyError(f"could not read/parse {path}: {exc}") from exc
+
+
+def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    _require(isinstance(raw, dict), "policy root: must be a mapping")
+    unknown = set(raw) - _TOP_LEVEL_KEYS - _OPTIONAL_TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
+    _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
+    for required in _TOP_LEVEL_KEYS:
+        _require(required in raw, f"policy root: missing required section {required!r}")
+    _require(raw["version"] == 1, f"policy version: unsupported version {raw['version']!r}")
+
+    path_patterns, extensions = _parse_allow(raw["allow"])
+    size_gate = _parse_size_gate(raw["size_gate"])
+    overrides = _parse_overrides(raw["overrides"])
+    _require_ceilings_cover_globals(size_gate, overrides)
+    deny = _parse_deny(raw["deny"], lockfile_names)
+    return Policy(
+        version=1,
+        deny=deny,
+        allow_path_patterns=path_patterns,
+        allow_extensions=extensions,
+        size_gate=size_gate,
+        t1_subclasses=_parse_tiers(raw["tiers"]),
+        overrides=overrides,
+        familiarity=_parse_familiarity(raw["familiarity"]),
+        ownership=_parse_ownership(raw["ownership"], ownership_formats),
+        deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
+        attestations=_parse_attestations(raw.get("attestations", []), deny),
+        bot_authors=_parse_bot_authors(raw.get("bot_authors", [])),
+    )
+
+
+def load_policy(path: Path, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    """Parse and validate one complete policy document, splicing code-derived data.
 
     `lockfile_names` are the deps_toolchain lockfile filenames owned by
     gates.py's DEPENDENCY_ECOSYSTEMS table; the loader re.escapes them and
@@ -465,31 +839,21 @@ def load_policy(
     code-sourced pattern as lockfile_names). Raises PolicyError on any
     malformed input.
     """
-    path = policy_path or default_policy_path()
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError) as exc:
-        raise PolicyError(f"could not read/parse {path}: {exc}") from exc
+    return _parse_policy(_read_policy_yaml(path), lockfile_names=lockfile_names, ownership_formats=ownership_formats)
 
-    _require(isinstance(raw, dict), "policy root: must be a mapping")
-    unknown = set(raw) - _TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
-    _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
-    for required in _TOP_LEVEL_KEYS:
-        _require(required in raw, f"policy root: missing required section {required!r}")
-    _require(raw["version"] == 1, f"policy version: unsupported version {raw['version']!r}")
 
-    path_patterns, extensions = _parse_allow(raw["allow"])
-    return Policy(
-        version=1,
-        deny=_parse_deny(raw["deny"], lockfile_names),
-        allow_path_patterns=path_patterns,
-        allow_extensions=extensions,
-        size_gate=_parse_size_gate(raw["size_gate"]),
-        t1_subclasses=_parse_tiers(raw["tiers"]),
-        overrides=_parse_overrides(raw["overrides"]),
-        familiarity=_parse_familiarity(raw["familiarity"]),
-        ownership=_parse_ownership(raw["ownership"], ownership_formats),
-    )
+def load_effective_policy(*, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    """The shipped default with the repository's `.stamphog/policy.yml` merged onto it, validated as one document.
+
+    Hosted runs, the server's pre-check and local runs all resolve the policy here. The server
+    copies the repository's default-branch file into the tree as it is, so the merge happens once.
+    """
+    default = _read_policy_yaml(bundled_defaults_dir() / "policy.yml")
+    _require(isinstance(default, dict), "shipped default policy: must be a mapping")
+    overlay_path = repo_policy_path()
+    merged = merge_policy(default, _read_policy_yaml(overlay_path)) if overlay_path.is_file() else default
+    _assert_self_governance_floor(default, merged)
+    return _parse_policy(merged, lockfile_names=lockfile_names, ownership_formats=ownership_formats)
 
 
 # ── Per-folder override resolution ───────────────────────────────
@@ -505,6 +869,7 @@ class _FolderOverride:
     """Result of parsing a folder AGENT_APPROVALS.md."""
 
     max_files: int | None = None
+    max_lines: int | None = None
     prose: str | None = None
     invalid: bool = False
 
@@ -579,42 +944,45 @@ def _parse_folder_policy(path: Path, contract: dict[str, OverrideContract]) -> _
     stamphog = frontmatter.get("stamphog")
     if stamphog is None:
         # Advisory-only file: no delegated override, prose still applies.
-        return _FolderOverride(max_files=None, prose=prose or None)
+        return _FolderOverride(prose=prose or None)
     if not isinstance(stamphog, dict):
         return _FolderOverride(invalid=True)
 
-    # Positive allow-list: the only delegated path is size_gate.max_files.
-    max_files = _read_delegated_max_files(stamphog, contract)
-    if max_files is None:
+    # Positive allow-list: the only delegated paths are the size_gate ceilings.
+    grants = _read_delegated_size_gate(stamphog, contract)
+    if grants is None:
         return _FolderOverride(invalid=True)
-    return _FolderOverride(max_files=max_files, prose=prose or None)
+    return _FolderOverride(max_files=grants.get("max_files"), max_lines=grants.get("max_lines"), prose=prose or None)
 
 
-def _read_delegated_max_files(stamphog: dict[str, Any], contract: dict[str, OverrideContract]) -> int | None:
-    """Return the delegated max_files if valid and within ceiling, else None (invalid)."""
-    if "size_gate.max_files" not in contract:
-        return None
+def _read_delegated_size_gate(stamphog: dict[str, Any], contract: dict[str, OverrideContract]) -> dict[str, int] | None:
     if set(stamphog) - {"size_gate"}:
         return None
     size_gate = stamphog.get("size_gate")
-    if not isinstance(size_gate, dict) or set(size_gate) - {"max_files"}:
+    if not isinstance(size_gate, dict) or not size_gate:
         return None
-    value = size_gate.get("max_files")
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
-    ceiling = contract["size_gate.max_files"].ceiling
-    if value < 1 or value > ceiling:
-        return None
-    return value
+    grants: dict[str, int] = {}
+    for key, value in size_gate.items():
+        contract_key = _SIZE_GATE_DELEGATIONS.get(key) if isinstance(key, str) else None
+        if contract_key is None or contract_key not in contract:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+        if value < 1 or value > contract[contract_key].ceiling:
+            return None
+        grants[key] = value
+    return grants
 
 
 def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     """Resolve the per-scope size budgets for a PR's changed files.
 
-    Every AGENT_APPROVALS.md at or above a changed file governs it. A file's size
-    budget comes from the nearest folder on its chain with a valid max_files
-    grant; files whose chain grants nothing (no folder file, prose-only, or only
-    invalid grants) pool into the global budget. Advisory prose accumulates from
+    Every AGENT_APPROVALS.md at or above a changed file governs it. Each ceiling
+    resolves on its own: a file counts against the nearest folder on its chain
+    granting that ceiling, and against the global pool when the chain grants it
+    nowhere (no folder file, prose-only, or only invalid grants). Lines and files
+    therefore partition independently, so a folder raising one ceiling leaves its
+    files in the global pool for the other. Advisory prose accumulates from
     every valid folder file on the chain of at least one changed file, outermost
     first so general guidance precedes specific. An invalid folder file is
     treated as absent - it grants nothing and adds no prose, but its ancestors
@@ -630,29 +998,30 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
             parse_cache[scope_dir] = (rel_path, _parse_folder_policy(root / rel_path, policy.overrides))
         return parse_cache[scope_dir]
 
-    # Files sharing a granting AGENT_APPROVALS.md pool into one budget; the folder
-    # files touched by any chain feed the prose and invalid-file reporting.
-    grant_files: dict[str, list[str]] = {}
-    grant_max: dict[str, int] = {}
-    global_files: list[str] = []
+    # Files sharing a granting AGENT_APPROVALS.md pool into one budget, per
+    # ceiling; a None bucket key is the global pool. The folder files touched by
+    # any chain feed the prose and invalid-file reporting.
+    file_buckets: dict[str | None, list[str]] = {}
+    line_buckets: dict[str | None, list[str]] = {}
+    file_ceilings: dict[str, int] = {}
+    line_ceilings: dict[str, int] = {}
     on_chain: dict[str, _FolderOverride] = {}  # rel path -> parse, each file once
     for file_path in changed_files:
-        grant: tuple[str, int] | None = None
+        file_scope: str | None = None
+        line_scope: str | None = None
         for scope_dir in _scope_chain_for(file_path, root, dir_cache):
             rel_path, parsed = parsed_for(scope_dir)
             on_chain[rel_path] = parsed
-            if grant is None and not parsed.invalid and parsed.max_files is not None:
-                grant = (rel_path, parsed.max_files)
-        if grant is None:
-            global_files.append(file_path)
-        else:
-            grant_files.setdefault(grant[0], []).append(file_path)
-            grant_max[grant[0]] = grant[1]
-
-    override_scopes = [
-        ScopeBudget(path=rel_path, max_files=grant_max[rel_path], files=tuple(files))
-        for rel_path, files in sorted(grant_files.items())
-    ]
+            if parsed.invalid:
+                continue
+            if file_scope is None and parsed.max_files is not None:
+                file_scope = rel_path
+                file_ceilings[rel_path] = parsed.max_files
+            if line_scope is None and parsed.max_lines is not None:
+                line_scope = rel_path
+                line_ceilings[rel_path] = parsed.max_lines
+        file_buckets.setdefault(file_scope, []).append(file_path)
+        line_buckets.setdefault(line_scope, []).append(file_path)
 
     prose_parts: list[tuple[str, str]] = []
     invalid_files: list[str] = []
@@ -672,10 +1041,20 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     else:
         folder_prose = None
 
-    scopes = (*override_scopes, ScopeBudget(path=None, max_files=policy.size_gate.max_files, files=tuple(global_files)))
     return EffectivePolicy(
-        max_lines=policy.size_gate.max_lines,
-        scopes=scopes,
+        file_scopes=_scope_budgets(file_buckets, file_ceilings, policy.size_gate.max_files),
+        line_scopes=_scope_budgets(line_buckets, line_ceilings, policy.size_gate.max_lines),
         folder_prose=folder_prose,
         invalid_folder_files=tuple(invalid_files),
     )
+
+
+def _scope_budgets(
+    buckets: dict[str | None, list[str]], ceilings: dict[str, int], global_ceiling: int
+) -> tuple[ScopeBudget, ...]:
+    """Folder budgets sorted by path, then the global pool - present even when empty."""
+    overrides = [
+        ScopeBudget(path=path, ceiling=ceilings[path], files=tuple(buckets[path]))
+        for path in sorted(path for path in buckets if path is not None)
+    ]
+    return (*overrides, ScopeBudget(path=None, ceiling=global_ceiling, files=tuple(buckets.get(None, ()))))

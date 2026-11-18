@@ -50,10 +50,10 @@ describe('posthog-code tool renderers', () => {
             />
         )
         expect(screen.getByText('Signed commits · 2 commits')).toBeInTheDocument()
-        expect(screen.getByText('fix(api): handle null series')).toBeInTheDocument()
-        // The commit links live in the collapsed accordion, not always-visible — reveal them first.
+        // The commit message and links live in the collapsed accordion, not always-visible — reveal them first.
         expect(screen.queryByText(/a1b2c3d/)).not.toBeInTheDocument()
         fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText('fix(api): handle null series')).toBeInTheDocument()
         expect(screen.getByText(/a1b2c3d/).closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog/commit/a1b2c3dabcdef'
@@ -72,6 +72,7 @@ describe('posthog-code tool renderers', () => {
         render(
             <PostHogCodeToolRenderer isLastInGroup message={makeMessage({ resolvedKey: qualified(tool), rawInput })} />
         )
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText(expected)).toBeInTheDocument()
     })
 
@@ -128,11 +129,11 @@ describe('posthog-code tool renderers', () => {
             />
         )
         expect(screen.getByText('Clone repository')).toBeInTheDocument()
-        expect(screen.getByText(/posthog\/posthog/).closest('a')).toHaveAttribute(
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText('posthog/posthog').closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog'
         )
-        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText(/\/home\/user\/repos\/posthog\/posthog/)).toBeInTheDocument()
     })
 

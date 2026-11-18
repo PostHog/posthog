@@ -1,5 +1,7 @@
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
@@ -9,16 +11,17 @@ from django.conf import settings
 
 import httpx
 import structlog
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic, AsyncAnthropic
+from google import genai
+from google.genai import types as genai_types
 from openai import AsyncOpenAI, OpenAI
 
+from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
 Product = Literal[
-    "llm_gateway",
-    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",
@@ -32,15 +35,14 @@ Product = Literal[
     "slack-twig",
     "customer_archetype_classification",
     "product_analytics",
+    "posthog_ai",
     "subscriptions",
     "signals",
     "review_hog",
-    "custom_image_scans",
     "conversations",
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
     "web_analytics",
-    "stamphog",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
@@ -51,6 +53,44 @@ def _team_id_header(team_id: int) -> dict[str, str]:
 def team_distinct_id(team_id: int) -> str:
     """Namespace team-owned work away from bare numeric user distinct IDs."""
     return f"team-{team_id}"
+
+
+class GatewayNotConfiguredError(ValueError):
+    """No LLM gateway is configured, so the client could not be built and no call was made.
+
+    A `ValueError` so existing callers keep behaving as before, but a distinct type so a caller whose
+    LLM step is optional can tell an absent gateway, which is static and the same for every team,
+    apart from a gateway call that went out and failed and is worth reporting.
+    """
+
+
+_private_scout_gateway_token: ContextVar[str | None] = ContextVar("private_scout_gateway_token", default=None)
+
+
+def ensure_scout_trial_capture_ready() -> None:
+    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
+        raise GatewayNotConfiguredError("Private capture must be enabled for scout trials on the Go AI gateway")
+    if not urlparse(settings.AI_GATEWAY_URL).path.rstrip("/").endswith("/v1"):
+        raise GatewayNotConfiguredError("Scout trials require AI_GATEWAY_URL with the /v1 base path")
+
+
+@contextmanager
+def private_scout_gateway(api_key: str) -> Iterator[None]:
+    ensure_scout_trial_capture_ready()
+    if not api_key.startswith("phe_"):
+        raise GatewayNotConfiguredError("Scout trials require AI_GATEWAY_URL and a private scoped Go gateway token")
+    token = _private_scout_gateway_token.set(api_key)
+    try:
+        with private_capture_context():
+            yield
+    finally:
+        _private_scout_gateway_token.reset(token)
+
+
+def _python_gateway_api_key(api_key: str | None = None) -> str:
+    if _private_scout_gateway_token.get() is not None:
+        raise GatewayNotConfiguredError("Scout trials require the Go AI gateway")
+    return api_key or settings.LLM_GATEWAY_API_KEY
 
 
 def get_llm_client(
@@ -111,11 +151,12 @@ def get_llm_client(
         default_headers: Optional headers sent with every request. Product-owned headers such as
             team attribution override values supplied here.
     """
-    resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
-    if not settings.LLM_GATEWAY_URL or not resolved_api_key:
-        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
+    resolved_api_key = _python_gateway_api_key(api_key)
+    gateway_url = settings.LLM_GATEWAY_URL
+    if not gateway_url or not resolved_api_key:
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
 
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    base_url = f"{gateway_url.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
     if team_id is not None:
         headers.update(_team_id_header(team_id))
@@ -137,17 +178,19 @@ def get_async_llm_client(
     Async variant of `get_llm_client`. See `get_llm_client` for the rationale on `team_id`
     attribution and how to attach extra per-call event properties.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key()
+    if not gateway_url or not resolved_api_key:
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    base_url = f"{gateway_url.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
     if team_id is not None:
         headers.update(_team_id_header(team_id))
 
     return AsyncOpenAI(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
@@ -157,6 +200,7 @@ def get_async_anthropic_gateway_client(
     product: Product = "django",
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
+    default_headers: Mapping[str, str] | None = None,
 ) -> AsyncAnthropic:
     """
     Get an Anthropic-native async client pointed at the internal LLM gateway.
@@ -181,19 +225,50 @@ def get_async_anthropic_gateway_client(
     returns a 5xx/429 (or its circuit breaker is open) the gateway retries the request against
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key()
+    if not gateway_url or not resolved_api_key:
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
-    default_headers = _team_id_header(team_id) if team_id is not None else {}
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
     if use_bedrock_fallback:
-        default_headers["x-posthog-use-bedrock-fallback"] = "true"
+        headers["x-posthog-use-bedrock-fallback"] = "true"
 
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
+    base_url = f"{gateway_url.rstrip('/')}/{product}"
     return AsyncAnthropic(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=default_headers or None,
+        api_key=resolved_api_key,
+        default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
+    )
+
+
+def get_anthropic_gateway_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
+    default_headers: Mapping[str, str] | None = None,
+) -> Anthropic:
+    """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key()
+    if not gateway_url or not resolved_api_key:
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+    if use_bedrock_fallback:
+        headers["x-posthog-use-bedrock-fallback"] = "true"
+
+    base_url = f"{gateway_url.rstrip('/')}/{product}"
+    return Anthropic(
+        base_url=base_url,
+        api_key=resolved_api_key,
+        default_headers=headers or None,
+        http_client=httpx.Client(trust_env=False),
     )
 
 
@@ -221,6 +296,9 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     falls back to the current flow rather than failing the call (the fallback comes out once
     rollout completes).
     """
+    trial_token = _private_scout_gateway_token.get()
+    if trial_token is not None:
+        return AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=trial_token)
     url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
     if not (url or api_key):
         return None
@@ -229,6 +307,27 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
         logger.warning("ai_gateway_misconfigured_falling_back", reason=misconfig)
         return None
     return AIGatewayConfig(url=url, api_key=api_key)
+
+
+# A plain http URL to these hosts stays on this machine, so local development needs no certificate.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def resolve_https_ai_gateway_config() -> AIGatewayConfig | None:
+    """``resolve_ai_gateway_config``, but None when the URL would send the gateway key in clear to
+    a host off this machine.
+
+    Use it for a client that puts the key in an ``Authorization`` header itself, instead of through
+    an SDK that the caller already pinned to https.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in _LOOPBACK_HOSTS:
+        logger.warning("ai_gateway_url_not_https")
+        return None
+    return gateway
 
 
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
@@ -252,6 +351,7 @@ def ai_gateway_headers(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> dict[str, str] | None:
     """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
     labels = dict(properties or {})
@@ -267,6 +367,8 @@ def ai_gateway_headers(
         headers["X-PostHog-Session-Id"] = session_id
     if distinct_id:
         headers["X-PostHog-Distinct-Id"] = distinct_id
+    if privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     return headers or None
 
 
@@ -304,15 +406,31 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
-def _anthropic_gateway_base_url(openai_base_url: str) -> str:
+def trace_id_from_seed(seed: str) -> str:
+    """Deterministic ``$ai_trace_id`` for a caller with no run id to borrow.
+
+    Absent a trace id the gateway stamps a fresh one per request, so every call in one
+    logical operation lands in a trace of its own. The seed must be unique to the
+    operation, because a coarser one merges unrelated calls into a single trace.
+    """
+    return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, seed))
+
+
+def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
-    guarantees the ``/v1`` suffix, so this is the inverse of that validation.
+    guarantees the ``/v1`` suffix, so this is the inverse of that validation. The Gemini SDK
+    appends ``/v1beta/models/...`` and needs the same root.
     """
     trimmed = openai_base_url.rstrip("/")
     if trimmed.endswith("/v1"):
         trimmed = trimmed[: -len("/v1")]
     return trimmed
+
+
+def openai_gateway_configured() -> bool:
+    """Whether :func:`build_openai_client` can build a client, without building one."""
+    return resolve_ai_gateway_config() is not None or bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
 
 
 def build_openai_client(
@@ -322,6 +440,7 @@ def build_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
@@ -345,9 +464,12 @@ def build_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.Client(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_llm_client(product, default_headers=fallback_headers)
 
@@ -359,6 +481,7 @@ def build_async_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
@@ -372,11 +495,44 @@ def build_async_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_async_llm_client(product, default_headers=fallback_headers)
+
+
+def build_ai_gateway_openai_client(
+    api_key: str,
+    ai_product: str,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> OpenAI:
+    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``); no Python-gateway fallback."""
+    url = settings.AI_GATEWAY_URL
+    if not url:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
+    if not urlparse(url).path.rstrip("/").endswith("/v1"):
+        raise GatewayNotConfiguredError(f"AI_GATEWAY_URL must end with /v1, got {url}")
+    if not api_key:
+        raise GatewayNotConfiguredError("api_key is required")
+    return OpenAI(
+        api_key=api_key,
+        base_url=url,
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            session_id=session_id,
+            properties=properties,
+            distinct_id=distinct_id,
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
 
 
 def build_async_anthropic_client(
@@ -385,6 +541,8 @@ def build_async_anthropic_client(
     ai_stage: str | None = None,
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
 ) -> AsyncAnthropic:
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
@@ -402,12 +560,14 @@ def build_async_anthropic_client(
     over to Bedrock on its own via the host breaker and reads no opt-in header. trust_env=False
     keeps the in-cluster call off the egress proxy.
 
-    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`); the
-    Python-gateway fallback derives the same id internally and needs no header.
+    An attributed call also carries ``X-PostHog-Trace-Id``. Callers can supply a per-operation
+    ``trace_id`` and custom ``properties``; otherwise the trace falls back to :func:`team_trace_id`.
+    The Python-gateway fallback receives the same trace and properties through its native headers.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway:
-        properties = {
+    labels = dict(properties or {})
+    labels.update(
+        {
             key: value
             for key, value in {
                 "ai_stage": ai_stage,
@@ -415,14 +575,164 @@ def build_async_anthropic_client(
             }.items()
             if value
         }
+    )
+    if gateway:
         return AsyncAnthropic(
             api_key=gateway.api_key,
-            base_url=_anthropic_gateway_base_url(gateway.url),
+            base_url=anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
-                trace_id=team_trace_id(team_id),
-                properties=properties,
+                trace_id=trace_id or team_trace_id(team_id),
+                properties=labels,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
-    return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+    fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
+    if fallback_headers is None:
+        return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+    return get_async_anthropic_gateway_client(
+        product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback, default_headers=fallback_headers
+    )
+
+
+def _ai_gateway_anthropic_client(
+    gateway: AIGatewayConfig,
+    ai_product: str | None,
+    trace_id: str | None,
+    properties: Mapping[str, str] | None,
+    distinct_id: str | None,
+    team_id: int | None,
+    privacy_mode: bool = False,
+) -> Anthropic:
+    labels = dict(properties or {})
+    if team_id is not None:
+        labels["team_id"] = str(team_id)
+    return Anthropic(
+        api_key=gateway.api_key,
+        base_url=anthropic_gateway_base_url(gateway.url),
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id or team_trace_id(team_id),
+            properties=labels,
+            distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
+
+
+def build_ai_gateway_anthropic_client(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    team_id: int | None = None,
+    privacy_mode: bool = False,
+) -> Anthropic:
+    """:func:`build_anthropic_client` without the Python-gateway fallback, for callers with no route there.
+
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
+    the request and response out of the generation the gateway captures.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
+
+
+def build_anthropic_client(
+    product: Product,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
+) -> Anthropic:
+    """Build a native Anthropic client for synchronous Django worker code.
+
+    The Anthropic SDK appends ``/v1/messages``, so the Go client removes the OpenAI ``/v1``
+    suffix. The Python fallback retains the product route and legacy observability headers.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway:
+        return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
+    fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
+    return get_anthropic_gateway_client(
+        product,
+        team_id=team_id,
+        use_bedrock_fallback=use_bedrock_fallback,
+        default_headers=fallback_headers,
+    )
+
+
+class AIGatewayHostError(RuntimeError):
+    """A gateway client was about to send its key to a host other than the gateway."""
+
+
+def _origin(url: httpx.URL) -> str:
+    # httpx lowercases the host and drops a scheme's default port, so equal origins compare equal.
+    return f"{url.scheme}://{url.netloc.decode('ascii')}"
+
+
+def build_gemini_client(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    privacy_mode: bool = False,
+    timeout_ms: int | None = None,
+) -> genai.Client | None:
+    """Return a plain ``google.genai.Client`` routed through the Go ai-gateway, or None when the gateway is unset.
+
+    It skips the posthoganalytics wrapper because the gateway captures the generation.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    headers = (
+        ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            session_id=session_id,
+            properties=properties,
+            distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
+        )
+        or {}
+    )
+    base_url = anthropic_gateway_base_url(gateway.url)
+    # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
+    transport_headers = {**headers, "x-goog-api-key": gateway.api_key}
+    # Chunks go to whatever URL the upload start returned, so pin every request to the gateway host.
+    expected_origin = _origin(httpx.URL(base_url))
+
+    def pin_to_gateway(request: httpx.Request) -> None:
+        if (origin := _origin(request.url)) != expected_origin:
+            raise AIGatewayHostError(f"request origin must be the AI gateway {expected_origin}, got {origin}")
+
+    async def apin_to_gateway(request: httpx.Request) -> None:
+        pin_to_gateway(request)
+
+    return genai.Client(
+        api_key=gateway.api_key,
+        http_options=genai_types.HttpOptions(
+            base_url=base_url,
+            headers=headers,
+            timeout=timeout_ms,
+            client_args={
+                "trust_env": False,
+                "headers": transport_headers,
+                "event_hooks": {"request": [pin_to_gateway]},
+            },
+            # The SDK uses aiohttp for async whenever it is installed, and that session always trusts
+            # proxy env vars. An explicit httpx transport switches async to httpx, which honours trust_env.
+            async_client_args={
+                "trust_env": False,
+                "transport": httpx.AsyncHTTPTransport(),
+                "headers": transport_headers,
+                "event_hooks": {"request": [apin_to_gateway]},
+            },
+        ),
+    )

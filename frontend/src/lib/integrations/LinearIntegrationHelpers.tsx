@@ -13,9 +13,10 @@ export type LinearTeamPickerProps = {
     integration: IntegrationType
     value?: string
     onChange?: (value: string | null) => void
+    disabled?: boolean
 }
 
-export function LinearTeamPicker({ onChange, value, integration }: LinearTeamPickerProps): JSX.Element {
+export function LinearTeamPicker({ onChange, value, integration, disabled }: LinearTeamPickerProps): JSX.Element {
     const { options, loading } = useLinearTeams(integration.id)
 
     return (
@@ -27,6 +28,7 @@ export function LinearTeamPicker({ onChange, value, integration }: LinearTeamPic
             placeholder="Select a team..."
             options={options}
             loading={loading}
+            disabled={disabled}
         />
     )
 }

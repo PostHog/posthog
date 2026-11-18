@@ -12,7 +12,6 @@ from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
     DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
     get_teams_by_weekly_pageviews_sql,
 )
 from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
@@ -97,28 +96,10 @@ def store_team_selection_in_clickhouse(
             context.log.warning(f"Failed to insert team selection: {e}")
             return False
 
-    def reload_dict(client: Client) -> bool:
-        try:
-            client.execute(
-                f"SYSTEM RELOAD DICTIONARY {WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}",
-                settings=settings_with_log_comment(context),
-            )
-            context.log.info("Successfully reloaded team selection dictionary")
-            return True
-        except Exception as e:
-            context.log.warning(f"Failed to reload team selection dictionary: {e}")
-            return False
-
-    # Execute operations on all hosts
     insert_results = cluster.map_all_hosts(insert).result()
-    reload_results = cluster.map_all_hosts(reload_dict).result()
 
-    # Check if all operations succeeded
     if not all(insert_results.values()):
         raise Exception(f"Failed to insert team selection on some hosts: {insert_results}")
-
-    if not all(reload_results.values()):
-        raise Exception(f"Failed to reload dictionary on some hosts: {reload_results}")
 
     return team_ids
 
@@ -153,7 +134,7 @@ def web_analytics_team_selection(
 ) -> dagster.MaterializeResult:
     """
     This manages which teams have access to web analytics pre-aggregated tables.
-    The selection is then stored in a ClickHouse dictionary for fast lookups.
+    The selection is then stored in the web_pre_aggregated_teams ClickHouse table.
     """
     return _web_analytics_team_selection_impl(context, cluster)
 

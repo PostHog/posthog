@@ -499,6 +499,9 @@ export interface MCPGatewayServerApi {
      * * `api_key` - API Key
      * * `oauth` - OAuth */
     readonly template_auth_type: MCPAuthTypeEnumApi | null
+    /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
+    readonly auth_type: MCPAuthTypeEnumApi | null
+    /** True when this server is enabled and available to the project. */
     readonly is_team_enabled: boolean
     /** Deprecated brand icon key from the linked template. Empty for custom servers. */
     readonly icon_key: string
@@ -674,6 +677,8 @@ export interface ResolvedToolPolicyApi {
     input_schema: ResolvedToolPolicyApiInputSchema
     /** Whether the canonical gateway heuristic treats this tool as destructive. */
     is_destructive: boolean
+    /** Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb. */
+    is_read_only: boolean
     /** Effective state for the scope.
      *
      * * `approved` - Approved
@@ -724,6 +729,7 @@ export type AgentKeyEnumApi = (typeof AgentKeyEnumApi)[keyof typeof AgentKeyEnum
 export const AgentKeyEnumApi = {
     Support: 'support',
     Scout: 'scout',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -760,6 +766,8 @@ export interface MCPServiceAccountServerApi {
     name: string
     /** Server description. */
     description: string
+    /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+    url: string
     /** Deprecated brand icon key. Empty for custom servers. */
     icon_key: string
     /** Brand domain. Empty for custom servers. */
@@ -772,6 +780,8 @@ export interface MCPServiceAccountServerApi {
      * * `disabled` - disabled
      * * `missing_credential` - missing_credential */
     connection_state: ConnectionStateEnumApi
+    /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+    reachable: boolean
 }
 
 export interface MCPServiceAccountApi {
@@ -860,6 +870,11 @@ export interface MCPServerInstallationApi {
     readonly id: string
     /** @nullable */
     readonly template_id: string | null
+    /**
+     * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+     * @nullable
+     */
+    readonly gateway_server_id: string | null
     readonly name: string
     /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
     readonly icon_key: string
@@ -1149,7 +1164,6 @@ export interface MCPServerTemplateApi {
     name: string
     /** @maxLength 2048 */
     url: string
-    /** @maxLength 2048 */
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi

@@ -1,0 +1,435 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "NPC character sheet update via tool call",
+  "scenario": "A narrative design tool called npc-forge uses a Vercel AI SDK agent to turn a designer's freeform brief about an NPC into a structured character sheet, calling an update_npc tool with a large JSON schema covering voice, goals, tags, and several optional flags.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1,
+      "$ai_span": 2,
+      "$ai_generation": 1,
+      "$ai_metric": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/vercel-ai",
+      "posthog-node"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "openai/gpt-5.6-sol"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_span_id": "f6bd268c490d0b89",
+        "$ai_trace_id": "f69ee1222a4948c24e1354ad275c0c71",
+        "$geoip_disable": true,
+        "deployment.environment": "production",
+        "service.name": "npc-forge",
+        "$groups": {
+          "organization": "org_msxDXtUUZ4cFIvgb5Xxoo"
+        },
+        "$ai_span_name": "edit-npc-sheet",
+        "$ai_latency": 5.946125178,
+        "posthog_distinct_id": "usr_n6bXISpLAHDYetyWbH5HR",
+        "$ai_session_id": "sess_wAa7FkIx3LpUuM9xRlsvl",
+        "scope": "update_npc",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$group_0": "org_msxDXtUUZ4cFIvgb5Xxoo"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "f6bd268c490d0b89",
+        "$ai_span_id": "826996cbfd4eab71",
+        "$ai_trace_id": "f69ee1222a4948c24e1354ad275c0c71",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 3617,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 3617,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 1426,
+        "ai.usage.inputTokens": 5046,
+        "ai.usage.outputTokens": 513,
+        "ai.usage.reasoningTokens": 149,
+        "ai.usage.totalTokens": 5559,
+        "deployment.environment": "production",
+        "service.name": "npc-forge",
+        "$ai_cache_reporting_exclusive": false,
+        "$groups": {
+          "organization": "org_msxDXtUUZ4cFIvgb5Xxoo"
+        },
+        "$ai_cache_read_input_tokens": 3617,
+        "$ai_cache_creation_input_tokens": 1426,
+        "$ai_provider": "openai",
+        "$ai_span_name": "npc-agent",
+        "$ai_latency": 5.942190074,
+        "functionId": "npc-agent",
+        "posthog_distinct_id": "usr_n6bXISpLAHDYetyWbH5HR",
+        "$ai_session_id": "sess_wAa7FkIx3LpUuM9xRlsvl",
+        "scope": "update_npc",
+        "$ai_stop_reason": "tool-calls",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 149,
+        "$group_0": "org_msxDXtUUZ4cFIvgb5Xxoo",
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "# npc-forge system prompt\n\nYou are the update agent for npc-forge, an internal tool that maintains structured character sheets for NPCs used by the game's dialogue generator. Writers and designers send you a brief describing an NPC, and you call the `update_npc` tool with a complete, consistent character sheet.\n\n## What you are updating\n\nEvery NPC has a character sheet with these fields: a title (name and one-line tagline), a voice descriptor (how the character sounds in a few words), goals (their narrative motivation), notes (freeform context), roles (a list of tags drawn from a fixed set), flaws, story (backstory), and several optional yes/no/n-a flags: whether the NPC is essential to the plot, tradeable, feared, or unique. Some fields are nullable free text and should stay null unless the brief gives you something specific and reviewed to put there.\n\n## Rules\n\n1. Never invent a rumor, secret, or backstory detail that contradicts something already established in the brief.\n2. Keep the voice descriptor to a handful of words, not a paragraph. It exists to steer a dialogue model's tone, not to explain the character.\n3. Only mark a nullable field as filled when the brief gives you a specific, reviewed detail. An empty field is always better than a speculative one.\n4. Roles must be drawn only from the fixed tag set. Do not add a new tag even if the brief suggests one that fits better.\n5. When the brief updates an existing NPC rather than creating a new one, preserve every field the brief does not mention rather than clearing it.\n\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result.\n\n## Harbor district lore reference\n\nThe harbor district sits at the mouth of the river delta and has been rebuilt twice since the founding of the settlement, most recently after the flood eleven years ago. The merchant guild holds the exclusive contract for warehouse construction in the district, which is a running source of tension with the dockworkers, who blame the guild's materials choices for at least two structural failures in the last decade. Dockworkers elect a foreman informally, by consensus rather than vote, and the role carries no official authority outside the docks themselves, only the crew's willingness to follow.\n\n## Common mistakes when filling nullable fields\n\nDo not fill the region field with a guess based on where an NPC currently stands in the world; use their stated home or origin instead, which may be different from their current location. Do not fill rumors with something you inferred from notes; rumors are meant to be gossip other NPCs repeat, phrased the way a third party would say it, not a restatement of the character's own backstory. When a brief gives you enough to infer a nullable field with high confidence but does not state it directly, it is still better to leave the field null and mention the inference in your reply than to write it into the record.\n\n## Flags versus tags\n\nThe yes/no/n-a flags (essential, tradeable, feared, unique, can-die) describe mechanical properties the game systems query directly, while tags describe narrative role and are used mostly by the dialogue generator to pick a tone. Do not use a flag to express something that is really a tag, and do not invent a new flag; the schema is fixed and any new mechanical property needs an engineering change first, not a workaround in an existing field.\n\n## Reviewing before you call the tool\n\nBefore calling update_npc, check that every required narrative field (title, voice, goals, notes, roles, flaws, story) is filled with something specific to this character rather than a generic placeholder, and that no nullable field has been filled without a specific, reviewed source in the brief. A character sheet with a null rumors field is normal and expected for most NPCs; a character sheet with a generic goals field like \"wants to survive\" almost always means the brief had more detail that got dropped.\n\n## Prior session: dockworker crew roster\n\nThe harbor district crew currently includes six named dockworkers besides the foreman, three of whom have appeared in authored dialogue so far. Two crew members died in the collapsed-warehouse incident referenced in Yenna's backstory; their names have not yet been finalized by the writing team, so do not invent names for them if a brief asks you to reference the incident again later. The remaining four crew members are considered generic NPCs until a future brief promotes one to a unique character sheet.\n\n## Escalating unclear briefs\n\nIf a brief is ambiguous about which existing character it updates versus which new character it creates, do not guess. Note the ambiguity in your reply and ask which is intended before calling update_npc, since creating a duplicate record for an existing NPC is far harder to clean up later than waiting one turn for clarification.\n\n## Difficulty tier and can-die interactions\n\nThe can-die flag controls whether the game's permadeath system is allowed to remove this NPC permanently from the world after a lethal encounter. Essential NPCs almost always have can-die set to no, since removing them would break quest chains that depend on their presence. An NPC can be both feared and tradeable at once; those two flags describe different relationships (how other NPCs react to them, and whether the player can transact with them) and are not mutually exclusive despite sounding related.\n\n## Working with the comic_relief tag\n\ncomic_relief NPCs still need a voice descriptor and goals like anyone else. The tag changes how the dialogue generator paces their lines, favoring shorter exchanges and more interruptions, but it does not exempt the character from having a coherent motivation. A comic_relief character with no stated goal tends to generate flat, joke-only dialogue that testers consistently rate as annoying rather than funny.\n\n## Cross-referencing existing rumors\n\nWhen a rumors field is eventually filled for one NPC, check whether any other NPC's rumors field already references the same event from a different angle. Two dockworkers gossiping about the same warehouse collapse should describe it consistently even if their opinions of who is to blame differ, since players who talk to both will notice a contradiction faster than one describing the same event without any inconsistency check.\n\n## Style notes for goals and flaws fields\n\nGoals should read as something the character is actively pursuing, not a static trait: \"wants to keep the harbor running without guild interference\" rather than \"cares about the harbor.\" Flaws should be specific enough that a dialogue writer could use them to construct a scene: \"quick to anger when the guild is mentioned\" gives a writer a trigger and a reaction, while \"has a temper\" gives them nothing to work with. When a brief only supplies a vague trait, ask a follow-up rather than writing the vague version into the record, since a flaw with no trigger tends to get ignored by dialogue writers entirely.\n\n## Title field formatting\n\nThe title field should combine a name and a one-line tagline separated by a comma, in the form \"Name, tagline that captures their role and one defining trait.\" Keep the tagline under twenty words. This field is shown directly in the writing team's NPC browser, so it needs to work as a quick identifier for someone scanning a long list of characters, not as a full character summary.\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result."
+          },
+          {
+            "role": "user",
+            "content": "NPC update brief: harbor district, dockmaster role.\n\n- Name: Yenna, referred to on the docks as \"Dockmaster Yenna\"\n- Current role: runs the harbor docks in the harbor district\n- Tenure: eleven years as foreman\n- Background: took over after the previous foreman drowned in a storm\n- Key incident: lost two crew members in the collapsed-warehouse incident last winter\n- Attitude toward guild: blames the merchant guild's cost-cutting for the warehouse collapse\n- Attitude toward outsiders: skeptical, tests newcomers before opening up\n- Attitude toward her own crew: fiercely protective\n- Speech pattern: gravelly voice, clipped sentences\n- Motivation: wants the harbor running without guild interference\n- Secret hope: wants to retire before the next flood season\n- Flaw: quick to anger when the guild comes up in conversation\n- Flaw: stubborn, sometimes ignores good advice from her own crew\n- Tag suggestion: quest giver (she has dock-related tasks for players)\n- Tag suggestion: info broker (she hears everything that happens on the docks)\n- Tag suggestion: recruiter (she can bring players into her crew)\n- Tag suggestion: hidden threat (she will turn on the player if crossed)\n- Essential to plot: yes, she is needed for the harbor storyline\n- Tradeable: no, she does not run a shop\n- Feared: yes, other dockworkers avoid crossing her\n- Unique: yes, she is a named character with authored lines\n\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result.\n\n## Harbor district lore reference\n\nThe harbor district sits at the mouth of the river delta and has been rebuilt twice since the founding of the settlement, most recently after the flood eleven years ago. The merchant guild holds the exclusive contract for warehouse construction in the district, which is a running source of tension with the dockworkers, who blame the guild's materials choices for at least two structural failures in the last decade. Dockworkers elect a foreman informally, by consensus rather than vote, and the role carries no official authority outside the docks themselves, only the crew's willingness to follow.\n\n## Common mistakes when filling nullable fields\n\nDo not fill the region field with a guess based on where an NPC currently stands in the world; use their stated home or origin instead, which may be different from their current location. Do not fill rumors with something you inferred from notes; rumors are meant to be gossip other NPCs repeat, phrased the way a third party would say it, not a restatement of the character's own backstory. When a brief gives you enough to infer a nullable field with high confidence but does not state it directly, it is still better to leave the field null and mention the inference in your reply than to write it into the record."
+          }
+        ],
+        "$ai_input_state": {
+          "role": "user",
+          "content": "NPC update brief: harbor district, dockmaster role.\n\n- Name: Yenna, referred to on the docks as \"Dockmaster Yenna\"\n- Current role: runs the harbor docks in the harbor district\n- Tenure: eleven years as foreman\n- Background: took over after the previous foreman drowned in a storm\n- Key incident: lost two crew members in the collapsed-warehouse incident last winter\n- Attitude toward guild: blames the merchant guild's cost-cutting for the warehouse collapse\n- Attitude toward outsiders: skeptical, tests newcomers before opening up\n- Attitude toward her own crew: fiercely protective\n- Speech pattern: gravelly voice, clipped sentences\n- Motivation: wants the harbor running without guild interference\n- Secret hope: wants to retire before the next flood season\n- Flaw: quick to anger when the guild comes up in conversation\n- Flaw: stubborn, sometimes ignores good advice from her own crew\n- Tag suggestion: quest giver (she has dock-related tasks for players)\n- Tag suggestion: info broker (she hears everything that happens on the docks)\n- Tag suggestion: recruiter (she can bring players into her crew)\n- Tag suggestion: hidden threat (she will turn on the player if crossed)\n- Essential to plot: yes, she is needed for the harbor storyline\n- Tradeable: no, she does not run a shop\n- Feared: yes, other dockworkers avoid crossing her\n- Unique: yes, she is a named character with authored lines\n\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result.\n\n## Harbor district lore reference\n\nThe harbor district sits at the mouth of the river delta and has been rebuilt twice since the founding of the settlement, most recently after the flood eleven years ago. The merchant guild holds the exclusive contract for warehouse construction in the district, which is a running source of tension with the dockworkers, who blame the guild's materials choices for at least two structural failures in the last decade. Dockworkers elect a foreman informally, by consensus rather than vote, and the role carries no official authority outside the docks themselves, only the crew's willingness to follow.\n\n## Common mistakes when filling nullable fields\n\nDo not fill the region field with a guess based on where an NPC currently stands in the world; use their stated home or origin instead, which may be different from their current location. Do not fill rumors with something you inferred from notes; rumors are meant to be gossip other NPCs repeat, phrased the way a third party would say it, not a restatement of the character's own backstory. When a brief gives you enough to infer a nullable field with high confidence but does not state it directly, it is still better to leave the field null and mention the inference in your reply than to write it into the record."
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 3,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "826996cbfd4eab71",
+        "$ai_span_id": "2298028c2976a6f8",
+        "$ai_trace_id": "f69ee1222a4948c24e1354ad275c0c71",
+        "$geoip_disable": true,
+        "ai.usage.cachedInputTokens": 3617,
+        "ai.usage.inputTokenDetails.cacheReadTokens": 3617,
+        "ai.usage.inputTokenDetails.cacheWriteTokens": 1426,
+        "ai.usage.inputTokens": 5046,
+        "ai.usage.outputTokens": 513,
+        "ai.usage.reasoningTokens": 149,
+        "ai.usage.totalTokens": 5559,
+        "deployment.environment": "production",
+        "service.name": "npc-forge",
+        "$ai_cache_reporting_exclusive": false,
+        "$groups": {
+          "organization": "org_msxDXtUUZ4cFIvgb5Xxoo"
+        },
+        "$ai_input_tokens": 5046,
+        "$ai_output_tokens": 513,
+        "$ai_cache_read_input_tokens": 3617,
+        "$ai_cache_creation_input_tokens": 1426,
+        "$ai_model": "openai/gpt-5.6-sol",
+        "$ai_provider": "openai",
+        "$ai_span_name": "ai.generateText.doGenerate",
+        "$ai_latency": 5.93866766,
+        "functionId": "npc-agent",
+        "posthog_distinct_id": "usr_n6bXISpLAHDYetyWbH5HR",
+        "$ai_session_id": "sess_wAa7FkIx3LpUuM9xRlsvl",
+        "scope": "update_npc",
+        "$ai_stop_reason": "tool-calls",
+        "$ai_total_cost_usd": 0,
+        "$ai_cost_passthrough": true,
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_reasoning_tokens": 149,
+        "$group_0": "org_msxDXtUUZ4cFIvgb5Xxoo",
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "# npc-forge system prompt\n\nYou are the update agent for npc-forge, an internal tool that maintains structured character sheets for NPCs used by the game's dialogue generator. Writers and designers send you a brief describing an NPC, and you call the `update_npc` tool with a complete, consistent character sheet.\n\n## What you are updating\n\nEvery NPC has a character sheet with these fields: a title (name and one-line tagline), a voice descriptor (how the character sounds in a few words), goals (their narrative motivation), notes (freeform context), roles (a list of tags drawn from a fixed set), flaws, story (backstory), and several optional yes/no/n-a flags: whether the NPC is essential to the plot, tradeable, feared, or unique. Some fields are nullable free text and should stay null unless the brief gives you something specific and reviewed to put there.\n\n## Rules\n\n1. Never invent a rumor, secret, or backstory detail that contradicts something already established in the brief.\n2. Keep the voice descriptor to a handful of words, not a paragraph. It exists to steer a dialogue model's tone, not to explain the character.\n3. Only mark a nullable field as filled when the brief gives you a specific, reviewed detail. An empty field is always better than a speculative one.\n4. Roles must be drawn only from the fixed tag set. Do not add a new tag even if the brief suggests one that fits better.\n5. When the brief updates an existing NPC rather than creating a new one, preserve every field the brief does not mention rather than clearing it.\n\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result.\n\n## Harbor district lore reference\n\nThe harbor district sits at the mouth of the river delta and has been rebuilt twice since the founding of the settlement, most recently after the flood eleven years ago. The merchant guild holds the exclusive contract for warehouse construction in the district, which is a running source of tension with the dockworkers, who blame the guild's materials choices for at least two structural failures in the last decade. Dockworkers elect a foreman informally, by consensus rather than vote, and the role carries no official authority outside the docks themselves, only the crew's willingness to follow.\n\n## Common mistakes when filling nullable fields\n\nDo not fill the region field with a guess based on where an NPC currently stands in the world; use their stated home or origin instead, which may be different from their current location. Do not fill rumors with something you inferred from notes; rumors are meant to be gossip other NPCs repeat, phrased the way a third party would say it, not a restatement of the character's own backstory. When a brief gives you enough to infer a nullable field with high confidence but does not state it directly, it is still better to leave the field null and mention the inference in your reply than to write it into the record.\n\n## Flags versus tags\n\nThe yes/no/n-a flags (essential, tradeable, feared, unique, can-die) describe mechanical properties the game systems query directly, while tags describe narrative role and are used mostly by the dialogue generator to pick a tone. Do not use a flag to express something that is really a tag, and do not invent a new flag; the schema is fixed and any new mechanical property needs an engineering change first, not a workaround in an existing field.\n\n## Reviewing before you call the tool\n\nBefore calling update_npc, check that every required narrative field (title, voice, goals, notes, roles, flaws, story) is filled with something specific to this character rather than a generic placeholder, and that no nullable field has been filled without a specific, reviewed source in the brief. A character sheet with a null rumors field is normal and expected for most NPCs; a character sheet with a generic goals field like \"wants to survive\" almost always means the brief had more detail that got dropped.\n\n## Prior session: dockworker crew roster\n\nThe harbor district crew currently includes six named dockworkers besides the foreman, three of whom have appeared in authored dialogue so far. Two crew members died in the collapsed-warehouse incident referenced in Yenna's backstory; their names have not yet been finalized by the writing team, so do not invent names for them if a brief asks you to reference the incident again later. The remaining four crew members are considered generic NPCs until a future brief promotes one to a unique character sheet.\n\n## Escalating unclear briefs\n\nIf a brief is ambiguous about which existing character it updates versus which new character it creates, do not guess. Note the ambiguity in your reply and ask which is intended before calling update_npc, since creating a duplicate record for an existing NPC is far harder to clean up later than waiting one turn for clarification.\n\n## Difficulty tier and can-die interactions\n\nThe can-die flag controls whether the game's permadeath system is allowed to remove this NPC permanently from the world after a lethal encounter. Essential NPCs almost always have can-die set to no, since removing them would break quest chains that depend on their presence. An NPC can be both feared and tradeable at once; those two flags describe different relationships (how other NPCs react to them, and whether the player can transact with them) and are not mutually exclusive despite sounding related.\n\n## Working with the comic_relief tag\n\ncomic_relief NPCs still need a voice descriptor and goals like anyone else. The tag changes how the dialogue generator paces their lines, favoring shorter exchanges and more interruptions, but it does not exempt the character from having a coherent motivation. A comic_relief character with no stated goal tends to generate flat, joke-only dialogue that testers consistently rate as annoying rather than funny.\n\n## Cross-referencing existing rumors\n\nWhen a rumors field is eventually filled for one NPC, check whether any other NPC's rumors field already references the same event from a different angle. Two dockworkers gossiping about the same warehouse collapse should describe it consistently even if their opinions of who is to blame differ, since players who talk to both will notice a contradiction faster than one describing the same event without any inconsistency check.\n\n## Style notes for goals and flaws fields\n\nGoals should read as something the character is actively pursuing, not a static trait: \"wants to keep the harbor running without guild interference\" rather than \"cares about the harbor.\" Flaws should be specific enough that a dialogue writer could use them to construct a scene: \"quick to anger when the guild is mentioned\" gives a writer a trigger and a reaction, while \"has a temper\" gives them nothing to work with. When a brief only supplies a vague trait, ask a follow-up rather than writing the vague version into the record, since a flaw with no trigger tends to get ignored by dialogue writers entirely.\n\n## Title field formatting\n\nThe title field should combine a name and a one-line tagline separated by a comma, in the form \"Name, tagline that captures their role and one defining trait.\" Keep the tagline under twenty words. This field is shown directly in the writing team's NPC browser, so it needs to work as a quick identifier for someone scanning a long list of characters, not as a full character summary.\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "NPC update brief: harbor district, dockmaster role.\n\n- Name: Yenna, referred to on the docks as \"Dockmaster Yenna\"\n- Current role: runs the harbor docks in the harbor district\n- Tenure: eleven years as foreman\n- Background: took over after the previous foreman drowned in a storm\n- Key incident: lost two crew members in the collapsed-warehouse incident last winter\n- Attitude toward guild: blames the merchant guild's cost-cutting for the warehouse collapse\n- Attitude toward outsiders: skeptical, tests newcomers before opening up\n- Attitude toward her own crew: fiercely protective\n- Speech pattern: gravelly voice, clipped sentences\n- Motivation: wants the harbor running without guild interference\n- Secret hope: wants to retire before the next flood season\n- Flaw: quick to anger when the guild comes up in conversation\n- Flaw: stubborn, sometimes ignores good advice from her own crew\n- Tag suggestion: quest giver (she has dock-related tasks for players)\n- Tag suggestion: info broker (she hears everything that happens on the docks)\n- Tag suggestion: recruiter (she can bring players into her crew)\n- Tag suggestion: hidden threat (she will turn on the player if crossed)\n- Essential to plot: yes, she is needed for the harbor storyline\n- Tradeable: no, she does not run a shop\n- Feared: yes, other dockworkers avoid crossing her\n- Unique: yes, she is a named character with authored lines\n\n\n## Fixed tag set for the roles field\n\nThe roles field only accepts values from this list: quest_giver, comic_relief, hidden_threat, info_broker, and recruiter. A quest_giver has at least one task available to the player at any time. A comic_relief character should never be the sole source of critical plot information, since playtesting showed players tune out their dialogue. A hidden_threat looks safe on first meeting and only turns hostile after a specific trigger; note that trigger in the notes field, not in the tag itself. An info_broker knows things other NPCs do not and should have at least one rumor-flavored line even if the rumors field stays null for now. A recruiter can add the player to a crew, guild, or party and should always have a related quest_giver tag as well.\n\n## Voice descriptor style\n\nKeep voice descriptors short and physical: gravel, pitch, pacing, a verbal tic. Avoid describing personality here, since that belongs in notes or goals. Good: \"clipped, gravelly, drops articles.\" Bad: \"sounds gruff but is secretly kind,\" which describes character rather than voice. The dialogue generator uses this field directly in its prompt, so anything vague or long will bleed into every line the NPC speaks, including lines where it does not fit the scene.\n\n## Handling contradictory briefs\n\nIf a brief contradicts an existing character sheet, prefer the newer brief for anything that reads as a correction (\"actually, she's from the harbor district, not the fish market\") and prefer the older sheet for anything the newer brief does not mention. If a contradiction cannot be resolved this way, leave the field as it was and flag the conflict in your reply rather than guessing which version is correct. Silent overwrites of established lore are the most common source of continuity bugs reported by the writing team.\n\n## Session note format\n\nSession notes from the writing team usually arrive as a flat bullet list rather than prose, covering whatever came up in that session's discussion: a new relationship, a corrected detail, a tag suggestion, or a flag change. Treat every bullet as a candidate field update, but do not assume a bullet implies a field change if it merely describes something happening to the character in a specific scene. \"Yenna gets attacked in chapter 3\" is a plot event, not a character sheet update, unless the brief also says a flag or trait changes as a result.\n\n## Harbor district lore reference\n\nThe harbor district sits at the mouth of the river delta and has been rebuilt twice since the founding of the settlement, most recently after the flood eleven years ago. The merchant guild holds the exclusive contract for warehouse construction in the district, which is a running source of tension with the dockworkers, who blame the guild's materials choices for at least two structural failures in the last decade. Dockworkers elect a foreman informally, by consensus rather than vote, and the role carries no official authority outside the docks themselves, only the crew's willingness to follow.\n\n## Common mistakes when filling nullable fields\n\nDo not fill the region field with a guess based on where an NPC currently stands in the world; use their stated home or origin instead, which may be different from their current location. Do not fill rumors with something you inferred from notes; rumors are meant to be gossip other NPCs repeat, phrased the way a third party would say it, not a restatement of the character's own backstory. When a brief gives you enough to infer a nullable field with high confidence but does not state it directly, it is still better to leave the field null and mention the inference in your reply than to write it into the record."
+              }
+            ]
+          }
+        ],
+        "$ai_tools": [
+          {
+            "type": "function",
+            "name": "update_npc",
+            "description": "Update an NPC's character sheet used by the dialogue generator tool.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string"
+                },
+                "characterSheet": {
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "voice": {
+                      "type": "string"
+                    },
+                    "quirk": {
+                      "type": "string"
+                    },
+                    "vital": {
+                      "type": "string",
+                      "enum": [
+                        "yes",
+                        "no",
+                        "n/a"
+                      ]
+                    },
+                    "goals": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "quest_giver",
+                          "comic_relief",
+                          "hidden_threat",
+                          "info_broker",
+                          "recruiter"
+                        ]
+                      }
+                    },
+                    "flaws": {
+                      "type": "string"
+                    },
+                    "story": {
+                      "type": "string"
+                    },
+                    "trader": {
+                      "type": "string",
+                      "enum": [
+                        "yes",
+                        "no"
+                      ],
+                      "description": "Whether this NPC will buy, sell, or barter goods with the player during a normal encounter."
+                    },
+                    "region": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The NPC's home region or settlement, used to pick region-specific accents and idioms for generated dialogue lines. Leave this field null if the NPC has no fixed home and travels freely between settlements without a permanent base."
+                    },
+                    "feared": {
+                      "type": "string",
+                      "enum": [
+                        "yes",
+                        "no"
+                      ],
+                      "description": "Whether other NPCs in the world react to this character with fear, avoidance, or lowered morale."
+                    },
+                    "rumors": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Rumors that other NPCs may repeat about this character when asked, used to seed gossip dialogue elsewhere in the world. Leave this null until at least one rumor has been written and reviewed by the narrative team for tone and consistency."
+                    },
+                    "unique": {
+                      "type": "string",
+                      "enum": [
+                        "yes",
+                        "no"
+                      ],
+                      "description": "Whether this is a unique, named character with authored dialogue, as opposed to a generic NPC drawn from the shared archetype pool."
+                    },
+                    "secret": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Optional. Provide additional narrative detail here if it is relevant to this character, otherwise leave the field null. Do not invent detail just to fill the field; an empty value is preferred over a speculative one."
+                    },
+                    "wishes": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Optional. Provide additional narrative detail here if it is relevant to this character, otherwise leave the field null. Do not invent detail just to fill the field; an empty value is preferred over a speculative one."
+                    },
+                    "rivals": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Optional. Provide additional narrative detail here if it is relevant to this character, otherwise leave the field null. Do not invent detail just to fill the field; an empty value is preferred over a speculative one."
+                    },
+                    "allies": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Optional. Provide additional narrative detail here if it is relevant to this character, otherwise leave the field null. Do not invent detail just to fill the field; an empty value is preferred over a speculative one."
+                    },
+                    "canDie": {
+                      "type": "string",
+                      "enum": [
+                        "yes",
+                        "no",
+                        "n/a"
+                      ]
+                    },
+                    "legacy": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "dialogue": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "task_id",
+                      "data"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5944,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "f6bd268c490d0b89",
+        "$ai_span_id": "db2bd599da8bec24",
+        "$ai_trace_id": "f69ee1222a4948c24e1354ad275c0c71",
+        "$geoip_disable": true,
+        "deployment.environment": "production",
+        "service.name": "npc-forge",
+        "$groups": {
+          "organization": "org_msxDXtUUZ4cFIvgb5Xxoo"
+        },
+        "$ai_span_name": "update_npc",
+        "$ai_latency": 5.6169e-05,
+        "posthog_distinct_id": "usr_n6bXISpLAHDYetyWbH5HR",
+        "$ai_session_id": "sess_wAa7FkIx3LpUuM9xRlsvl",
+        "scope": "update_npc",
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$group_0": "org_msxDXtUUZ4cFIvgb5Xxoo",
+        "$ai_input_state": {
+          "characterSheet": {
+            "title": "Old Dockmaster Yenna, a grizzled harbor foreman who is skeptical of outsiders and fiercely protective of her crew.",
+            "voice": "Gravelly, clipped sentences, distrustful of strangers.",
+            "vital": "yes",
+            "goals": "Wants to keep the harbor running without interference from the merchant guild, and secretly hopes to retire before the next flood season.",
+            "notes": "Yenna has run the harbor docks for eleven years. She lost two crew members in the collapsed-warehouse incident last winter and blames the guild's cost-cutting for it. She trusts almost no one from outside the district and tests newcomers before opening up.",
+            "roles": [
+              "quest_giver",
+              "comic_relief",
+              "info_broker",
+              "recruiter"
+            ],
+            "flaws": "Quick to anger when the guild is mentioned, and stubborn to the point of ignoring good advice from her own crew.",
+            "story": "Grew up on the docks, took over the foreman role after her predecessor drowned in a storm, and has spent the years since rebuilding the crew's trust in dock leadership one shift at a time.",
+            "trader": "no",
+            "region": null,
+            "unique": "no",
+            "secret": null,
+            "wishes": null,
+            "rivals": null,
+            "allies": null,
+            "legacy": "Remembered by the harbor crew as the foreman who never lost a worker to the guild's shortcuts."
+          },
+          "dialogue": []
+        }
+      }
+    },
+    {
+      "event": "$ai_metric",
+      "offset_ms": 6233,
+      "distinct_id": "user-1",
+      "properties": {
+        "$groups": {
+          "organization": "org_msxDXtUUZ4cFIvgb5Xxoo"
+        },
+        "$lib_version": "5.39.4",
+        "$ai_trace_id": "f69ee1222a4948c24e1354ad275c0c71",
+        "$ai_metric_name": "npc_saved",
+        "$lib": "posthog-node",
+        "$is_server": true,
+        "$ai_metric_value": 1,
+        "$geoip_disable": true,
+        "$group_0": "org_msxDXtUUZ4cFIvgb5Xxoo"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

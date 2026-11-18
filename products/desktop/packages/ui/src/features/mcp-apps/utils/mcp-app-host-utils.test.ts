@@ -1,3 +1,4 @@
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it } from "vitest";
 import {
   computeContainerDimensions,
@@ -133,5 +134,29 @@ describe("toCallToolResult", () => {
       _meta: { requestId: "abc" },
       structuredContent: { key: "val" },
     });
+  });
+
+  // Explicit nulls fail the app-side zod schema; see omitNullCallToolResultFields.
+  it.each(["structuredContent", "isError", "_meta"])(
+    "strips %s when it is null, keeping the payload app-schema-valid",
+    (key) => {
+      const raw = {
+        content: [{ type: "text" as const, text: "Date|Pageviews" }],
+        structuredContent: null,
+        isError: null,
+        _meta: null,
+      };
+      const result = toCallToolResult(raw);
+      expect((result as Record<string, unknown>)[key]).toBeUndefined();
+      expect(CallToolResultSchema.safeParse(result).success).toBe(true);
+      expect(CallToolResultSchema.safeParse(raw).success).toBe(false);
+    },
+  );
+
+  it("keeps the object identity when no nullable field needs stripping", () => {
+    const raw = {
+      content: [{ type: "text" as const, text: "hello" }],
+    };
+    expect(toCallToolResult(raw)).toBe(raw);
   });
 });

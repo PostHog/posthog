@@ -6,14 +6,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.facade.contracts import IncrementalConfig, IncrementalState
 from products.data_modeling.backend.logic.incremental import (
-    IncrementalConfig,
-    IncrementalState,
     clear_incremental_state,
     definition_fingerprint,
     deserialize_watermark,
     get_incremental_config,
     get_incremental_state,
+    has_incremental_history,
+    record_incremental_history,
     set_incremental_state,
     window_start,
 )
@@ -177,10 +178,11 @@ class TestIncrementalConfig(BaseTest):
         assert get_incremental_config(saved_query) is not None
         assert get_incremental_state(saved_query).watermark == 1
 
-    def test_clearing_state_drops_progress_but_keeps_config(self) -> None:
+    def test_clearing_state_drops_progress_but_keeps_config_and_history(self) -> None:
         saved_query = self._saved_query(
             incremental_config={"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
         )
+        record_incremental_history(saved_query)
         set_incremental_state(saved_query, watermark=5, fingerprint="abc", mode="incremental")
 
         clear_incremental_state(saved_query)
@@ -189,7 +191,18 @@ class TestIncrementalConfig(BaseTest):
         state = get_incremental_state(saved_query)
         assert state.watermark is None
         assert state.watermark_type is None
+        assert state.has_incremental_history is True
         assert get_incremental_config(saved_query) is not None
+
+    def test_existing_incremental_config_is_history_evidence(self) -> None:
+        saved_query = self._saved_query(
+            incremental_config={"enabled": False, "incremental_key": "day", "unique_key": ["day"]}
+        )
+
+        assert has_incremental_history(saved_query) is True
+
+        saved_query.incremental_config = None
+        assert has_incremental_history(saved_query) is False
 
     @parameterized.expand(
         [

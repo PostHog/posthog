@@ -26,6 +26,7 @@ interface UseShortcutOptionsBase {
     scope?: ShortcutType['scope']
     /** When true, shortcut is not registered */
     disabled?: boolean
+    ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
 }
@@ -107,7 +108,16 @@ export interface UseShortcutReturn<T extends HTMLElement> {
  * ```
  */
 export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseShortcutOptions): UseShortcutReturn<T> {
-    const { name, keybind, intent, interaction, scope = 'global', disabled = false, priority } = options
+    const {
+        name,
+        keybind,
+        intent,
+        interaction,
+        scope = 'global',
+        disabled = false,
+        ignoreInEditable = false,
+        priority,
+    } = options
 
     const internalRef = useRef<T>(null)
     const [isRefReady, setIsRefReady] = useState(false)
@@ -144,6 +154,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 interaction: 'function',
                 scope,
                 priority,
+                ignoreInEditable,
             })
         } else if (isRefReady && ref.current && interaction !== 'function') {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
@@ -155,13 +166,27 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 interaction,
                 scope,
                 priority,
+                ignoreInEditable,
             })
         }
 
         return () => {
             unregisterShortcut(name)
         }
-    }, [isRefReady, name, intent, interaction, scope, disabled, ref, priority, registerShortcut, unregisterShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        isRefReady,
+        name,
+        intent,
+        interaction,
+        scope,
+        disabled,
+        ignoreInEditable,
+        ref,
+        priority,
+        registerShortcut,
+        unregisterShortcut,
+    ])
 
     return { ref, callbackRef }
 }

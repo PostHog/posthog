@@ -4,6 +4,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { execHog } from '~/cdp/utils/hog-exec'
 
+import { ParsedDuration, SECONDS_PER_DURATION_UNIT, parseDuration } from '../duration'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { resolveTimezone } from './timezone'
@@ -17,7 +18,9 @@ export class DelayHandler implements ActionHandler {
             ? await scheduledAtFromInstant(action, invocation)
             : calculatedScheduledAt(
                   action.config.delay_duration ?? '',
-                  invocation.state.currentAction?.startedAtTimestamp
+                  invocation.state.currentAction?.startedAtTimestamp,
+                  undefined,
+                  MAX_DELAY_VALUE_FOR_DURATION_UNIT
               )
 
         // While the delay is still pending, park WITHOUT advancing currentAction. Advancing eagerly
@@ -33,46 +36,39 @@ export class DelayHandler implements ActionHandler {
     }
 }
 
-// Value is expected to be like `10d` or `1.5h` or `10m`
-
-const DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
-
-// Same shape as a duration, with an optional leading sign so an offset can point before the instant.
-const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
-
 const DEFAULT_MAX_DELAY_UNTIL = '30d'
 
 // The last second luxon (and JS Date) can represent as a real date, end of year 9999. A numeric value larger
 // than this is a millisecond timestamp mislabelled as seconds, not a plausible date to wait for.
 const MAX_UNIX_SECONDS = 253402300799
 
-const SECONDS_PER_DURATION_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
-
 /**
  * Seconds for a signed offset, at its full magnitude.
  *
  * Deliberately not held to the per-unit ceilings a fixed delay uses. Those exist to bound how long a run
- * waits, which `max_delay_duration` already does here, and applying them to an offset would turn "45 days
- * before" into "30 days before" without saying so: for a date two months out that fires the message 15 days
- * late rather than not at all.
+ * waits, which `max_delay_duration` already does here, and applying them to an offset would shorten it
+ * without saying so: "48 hours before" would become "24 hours before" and fire the message a day late.
  */
 function offsetSeconds(value: string): number | null {
-    const match = OFFSET_REGEX.exec(value)
-    if (!match) {
+    const parsed = parseDuration(value)
+    if (!parsed) {
         return null
     }
-    const [, sign, amountString, unit] = match
-    return (sign === '-' ? -1 : 1) * parseFloat(amountString) * SECONDS_PER_DURATION_UNIT[unit]
+    return (parsed.negative ? -1 : 1) * parsed.amount * SECONDS_PER_DURATION_UNIT[parsed.unit]
 }
 
 /** Seconds for the wait's ceiling, using the same units and per-unit ceilings as a fixed delay. */
 function maxDelaySeconds(value: string): number | null {
-    const match = DURATION_REGEX.exec(value)
-    if (!match) {
+    const parsed = parseDuration(value)
+    if (!parsed || parsed.negative) {
         return null
     }
-    const [, amountString, unit] = match
-    return Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) * SECONDS_PER_DURATION_UNIT[unit]
+    return clampedAmount(parsed, MAX_DELAY_VALUE_FOR_DURATION_UNIT) * SECONDS_PER_DURATION_UNIT[parsed.unit]
+}
+
+/** The amount a step is allowed to wait for, held to this unit's ceiling. */
+function clampedAmount(parsed: ParsedDuration, ceilings: DurationCeilings): number {
+    return Math.min(ceilings[parsed.unit], parsed.amount)
 }
 
 /**
@@ -193,7 +189,21 @@ async function scheduledAtFromInstant(
     return DateTime.utc() >= scheduledAt ? null : scheduledAt
 }
 
-const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
+const LUXON_UNIT = { d: 'days', h: 'hours', m: 'minutes', s: 'seconds' } as const
+
+type DurationCeilings = Record<string, number>
+
+// How long one step may wait, per unit. A delay parks once and wakes once, so it can run to a year.
+// A wait stays registered with the subscription matcher while it parks, so it keeps the shorter cap.
+// Mirrored in products/workflows/backend/utils/durations.py.
+export const MAX_DELAY_VALUE_FOR_DURATION_UNIT: DurationCeilings = {
+    d: 365,
+    h: 24,
+    m: 60,
+    s: 60,
+}
+
+export const MAX_WAIT_VALUE_FOR_DURATION_UNIT: DurationCeilings = {
     d: 30,
     h: 24,
     m: 60,
@@ -208,7 +218,8 @@ const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
 export function calculatedScheduledAt(
     value: string,
     startedAtTimestamp?: number,
-    maxDelaySeconds?: number
+    maxDelaySeconds?: number,
+    ceilings: DurationCeilings = MAX_WAIT_VALUE_FOR_DURATION_UNIT
 ): DateTime | null {
     const actionStartedAt = startedAtTimestamp ? DateTime.fromMillis(startedAtTimestamp).toUTC() : null
 
@@ -216,32 +227,13 @@ export function calculatedScheduledAt(
         throw new Error("'startedAtTimestamp' is not set or is invalid")
     }
 
-    const match = DURATION_REGEX.exec(value)
+    const parsed = parseDuration(value)
 
-    if (!match) {
+    if (!parsed || parsed.negative) {
         throw new Error(`Invalid duration: ${value}`)
     }
 
-    const [_, amountString, unit] = match
-
-    let duration: DurationLike
-
-    switch (unit) {
-        case 'd':
-            duration = { days: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 'h':
-            duration = { hours: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 'm':
-            duration = { minutes: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 's':
-            duration = { seconds: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        default:
-            throw new Error(`Invalid duration: ${value}`)
-    }
+    const duration: DurationLike = { [LUXON_UNIT[parsed.unit]]: clampedAmount(parsed, ceilings) }
 
     const waitUntilTime = actionStartedAt.plus(duration)
 

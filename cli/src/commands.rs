@@ -9,7 +9,10 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand, logs::command::LogsCommand, query::command::QueryCommand,
+        tasks::TaskCommand,
+    },
     invocation_context::{
         capture_command_run_without_context, context, init_context, set_telemetry_command_name,
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
@@ -40,13 +43,11 @@ pub struct Cli {
     rate_limit: Option<usize>,
 
     /// Load PostHog credentials from this dotenv-style file when not present in the process
-    /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
-    /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
+    /// environment.
     /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
     /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
     #[arg(
         long = "dotenv-file",
-        alias = "env-file",
         value_name = "PATH",
         env = "POSTHOG_CLI_DOTENV_FILE"
     )]
@@ -129,6 +130,9 @@ pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
     /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
+
+    /// Update posthog-cli to the latest version
+    Update,
 
     /// Experimental commands, not quite ready for prime time
     Exp {
@@ -226,6 +230,12 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
+    /// Import historical logs into PostHog from another log store
+    Logs {
+        #[command(subcommand)]
+        cmd: LogsCommand,
+    },
+
     // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
     #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
@@ -259,6 +269,13 @@ pub enum SchemaCommand {
         /// Output path for generated definitions (stored in posthog.json for future runs)
         #[arg(short, long)]
         output: Option<String>,
+        /// Language to generate. Without it, the CLI asks which one
+        #[arg(short, long)]
+        language: Option<crate::experimental::schema::Language>,
+        /// TypeScript only: the SDK the module wraps. `none` generates only the event types,
+        /// for posthog-react-native, posthog-node or any other SDK. Stored in posthog.json
+        #[arg(long)]
+        sdk: Option<crate::experimental::schema::TypeScriptSdk>,
     },
     /// Show current schema sync status
     Status,
@@ -268,6 +285,7 @@ impl Commands {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
             Commands::Login => "login",
+            Commands::Update => "update",
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -301,6 +319,9 @@ impl Commands {
 impl ExpCommand {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
+            ExpCommand::Logs { cmd } => match cmd {
+                LogsCommand::Import { .. } => "logs_import",
+            },
             ExpCommand::Task { cmd, .. } => match cmd {
                 TaskCommand::List { .. } => "task_list",
                 TaskCommand::Progress { .. } => "task_progress",
@@ -385,6 +406,9 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                // Updating talks to the release bucket, never to PostHog, so
+                // requiring credentials would lock out anyone without a token.
+                | Commands::Update
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -405,6 +429,9 @@ impl Cli {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
             }
+            Commands::Update => {
+                crate::update::update()?;
+            }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
                     crate::sourcemaps::plain::inject::inject(&input_args, None)?;
@@ -421,8 +448,20 @@ impl Cli {
                         inject_args.release.clone(),
                         std::iter::empty(),
                     )?;
-                    crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
-                    crate::sourcemaps::plain::upload::upload(&upload_args, release.as_ref())?;
+                    // Hand the pairs inject wrote straight to upload, instead of letting
+                    // upload re-walk the directory: a bundler writing into it mid-run
+                    // (e.g. Turbopack's background filesystem-cache flush on Next.js
+                    // 16.3+) would otherwise give upload files inject never stamped,
+                    // aborting the build with "Chunk ID not found" (posthog-js#4667).
+                    let pairs =
+                        crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
+                    let file_selection = upload_args.file_selection.clone();
+                    crate::sourcemaps::plain::upload::upload_pairs(
+                        &upload_args,
+                        pairs,
+                        release.as_ref(),
+                        file_selection,
+                    )?;
                 }
             },
             Commands::Dsym { cmd } => match cmd {
@@ -505,6 +544,9 @@ impl Cli {
                 ExpCommand::Endpoints { cmd } => {
                     cmd.run()?;
                 }
+                ExpCommand::Logs { cmd } => {
+                    cmd.run()?;
+                }
                 // TODO(sept 2026): remove these backward-compat aliases
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {
@@ -528,8 +570,12 @@ impl Cli {
                     }
                 },
                 ExpCommand::Schema { cmd } => match cmd {
-                    SchemaCommand::Pull { output } => {
-                        crate::experimental::schema::pull(self.host, output)?;
+                    SchemaCommand::Pull {
+                        output,
+                        language,
+                        sdk,
+                    } => {
+                        crate::experimental::schema::pull(self.host, output, language, sdk)?;
                     }
                     SchemaCommand::Status => {
                         crate::experimental::schema::status()?;
@@ -576,6 +622,18 @@ mod tests {
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
+    }
+
+    #[test]
+    fn dotenv_file_flag_has_no_env_file_spelling() {
+        let cli = Cli::try_parse_from(["posthog-cli", "--dotenv-file", ".env", "login"]).unwrap();
+        assert_eq!(cli.env_file, Some(PathBuf::from(".env")));
+
+        let err = Cli::try_parse_from(["posthog-cli", "--env-file", ".env", "login"])
+            .err()
+            .expect("--env-file is not a supported spelling");
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert!(err.to_string().contains("--dotenv-file"));
     }
 
     #[test]

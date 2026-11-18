@@ -8,12 +8,14 @@ import {
 import type { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { parsePrUrlParts, safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
+import { primaryReportPullRequest } from '../../../../products/signals/frontend/inbox/utils/reportPullRequests'
 import { derivePrState, type PrBadgeState } from './prState'
 import { PrBadge } from './SignalReportPrBadge'
 
 /** The inbox's own labels are written to stand alone in a badge, so this surface phrases the same
  * states as a sentence a teammate can act on. The state derivation stays shared. */
 const FIX_LABEL: Record<PrBadgeState, string> = {
+    draft: 'Fix drafted',
     open: 'Fix proposed',
     merged: 'Fix merged',
     closed: 'Fix closed',
@@ -29,10 +31,14 @@ const FIX_LABEL: Record<PrBadgeState, string> = {
  */
 export function SignalReportFixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
     // The URL comes from an agent's raw task-run output and isn't scheme-validated server-side.
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(primaryReportPullRequest(report).url)
     const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : undefined
     if (prUrl && prNumber) {
-        const state = derivePrState(report.status, report.implementation_pr_merged)
+        const state = derivePrState(
+            report.status,
+            primaryReportPullRequest(report).merged,
+            primaryReportPullRequest(report).state
+        )
         return (
             <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold">{FIX_LABEL[state]}</span>

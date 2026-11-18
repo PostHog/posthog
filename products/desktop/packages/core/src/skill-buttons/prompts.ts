@@ -5,8 +5,8 @@ import {
   type SkillButtonId,
 } from "./catalog";
 
-export const SKILL_BUTTON_META_NAMESPACE = "posthogCode";
-export const SKILL_BUTTON_META_FIELD = "skillButtonId";
+const SKILL_BUTTON_META_NAMESPACE = "posthogCode";
+const SKILL_BUTTON_META_FIELD = "skillButtonId";
 
 export function buildSkillButtonPromptBlocks(
   buttonId: SkillButtonId,

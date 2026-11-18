@@ -1,26 +1,27 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    nextRunAt,
-    SCOUT_GROUP_LABEL,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-    scoutSubtitle,
-} from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
+import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
-import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
+import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
-import { ScoutRunBoxes } from './ScoutRunBoxes'
+import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
+import { ScoutToolsTag } from './ScoutToolsTag'
+import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -37,10 +38,13 @@ function MetaSeparator(): JSX.Element {
  * last checked, and its cadence on the left; the recent-run strip and the on/off switch on the
  * right. The body links to the scout page. The run boxes and the switch sit outside that link, so
  * a run box opens its task and the switch flips the scout without opening it.
+ *
+ * Memoized: a roster row keeps its identity while the search box narrows the list, so typing
+ * re-renders only the cards that entered or left it.
  */
-export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
+export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -63,14 +67,13 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
-                            {prettifyScoutSkillName(config.skill_name)}
+                            {scoutDisplayName(config)}
                         </span>
-                        {config.auto_pause_exempt && group === 'watching' && (
-                            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
-                                <LemonTag size="small">Quiet by design</LemonTag>
-                            </Tooltip>
-                        )}
+                        <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
+                        <ScoutToolsTag allowedTools={config.allowed_mcp_tools} />
+                        <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
+                        <ScoutDeprecationBadge config={config} />
                     </div>
                     {subtitle && (
                         <p className={cn('m-0 line-clamp-1 text-xs leading-snug', SUBTITLE_TONE_CLASS[subtitle.tone])}>
@@ -80,7 +83,9 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
                         <span>{SCOUT_GROUP_LABEL[group]}</span>
                         <MetaSeparator />
-                        <span>{scoutCadenceLabel(config)}</span>
+                        <span>
+                            <ScoutCadenceLabel config={config} />
+                        </span>
                         {hasNextRun && (
                             <>
                                 <MetaSeparator />
@@ -90,17 +95,26 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             </>
                         )}
                     </div>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                        <ScoutSpendLabel skillName={config.skill_name} average />
+                    </FlaggedFeature>
                 </div>
             </Link>
             <div className="flex shrink-0 items-center justify-between gap-4 @lg:justify-end @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} />
+                        <ScoutRosterRunBoxes runs={runs} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        <span className="text-xs text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the card says so.
+                        <span className="text-xs text-muted">
+                            {runStripEmptyLabel({
+                                loadedOnce: scoutRunsLoadedOnce,
+                                coversFleet: scoutRunsCoverFleet,
+                            })}
+                        </span>
                     )}
                 </div>
                 <ScoutEnabledSwitch
@@ -111,4 +125,4 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
             </div>
         </div>
     )
-}
+})

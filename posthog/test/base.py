@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import uuid
@@ -6,29 +7,28 @@ import inspect
 import logging
 import datetime as dt
 import resource
+import threading
+import dataclasses
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
+from http.cookies import SimpleCookie
 from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
-import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
-from django.test.utils import CaptureQueriesContext
 
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
@@ -44,6 +44,7 @@ from posthog.hogql import (
 )
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
 
@@ -52,8 +53,10 @@ from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
     DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
 )
+from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
@@ -74,16 +77,17 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_OPS_MV,
-    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+    QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_V3_MV_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.dataclasses import frozen
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -118,12 +122,11 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_JSON_TABLE_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
 )
-from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
+from posthog.models.event.util import ZERO_DATE, _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_NAME,
     EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -221,6 +224,7 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
+from posthog.organization_caching import access_cache
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -231,7 +235,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -241,12 +245,6 @@ from products.event_definitions.backend.models.property_definition import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-# Make sure freezegun ignores our utils class that times functions, and heavy optional
-# deps (e.g. transformers) that can break when freezegun walks sys.modules.
-cast(Any, freezegun).configure(
-    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
-)
-
 events_cache_tests: list[dict[str, Any]] = []
 
 from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
@@ -255,11 +253,13 @@ from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 
-def _get_calling_frame_locals() -> dict[str, Any]:
-    frame = inspect.currentframe()
-    if frame is None or frame.f_back is None:
-        raise RuntimeError("Expected a calling frame")
-    return frame.f_back.f_locals
+def _get_decorated_class_body_locals() -> dict[str, Any]:
+    helper_frame = inspect.currentframe()
+    decorator_frame = helper_frame.f_back if helper_frame is not None else None
+    class_body_frame = decorator_frame.f_back if decorator_frame is not None else None
+    if class_body_frame is None or "__qualname__" not in class_body_frame.f_locals:
+        raise RuntimeError("Test variant decorators must be applied to a method inside a class body")
+    return class_body_frame.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -280,6 +280,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        # A JSON containment filter on an id, such as '{"insight_id": 4}'::jsonb.
+        query = re.sub(r"('\{\"\w+_id\": )\d+(\}'::jsonb)", r"\g<1>99999\2", query)
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
         query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
         query = re.sub(
@@ -289,6 +291,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
         )
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
+        )
+        # The pattern allows one level of nested parentheses inside the lock call.
+        query = re.sub(
+            r"pg_(?:try_)?advisory_\w+\((?:[^()']|'[^']*'|\([^()]*\))*\)",
+            lambda lock_call: re.sub(r"\d+", "99999", lock_call.group(0)),
+            query,
         )
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
@@ -311,18 +319,16 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # Both replay gate columns embed feature flag IDs in their containment probes, the linked
+    # flag directly and a trigger group nested inside `conditions.flag`. Normalize every one.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
-
-    # remove version suffix from the restricted-property blob-strip UDF
-    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -487,6 +493,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # the sharing publish gate checks a share against now()
+    # e.g. AND "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz
+    query = re.sub(
+        r"\"posthog_sharingconfiguration\"\.\"expires_at\" > '[^']+'::timestamptz",
+        '"posthog_sharingconfiguration"."expires_at" > \'SHARING-EXPIRY-TIMESTAMP\'::timestamptz',
+        query,
+    )
+
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
@@ -548,6 +562,12 @@ def setup_test_organization_team_and_user(
     organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
 ) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
     organization = Organization.objects.create(name=organization_name)
+    project, team = _create_test_project_and_team(organization, team_api_token)
+    user, organization_membership = _create_test_user(organization, user_email, user_password)
+    return organization, project, team, user, organization_membership
+
+
+def _create_test_project_and_team(organization: Organization, team_api_token: str) -> tuple[Project, Team]:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     team = Team.objects.create(
         id=project.id,
@@ -564,13 +584,33 @@ def setup_test_organization_team_and_user(
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if user_email and user_password:
-        user = User.objects.create_and_join(organization, user_email, user_password)
-        organization_membership = user.organization_memberships.get()
-    else:
-        user = None
-        organization_membership = None
-    return organization, project, team, user, organization_membership
+    return project, team
+
+
+def _create_test_user(
+    organization: Organization, user_email: str | None, user_password: str | None
+) -> tuple[User | None, OrganizationMembership | None]:
+    if not (user_email and user_password):
+        return None, None
+    user = User.objects.create_and_join(organization, user_email, user_password)
+    return user, user.organization_memberships.get()
+
+
+def _setup_test_organization_and_user(klass):
+    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
+    klass.user, klass.organization_membership = _create_test_user(
+        klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD
+    )
+
+
+def _setup_test_project_and_team(test_case):
+    test_case.project, test_case.team = _create_test_project_and_team(
+        test_case.organization, test_case.CONFIG_API_TOKEN
+    )
+    if test_case.user:
+        User.objects.filter(pk=test_case.user.pk).update(current_team=test_case.team)
+        test_case.user.current_team = test_case.team
+        test_case.user.__dict__.pop("team", None)
 
 
 def _setup_test_data(klass):
@@ -680,6 +720,7 @@ class PostHogTestCase(SimpleTestCase):
     # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
+    CLASS_LEVEL_ORGANIZATION_AND_USER = False
 
     databases = {"default"}
 
@@ -695,27 +736,46 @@ class PostHogTestCase(SimpleTestCase):
             raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
+    def create_sibling_environment(self, name: str = "Sibling env") -> Team:
+        # Same row shape as an environment added through the API: same project, no parent_team.
+        # It skips create_with_data, so the environment has no default dashboards or insights.
+        return Team.objects.create(organization=self.organization, project=self.project, name=name)
+
+    @classmethod
+    def _shares_organization_and_user_across_tests(cls) -> bool:
+        return not cls.CLASS_DATA_LEVEL_SETUP and cls.CLASS_LEVEL_ORGANIZATION_AND_USER and issubclass(cls, TestCase)
+
     @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(cls)
+        elif cls._shares_organization_and_user_across_tests():
+            _setup_test_organization_and_user(cls)
 
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
+        # The sources cache is keyed on team/user ids, which repeat across tests while the
+        # rows behind them roll back, so a stale entry would leak one test's schema into the next.
+        clear_sources_cache()
+
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm
         # (60s TTL), and counting the cold reads would make every exact-count test depend
-        # on which events-schema mode CI is running.
+        # on which events-schema mode CI is running. The deferred-revenue-views gate is read
+        # on the same database-build path, so it is warmed for the same reason.
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
+        get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+            util.can_enable_actor_on_events = True
 
-        if not self.CLASS_DATA_LEVEL_SETUP:
+        if self._shares_organization_and_user_across_tests():
+            _setup_test_project_and_team(self)
+        elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
@@ -913,6 +973,9 @@ logger = logging.getLogger(__name__)
 # never re-seeded, TransactionTestCase tests must not mutate these tables - a
 # mutation would silently poison every later test in the process.
 _SELECTIVE_FLUSH_PRESERVED_TABLES = frozenset({"django_migrations", "django_content_type", "auth_permission"})
+# ClickHouse rows outlive every Postgres flush and are scoped by team_id, so restarting
+# the team sequence lets a later test's team inherit an earlier test's events.
+_SEQUENCE_NEVER_RESTARTED_TABLES = frozenset({"posthog_team"})
 
 
 def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
@@ -940,15 +1003,22 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
         )
         # Re-list tables on every flush: tests can create or drop tables (schema
         # migration tests, warehouse DDL), so a cached list goes stale in both
-        # dangerous directions. The catalog query costs ~1ms.
+        # dangerous directions. A table that holds a row has at least one page on
+        # disk, so tables with a zero-length main fork are skipped without probing:
+        # most of the schema is never written in a given test process, and probing
+        # every table dominated the cost of the flush. Partitioned parents have no
+        # storage of their own; their rows are found through their partitions.
         cursor.execute(
             """
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public'
-              AND tablename NOT LIKE 'pg\\_%'
-              AND tablename NOT LIKE '\\_sqlx\\_%'
-              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND c.relname NOT LIKE 'pg\\_%'
+              AND c.relname NOT LIKE '\\_sqlx\\_%'
+              AND c.relname NOT LIKE '\\_persons\\_migrations%'
+              AND pg_relation_size(c.oid) > 0
             """
         )
         tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
@@ -988,7 +1058,7 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
                     WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
                   )
                 """,
-                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
+                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES | _SEQUENCE_NEVER_RESTARTED_TABLES)],
             )
             for (seq_name,) in cursor.fetchall():
                 cursor.execute(f"ALTER SEQUENCE {quote_name(seq_name)} RESTART")
@@ -1059,6 +1129,19 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
+    _class_login_cookies: Optional[SimpleCookie] = None
+    _class_login_user_id: Optional[int] = None
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        has_class_level_user = cls.CLASS_DATA_LEVEL_SETUP or cls._shares_organization_and_user_across_tests()
+        if has_class_level_user and cls.CONFIG_AUTO_LOGIN and cls.user:
+            client = cls.client_class()
+            client.force_login(cls.user)
+            cls._class_login_cookies = client.cookies
+            cls._class_login_user_id = cls.user.pk
+
     def setUp(self):
         super().setUp()
 
@@ -1071,7 +1154,11 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
-            self.client.force_login(self.user)
+            if self._class_login_cookies is not None and self._class_login_user_id == self.user.pk:
+                self.client.cookies = copy.deepcopy(self._class_login_cookies)
+            else:
+                self.client.force_login(self.user)
+            get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
         organization = Organization.objects.create(name="Test Organization")
@@ -1410,6 +1497,10 @@ def also_test_with_materialized_columns(
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                pytest.skip(
+                    "The new events schema reads no materialized columns, so this variant repeats its base test"
+                )
 
             for prop in event_properties:
                 materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
@@ -1433,7 +1524,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = _get_calling_frame_locals()
+        frame_locals: Any = _get_decorated_class_body_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -1471,7 +1562,7 @@ class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
     keeps each schema mode's snapshots safe from the other mode's update runs.
     """
 
-    _file_extension = "new_events_schema.ambr"
+    file_extension = "new_events_schema.ambr"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1493,6 +1584,13 @@ class QueryMatchingTest:
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
+
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -1522,6 +1620,46 @@ class QueryMatchingTest:
                 raise AssertionError(params_error_message)
 
 
+class PostgresQueryRecorder:
+    """Records every query a connection runs while installed with `connection.execute_wrapper`.
+
+    Each entry holds the SQL text that Django's debug cursor writes to `connection.queries`.
+    """
+
+    def __init__(self) -> None:
+        self.captured_queries: list[dict[str, str]] = []
+
+    def __call__(
+        self,
+        execute: Callable[[str, Any, bool, dict[str, Any]], Any],
+        sql: str,
+        params: Any,
+        many: bool,
+        context: dict[str, Any],
+    ) -> Any:
+        try:
+            return execute(sql, params, many, context)
+        finally:
+            self.captured_queries.append({"sql": self._logged_sql(sql, params, many, context)})
+
+    @staticmethod
+    def _logged_sql(sql: str, params: Any, many: bool, context: dict[str, Any]) -> str:
+        if many:
+            try:
+                times: int | str = len(params)
+            except TypeError:
+                times = "?"
+            return f"{times} times: {sql}"
+        return context["connection"].ops.last_executed_query(context["cursor"].cursor, sql, params)
+
+
+def _fill_content_type_cache() -> None:
+    # A capture that starts with a cold cache records django_content_type queries that a warm capture does not.
+    # An enclosing assertNumQueries counts only queries that run through a debug cursor.
+    with patch.object(connections[ContentType.objects.db], "force_debug_cursor", False):
+        ContentType.objects.get_for_models(*apps.get_models())
+
+
 @contextmanager
 def snapshot_postgres_queries_context(
     testcase: QueryMatchingTest,
@@ -1541,6 +1679,12 @@ def snapshot_postgres_queries_context(
     fixed output.
 
     Returns a context manager that can be used to capture queries.
+    It records through `connection.execute_wrapper`, so a nested `assertNumQueries`
+    or a test-client request that clears `connection.queries` does not drop any
+    query from the capture.
+
+    Before it records, it fills Django's ContentType cache for every model. An
+    enclosing `assertNumQueries` does not count the query that the fill runs.
 
     NOTE: it requires specifically that a `QueryMatchingTest` is used as the
     testcase argument.
@@ -1556,11 +1700,13 @@ def snapshot_postgres_queries_context(
                 # Run some code that generates queries
 
     """
-    with CaptureQueriesContext(connections[using]) as context:
-        yield context
+    _fill_content_type_cache()
+    recorder = PostgresQueryRecorder()
+    with connections[using].execute_wrapper(recorder):
+        yield recorder
 
-    for query_with_time in context.captured_queries:
-        query = query_with_time["sql"]
+    for captured_query in recorder.captured_queries:
+        query = captured_query["sql"]
         if custom_query_matcher:
             if query and custom_query_matcher(query):
                 testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
@@ -1597,6 +1743,32 @@ def snapshot_postgres_queries(fn):
             fn(self, *args, **kwargs)
 
     return wrapped
+
+
+@contextmanager
+def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]]:
+    # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
+    unpatched_get = access_cache.get
+    missing = object()
+    with (
+        patch.object(access_cache, "get", wraps=access_cache.get) as get,
+        patch.object(
+            access_cache,
+            "get_many",
+            side_effect=lambda keys: {
+                key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
+            },
+        ) as get_many,
+    ):
+        # IP policies share the backend but not the organization-access key namespace.
+        def count(key_prefix: str | None = "organization_access:") -> int:
+            if key_prefix is None:
+                return get.call_count + get_many.call_count
+            return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
+                any(key.startswith(key_prefix) for key in call.args[0]) for call in get_many.call_args_list
+            )
+
+        yield count
 
 
 def reset_unusable_db_connections() -> None:
@@ -1745,6 +1917,12 @@ def flush_persons_and_events():
     """
     from posthog.test.persons import flush_persons_to_db_and_clickhouse
 
+    # The first flush of a session can be its first ClickHouse use, so create the tables before writing
+    # into them. The setup's own queries reach this function too, and must not flush before the tables exist.
+    clickhouse_test_setup.run()
+    if clickhouse_test_setup.in_setup():
+        return
+
     person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
@@ -1763,7 +1941,7 @@ def _create_event(**kwargs):
     stored with timestamp `2022-11-24T19:00:00` - because America/Pheonix is UTC-7, and Phoenix noon occurs at 7 PM UTC.
     If a `timestamp` WITH an explicit timezone is provided (in the case of ISO strings, this can be the "Z" suffix
     signifying UTC), we use that timezone instead of the project timezone.
-    If NO `timestamp` is provided, we use the current system time (which can be mocked with `freeze_time()`)
+    If NO `timestamp` is provided, we use the current system time (which can be mocked with `time_machine.travel()`)
     and treat that as local to the project.
 
     NOTE: All events get batched and only created when sync_execute is called.
@@ -1777,6 +1955,51 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(
+    team_id: int,
+    flag_key: str,
+    count: int = 1,
+    timestamp: dt.datetime | None = None,
+    *,
+    distinct_id: str = "evaluator",
+    person_id: uuid.UUID | str | None = None,
+    person_created_at: dt.datetime | None = None,
+    response: str | bool | None = True,
+    properties: dict[str, Any] | None = None,
+    person_properties: dict[str, str] | None = None,
+    person_mode: str = "full",
+) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately. Each row gets a new random person_id unless the caller passes one. Without a
+    person_created_at, a row stores the Unix epoch, as a production row written without person columns does."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties_json = json.dumps({**(properties or {}), "$feature_flag": flag_key, "$feature_flag_response": response})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, person_created_at, person_properties, person_mode)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties_json,
+                timestamp,
+                team_id,
+                distinct_id,
+                timestamp,
+                str(person_id or uuid.uuid4()),
+                person_created_at or ZERO_DATE,
+                json.dumps(person_properties or {}),
+                person_mode,
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):
@@ -1813,8 +2036,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
+    return create_action(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
 
 
 class ClickhouseTestMixin(QueryMatchingTest):
@@ -1822,8 +2044,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
     # overrides the basetest in posthog/test/base.py
     # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
+    CLASS_LEVEL_ORGANIZATION_AND_USER = True
 
     snapshot: Any
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Run the deferred ClickHouse setup before any test code, so query snapshots and query
+        # captures never record the setup queries.
+        clickhouse_test_setup.run()
+        super().setUpClass()  # type: ignore[misc]
 
     @staticmethod
     def generalize_sql(value: str):
@@ -1876,6 +2106,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
         capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
         pass a filter that matches on mid-statement text; it will not see comments embedded there.
         """
+        # The deferred ClickHouse setup runs its own queries, which must not land in the captured list.
+        clickhouse_test_setup.run()
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
@@ -1908,11 +2140,16 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
         for stmt in statements
     ]
 
+    clickhouse_test_setup.run()
+    # Other threads wait while the deferred ClickHouse setup runs, except the DDL workers the setup starts here.
+    joins_setup = clickhouse_test_setup.in_setup()
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                sync_execute(stmt)
+                with clickhouse_test_setup.worker(joins_setup):
+                    sync_execute(stmt)
                 return
             except TooManyConnections:
                 if attempt + 1 == max_attempts:
@@ -2001,10 +2238,24 @@ if settings.TEST:
         _clickhouse_pool_checkouts += 1
         return _original_chpool_get_client(self, *args, **kwargs)
 
-    ChPool.get_client = _counting_chpool_get_client
+    ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
-def reset_clickhouse_database() -> None:
+def _kafka_tables_for_tests() -> list[str]:
+    # A Kafka engine table polls Kafka until someone drops it, so the test database only gets them for
+    # AI evals, like create_clickhouse_tables in posthog/conftest.py. Without them, the materialized
+    # views that read from Kafka fail with UNKNOWN_TABLE, which run_clickhouse_statement_in_parallel skips.
+    if not settings.IN_EVAL_TESTING:
+        return []
+    return [
+        KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+        KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+        KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
+    ]
+
+
+def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
     # Dropping tables below removes their materialized columns behind the metadata cache's back,
     # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
     try:
@@ -2017,101 +2268,98 @@ def reset_clickhouse_database() -> None:
             _clear_materialized_columns_cache(_mat_table)
     except ModuleNotFoundError:
         pass
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
-            DROP_RAW_SESSION_VIEW_SQL(),
-            DROP_RAW_SESSION_VIEW_SQL_V3(),
-            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_SESSION_VIEW_SQL(),
-            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_CHANNEL_DEFINITION_TABLE_SQL,
-            DROP_EXCHANGE_RATE_TABLE_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            *clickhouse_events_table_drop_statements(),
-            DROP_PERSON_TABLE_SQL,
-            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
-            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_SESSION_TABLE_SQL(),
-            DROP_WEB_STATS_SQL(),
-            DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_STAGING_SQL(),
-            DROP_WEB_BOUNCES_STAGING_SQL(),
-            DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_MV_SQL(),
-            DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_MV_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
-            TRUNCATE_GROUPS_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
-            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
-            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            TRUNCATE_AI_EVENTS_TABLE_SQL(),
-            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
-            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            CHANNEL_DEFINITION_TABLE_SQL(),
-            EXCHANGE_RATE_TABLE_SQL(),
-            *clickhouse_events_data_table_sqls(),
-            FLAG_EVALUATIONS_TABLE_SQL(),
-            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
-            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
-            PERSONS_TABLE_SQL(),
-            PROPERTY_DEFINITIONS_TABLE_SQL(),
-            RAW_SESSIONS_TABLE_SQL(),
-            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
-            SESSIONS_TABLE_SQL(),
-            SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_STATS_SQL(),
-            WEB_BOUNCES_SQL(),
-            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
-            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
-            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            COHORT_MEMBERSHIP_TABLE_SQL(),
-            PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-        ]
-    )
+    drop_views_and_dictionaries = [
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
+        DROP_RAW_SESSION_VIEW_SQL(),
+        DROP_RAW_SESSION_VIEW_SQL_V3(),
+        DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+        DROP_SESSION_VIEW_SQL(),
+        DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
+        DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+        *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
+    ]
+    drop_and_truncate_tables = [
+        DROP_CHANNEL_DEFINITION_TABLE_SQL,
+        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+        *clickhouse_events_table_drop_statements(),
+        DROP_PERSON_TABLE_SQL,
+        DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
+        DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+        DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
+        DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+        DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
+        DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
+        DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
+        DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        DROP_SESSION_TABLE_SQL(),
+        DROP_WEB_STATS_SQL(),
+        DROP_WEB_BOUNCES_SQL(),
+        DROP_WEB_STATS_STAGING_SQL(),
+        DROP_WEB_BOUNCES_STAGING_SQL(),
+        DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_MV_SQL(),
+        DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_MV_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
+        DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
+        DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+        TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
+        TRUNCATE_GROUPS_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
+        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+        *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
+    ]
+    create_tables = [
+        CHANNEL_DEFINITION_TABLE_SQL(),
+        EXCHANGE_RATE_TABLE_SQL(),
+        *clickhouse_events_data_table_sqls(),
+        FLAG_EVALUATIONS_TABLE_SQL(),
+        WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+        DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
+        PERSONS_TABLE_SQL(),
+        PROPERTY_DEFINITIONS_TABLE_SQL(),
+        RAW_SESSIONS_TABLE_SQL(),
+        SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
+        WRITABLE_RAW_SESSIONS_TABLE_SQL(),
+        WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
+        SESSIONS_TABLE_SQL(),
+        SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+        WEB_STATS_SQL(),
+        WEB_BOUNCES_SQL(),
+        WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+        WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+        WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+        SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+        QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
+        COHORT_MEMBERSHIP_TABLE_SQL(),
+        PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+        PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+        SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+    ]
+    run_clickhouse_statement_in_parallel(drop_views_and_dictionaries)
+    run_clickhouse_statement_in_parallel(drop_and_truncate_tables)
+    run_clickhouse_statement_in_parallel(create_tables)
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DICTIONARY_SQL(),
@@ -2122,28 +2370,26 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            *_kafka_tables_for_tests(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
+    exchange_rates_seeded = sync_execute(f"SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME}")[0][0] > 0
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DATA_SQL(),
-            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
+            *([] if exchange_rates_seeded else [EXCHANGE_RATE_DATA_BACKFILL_SQL()]),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL_V3(),
             RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
@@ -2152,27 +2398,155 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
-                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
-            ),
+            QUERY_LOG_ARCHIVE_V3_MV_SQL(),
         ]
     )
 
+    if materialized_event_properties:
+        from ee.clickhouse.materialized_columns.columns import (
+            materialize,  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+        )
+
+        for property_name in materialized_event_properties:
+            materialize("events", property_name)
+
+    managed_tables = {
+        match.group(1)
+        for statement in (*drop_views_and_dictionaries, *drop_and_truncate_tables, *create_tables)
+        if (match := _MANAGED_TABLE_STATEMENT.match(statement))
+    }
+    state = _read_clickhouse_table_state()
+    row_counts = {name: rows for name, rows in state.row_counts.items() if name in managed_tables and rows is not None}
+    global _clickhouse_reset_baseline
+    _clickhouse_reset_baseline = _ClickhouseResetBaseline(
+        schema=state.schema,
+        row_counts=row_counts,
+        mutation_counts={table: count for table, count in state.mutation_counts.items() if table in row_counts},
+        materialized_event_properties=materialized_event_properties,
+    )
+    _mark_clickhouse_reset()
+
+
+_MANAGED_TABLE_STATEMENT = re.compile(
+    r"^\s*(?:DROP\s+TABLE|TRUNCATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(?:`?\w+`?\.)?`?(\w+)`?",
+    re.IGNORECASE,
+)
+
+_CLICKHOUSE_TABLE_STATE_SQL = """
+SELECT
+    name,
+    uuid,
+    total_rows,
+    (
+        SELECT groupBitXor(cityHash64(table, name, type, default_kind, default_expression, comment))
+        FROM system.columns
+        WHERE database = currentDatabase()
+    ),
+    (
+        SELECT groupBitXor(cityHash64(table, name, type_full, expr))
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase()
+    ),
+    (
+        SELECT groupArray((table, mutations, pending))
+        FROM (
+            SELECT table, count() AS mutations, countIf(NOT is_done) AS pending
+            FROM system.mutations
+            WHERE database = currentDatabase()
+            GROUP BY table
+        )
+    )
+FROM system.tables
+WHERE database = currentDatabase()
+"""
+
+
+@frozen
+class _ClickhouseTableState:
+    schema: tuple[frozenset[tuple[str, str]], int, int]
+    row_counts: dict[str, int | None]
+    mutation_counts: dict[str, int]
+    tables_with_pending_mutations: frozenset[str]
+
+
+@frozen
+class _ClickhouseResetBaseline:
+    schema: tuple[frozenset[tuple[str, str]], int, int]
+    row_counts: dict[str, int]
+    mutation_counts: dict[str, int]
+    materialized_event_properties: tuple[str, ...]
+
+
+_clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
+
+
+def _read_clickhouse_table_state() -> _ClickhouseTableState:
+    rows = sync_execute(_CLICKHOUSE_TABLE_STATE_SQL)
+    _, _, _, columns_hash, indices_hash, mutations = rows[0]
+    return _ClickhouseTableState(
+        schema=(frozenset((name, str(uuid)) for name, uuid, *_ in rows), columns_hash, indices_hash),
+        row_counts={name: total_rows for name, _, total_rows, *_ in rows},
+        mutation_counts={table: count for table, count, _ in mutations},
+        tables_with_pending_mutations=frozenset(table for table, _, pending in mutations if pending),
+    )
+
+
+def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties: tuple[str, ...]) -> bool:
+    global _clickhouse_reset_baseline
+    baseline = _clickhouse_reset_baseline
+    if baseline is None or baseline.materialized_event_properties != materialized_event_properties:
+        return False
+    state = _read_clickhouse_table_state()
+    if state.schema != baseline.schema:
+        return False
+    if state.tables_with_pending_mutations & baseline.row_counts.keys():
+        return False
+    mutation_counts = {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts}
+    mutated_tables = {
+        table
+        for table in baseline.row_counts
+        if mutation_counts.get(table, 0) != baseline.mutation_counts.get(table, 0)
+    }
+    tables_to_truncate: list[str] = []
+    for name, baseline_rows in baseline.row_counts.items():
+        if state.row_counts[name] == baseline_rows and name not in mutated_tables:
+            continue
+        if baseline_rows > 0:
+            return False
+        tables_to_truncate.append(name)
+    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_to_truncate])
+    if mutated_tables:
+        _clickhouse_reset_baseline = dataclasses.replace(baseline, mutation_counts=mutation_counts)
+    _mark_clickhouse_reset()
+    return True
+
+
+def _mark_clickhouse_reset() -> None:
     global _clickhouse_checkouts_at_last_reset
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
 
 
-def reset_clickhouse_database_if_dirty() -> None:
+def truncate_or_reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
+    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
+        reset_clickhouse_database(materialized_event_properties)
+
+
+def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str, ...] = ()) -> None:
     """Reset ClickHouse only if something has checked out a ClickHouse client since
     the last reset finished; with zero checkouts the state cannot have changed and
     the reset would be a no-op costing dozens of DDL statements."""
-    if _clickhouse_pool_checkouts != _clickhouse_checkouts_at_last_reset:
-        reset_clickhouse_database()
+    baseline = _clickhouse_reset_baseline
+    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset and (
+        baseline is None or baseline.materialized_event_properties == materialized_event_properties
+    ):
+        return
+    truncate_or_reset_clickhouse_database(materialized_event_properties)
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -2181,13 +2555,15 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     Use this mixin to make sure you completely destroy the tables between tests.
     """
 
+    clickhouse_reset_materialized_event_properties: tuple[str, ...] = ()
+
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
 
 def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:
@@ -2294,6 +2670,9 @@ def snapshot_hogql_queries(fn_or_class):
     @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         captured_queries = []
+        # A paginator call reaches the executor with the page limit added, so the executor skips it.
+        # Thread-local because a runner may execute its series on worker threads.
+        paginating = threading.local()
 
         # Patch the execute_hogql_query method on the paginator to capture queries before resolution
         original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
@@ -2303,52 +2682,29 @@ def snapshot_hogql_queries(fn_or_class):
             if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
                 captured_queries.append(clone_expr(query))
 
-            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            paginating.active = True
+            try:
+                return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            finally:
+                paginating.active = False
 
-        # Patch the module-level execute_hogql_query function for direct calls
-        # We need to patch it in modules that import it directly
-        original_module_function = hogql_query_module.execute_hogql_query
+        # Patch the executor every call reaches, whichever way its caller imported execute_hogql_query
+        original_executor_method = hogql_query_module.HogQLQueryExecutor.execute
 
-        def capture_module_execute(*exec_args, **exec_kwargs):
-            # Extract the query parameter - it can be positional or keyword
-            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
-
+        def capture_executor_execute(executor_self):
             # Capture the query AST before it gets resolved
-            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-                captured_queries.append(clone_expr(query))
+            if not getattr(paginating, "active", False) and isinstance(
+                executor_self.query, ast.SelectQuery | ast.SelectSetQuery
+            ):
+                captured_queries.append(clone_expr(executor_self.query))
 
-            return original_module_function(*exec_args, **exec_kwargs)
+            return original_executor_method(executor_self)
 
-        # Import modules that use execute_hogql_query directly
-        patches = [
+        # Annotated because the two patches have different types, which join to object.
+        patches: list[AbstractContextManager[Any]] = [
             patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
-            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+            patch.object(hogql_query_module.HogQLQueryExecutor, "execute", capture_executor_execute),
         ]
-
-        # Add patches for modules that import execute_hogql_query directly
-        try:
-            from products.web_analytics.backend.hogql_queries import web_overview
-
-            if hasattr(web_overview, "execute_hogql_query"):
-                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from products.web_analytics.backend.hogql_queries import stats_table
-
-            if hasattr(stats_table, "execute_hogql_query"):
-                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from posthog.hogql_queries.insights.trends import trends_query_runner
-
-            if hasattr(trends_query_runner, "execute_hogql_query"):
-                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
 
         # Apply all patches
         with ExitStack() as stack:
@@ -2376,7 +2732,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):
@@ -2403,7 +2759,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -2416,7 +2772,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn

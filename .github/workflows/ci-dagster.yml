@@ -5,9 +5,20 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        # Where master's coverage for the dagster suite comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat it.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '33 * * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -16,7 +27,7 @@ permissions:
     pull-requests: read
 
 env:
-    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -38,26 +49,61 @@ env:
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Verify the path filter below stays in sync with what dagster files
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        runs-on: ubuntu-latest
+        # Schedules run the full suite; pushes rely on merge-queue coverage.
+        # PRs, including the merge queue, validate coverage before changes land.
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      .github/scripts/check-dagster-paths.py
+                      .github/workflows/ci-dagster.yml
+                      posthog/**/*.py
+                      ee/**/*.py
+                      products/**/*.py
+                      common/**/*.py
+                  sparse-checkout-cone-mode: false
+            - uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run dagster checks
         # Set job outputs to values from filter step
@@ -100,13 +146,17 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -118,6 +168,7 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         # --- posthog submodules that DAGs actually import ---
                         # (verified by tracing imports of all 148 dagster Python files)
                         - 'posthog/clickhouse/**'
@@ -126,11 +177,13 @@ jobs:
                         - 'posthog/hogql/**'
                         - 'posthog/hogql_queries/**'
                         - 'posthog/query_cache/**'
+                        - 'posthog/scheduling/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/session/**'
                         - 'posthog/schema.py'
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
+                        - 'posthog/data_deletion.py'
                         - 'posthog/dataclasses.py'
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
@@ -140,13 +193,21 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
+                        - 'posthog/api/embedding_worker.py'
+                        - 'posthog/security/outbound_proxy.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
+                        - 'posthog/personhog_client/**'
+                        # The gRPC stubs personhog_client imports. check-dagster-paths.py reads
+                        # `personhog` as third-party, so it cannot flag this entry as missing.
+                        - 'packages/personhog-proto/**'
                         - 'posthog/redis.py'
                         - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'posthog/run_mode.py'
+                        - 'posthog/ph_client.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
                         - 'posthog/ducklake/**'
@@ -160,6 +221,7 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
+                        - 'products/access_control/backend/facade/**/*.py'
                         - 'products/analytics_platform/backend/**/*.py'
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
@@ -180,6 +242,13 @@ jobs:
                         - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
+                        # The activity summary DAG reads tasks through this one facade module.
+                        # Narrow on purpose: tasks is a busy backend that no other DAG imports.
+                        - 'products/tasks/backend/facade/user_task_summaries.py'
+                        - 'products/tasks/backend/logic/user_task_summaries.py'
+                        # The AI visibility favicon asset reads brand and cited domains through the facade.
+                        - 'products/aeo/backend/facade/api.py'
+                        - 'products/aeo/backend/models.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
@@ -187,6 +256,7 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         # The test selector guards itself: selector changes run the
                         # suite (full mode), which executes its unit tests first
                         - tools/dagster_test_selection.py
@@ -226,13 +296,17 @@ jobs:
                       dagster_direct:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py
                         - tools/test_dagster_test_selection.py
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly for the same reason as build-matrix
+              # below, which consumes this step's oldest_supported output.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -243,7 +317,10 @@ jobs:
 
             - name: Build sharded test matrix
               id: build-matrix
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly: the paths filter is skipped there,
+              # so steps.filter.outputs.dagster is empty. Without this the matrix would be
+              # [] and the hourly run would report green having run no tests at all.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               env:
                   OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
               run: |
@@ -271,14 +348,19 @@ jobs:
               # to remote.origin.fetch and pull every branch.
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
+                  EVENT_NAME: ${{ github.event_name }}
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ "$EVENT_NAME" = schedule ]; then
+                      MERGE_BASE=$(git rev-parse HEAD)
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
                   if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -305,10 +387,11 @@ jobs:
                   # and the migrate top-ups only apply forward, so they cannot repair a
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  # Scheduled reruns require matching inputs even when the checkout is recent.
+                  if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -337,42 +420,42 @@ jobs:
             && needs.changes.outputs.merge_queue != 'true'
             && needs.changes.outputs.dagster_direct == 'true'
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-dagster')
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
+            # Fetch the working tree at depth 1 to avoid a second request for all its blobs.
+            # The selector adds blobless history after checkout, as backend discovery does.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
 
-            - name: Restore test durations from cache
+            - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
-              # which is not in the repo. This job runs on a GitHub-hosted runner, so
-              # the Depot-side cache misses and the fallback below is the usual path.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .test_durations
-                  key: posthog-test-durations-${{ github.run_id }}
-                  restore-keys: |
-                      posthog-test-durations-
-
-            - name: Fall back to the last published durations
-              # .test_durations is not in the repo. The timing workflow refreshes the
-              # cache several times a day and publishes the same files as an artifact
-              # of its own runs. On a cache miss (retention lapsed, timing workflow
-              # down for two weeks) take the newest artifact; if that is gone too,
-              # pytest-split splits by count and turbo-discover sizes from file counts
-              # until the next timing run.
-              if: ${{ hashFiles('.test_durations') == '' }}
+              # which is not in the repo. The timing workflow saves it to the Actions
+              # cache from a Depot runner. GitHub-hosted jobs like this one read a
+              # separate cache store, so a cache restore here can never hit. Take the
+              # artifact the timing workflow publishes instead; if that is gone too,
+              # the selector estimates without durations until the next timing run.
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -380,7 +463,7 @@ jobs:
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
                       --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
-                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      echo "::warning::No successful timing run, sharding without durations"
                       exit 0
                   fi
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
@@ -449,12 +532,15 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.select-tests.outputs.matrix_include || needs.changes.outputs.matrix_include || '[]') }}
-        # !cancelled() lets this run when select-tests is skipped (master,
+        # !cancelled() lets this run when select-tests is skipped (schedule,
         # merge queue) or failed (fall back to the full matrix); mode 'none'
         # means the diff cannot affect any dagster test, so nothing runs and
         # the merge-queue full suite remains the gate.
+        # Skipped on master push: the merge queue already ran the suite for every
+        # landed commit, and the hourly scheduled run keeps master coverage.
         if: >-
             ${{ !cancelled()
+            && github.event_name != 'push'
             && needs.select-tests.outputs.mode != 'none'
             && (needs.changes.outputs.dagster_direct == 'true'
                 || (needs.changes.outputs.merge_queue == 'true'
@@ -476,6 +562,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -486,7 +573,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
@@ -515,12 +601,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -558,7 +639,9 @@ jobs:
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
+              if: ${{ (github.event_name == 'pull_request' || github.event_name == 'schedule') && needs.changes.outputs.schema_cache_key != '' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -578,7 +661,7 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -600,7 +683,7 @@ jobs:
               # process runs it, and pytest must not carry it through the test phase.
               # pytest --reuse-db adopts the DB like the PR prime above; any failure
               # falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -671,7 +754,7 @@ jobs:
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
                   # an unrebased PR on older pytest-split must not hit an unknown
-                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  # --splitting-algorithm / --split-granularity. See .agents/ci.md.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
@@ -717,14 +800,22 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
-        needs: [dagster]
+        needs: [changes, dagster]
         name: Dagster Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |
+                  # Change detection gates the matrix. A failure there skips it, and this gate
+                  # reads a skip as a pass, so test its result directly. select-tests is not tested
+                  # here: an empty mode makes the matrix run in full, so a failed selector costs
+                  # runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
                   if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then

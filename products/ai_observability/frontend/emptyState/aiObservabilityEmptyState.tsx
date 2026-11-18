@@ -1,4 +1,4 @@
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as robotPng from '@posthog/brand/hoggies/png/robot'
 import { IconLlmAnalytics } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -9,7 +9,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { AIObservabilityTracePreview } from './AIObservabilityTracePreview'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogRobot = pngHoggie(robotPng)
 
 export const aiObservabilityEmptyState: SceneProductEmptyState = {
     statusLogic: aiObservabilitySharedLogic,
@@ -19,7 +19,7 @@ export const aiObservabilityEmptyState: SceneProductEmptyState = {
         icon: <IconLlmAnalytics />,
         accentColor: 'var(--color-product-llm-analytics-light)',
         accentColorDark: 'var(--color-product-llm-analytics-dark)',
-        hedgehog: HedgehogMagnifyingGlass,
+        hedgehog: HedgehogRobot,
         text: {
             'needs-setup': {
                 headline: 'See how your AI is doing in the wild',

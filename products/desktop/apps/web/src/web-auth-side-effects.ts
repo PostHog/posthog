@@ -10,6 +10,7 @@ import {
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { resetCurrentChannel } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { resetInboxReportActionDrafts } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { inject, injectable } from "inversify";
@@ -25,6 +26,7 @@ export class WebAuthSideEffects implements IAuthSideEffects {
   ) {}
 
   onAuthSuccess(_region: CloudRegion, _projectId: number | null): void {
+    resetInboxReportActionDrafts();
     void refreshAuthStateQuery();
     useAuthUiStateStore.getState().clearStaleRegion();
   }
@@ -33,6 +35,7 @@ export class WebAuthSideEffects implements IAuthSideEffects {
 
   async onProjectSelected(): Promise<void> {
     clearAuthScopedQueries();
+    resetInboxReportActionDrafts();
     // Before openTaskInput, which files a new task into the scoped channel —
     // a channel id from the project we just left.
     resetCurrentChannel();
@@ -45,6 +48,7 @@ export class WebAuthSideEffects implements IAuthSideEffects {
 
   async onLogout(previousRegion: CloudRegion | null): Promise<void> {
     clearAuthScopedQueries();
+    resetInboxReportActionDrafts();
     if (previousRegion) {
       useAuthUiStateStore.getState().setStaleRegion(previousRegion);
     }

@@ -84,6 +84,10 @@ export function useCreateCanvasReport({
   const { run, isRunning } = useInboxCloudTaskRunner({
     reportId,
     reportTitle,
+    reportAction: {
+      action_type: "create_canvas",
+      surface: "detail_pane",
+    },
     cloudRepository,
     // The server resolves the repo from the report itself, same as Discuss; no
     // client-side repo gate applies to building a canvas.

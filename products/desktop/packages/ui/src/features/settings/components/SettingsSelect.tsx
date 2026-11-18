@@ -19,6 +19,7 @@ export function SettingsSelect({
   onChange,
   ariaLabel,
   placeholder,
+  disabled = false,
   triggerClassName = "w-full",
 }: {
   value: string | null;
@@ -26,10 +27,12 @@ export function SettingsSelect({
   onChange: (value: string | null) => void;
   ariaLabel: string;
   placeholder?: string;
+  disabled?: boolean;
   triggerClassName?: string;
 }) {
   return (
     <Select
+      disabled={disabled}
       value={value}
       onValueChange={(next: string | null) => onChange(next)}
       items={options.map((o) => ({ value: o.value, label: o.label }))}

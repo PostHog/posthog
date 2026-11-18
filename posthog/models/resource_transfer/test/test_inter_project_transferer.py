@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Project, Team
+from posthog.models import Project, Tag, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -12,15 +12,17 @@ from posthog.models.resource_transfer.inter_project_transferer import (
     duplicate_resource_to_new_team,
     get_suggested_substitutions,
 )
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
 from posthog.models.scoping import team_scope
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 from products.surveys.backend.models import Survey
 
 
@@ -60,7 +62,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_survey_with_insight_and_actions_includes_related_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="survey action",
             steps_json=[{"event": "$pageview"}],
@@ -72,7 +74,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
             questions=[{"id": "q1", "type": "open", "question": "Hello"}],
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         graph = list(build_resource_duplication_graph(survey, set()))
         model_types = {v.model for v in graph}
@@ -80,7 +82,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
         assert Survey in model_types
         assert Insight in model_types
-        assert Action in model_types
+        assert registered_model("Action") in model_types
         assert through in model_types
         assert Team in model_types
 
@@ -130,31 +132,19 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from products.annotations.backend.models.annotation import Annotation
-
-        annotation = Annotation.objects.create(team=self.team, content="My annotation")
+        tag = Tag.objects.create(team=self.team, name="My tag")
         with self.assertRaises(TypeError):
-            list(build_resource_duplication_graph(annotation, set()))
+            list(build_resource_duplication_graph(tag, set()))
 
     def test_insight_with_dashboard_export_subscription_does_not_traverse_through_table(self) -> None:
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-
-        from products.exports.backend.models.subscription import Subscription
-
         insight = Insight.objects.create(team=self.team, name="Exported insight")
         dashboard = Dashboard.objects.create(team=self.team, name="Subscribed dashboard")
-        subscription = Subscription.objects.create(
-            team=self.team,
+        create_subscription(
+            team_id=self.team.id,
             title="Weekly digest",
-            dashboard=dashboard,
-            target_type="email",
-            target_value="tests@posthog.com",
-            frequency="weekly",
-            interval=1,
-            start_date=datetime(2022, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            dashboard_id=dashboard.id,
+            dashboard_export_insight_ids=[insight.id],
         )
-        subscription.dashboard_export_insights.add(insight)
 
         graph = list(build_resource_duplication_graph(insight, set()))
         model_names = {v.model.__name__ for v in graph}
@@ -213,7 +203,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
     def test_duplicates_survey_with_linked_insight_and_actions(self) -> None:
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="Linked", filters={})
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="trigger action",
             steps_json=[{"event": "subscribed"}],
@@ -226,12 +216,12 @@ class TestDuplicateResourceToNewTeam(BaseTest):
             conditions={"linkedFlagVariant": "control", "url": "/p"},
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         results = duplicate_resource_to_new_team(survey, dest_team, created_by=self.user)
         new_surveys = [r for r in results if isinstance(r, Survey)]
         new_insights = [r for r in results if isinstance(r, Insight)]
-        new_actions = [r for r in results if isinstance(r, Action)]
+        new_actions = [r for r in results if isinstance(r, registered_model("Action"))]
 
         assert len(new_surveys) == 1
         assert len(new_insights) == 1
@@ -266,6 +256,23 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         assert new_tiles[0].dashboard == new_dashboards[0]
         assert new_tiles[0].insight == new_insights[0]
         assert new_insights[0].team == dest_team
+
+    def test_duplicates_dashboard_with_text_tile_agent_context(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        text = Text.objects.create(
+            team=self.team,
+            body="Dashboard summary",
+            agent_context="Use the Data Catalog metric activation_rate.",
+        )
+        DashboardTile.objects.create(dashboard=dashboard, text=text)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        copied_text = next(result for result in results if isinstance(result, Text))
+        assert copied_text.team == dest_team
+        assert copied_text.body == text.body
+        assert copied_text.agent_context == text.agent_context
 
     def test_duplicates_dashboard_with_multiple_insight_tiles(self) -> None:
         dest_team = self._create_destination_team()

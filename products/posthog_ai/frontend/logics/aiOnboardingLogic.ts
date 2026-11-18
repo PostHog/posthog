@@ -2,10 +2,11 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import type { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
 
 import {
@@ -16,11 +17,8 @@ import {
 } from '../components/onboarding/onboardingSteps'
 import { type ComposerSeed, composerSeedLogic } from './composerSeedLogic'
 
-/**
- * Key into `user.has_seen_product_intro_for`. That map is a plain `Record<string, boolean>` end to end, so a
- * non-`ProductKey` key is fine — web analytics already stores its own composed key there the same way.
- */
-export const POSTHOG_AI_ONBOARDING_SEEN_KEY = 'posthog_ai_onboarding'
+/** Key into `user.has_seen_product_intro_for`. Named here because it reads better at the call sites. */
+export const POSTHOG_AI_ONBOARDING_SEEN_KEY = ProductKey.POSTHOG_AI_ONBOARDING
 
 export interface AiOnboardingLogicProps {
     /** The embedded composer's panel key, so a chosen starter prompt reaches the right composer. */
@@ -61,20 +59,17 @@ export interface aiOnboardingLogicActions {
     setSeed: (seed: ComposerSeed) => {
         seed: ComposerSeed
     } // composerSeedLogic
-    updateUser: (
-        user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+    updateHasSeenProductIntroFor: (
+        productKey: string,
+        value?: boolean | undefined
     ) => {
-        successCallback: (() => void) | undefined
-        user: Partial<UserType>
+        productKey: string
+        value: boolean
     } // userLogic
     clickGithubCta: () => {
         value: true
     }
     closeOnboarding: () => {
-        value: true
-    }
-    finishOnboarding: () => {
         value: true
     }
     markOnboardingSeen: () => {
@@ -148,13 +143,17 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             aiConsentLogic,
             ['dataProcessingAccepted'],
         ],
-        actions: [userLogic, ['updateUser'], composerSeedLogic({ panelId: props.panelId }), ['setSeed']],
+        actions: [
+            userLogic,
+            ['updateHasSeenProductIntroFor'],
+            composerSeedLogic({ panelId: props.panelId }),
+            ['setSeed'],
+        ],
     })),
 
     actions({
         openOnboarding: (isReplay: boolean = false) => ({ isReplay }),
         closeOnboarding: true,
-        finishOnboarding: true,
         setStepIndex: (stepIndex: number) => ({ stepIndex }),
         markStepViewed: (stepKey: string) => ({ stepKey }),
         selectStarterPrompt: (prompt: string) => ({ prompt }),
@@ -169,7 +168,6 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             {
                 openOnboarding: () => true,
                 closeOnboarding: () => false,
-                finishOnboarding: () => false,
                 selectStarterPrompt: () => false,
             },
         ],
@@ -249,10 +247,17 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openOnboarding: () => {
+        openOnboarding: ({ isReplay }) => {
             posthog.capture('posthog ai onboarding shown', values.reportProperties)
             if (values.currentStep) {
                 actions.markStepViewed(values.currentStep.key)
+            }
+            // Persisted on open rather than only on the way out. A user who reads a step and then closes
+            // the tab, follows a link, or reloads never reaches a dismissal, so the takeover greeted them
+            // again on their next visit. A replay writes nothing: it re-opens the takeover on surfaces that
+            // never showed it by themselves, and marking it seen there would swallow the one real showing.
+            if (!isReplay) {
+                actions.markOnboardingSeen()
             }
         },
         setStepIndex: () => {
@@ -268,11 +273,12 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // skip event carries the step it happened on rather than only reporting that a dismissal occurred.
             posthog.capture('posthog ai onboarding step skipped', values.reportProperties)
             posthog.capture('posthog ai onboarding dismissed', values.reportProperties)
-            actions.markOnboardingSeen()
-        },
-        finishOnboarding: () => {
-            posthog.capture('posthog ai onboarding completed', values.reportProperties)
-            actions.markOnboardingSeen()
+            // A replay writes nothing on the way out either, matching the open carve-out above, because it
+            // re-opened the takeover on a surface that never showed it and persisting here would swallow the
+            // one real showing.
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         selectStarterPrompt: ({ prompt }) => {
             posthog.capture('posthog ai onboarding starter prompt clicked', {
@@ -283,7 +289,9 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // prompt only prefills, so the consent popover never fires on top of the onboarding. The user's
             // own send then goes through the composer's normal consent flow.
             actions.setSeed({ prompt, autoSubmit: values.dataProcessingAccepted })
-            actions.markOnboardingSeen()
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         clickGithubCta: () => {
             posthog.capture('posthog ai onboarding github cta clicked', {
@@ -305,12 +313,7 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             if (values.user?.is_impersonated) {
                 return
             }
-            actions.updateUser({
-                has_seen_product_intro_for: {
-                    ...values.user?.has_seen_product_intro_for,
-                    [POSTHOG_AI_ONBOARDING_SEEN_KEY]: true,
-                },
-            })
+            actions.updateHasSeenProductIntroFor(POSTHOG_AI_ONBOARDING_SEEN_KEY)
         },
     })),
 ])

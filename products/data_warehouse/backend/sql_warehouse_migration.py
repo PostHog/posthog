@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     DottedNameParts,
     SourceRegistry,
@@ -40,16 +41,12 @@ def is_multi_schema_capable_sql_source(source_type: ExternalDataSourceType | str
     The optional field is the opt-in marker (Postgres, MSSQL, Snowflake, Redshift today). Resolved via
     `get_all_sources`, not the test-mockable `get_source`, so the gate stays config-driven.
     """
-    try:
-        resolved_type = ExternalDataSourceType(source_type)
-    except ValueError:
-        return False
-    return _source_has_optional_schema_field(SourceRegistry.get_all_sources().get(resolved_type))
+    return _source_has_optional_schema_field(SourceRegistry.get_all_sources().get(source_type))
 
 
 def source_namespace_is_blank(source: ExternalDataSource) -> bool:
     """True when the source's `job_inputs.schema` is unset — i.e. it's in multi-schema mode."""
-    schema = (source.job_inputs or {}).get("schema")
+    schema = SourceInputsStore.load_settings(source).get("schema")
     return not (isinstance(schema, str) and schema.strip())
 
 
@@ -180,7 +177,7 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
         else:
             unqualified_rows.append(row)
 
-    default_schema = normalize_namespace((source.job_inputs or {}).get("schema"))
+    default_schema = normalize_namespace(SourceInputsStore.load_settings(source).get("schema"))
     name_substitutions: dict[str, str] = {}
 
     for legacy in unqualified_rows:

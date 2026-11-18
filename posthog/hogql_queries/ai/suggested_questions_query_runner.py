@@ -15,6 +15,7 @@ from posthog.schema import (
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.llm.completions import hit_openai
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.utils import get_instance_region
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -89,7 +90,12 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
         ]
 
         for _ in range(3):  # Try up to 3 times in case the output is malformed - though this is very unlikely
-            completion = hit_openai(messages, f"{get_instance_region()}/team/{team.id}")
+            completion = hit_openai(
+                messages,
+                f"{get_instance_region()}/team/{team.id}",
+                posthog_properties={"ai_product": "suggested_questions", "team_id": team.id},
+                distinct_id=team_distinct_id(team.id),
+            )
             questions_start = completion.content.find("QUESTIONS:")
             if questions_start == -1:
                 continue

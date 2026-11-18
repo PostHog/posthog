@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_outcome' */ \n        SELECT person_id, status,\n               (sealed->>'tombstone_version')::bigint AS \"tombstone_version?\"\n        FROM lifecycle_op_person_tmp WHERE op_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tombstone_version?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "f73ecc044e1a17b191f24dac2c3bd6e4c3a849758b0329393dffa6b3abf7043d"
+}

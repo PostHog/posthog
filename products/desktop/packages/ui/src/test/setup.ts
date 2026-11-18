@@ -123,6 +123,15 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+// jsdom lacks the FontFaceSet API; claim no custom font so buildFontCss
+// takes its fallback branch.
+if (typeof document.fonts === "undefined") {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { check: () => false },
+  });
+}
+
 afterEach(() => {
   cleanup();
 });

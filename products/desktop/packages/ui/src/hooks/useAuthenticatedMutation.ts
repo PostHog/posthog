@@ -15,10 +15,14 @@ export function useAuthenticatedMutation<
   TData = unknown,
   TError = Error,
   TVariables = void,
+  TOnMutateResult = unknown,
 >(
   mutationFn: AuthenticatedMutationFn<TVariables, TData>,
-  options?: Omit<UseMutationOptions<TData, TError, TVariables>, "mutationFn">,
-): UseMutationResult<TData, TError, TVariables> {
+  options?: Omit<
+    UseMutationOptions<TData, TError, TVariables, TOnMutateResult>,
+    "mutationFn"
+  >,
+): UseMutationResult<TData, TError, TVariables, TOnMutateResult> {
   const client = useOptionalAuthenticatedClient();
 
   return useMutation({

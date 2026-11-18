@@ -38,6 +38,7 @@ pub enum Value {
     Text(String),
     Timestamp(DateTime<Utc>),
     Json(serde_json::Value),
+    IntArray(Vec<i32>),
 }
 
 impl Value {
@@ -61,6 +62,7 @@ impl Value {
             Value::Text(_) => "text",
             Value::Timestamp(_) => "timestamptz",
             Value::Json(_) => "jsonb",
+            Value::IntArray(_) => "integer[]",
         }
     }
 }
@@ -99,6 +101,10 @@ pub struct Snapshot {
     /// Written by the sink after the primary rows.
     #[serde(default)]
     pub aux: Vec<Snapshot>,
+    /// Extra indexes for a `ts_` table, one column list each, built as
+    /// `(server_id, <cols>, collected_at)`.
+    #[serde(default)]
+    pub indexes: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,8 +131,17 @@ pub struct State {
 pub struct Capabilities {
     pub aurora: bool,
     pub aurora_version: Option<String>,
-    /// Extensions installed in the connected database.
-    pub extensions: std::collections::HashSet<String>,
+    /// Extensions installed in the connected database, with their `extversion`.
+    pub extensions: std::collections::HashMap<String, String>,
+}
+
+impl Capabilities {
+    /// None when the extension is absent or its version string is not `major.minor`.
+    pub fn pgss_version(&self) -> Option<(u32, u32)> {
+        let raw = self.extensions.get("pg_stat_statements")?;
+        let (major, minor) = raw.split_once('.')?;
+        Some((major.parse().ok()?, minor.parse().ok()?))
+    }
 }
 
 /// What a collector needs from a target before it can run.
@@ -145,7 +160,7 @@ impl Requirements {
             return Some("requires Aurora".into());
         }
         if let Some(e) = &self.extension {
-            if !caps.extensions.contains(e) {
+            if !caps.extensions.contains_key(e) {
                 return Some(format!("requires extension {e} (CREATE EXTENSION {e})"));
             }
         }

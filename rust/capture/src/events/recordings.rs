@@ -38,8 +38,8 @@ use crate::{
             SnapshotDataRejection,
         },
     },
+    outputs::OutputRegistry,
     prometheus::report_dropped_events,
-    sinks,
     utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
@@ -194,6 +194,7 @@ impl RawRecording {
         if distinct_id.is_empty() {
             return None;
         }
+        let trimmed_bytes = distinct_id.trim().len();
 
         // Byte length bounds char count, so ids within 200 bytes skip the
         // char-count pass entirely on the hot path.
@@ -201,6 +202,7 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
@@ -209,12 +211,14 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
         Some(ExtractedDistinctId {
             value: distinct_id.chars().take(200).collect(),
             truncated_from_chars: Some(char_count),
+            trimmed_bytes,
         })
     }
 
@@ -254,7 +258,7 @@ impl HasEventName for RawRecording {
 ///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events(
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputRegistry>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -264,7 +268,7 @@ pub async fn process_replay_events(
     let event_count = events.len() as u64;
 
     let abort = match process_replay_events_inner(
-        sink,
+        outputs,
         restriction_service,
         replay_overflow_limiter,
         events,
@@ -349,7 +353,7 @@ impl ReplayAbort {
 /// modified, including when the request was dropped by an event restriction and
 /// so ingested nothing to warn about.
 async fn process_replay_events_inner(
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputRegistry>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
@@ -598,9 +602,14 @@ async fn process_replay_events_inner(
         timestamp: computed_timestamp,
         is_cookieless_mode,
         historical_migration: context.historical_migration,
+        options: None,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await?;
+    // One `$snapshot_items` event per call.
+    histogram!("capture_event_batch_size").record(1.0);
+    outputs
+        .publish(vec![ProcessedEvent { metadata, event }])
+        .await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
 
@@ -826,8 +835,8 @@ mod tests {
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
+    use crate::outputs::OutputRegistry;
     use crate::sinks::test_sink::MockSink;
-    use crate::sinks::Event;
     use common_redis::MockRedisClient;
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
@@ -868,9 +877,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_drop_event_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -892,8 +901,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         assert!(events_captured.lock().unwrap().is_empty());
@@ -902,9 +918,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_redirect_to_dlq_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -926,8 +942,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -938,9 +961,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_force_overflow_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -962,8 +985,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -974,9 +1004,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_skip_person_processing_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -998,8 +1028,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -1010,14 +1047,15 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_no_restriction_service() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, None, None, vec![recording], &context).await;
+        let result =
+            process_replay_events(outputs, None, None, None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -1039,14 +1077,14 @@ mod tests {
         ];
         for (stamp, expected) in cases {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured.clone(),
-            });
+            }));
             let mut recording = create_test_recording();
             recording.properties.snapshot_host = stamp.clone();
             let context = create_test_context();
 
-            process_replay_events(sink, None, None, None, vec![recording], &context)
+            process_replay_events(outputs, None, None, None, vec![recording], &context)
                 .await
                 .unwrap();
 
@@ -1063,9 +1101,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_filtered_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -1090,8 +1128,15 @@ mod tests {
         let recording = create_test_recording(); // has session_id "test-session-123"
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         // Should NOT be dropped because session_id doesn't match filter
         assert!(result.is_ok());
@@ -1128,14 +1173,15 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_none_when_limiter_absent() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, None, None, vec![recording], &context).await;
+        let result =
+            process_replay_events(outputs, None, None, None, vec![recording], &context).await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -1146,16 +1192,23 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_replay_limited_for_matching_session() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recording = create_test_recording(); // session_id = "test-session-123"
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, None, Some(limiter), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -1169,16 +1222,23 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_none_for_unlimited_session() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["some-other-session".to_string()]).await;
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, None, Some(limiter), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -1192,9 +1252,9 @@ mod tests {
         // must leave overflow_reason = None so the sink routes on force_overflow
         // directly (matching the old sink precedence).
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -1218,7 +1278,7 @@ mod tests {
         let context = create_test_context();
 
         let result = process_replay_events(
-            sink,
+            outputs,
             Some(service),
             Some(limiter),
             None,
@@ -1241,16 +1301,16 @@ mod tests {
         // uniformly to the batch. This guards against a regression where a
         // per-item check might diverge from batch-level routing.
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recordings = vec![create_test_recording(), create_test_recording()];
         let context = create_test_context();
 
         let result =
-            process_replay_events(sink, None, Some(limiter), None, recordings, &context).await;
+            process_replay_events(outputs, None, Some(limiter), None, recordings, &context).await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -1307,15 +1367,22 @@ mod tests {
     async fn test_replay_overflow_histogram_recorded_when_limited() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, Some(limiter), None, vec![recording], &context)
-                .await
-                .unwrap();
+            process_replay_events(
+                outputs,
+                None,
+                Some(limiter),
+                None,
+                vec![recording],
+                &context,
+            )
+            .await
+            .unwrap();
         })
         .await;
 
@@ -1331,17 +1398,24 @@ mod tests {
     async fn test_replay_overflow_histogram_recorded_when_not_limited() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             // Session NOT in the limited set -> limiter returns false, but
             // the histogram must still record the call duration.
             let limiter = build_replay_limiter(vec!["some-other-session".to_string()]).await;
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, Some(limiter), None, vec![recording], &context)
-                .await
-                .unwrap();
+            process_replay_events(
+                outputs,
+                None,
+                Some(limiter),
+                None,
+                vec![recording],
+                &context,
+            )
+            .await
+            .unwrap();
         })
         .await;
 
@@ -1357,9 +1431,9 @@ mod tests {
     async fn test_replay_overflow_histogram_not_recorded_on_force_overflow() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
 
             // force_overflow short-circuits the limiter branch; the pipeline
             // must skip the redis call AND the histogram record.
@@ -1383,7 +1457,7 @@ mod tests {
             let recording = create_test_recording();
             let context = create_test_context();
             process_replay_events(
-                sink,
+                outputs,
                 Some(service),
                 Some(limiter),
                 None,
@@ -1407,12 +1481,12 @@ mod tests {
     async fn test_replay_overflow_histogram_not_recorded_when_limiter_absent() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, None, None, vec![recording], &context)
+            process_replay_events(outputs, None, None, None, vec![recording], &context)
                 .await
                 .unwrap();
         })
@@ -1432,29 +1506,36 @@ mod tests {
     // metadata and produces to `replay_overflow_topic` with the session_id
     // as partition key.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
     async fn e2e_replay_limited_pipeline_to_sink_routes_to_replay_overflow_with_session_key() {
         let producer = MockKafkaProducer::new();
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(KafkaSinkBase::with_producer(
+        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
-        ));
+            test_outputs(),
+        )));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recording = create_test_recording(); // session_id = "test-session-123"
         let context = create_test_context();
 
-        process_replay_events(sink, None, Some(limiter), None, vec![recording], &context)
-            .await
-            .unwrap();
+        process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await
+        .unwrap();
 
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "replay_overflow",
+            &*records[0].topic, "replay_overflow",
             "ReplayLimited must route to replay_overflow topic"
         );
         assert_eq!(
@@ -1476,16 +1557,16 @@ mod tests {
     async fn warnings_from_replay(
         events: Vec<RawRecording>,
     ) -> Vec<common_ingestion_warnings::test_support::EmittedWarning> {
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: Arc::new(Mutex::new(Vec::new())),
-        });
+        }));
         let emitter = Arc::new(CollectingEmitter::default());
 
         // The outcome is asserted by each caller through the warnings; a failing
         // result is the point in most of these cases.
         drop(
             process_replay_events(
-                sink,
+                outputs,
                 None,
                 None,
                 Some(emitter.clone()),

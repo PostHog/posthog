@@ -10,12 +10,27 @@ from cachetools import cached
 from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
+from requests import PreparedRequest
+from requests.auth import AuthBase, HTTPBasicAuth
 
-from posthog.clickhouse.client.connection import default_client
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.clickhouse.client.connection import (
+    ClickHouseCredentials,
+    ClickHouseUser,
+    default_client,
+    get_clickhouse_creds,
+)
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
+
+
+class _PerRequestPasswordAuth(AuthBase):
+    def __init__(self, creds: ClickHouseCredentials) -> None:
+        self._creds = creds
+
+    def __call__(self, request: PreparedRequest) -> PreparedRequest:
+        return HTTPBasicAuth(self._creds.user, self._creds.read_password())(request)
 
 
 class Command(BaseCommand):
@@ -53,20 +68,25 @@ class Command(BaseCommand):
         self.migrate(CLICKHOUSE_HTTP_URL, options)
 
     def migrate(self, host, options):
+        creds = get_clickhouse_creds(ClickHouseUser.MIGRATIONS)
+
         # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
-        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
-        self._create_migration_tracking_tables_if_not_exist(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
+        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER, creds)
+        self._create_migration_tracking_tables_if_not_exist(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER, creds)
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=host,
-            username=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
+            username=creds.user,
+            password=creds.read_password(),
             cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
             # don't use the egress proxy, clickhouse is internal
             trust_env=False,
         )
+        # infi.clickhouse_orm sends the password it was built with on every request, and an apply
+        # can outlast a short-lived token, so each request reads the password again.
+        database.request_session.auth = _PerRequestPasswordAuth(creds)
 
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
@@ -120,19 +140,21 @@ class Command(BaseCommand):
     def get_applied_migrations(self, database) -> set[str]:
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
-    def _create_database_if_not_exists(self, database: str, cluster: str):
+    def _create_database_if_not_exists(self, database: str, cluster: str, creds: ClickHouseCredentials) -> None:
         # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed
         # migration-tracking table across the migrations cluster before the
         # first migration runs, so the database has to exist on every node up
         # front — otherwise the CREATE TABLE fans out to satellites that have
         # no `posthog` database yet and fails with UNKNOWN_DATABASE.
         if settings.TEST or settings.E2E_TESTING or settings.MULTINODE_CLICKHOUSE:
-            with default_client() as client:
+            with default_client(user=creds.user, password=creds.read_password()) as client:
                 client.execute(
                     f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
                 )
 
-    def _create_migration_tracking_tables_if_not_exist(self, database: str, cluster: str):
+    def _create_migration_tracking_tables_if_not_exist(
+        self, database: str, cluster: str, creds: ClickHouseCredentials
+    ) -> None:
         # MULTINODE_CLICKHOUSE only: infi.clickhouse_orm's auto-create path
         # issues `CREATE TABLE` without `ON CLUSTER`, so the underlying
         # ReplicatedMergeTree only lands on the migrations host. With a real
@@ -148,7 +170,7 @@ class Command(BaseCommand):
         # pre-create will silently diverge — keep the two in sync.
         if not settings.MULTINODE_CLICKHOUSE:
             return
-        with default_client() as client:
+        with default_client(user=creds.user, password=creds.read_password()) as client:
             client.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {database}.infi_clickhouse_orm_migrations

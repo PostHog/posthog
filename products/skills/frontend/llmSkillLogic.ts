@@ -28,6 +28,7 @@ import {
     llmSkillsNameArchiveCreate,
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
+    llmSkillsNameRenameCreate,
     llmSkillsResolveNameRetrieve,
 } from 'products/skills/frontend/generated/api'
 import type {
@@ -228,6 +229,7 @@ export interface llmSkillLogicValues {
     ownerDraftChanged: boolean
     ownersEditing: boolean
     publishConflict: PublishConflict | null
+    renamingSkill: boolean
     savingOwners: boolean
     selectedVersion: number | null
     shouldDisplaySkeleton: boolean
@@ -315,6 +317,9 @@ export interface llmSkillLogicActions {
     openPublishReview: () => {
         value: true
     }
+    renameSkill: (newName: string) => {
+        newName: string
+    }
     requestPublish: () => {
         value: true
     }
@@ -341,6 +346,9 @@ export interface llmSkillLogicActions {
     }
     setPublishConflict: (publishConflict: PublishConflict | null) => {
         publishConflict: PublishConflict | null
+    }
+    setRenamingSkill: (renaming: boolean) => {
+        renaming: boolean
     }
     setSavingOwners: (saving: boolean) => {
         saving: boolean
@@ -460,6 +468,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         addUploadedFiles: (files: SkillFileUpload[]) => ({ files }),
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
+        renameSkill: (newName: string) => ({ newName }),
+        setRenamingSkill: (renaming: boolean) => ({ renaming }),
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: SkillMode) => ({ mode }),
@@ -613,6 +623,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 saveOwners: () => true,
                 setSavingOwners: (_, { saving }) => saving,
+            },
+        ],
+        renamingSkill: [
+            false,
+            {
+                renameSkill: () => true,
+                setRenamingSkill: (_, { renaming }) => renaming,
             },
         ],
     })),
@@ -1028,6 +1045,28 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     console.error('Failed to archive skill', e)
                     lemonToast.error('Failed to archive skill')
                 }
+            }
+        },
+
+        renameSkill: async ({ newName }) => {
+            const currentSkill = values.skill
+            if (props.skillName === 'new' || !isSkill(currentSkill) || newName === currentSkill.name) {
+                actions.setRenamingSkill(false)
+                return
+            }
+            try {
+                await llmSkillsNameRenameCreate(String(ApiConfig.getCurrentTeamId()), currentSkill.name, {
+                    new_name: newName,
+                })
+                lemonToast.success(`Skill renamed to "${newName}".`)
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                // The name is the route key, so the open page has to follow the skill to its new URL.
+                router.actions.replace(urls.skill(newName))
+            } catch (error) {
+                console.error('Failed to rename skill', error)
+                lemonToast.error(getApiErrorDetail(error) || "Couldn't rename the skill. Try again.")
+            } finally {
+                actions.setRenamingSkill(false)
             }
         },
 

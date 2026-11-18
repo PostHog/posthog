@@ -12,8 +12,8 @@ Phase 1 is read-only — all actions require the user to make changes manually.
 | Missing feature flag                   | Create and link a feature flag to this experiment.                                                                         |
 | Inactive (paused) flag                 | Re-enable the linked feature flag, or end the experiment if it's no longer needed.                                         |
 | Deleted flag                           | The experiment's flag was deleted. Create a new flag and re-link, or archive the experiment.                               |
-| Uneven variant split                   | Adjust variant rollout percentages on the linked flag to match the experiment's expected split.                            |
-| Variant mismatch                       | Align the variants between the experiment and its linked flag — they must use the same variant keys.                       |
+| Incomplete variant split               | Adjust the variant rollout percentages on the linked flag so they total 100%.                                              |
+| Too few variants                       | Add a test variant to the linked flag, so it has a baseline and at least one variant to compare.                           |
 | Conclusion contradicts shipped variant | Review the experiment conclusion and the flag's current state. Either update the conclusion or change the flag to match.   |
 | Concluded but still splitting          | The experiment has a conclusion but the flag is still splitting traffic. Roll out the winning variant or disable the flag. |
 | Stale draft                            | This experiment has been in draft for over 7 days. Either launch it or delete it.                                          |

@@ -1,6 +1,7 @@
 import socket
 import threading
 from collections.abc import Generator
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -20,18 +21,31 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDenie
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 
 from products.access_control.backend.models.access_control import AccessControl
+
+# The adapter imports this inside a method, and the CI test selector does not follow such imports.
+# A module-level import here keeps an edit to the facade selecting this file.
+from products.managed_warehouse.backend.facade import sql_editor as managed_warehouse_sql_editor
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestDuckgresRawAdapterSelection(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch("posthoganalytics.feature_enabled", return_value=False)
+        flag.start()
+        self.addCleanup(flag.stop)
+        # The sources here are not saved, so they have no credentials row to read.
+        self.enterContext(read_unsaved_source_inputs_as_stored())
+
     def _source(self, **overrides: object) -> ExternalDataSource:
         source = ExternalDataSource(
             team_id=123,
@@ -53,6 +67,7 @@ class TestDuckgresRawAdapterSelection(SimpleTestCase):
                 "reader_configured": True,
             },
         )
+        source.team = Team(id=123, organization_id=UUID("00000000-0000-0000-0000-000000000001"))
         for field, value in overrides.items():
             setattr(source, field, value)
         return source
@@ -311,10 +326,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         with (
             patch("posthog.hogql.direct_connection.Database.create_for", side_effect=AssertionError),
             patch.object(HogQLQueryExecutor, "_prepare_execution", side_effect=AssertionError),
-            patch(
-                "products.warehouse_sources.backend.facade.source_management.SourceRegistry.get_source",
-                side_effect=AssertionError,
-            ),
+            patch.object(PostgresAdapter, "validate_source_config", side_effect=AssertionError),
         ):
             response = HogQLQueryExecutor(
                 query="SELECT 1 AS value", team=self.team, connection_id=str(source.id), send_raw_query=True
@@ -345,7 +357,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.resolve_managed_warehouse_postgres_connection")
+    @patch.object(managed_warehouse_sql_editor, "resolve_managed_warehouse_postgres_connection")
     def test_dynamic_source_mints_for_the_stable_user_identity_and_uses_tls(self, resolve_connection, connect) -> None:
         source = self._dynamic_managed_source()
         source.job_inputs = {}

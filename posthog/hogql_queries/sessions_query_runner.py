@@ -19,7 +19,7 @@ from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person
@@ -30,7 +30,8 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 COLUMN_COMMENT_SEPARATOR = " -- "
 SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
@@ -434,10 +435,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 )
                             elif self.query.actionId:
                                 try:
-                                    action = Action.objects.get(
-                                        pk=self.query.actionId, team__project_id=self.team.project_id
-                                    )
-                                except Action.DoesNotExist:
+                                    action = get_action(action_id=self.query.actionId, project_id=self.team.project_id)
+                                except ActionNotFound:
                                     raise Exception("Action does not exist")
                                 if not action.steps:
                                     raise Exception("Action does not have any match groups")
@@ -625,6 +624,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self.build_hogql_context(),
         )
 
         # Convert star field from tuple to dict in each result

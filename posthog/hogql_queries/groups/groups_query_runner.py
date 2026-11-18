@@ -1,11 +1,10 @@
 from posthog.schema import CachedGroupsQueryResponse, GroupsQuery, GroupsQueryResponse
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation, property_to_expr
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 
@@ -63,7 +62,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(
@@ -152,7 +151,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             # :HACKY: posthog/hogql/transforms/property_types.py needs access to the group_id in order to know the property type
-            context=HogQLContext(team_id=self.team.pk, globals={"group_id": self.query.group_type_index}),
+            context=self.build_hogql_context(globals={"group_id": self.query.group_type_index}),
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
 

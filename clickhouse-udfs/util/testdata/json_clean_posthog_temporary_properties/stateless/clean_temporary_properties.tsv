@@ -1,0 +1,3 @@
+{"$set":{"score":7,"enabled":false},"$unset":["old"],"$sdk_debug_probe.count":2,"$sdk_debug_current_session_duration":42,"$feature_flag_request_id":"request-example","$debug_images":[{"type":"elf"}],"$feature/demo":"control","$feature_flag_payload":{},"custom":true}
+{"custom":true}
+{"$set":{"enabled":false},"$unset":[]}

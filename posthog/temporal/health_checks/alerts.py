@@ -2,7 +2,6 @@ from typing import Literal
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.framework import (
@@ -11,6 +10,8 @@ from posthog.temporal.health_checks.framework import (
     health_check_class_for_kind,
     remediation_for_kind,
 )
+
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 

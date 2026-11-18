@@ -23,8 +23,11 @@ Start with the guide that matches the work you are doing. [AGENTS.md](../AGENTS.
 
 ## Feature references
 
+- [Desktop feedback](./FEEDBACK.md)
+
 | Guide | Use it for |
 | --- | --- |
+| [Inbox report states](./INBOX-REPORT-STATES.md) | Understand dismissal feedback and investigation status. |
 | [Deep links](./DEEP-LINKS.md) | Work with `posthog-code://` routes and OAuth callbacks. |
 | [Pi extensions](./PI-EXTENSIONS.md) | Understand repository trust and desktop RPC behavior for Pi extensions. |
 | [Cloud MCP import](./CLOUD-MCP-IMPORT.md) | Understand importing local MCP configuration into cloud task runs. |
@@ -43,7 +46,7 @@ These documents capture design intent at a point in time. Check the current code
 ## App and package guides
 
 - [Electron desktop app](../apps/code/README.md)
-- [Mobile app](../apps/mobile/README.md)
+- [Proposed independent mobile app](https://github.com/PostHog/posthog/pull/118584)
 - [Web app](../apps/web/README.md)
-- [Agent framework](../packages/agent/README.md)
-- [Harness](../packages/harness/README.md)
+- [Agent framework](../../../packages/agent/packages/agent/README.md)
+- [Harness](../../../packages/agent/packages/harness/README.md)

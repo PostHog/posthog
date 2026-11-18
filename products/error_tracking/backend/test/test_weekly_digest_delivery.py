@@ -22,7 +22,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.weekly_digest import send_digest_to_workflow
+from products.error_tracking.backend.weekly_digest_delivery import send_digest_to_workflow
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -35,13 +35,13 @@ def _days_ago(n: int) -> str:
 class TestSendDigestToWorkflow(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT=None)
     def test_refuses_to_send_from_a_self_hosted_deployment(self):
-        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post:
             with pytest.raises(RuntimeError, match="self-hosted"):
                 send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
             assert mock_post.call_count == 0
 
     def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
-        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post:
             mock_post.return_value.raise_for_status.side_effect = requests.HTTPError(
                 "500", response=mock_post.return_value
             )
@@ -50,7 +50,7 @@ class TestSendDigestToWorkflow(SimpleTestCase):
 
     @override_settings(WORKFLOWS_WEBHOOK_SECRET="Bearer test-token")
     def test_sends_secret_as_authorization_header(self):
-        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post:
             send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
             assert mock_post.call_args.kwargs["headers"] == {"Authorization": "Bearer test-token"}
 
@@ -84,7 +84,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         }
         self.user.save()
 
-        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post:
             send_error_tracking_weekly_digest_for_org(str(self.organization.id))
 
             assert mock_post.call_count == 1
@@ -144,7 +144,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         self.user.role_at_organization = "engineering"
         self.user.save()
 
-        with patch("products.error_tracking.backend.weekly_digest.requests.post"):
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post"):
             send_error_tracking_weekly_digest_for_org(str(self.organization.id))
 
         self.user.refresh_from_db()
@@ -181,7 +181,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_fail),
-            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+            patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post,
         ):
             with pytest.raises(Exception, match="team builds"):
                 send_error_tracking_weekly_digest_for_org(str(self.organization.id))
@@ -215,7 +215,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_recover),
-            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+            patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post,
         ):
             # Attempt 1: team A build fails, so the recipient is deferred and the task raises to retry.
             with pytest.raises(Exception, match="team builds"):
@@ -251,7 +251,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_fail),
-            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+            patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post,
         ):
             # Retries exhausted (retries == max_retries): fall back to delivering the healthy teams rather
             # than starving the recipient of a digest entirely. throw=False keeps the terminal raise eager.
@@ -272,7 +272,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         }
         self.user.save()
 
-        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+        with patch("products.error_tracking.backend.weekly_digest_delivery.requests.post") as mock_post:
             send_error_tracking_weekly_digest_for_org(str(self.organization.id))
 
         digest = mock_post.call_args.kwargs["json"]["digest"]

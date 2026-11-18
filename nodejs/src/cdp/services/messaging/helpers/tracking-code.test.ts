@@ -1,6 +1,11 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { EmailTrackingCodeSigner, hasEmailSigningKey, trackingCodeMintCounter } from './tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    hasEmailSigningKey,
+    trackingCodeMintCounter,
+} from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -254,20 +259,19 @@ describe('email tracking code', () => {
     })
 
     describe('versioned payload rollout', () => {
-        it('does not emit the marker by default, so pods on the old parser still read new codes', () => {
-            // Phase one ships the marker-aware parser only. Emitting the marker before the fleet can
-            // parse it shifts every field for an old pod — functionId becomes the literal marker, the
-            // flow lookup misses, and the engagement metric is dropped for the whole rolling deploy.
-            const decoded = Buffer.from(
-                signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }).split('.')[0],
-                'base64'
-            ).toString('utf8')
+        it('emits the marker so the version reaches the engagement webhook', () => {
+            // The marker carries the sending version to an open, click or bounce arriving days later.
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 })
+            const decoded = Buffer.from(code.split('.')[0], 'base64').toString('utf8')
 
-            expect(decoded.startsWith('fn-1:')).toBe(true)
-            expect(
-                signer.parse(signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }))
-                    ?.workflowVersion
-            ).toBeUndefined()
+            expect(decoded.startsWith('v2:fn-1:')).toBe(true)
+            expect(signer.parse(code)?.workflowVersion).toBe(3)
+        })
+
+        it('leaves the version empty for a send that has none, so hog functions are unchanged', () => {
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 })
+
+            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
         })
     })
 
@@ -345,6 +349,35 @@ describe('email tracking code', () => {
             expect(() => unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })).toThrow(
                 /no signing key configured/
             )
+        })
+    })
+
+    describe('message creation time header', () => {
+        const messageId = '7d1f8e2a-1b2c-5d3e-8f4a-0b1c2d3e4f5a'
+        const createdMs = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+
+        it('verifies the creation time it signed for a message', () => {
+            const value = signer.messageCreatedHeaderValue(messageId, createdMs)
+
+            expect(signer.verifyMessageCreatedHeaderValue(messageId, value)).toEqual(createdMs)
+        })
+
+        it.each([
+            ['a changed time', (value: string) => value.replace(String(createdMs), String(createdMs - 86_400_000))],
+            ['a time signed for another message', () => signer.messageCreatedHeaderValue('another-message', createdMs)],
+            ['no signature', () => String(createdMs)],
+            ['a malformed value', () => 'not-a-time.abc'],
+            ['no header', () => undefined],
+        ])('takes no creation time from %s', (_name, tamper) => {
+            const value = tamper(signer.messageCreatedHeaderValue(messageId, createdMs))
+
+            expect(signer.verifyMessageCreatedHeaderValue(messageId, value)).toBeUndefined()
+        })
+
+        it('stays far inside the SES limit of 996 characters for a header name and value', () => {
+            const value = signer.messageCreatedHeaderValue(messageId, Number.MAX_SAFE_INTEGER)
+
+            expect(MESSAGE_CREATED_HEADER_NAME.length + value.length).toBeLessThanOrEqual(64)
         })
     })
 

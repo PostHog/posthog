@@ -45,5 +45,7 @@ operations = [
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.INGESTION_EVENTS]),
-    run_sql_with_exceptions(KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[NodeRole.INGESTION_EVENTS]),
+    run_sql_with_exceptions(
+        KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False), node_roles=[NodeRole.INGESTION_EVENTS]
+    ),
 ]

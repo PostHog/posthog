@@ -1,5 +1,10 @@
 import { readPrUrls } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
+import type {
+  Task,
+  TaskRunEnvironment,
+  TaskRunStatus,
+  UserBasic,
+} from "@posthog/shared/domain-types";
 
 export type TaskStatusPresentationKind =
   | "pr"
@@ -8,6 +13,28 @@ export type TaskStatusPresentationKind =
   | "running"
   | "started"
   | "chat";
+
+export function runStatusForDisplay({
+  status,
+  environment,
+  runMode,
+  isGenerating,
+}: {
+  status: TaskRunStatus | null | undefined;
+  environment: TaskRunEnvironment | null | undefined;
+  runMode?: "interactive" | "background" | null;
+  isGenerating?: boolean;
+}): TaskRunStatus | null {
+  if (
+    status === "in_progress" &&
+    environment === "cloud" &&
+    isGenerating === false &&
+    runMode !== "background"
+  ) {
+    return null;
+  }
+  return status ?? null;
+}
 
 export function getTaskStatusPresentationKind(
   task: Pick<Task, "latest_run">,
@@ -34,4 +61,12 @@ export function getTaskStatusPresentationKind(
     default:
       return "chat";
   }
+}
+
+// Who to show a task under: only a task a person started names an author; an
+// agent-made one would otherwise credit whoever the backend recorded.
+export function taskStarter(task: Task): UserBasic | null {
+  return task.origin_product === "user_created"
+    ? (task.created_by ?? null)
+    : null;
 }

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from parameterized import parameterized
@@ -11,7 +11,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()

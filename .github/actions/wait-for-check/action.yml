@@ -22,6 +22,9 @@ inputs:
         required: false
         default: '30'
 outputs:
+    details-url:
+        description: 'URL of the completed check run'
+        value: ${{ steps.poll.outputs.details-url }}
     conclusion:
         description: >-
             Conclusion of the completed check (success, failure, cancelled, ...).
@@ -49,6 +52,7 @@ runs:
               fi
               # A transient API error must not fail the wait — log it and retry
               # until the deadline. Callers decide what a timed_out conclusion means.
+              check=""
               conclusion=""
               while [ "$SECONDS" -lt "$TIMEOUT_SECONDS" ]; do
                 # Server-side check_name filtering narrows the response; the jq
@@ -60,14 +64,16 @@ runs:
                 # workflow run), so take the newest run (check run IDs are
                 # monotonic) and report it only once it completes — an older
                 # completed run must not mask a newer one still in flight.
-                if conclusion=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
+                if check=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
                     -f check_name="$CHECK_NAME" -f filter=latest \
-                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions")] | max_by(.id) | select(.status == "completed") | .conclusion // empty'); then
+                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions")] | max_by(.id) | select(.status == "completed") | {conclusion, details_url}'); then
+                  conclusion=$(jq -r '.conclusion // empty' <<< "$check")
                   if [ -n "$conclusion" ]; then
                     break
                   fi
                   echo "Check \"$CHECK_NAME\" has not completed yet; retrying in ${INTERVAL_SECONDS}s..."
                 else
+                  check=""
                   conclusion=""
                   echo "GitHub API error while looking up check \"$CHECK_NAME\"; retrying in ${INTERVAL_SECONDS}s..."
                 fi
@@ -80,3 +86,4 @@ runs:
               conclusion="${conclusion:-timed_out}"
               echo "Check \"$CHECK_NAME\" conclusion: $conclusion"
               echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+              echo "details-url=$(jq -r '.details_url // empty' <<< "$check")" >> "$GITHUB_OUTPUT"

@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0014_mat_view_credential_deletion"),
         ("endpoints", "0010_populate_endpointversion_fields"),
     ]
 

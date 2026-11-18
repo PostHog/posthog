@@ -28,18 +28,13 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
     const [isLoadingImage, setIsLoadingImage] = useState(true)
 
     if (!mediaId) {
-        if (typeof entityId === 'string') {
-            // A whole UUID doesn't fit into the JS number type, so for simplicity
-            // just using the last 4 bytes of the UUID as the entity ID
-            entityId = parseInt(entityId.split('-').at(-1)!, 16)
-        }
         return <Lettermark index={entityId} name={name} size={size} outlined={outlinedLettermark} />
     }
 
     return (
         <div
             className={clsx(
-                'relative flex overflow-hidden select-none',
+                'relative flex shrink-0 overflow-hidden select-none',
                 size === 'xlarge'
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'
                     : size === 'medium'

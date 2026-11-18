@@ -1,0 +1,23 @@
+@keyframes HeatmapScene__hogWobble {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(5deg);
+    }
+}
+
+.HeatmapScene__hogWobble {
+    transform-origin: 50% 50%;
+    animation: HeatmapScene__hogWobble 1.2s ease-in-out infinite alternate;
+
+    // With zeroed durations, CI can paint either end of the wobble, so the snapshot tilt changes between runs.
+    .storybook-test-runner & {
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}

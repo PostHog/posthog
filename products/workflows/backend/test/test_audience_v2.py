@@ -1,0 +1,313 @@
+import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.query import execute_hogql_query
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.person_sampling import bounded_memory_settings, build_person_count_query
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, replace_proxy_properties
+from products.workflows.backend.services.audience_v2 import (
+    build_dedupe_count_query,
+    get_dedupe_audience_count_v2,
+    get_person_audience_count_v2,
+)
+from products.workflows.backend.services.batch_audience import (
+    get_batch_audience_person_ids,
+    get_batch_audience_person_ids_snapshot,
+)
+
+FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+
+
+class TestAudienceV2(ClickhouseTestMixin, BaseTest):
+    def _create_persons(self, subscribed_flags: list[bool]) -> None:
+        for i, subscribed in enumerate(subscribed_flags, start=1):
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"subscribed": "true" if subscribed else "false"},
+            )
+        flush_persons_and_events()
+
+    def test_small_audience_falls_back_to_exact_count_and_matches_v1(self):
+        # A handful of persons never clears MIN_SAMPLED_MATCHES under the default 1-in-64
+        # sample, so this exercises the exact fallback and pins it to the v1 result.
+        self._create_persons([True, True, True, False])
+
+        result = get_person_audience_count_v2(self.team, FILTERS)
+        v1_result = get_user_blast_radius(self.team, FILTERS)
+
+        assert (result.affected, result.total) == (3, 4)
+        assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+    def test_sampled_path_extrapolates_by_modulus(self):
+        self._create_persons([True, True, False])
+
+        # Modulus 1 samples everyone and MIN_SAMPLED_MATCHES 0 forces the sampled branch,
+        # so the extrapolated result must equal the exact count.
+        with (
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+        ):
+            result = get_person_audience_count_v2(self.team, FILTERS)
+
+        assert (result.affected, result.total) == (2, 3)
+
+    def test_no_filters_returns_total_for_everyone(self):
+        self._create_persons([True, False])
+
+        result = get_person_audience_count_v2(self.team, {})
+
+        assert (result.affected, result.total) == (2, 2)
+
+    def test_person_whose_latest_version_no_longer_matches_is_excluded(self):
+        # The id prefilter matches any row version, but only the latest version decides
+        # membership. A person updated from subscribed=true to false must not count.
+        churned_uuid = "01970000-0000-0000-0000-0000000000a1"
+        _create_person(
+            team=self.team,
+            distinct_ids=["churned"],
+            uuid=churned_uuid,
+            properties={"subscribed": "true"},
+            version=0,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["churned-v1"],
+            uuid=churned_uuid,
+            properties={"subscribed": "false"},
+            version=1,
+        )
+        _create_person(team=self.team, distinct_ids=["kept"], properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        result = get_person_audience_count_v2(self.team, FILTERS)
+
+        assert (result.affected, result.total) == (1, 2)
+
+    def test_distinct_id_filter_counts_a_person_with_several_aliases_once(self):
+        # A `distinct_id` person property resolves through the persons.pdi join, which gives a
+        # person one row per distinct id. Both count branches must dedup on the person id, or
+        # the preview reports more sends than the enumeration produces.
+        _create_person(team=self.team, distinct_ids=["alias-a", "alias-b"], properties={"subscribed": "true"})
+        _create_person(team=self.team, distinct_ids=["other"], properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        filters = {
+            "properties": [
+                {"key": "distinct_id", "type": "person", "value": ["alias-a", "alias-b"], "operator": "exact"}
+            ]
+        }
+
+        result = get_person_audience_count_v2(self.team, filters)
+        v1_result = get_user_blast_radius(self.team, filters)
+
+        assert (result.affected, result.total) == (1, 2)
+        assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+        with (
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+        ):
+            sampled_result = get_person_audience_count_v2(self.team, filters)
+
+        assert (sampled_result.affected, sampled_result.total) == (1, 2)
+
+    def test_cohort_filter_matches_v1(self):
+        # Cohort filters compile to a different subquery shape than plain property filters,
+        # so the sampled query and the bounded settings must not break them.
+        for i in range(6):
+            _create_person(team=self.team, distinct_ids=[f"cohort-user-{i}"], properties={"group": str(i)})
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "group", "value": ["1", "2", "3"], "type": "person"}]}
+                    ],
+                }
+            },
+        )
+        filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}
+
+        result = get_person_audience_count_v2(self.team, filters)
+        v1_result = get_user_blast_radius(self.team, filters)
+
+        assert (result.affected, result.total) == (3, 6)
+        assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+        cohort.calculate_people_ch(pending_version=0)
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            result = get_person_audience_count_v2(self.team, filters)
+
+        assert (result.affected, result.total) == (3, 6)
+
+    def _audience_excluding_contacted(self, cohort_kind: str) -> tuple[list[str], dict]:
+        people = [
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"subscribed": "true", "contacted": "true" if i <= 2 else "false"},
+            )
+            for i in range(1, 5)
+        ]
+        flush_persons_and_events()
+        if cohort_kind.startswith("static"):
+            cohort = Cohort.objects.create(team=self.team, name="Already contacted", is_static=True)
+            cohort.insert_users_by_list(["user-1", "user-2"], team_id=self.team.id)
+            if cohort_kind == "static_importing":
+                Cohort.objects.filter(pk=cohort.pk).update(is_calculating=True)
+            elif cohort_kind == "static_import_failed":
+                Cohort.objects.filter(pk=cohort.pk).update(errors_calculating=1)
+        else:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Already contacted",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"type": "OR", "values": [{"key": "contacted", "value": ["true"], "type": "person"}]}
+                        ],
+                    }
+                },
+            )
+        if cohort_kind == "dynamic_calculated":
+            cohort.calculate_people_ch(pending_version=0)
+        filters = {
+            "properties": [
+                *FILTERS["properties"],
+                {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"},
+            ]
+        }
+        return sorted(str(person.uuid) for person in people[2:]), filters
+
+    @parameterized.expand(
+        [
+            ("static", "static", False),
+            # Without precalculated reads a calculated cohort stays a plain cohort condition, which the
+            # refusal for a cohort that has never calculated must let through.
+            ("dynamic", "dynamic_calculated", False),
+            ("dynamic_precalculated", "dynamic_calculated", True),
+        ]
+    )
+    def test_excluded_cohort_is_left_out_of_preview_and_send(self, _name, cohort_kind, use_precalculated):
+        not_contacted_ids, filters = self._audience_excluding_contacted(cohort_kind)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=use_precalculated):
+            result = get_person_audience_count_v2(self.team, filters)
+            sent_to = get_batch_audience_person_ids(self.team, filters)
+
+        assert (result.affected, result.total) == (2, 4)
+        assert sorted(sent_to) == not_contacted_ids
+
+    @parameterized.expand(
+        [
+            ("preview", "preview", "cohort", "dynamic_uncalculated"),
+            ("dedupe_preview", "dedupe_preview", "cohort", "dynamic_uncalculated"),
+            ("send", "send", "cohort", "dynamic_uncalculated"),
+            ("snapshot_send", "snapshot_send", "cohort", "dynamic_uncalculated"),
+            # The query compiler resolves these declared types to the same cohort, so they must not slip past.
+            ("send_declared_static", "send", "static-cohort", "dynamic_uncalculated"),
+            ("send_declared_precalculated", "send", "precalculated-cohort", "dynamic_uncalculated"),
+            ("send_static_importing", "send", "cohort", "static_importing"),
+            ("send_static_import_failed", "send", "cohort", "static_import_failed"),
+        ]
+    )
+    def test_excluding_a_cohort_without_complete_members_is_refused(self, _name, path, declared_type, cohort_kind):
+        _, filters = self._audience_excluding_contacted(cohort_kind)
+        excluded = filters["properties"][-1]
+        excluded["type"] = declared_type
+        run = {
+            "preview": lambda: get_person_audience_count_v2(self.team, filters),
+            "dedupe_preview": lambda: get_dedupe_audience_count_v2(self.team, filters, "email"),
+            "send": lambda: get_batch_audience_person_ids(self.team, filters),
+            "snapshot_send": lambda: get_batch_audience_person_ids_snapshot(
+                self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings()
+            ),
+        }[path]
+
+        with pytest.raises(ValidationError) as refusal:
+            run()
+
+        assert isinstance(refusal.value.detail, dict)
+        assert str(refusal.value.detail["filters"]).startswith(f"Can't exclude cohort {excluded['value']} ")
+
+    def test_dedupe_count_matches_deduped_audience_size(self):
+        # Duplicate emails (case/whitespace variants) collapse to one send group; persons
+        # without an email keep their own group. Small data exercises the exact fallback.
+        emails = ["Dup@X.com", " dup@x.com ", "b@x.com", None, ""]
+        for i, email in enumerate(emails, start=1):
+            properties: dict = {"subscribed": "true"}
+            if email is not None:
+                properties["email"] = email
+            _create_person(team=self.team, distinct_ids=[f"user-{i}"], properties=properties)
+        flush_persons_and_events()
+
+        result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
+
+        assert result.affected == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        assert result.total == 5
+
+    def test_dedupe_count_rejects_unsupported_dedupe_key(self):
+        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
+            get_dedupe_audience_count_v2(self.team, FILTERS, "sms")
+
+    def test_dedupe_count_is_zero_when_no_person_matches(self):
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"subscribed": "false", "email": "a@x.com"})
+        flush_persons_and_events()
+
+        result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
+
+        assert result.affected == 0
+
+    def test_sampled_dedupe_count_extrapolates_by_modulus(self):
+        for i in range(3):
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"subscribed": "true", "email": f"user-{i}@example.com"},
+            )
+        flush_persons_and_events()
+
+        with (
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+        ):
+            result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
+
+        assert (result.affected, result.total) == (3, 3)
+
+    def test_dedupe_sampling_predicate_reaches_raw_person_prefilter(self):
+        # Same guard as the person-count variant below, for the group-hash predicate.
+        cleaned_filter = replace_proxy_properties(self.team, FILTERS)
+        query = build_dedupe_count_query(self.team, cleaned_filter, sample_modulus=64)
+        response = execute_hogql_query(query=query, team=self.team, settings=bounded_memory_settings())
+
+        clickhouse_sql = response.clickhouse
+        assert clickhouse_sql is not None
+        assert "AS where_optimization" in clickhouse_sql
+        assert "cityHash64" in clickhouse_sql.split("AS where_optimization", 1)[1]
+
+    def test_sampling_predicate_reaches_raw_person_prefilter(self):
+        # The memory bound depends on WhereClauseExtractor pushing the call-form sampling
+        # predicate into the raw person scan. If that push stops (for example the predicate
+        # becomes an arithmetic node, which the extractor refuses), the sampled query
+        # silently degrades to a full-team dedup and large teams hit the memory limit again.
+        query = build_person_count_query(self.team, None, sample_modulus=64)
+        response = execute_hogql_query(query=query, team=self.team, settings=bounded_memory_settings())
+
+        clickhouse_sql = response.clickhouse
+        assert clickhouse_sql is not None
+        assert "AS where_optimization" in clickhouse_sql
+        inner_scan = clickhouse_sql.split("AS where_optimization", 1)[1]
+        assert "cityHash64" in inner_scan
+        assert "optimize_aggregation_in_order" in clickhouse_sql
+        assert "max_bytes_before_external_group_by=4294967296" in clickhouse_sql

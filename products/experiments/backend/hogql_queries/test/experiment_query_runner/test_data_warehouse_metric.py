@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentDataWarehouseNode,
@@ -23,10 +24,48 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+    def test_query_runner_rejects_string_timestamp_column(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        # A saved metric whose timestamp column is a string must fail with the column named, not
+        # with a ClickHouse type error from the date range comparison.
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="string_timestamps",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/string_timestamps/*",
+            columns={"userid": "String", "created_at": "String"},
+        )
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table.name,
+                events_join_key="distinct_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="created_at",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+
+        with self.assertRaises(ValidationError) as context:
+            ExperimentQueryRunner(query=experiment_query, team=self.team).calculate()
+
+        assert (
+            "Column 'created_at' on data warehouse table 'string_timestamps' is not a date or datetime column"
+            in str(context.exception)
+        )
+
     @snapshot_clickhouse_queries
     def test_query_runner_group_aggregation_data_warehouse_mean_metric(self):
         feature_flag = self.create_feature_flag()
@@ -112,7 +151,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -179,7 +218,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -246,7 +285,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-31"):
+        with time_machine.travel("2023-01-31", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -530,7 +569,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
 
         else:
-            with freeze_time("2023-01-07"):
+            with time_machine.travel("2023-01-07", tick=False):
                 result = query_runner.calculate()
 
             assert result.variant_results is not None
@@ -565,7 +604,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -653,7 +692,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
-        with freeze_time("2023-01-10"):
+        with time_machine.travel("2023-01-10", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -759,7 +798,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -833,7 +872,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -955,7 +994,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
-        with freeze_time("2023-01-10"):
+        with time_machine.travel("2023-01-10", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1102,7 +1141,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time(end_date):
+        with time_machine.travel(end_date, tick=False):
             result = query_runner.calculate()
 
         # Verify that precomputation was NOT used

@@ -20,7 +20,7 @@ export type MCPNotificationExamples = Partial<Record<MCPNotificationUseCase, MCP
 //
 // The effective-tool expression mirrors EFFECTIVE_TOOL_SQL in
 // products/mcp_analytics/backend/hogql_queries/base.py — the inner tool when the call came through
-// the single-exec wrapper, else the directly-registered name.
+// the single-exec wrapper, including rejected calls, else the directly-registered name.
 const EXAMPLES_QUERY = `
 SELECT
     'tool-error' AS use_case,
@@ -28,7 +28,12 @@ SELECT
     argMax(toString(properties.$mcp_server_name), timestamp) AS server_name,
     argMax(toString(properties.$mcp_intent), timestamp) AS intent,
     argMax(
-        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)),
+        coalesce(
+            nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+            if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+               nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+            toString(properties.$mcp_tool_name)
+        ),
         timestamp
     ) AS tool_name
 FROM events

@@ -1,70 +1,20 @@
+import { isInsufficientScopeChallenge, isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
+import { isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
 import { RequestProperties } from '@/lib/request-properties'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
-import type { CloudRegion } from '@/tools/types'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
 
-// Helper to get the public-facing URL, respecting reverse proxy headers
-// This is needed for local development with ngrok/cloudflared where request.url
-// shows http://localhost but the actual URL is https://...ngrok-free.dev
-function getPublicUrl(request: Request): URL {
-    const url = new URL(request.url)
-
-    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
-        url.host = forwardedHost
-    }
-
-    // Check for X-Forwarded-Proto (https vs http)
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
-    }
-
-    return url
-}
-
-// Detect region from hostname for EU subdomain routing.
-// This is a workaround for Claude Code's OAuth bug where it ignores the
-// authorization_servers field from OAuth protected resource metadata and
-// instead fetches /.well-known/oauth-authorization-server directly from the MCP server.
-// See: https://github.com/anthropics/claude-code/issues/2267
-//
-// By using a separate subdomain (mcp-eu.posthog.com), Claude Code's request to
-// /.well-known/oauth-authorization-server will hit our server with the EU hostname,
-// allowing us to redirect to the correct EU OAuth server.
-function getRegionFromHostname(request: Request): CloudRegion | undefined {
-    const publicUrl = getPublicUrl(request)
-
-    // DNS hostnames are case-insensitive, so normalize to lowercase
-    if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
-        return 'eu'
-    }
-
-    return undefined
-}
-
-// Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
-// Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-function getRegionFromRequest(request: Request): CloudRegion | null {
-    const hostnameRegion = getRegionFromHostname(request)
-    if (hostnameRegion) {
-        return hostnameRegion
-    }
-
-    const url = new URL(request.url)
-    const queryRegion = url.searchParams.get('region') as CloudRegion | null
-    return queryRegion
-}
+const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
+const MUSE_CHALLENGE_TOKEN = '5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc'
 
 const handleRequest = async (
     request: Request,
@@ -81,7 +31,14 @@ const handleRequest = async (
 
     // OpenAI ChatGPT App Directory domain verification
     if (url.pathname === '/.well-known/openai-apps-challenge') {
-        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+        return new Response(OPENAI_CHALLENGE_TOKEN, {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
+    // Muse domain verification
+    if (url.pathname === `/.well-known/muse-challenge/${MUSE_CHALLENGE_TOKEN}`) {
+        return new Response(`muse-challenge=${MUSE_CHALLENGE_TOKEN}`, {
             headers: { 'content-type': 'text/plain' },
         })
     }
@@ -191,6 +148,12 @@ const handleRequest = async (
     const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
+    const wrongPath = validateCredentialForPath(token, request)
+    if (wrongPath) {
+        log.extend({ authError: 'credential_on_wrong_path' })
+        return wrongPath
+    }
+
     if (!token) {
         // Return 401 with WWW-Authenticate header per RFC 9728.
         // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
@@ -214,7 +177,12 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
+    if (
+        !token.startsWith('phx_') &&
+        !token.startsWith('pha_') &&
+        !isProjectSecretKey(token) &&
+        !isIdJagAccessToken(token)
+    ) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
@@ -253,11 +221,9 @@ const handleRequest = async (
     // initialize call itself. Distinct from `sessionId` (above), which is the
     // wrapper-app-provided analytics correlation id.
     const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
-    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
-    // Caller-supplied for now (wrapper apps can pass it via the header even
-    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
-    // the same value will also flow in from tool args — both sources land on
-    // the same `requestProperties.mcpConversationId` slot.
+    // Agent-echoed conversation id, for wrapper apps that hold one already. Direct clients
+    // carry it in the `conversation_id` tool argument instead, which the SDK reads in
+    // `prepareToolCall`. Both land on the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
     // Anthropic-set per-request identifier for the inner upstream client (e.g.
@@ -330,7 +296,17 @@ const handleRequest = async (
     if (url.pathname.startsWith('/mcp')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
-        return proxyToHono(request, region)
+        const response = await proxyToHono(request, region)
+        const authError = isRejectedTokenChallenge(response)
+            ? 'rejected_token'
+            : isInsufficientScopeChallenge(response)
+              ? 'insufficient_scope'
+              : undefined
+        if (authError) {
+            log.extend({ authError })
+            return withResourceMetadata(response, request, effectiveRegion)
+        }
+        return response
     }
 
     log.extend({ error: 'route_not_found' })

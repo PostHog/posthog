@@ -4,11 +4,14 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { EventHeaders } from '~/types'
+import { createTestTeam } from '~/tests/helpers/team'
+import { EventHeaders, Team } from '~/types'
 
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 
-type StepInput = { event: PluginEvent; headers: EventHeaders }
+type StepInput = { event: PluginEvent; team: Team; headers: EventHeaders }
+
+const PERSON_ONLY_EVENTS = ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'] as const
 
 describe('normalizeProcessPersonFlagStep', () => {
     const baseEvent: PluginEvent = createTestPluginEvent({
@@ -21,15 +24,35 @@ describe('normalizeProcessPersonFlagStep', () => {
 
     const baseInput: StepInput = {
         event: baseEvent,
+        team: createTestTeam({ person_processing_opt_out: false }),
         headers: createTestEventHeaders(),
     }
 
     const normalizeStep = createNormalizeProcessPersonFlagStep()
 
     describe('$process_person_profile=false', () => {
-        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
-            'drops event %s when $process_person_profile=false',
-            async (eventName) => {
+        it.each(
+            PERSON_ONLY_EVENTS.flatMap((eventName) => [
+                {
+                    eventName,
+                    optedOut: false,
+                    type: 'invalid_event_when_process_person_profile_is_false',
+                    reason: 'invalid_event_for_flags',
+                    alwaysSend: true,
+                    key: undefined,
+                },
+                {
+                    eventName,
+                    optedOut: true,
+                    type: 'event_dropped_person_processing_disabled',
+                    reason: 'person_processing_disabled',
+                    alwaysSend: false,
+                    key: eventName,
+                },
+            ])
+        )(
+            'drops $eventName as $type when team opt-out is $optedOut',
+            async ({ eventName, optedOut, type, reason, alwaysSend, key }) => {
                 const input: StepInput = {
                     ...baseInput,
                     event: {
@@ -37,43 +60,50 @@ describe('normalizeProcessPersonFlagStep', () => {
                         event: eventName,
                         properties: { $process_person_profile: false },
                     },
+                    team: createTestTeam({ person_processing_opt_out: optedOut }),
                 }
 
                 const result = await normalizeStep(input)
 
-                expect(result.type).toBe(PipelineResultType.DROP)
+                expect(result).toMatchObject({ type: PipelineResultType.DROP, reason })
                 expect(result.warnings).toHaveLength(1)
                 expect(result.warnings[0]).toMatchObject({
-                    type: 'invalid_event_when_process_person_profile_is_false',
+                    type,
                     details: {
                         eventUuid: baseEvent.uuid,
                         event: eventName,
                         distinctId: 'my_id',
                     },
-                    alwaysSend: true,
+                    alwaysSend,
                 })
+                expect(result.warnings[0].key).toBe(key)
             }
         )
 
-        it('allows regular events when $process_person_profile=false', async () => {
-            const input: StepInput = {
-                ...baseInput,
-                event: {
-                    ...baseEvent,
-                    event: '$pageview',
-                    properties: { $process_person_profile: false },
-                },
-            }
+        it.each([false, true])(
+            'allows regular events when $process_person_profile=false and team opt-out is %s',
+            async (optedOut) => {
+                const input: StepInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: '$pageview',
+                        properties: { $process_person_profile: false },
+                    },
+                    team: createTestTeam({ person_processing_opt_out: optedOut }),
+                }
 
-            const result = await normalizeStep(input)
+                const result = await normalizeStep(input)
 
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.processPerson).toBe(false)
-                expect(result.value.processPersonExplicitlyTrue).toBe(false)
-                expect(result.value.forceDisablePersonProcessing).toBe(false)
+                expect(result.type).toBe(PipelineResultType.OK)
+                expect(result.warnings).toHaveLength(0)
+                if (result.type === PipelineResultType.OK) {
+                    expect(result.value.processPerson).toBe(false)
+                    expect(result.value.processPersonExplicitlyTrue).toBe(false)
+                    expect(result.value.forceDisablePersonProcessing).toBe(false)
+                }
             }
-        })
+        )
 
         it('adds warning for invalid $process_person_profile values', async () => {
             const input: StepInput = {

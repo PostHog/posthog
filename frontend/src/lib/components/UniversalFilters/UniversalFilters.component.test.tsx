@@ -13,7 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { SEARCH_ONLY_GROUP_TYPES, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import UniversalFilters from './UniversalFilters'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -84,17 +84,25 @@ describe('UniversalFilters recent selections', () => {
         })
     }
 
-    async function switchToTab(tabTestId: string): Promise<void> {
-        await userEvent.click(screen.getByTestId(tabTestId))
+    async function switchToCategory(groupType: TaxonomicFilterGroupType): Promise<void> {
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-item-${groupType}`))
     }
 
     async function searchFor(query: string): Promise<void> {
         await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), query)
     }
 
-    async function pickShortcutItem(tabTestId: string, searchQuery: string, itemTestId: string): Promise<void> {
+    async function pickShortcutItem(
+        groupType: TaxonomicFilterGroupType,
+        searchQuery: string,
+        itemTestId: string
+    ): Promise<void> {
         await openAddFilter()
-        await switchToTab(tabTestId)
+        // Search-only groups have no category. Their list still renders its rows, which is all the commit path needs.
+        if (!SEARCH_ONLY_GROUP_TYPES.has(groupType)) {
+            await switchToCategory(groupType)
+        }
         await searchFor(searchQuery)
         await waitFor(() => {
             expect(screen.getByTestId(itemTestId)).toBeInTheDocument()
@@ -113,7 +121,7 @@ describe('UniversalFilters recent selections', () => {
             mockOverrides: {
                 '/api/environments/:team/events/values': [{ name: 'https://example.com/pricing' }],
             },
-            tabTestId: 'taxonomic-tab-pageview_urls',
+            groupType: TaxonomicFilterGroupType.PageviewUrls,
             searchQuery: 'example',
             itemTestId: 'prop-filter-pageview_urls-0',
             expectedKey: '$current_url',
@@ -124,7 +132,7 @@ describe('UniversalFilters recent selections', () => {
             mockOverrides: {
                 '/api/environments/:team/events/values': [{ name: 'HomeScreen' }],
             },
-            tabTestId: 'taxonomic-tab-screens',
+            groupType: TaxonomicFilterGroupType.Screens,
             searchQuery: 'Home',
             itemTestId: 'prop-filter-screens-0',
             expectedKey: '$screen_name',
@@ -135,18 +143,18 @@ describe('UniversalFilters recent selections', () => {
             mockOverrides: {
                 '/api/environments/:team/persons/values': [{ name: 'alice@example.com' }],
             },
-            tabTestId: 'taxonomic-tab-email_addresses',
+            groupType: TaxonomicFilterGroupType.EmailAddresses,
             searchQuery: 'alice',
             itemTestId: 'prop-filter-email_addresses-0',
             expectedKey: 'email',
         },
     ])(
         'selecting a $description records a complete property filter to recents',
-        async ({ taxonomicGroupTypes, mockOverrides, tabTestId, searchQuery, itemTestId, expectedKey }) => {
+        async ({ taxonomicGroupTypes, mockOverrides, groupType, searchQuery, itemTestId, expectedKey }) => {
             useSetupMocks(mockOverrides)
             renderUniversalFilters(taxonomicGroupTypes)
 
-            await pickShortcutItem(tabTestId, searchQuery, itemTestId)
+            await pickShortcutItem(groupType, searchQuery, itemTestId)
 
             await waitFor(() => {
                 expectRecentCount(1)

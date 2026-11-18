@@ -1,13 +1,17 @@
 import type { Series, ValueDomain } from '../core/types'
-import type { ReferenceLineProps } from '../overlays/ReferenceLine'
+import type { ReferenceLineProps, ReferenceLineStroke } from '../overlays/ReferenceLine'
 
 export interface GoalLineConfig {
     value: number
     label?: string
     displayLabel?: boolean
     color?: string
+    /** Line style. Defaults to `dashed`. */
+    stroke?: ReferenceLineStroke
     labelPosition?: 'start' | 'end'
     displayIfCrossed?: boolean
+    /** Forwarded to {@link ReferenceLineProps.showValueOnHover}; defaults to true. */
+    showValueOnHover?: boolean
 }
 
 export function computeSeriesNonZeroMax(series: Series[]): number {
@@ -46,7 +50,8 @@ export function buildGoalLineReferenceLines(
             // Match the UI control and legacy chart.js, which both default an unset position to 'end'.
             labelPosition: line.labelPosition ?? 'end',
             variant: 'goal',
-            style: line.color ? { color: line.color } : undefined,
+            style: { color: line.color, stroke: line.stroke },
+            showValueOnHover: line.showValueOnHover,
         }))
 }
 

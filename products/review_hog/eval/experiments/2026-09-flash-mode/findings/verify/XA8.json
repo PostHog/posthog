@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA8",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 does omit the User login posthog-bot, so an otherwise trusted, write-authorized, non-draft machine-user PR can enter the ordinary path. It does NOT obtain inbox provenance: the same predicate fails the carve-out at 169-172, and ordinary mode/write checks remain at 944,967-968. The engine has the explicit machine-user safeguard in tools/pr-approval-agent/github.py:64,79-87 and test_github.py:191. Hosted review_local.py:321-326 refuses that author before classification or LLM review when the ordinary run's self_driving flag is false. The Action also explicitly excludes that login at .github/workflows/pr-approval-agent.yml:30,255. The final approval refusal is therefore intact.",
+            "refutation": "I first traced whether the webhook mismatch creates an approval bypass or a demonstrated operational failure. It does neither: the normal authorization gates still run and the engine's explicit posthog-bot check deterministically refuses the PR. activities.py:466-474 shows that this may pay for a sandbox/clone before refusal, but no caller volume, exhausted resource, or user-facing failure establishes that bounded extra work as a shipping defect. Aligning an early optimization/defense-in-depth predicate with the already-enforced final predicate would be sensible cleanup; the finding itself concedes the engine refuses it. Under the duplicate-safeguard/speculative-load rule this is not a retained defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The webhook helper at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 does omit the posthog-bot machine login, but the shipping hosted engine still refuses it: /tmp/frozen-75215/tools/pr-approval-agent/github.py:62-64,79-90 recognizes that User login; review_local.py:207 uses that predicate and :324-326 returns the refusal before classification, gates or LLM review. tests/test_github.py:183-199 explicitly covers type=User, login=posthog-bot. An ordinary posthog-bot PR passing the webhook prefilter has no inbox provenance because tasks.py:872-880 only resolves a carve-out for skipped PRs, so the engine's refusal remains active.",
+            "refutation": "First traced the downstream guard rather than assuming the webhook omission permits approval. The preserved engine guard disproves that concern, and tasks.py:237-257,967-990 additionally retains normal collaborator permission checks for this path. The finding itself concedes the engine refuses the PR; its remaining proposal is to duplicate that refusal earlier for resource savings and match the documentation's wording. Under the required rubric, missing duplicate safeguards without a proved correctness/security defect are not retained. No LLM approval bypass follows from this omitted early-out."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:124-127 does omit the posthog-bot machine login, but tools/pr-approval-agent/github.py:62-64,79-89 explicitly classifies it as a bot. The actual hosted execution calls review_local.run, which refuses bot authors before classification at tools/pr-approval-agent/review_local.py:321-326. The ordinary webhook path also requires actual repository write permission at products/stamphog/backend/tasks/tasks.py:960-989. The claim therefore identifies a predicate/documentation discrepancy and an earlier copy of an already-enforced refusal, not a demonstrated incorrect approval or missed refusal.",
+            "refutation": "I checked whether the final bot guard used the same incomplete predicate. It does not: the shared engine predicate includes posthog-bot and the hosted entry point returns REFUSE before review. A trusted machine user can reach sandbox creation (products/stamphog/backend/temporal/activities.py:466-474), so the early-filter difference is real, but the finding expressly relies on redundant defense in depth and unquantified resource savings. The claimed policy breach is refuted by the existing execution guard; no separate shipping correctness defect is established."
+        }
+    ]
+}

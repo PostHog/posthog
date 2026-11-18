@@ -11,9 +11,11 @@ import {
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { dimColor } from '../../core/color-utils'
 import { createBarScales, type BarScaleSet, yTickCountForHeight } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import { resolveAxisLines } from '../../core/types'
 import type {
     ChartConfig,
@@ -57,17 +59,18 @@ export interface BoxPlotAdaptedMeta<Meta = unknown> {
  *  don't have to redeclare it. */
 export type BoxPlotTooltipContext<Meta = unknown> = TooltipContext<BoxPlotAdaptedMeta<Meta>>
 
-/** Chart-level config. `axisOrientation` is always vertical for BoxPlot — there's no
- *  horizontal mode — so it's omitted from the consumer-visible config to avoid silently
- *  ignored values. */
-export interface BoxPlotConfig extends Omit<ChartConfig, 'axisOrientation'> {
-    legend?: ChartLegendConfig
+/** Chart-level config. `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws
+ *  the value axis along x, which suits a few long boxes better than a row of narrow columns. */
+export interface BoxPlotConfig extends ChartConfig {
+    legend?: Omit<ChartLegendConfig, 'table'>
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */
     whiskerCapRatio?: number
-    /** Box outline / whisker stroke width. Defaults to 1.5. */
+    /** Box outline / whisker stroke width. The median is three times as thick. Defaults to 1. */
     boxStrokeWidth?: number
+    /** Box corner radius in CSS pixels. Defaults to 3; 0 draws square corners. */
+    boxCornerRadius?: number
 }
 
 export interface BoxPlotClickData<Meta = unknown> {
@@ -91,7 +94,8 @@ export interface BoxPlotClickData<Meta = unknown> {
 export interface BoxPlotProps<Meta = unknown> {
     series: BoxPlotSeries<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: BoxPlotConfig
     /** Optional custom tooltip. Receives the adapter `TooltipContext`; consumers can read
      *  the original datum back out via `entry.series.meta?.datums?.[ctx.dataIndex]`. */
@@ -107,7 +111,7 @@ export interface BoxPlotProps<Meta = unknown> {
 
 export function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BoxPlotInner {...rest} />
         </ChartErrorBoundary>
     )
@@ -116,24 +120,28 @@ export function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotProps<Meta>
 function BoxPlotInner<Meta = unknown>({
     series,
     labels,
-    theme,
-    config,
+    theme: themeProp,
+    config: rawConfig,
     tooltip,
     onBoxClick,
     className,
     dataAttr,
     children,
 }: Omit<BoxPlotProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
-        showGrid = false,
-        showAxisLines = false,
+        showGrid,
+        showAxisLines,
         meanRadius = 3,
         whiskerCapRatio = 0.6,
-        boxStrokeWidth = 1.5,
+        boxStrokeWidth = 1,
+        boxCornerRadius,
+        axisOrientation = 'vertical',
     } = config ?? {}
+    const horizontal = axisOrientation === 'horizontal'
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
@@ -170,11 +178,18 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (Number.isFinite(datum.min)) {
-                    mins.push(datum.min)
+                const whiskerMin = datum.whiskerMin ?? datum.min
+                const whiskerMax = datum.whiskerMax ?? datum.max
+                if (Number.isFinite(whiskerMin)) {
+                    mins.push(whiskerMin)
                 }
-                if (Number.isFinite(datum.max)) {
-                    maxs.push(datum.max)
+                if (Number.isFinite(whiskerMax)) {
+                    maxs.push(whiskerMax)
+                }
+                // A skewed bucket can put the mean outside its whiskers.
+                if (Number.isFinite(datum.mean)) {
+                    mins.push(datum.mean)
+                    maxs.push(datum.mean)
                 }
             }
             if (mins.length > 0) {
@@ -203,11 +218,11 @@ function BoxPlotInner<Meta = unknown>({
             const d3Scales = createBarScales(coloredSeries, scaleLabels, dimensions, {
                 scaleType: yScaleType,
                 barLayout,
-                axisOrientation: 'vertical',
+                axisOrientation,
                 stackedSeries: valueRangeSeries.length > 0 ? valueRangeSeries : undefined,
             })
 
-            const yTickCount = yTickCountForHeight(dimensions.plotHeight)
+            const yTickCount = yTickCountForHeight(horizontal ? dimensions.plotWidth : dimensions.plotHeight)
             const priv: BoxPlotPrivate = {
                 __boxPlot: { scales: d3Scales, datumsByKey, grouped },
             }
@@ -232,7 +247,7 @@ function BoxPlotInner<Meta = unknown>({
                 _private: priv,
             }
         },
-        [grouped, yScaleType, valueRangeSeries, datumsByKey]
+        [grouped, yScaleType, axisOrientation, horizontal, valueRangeSeries, datumsByKey]
     )
 
     const drawStatic = useCallback(
@@ -253,12 +268,12 @@ function BoxPlotInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
-            const axisLineStyle = axisLines.x || axisLines.y
+            const axisLineStyle = xAxisLine || yAxisLine
             if (showGrid) {
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
                     gridDash: theme.gridDashPattern,
-                    orientation: 'vertical',
+                    orientation: axisOrientation,
                     frame: !axisLineStyle,
                 })
             }
@@ -280,23 +295,36 @@ function BoxPlotInner<Meta = unknown>({
                 })
                 drawBoxes(ctx, boxes, {
                     color: s.color,
-                    fillColor: dimColor(s.color, 0.25),
-                    meanFillColor: dimColor(s.color, 0.5),
+                    fillColor: dimColor(s.color, 0.2),
+                    whiskerColor: theme.axisColor ?? s.color,
+                    meanFillColor: theme.backgroundColor ?? dimColor(s.color, 0.5),
                     meanRadius,
                     whiskerCapRatio,
                     lineWidth: boxStrokeWidth,
+                    horizontal,
+                    cornerRadius: boxCornerRadius,
                 })
             }
 
             if (axisLineStyle) {
                 drawAxes(baseDrawCtx, {
                     axisColor: resolveAxisLineColor(theme),
-                    xLine: axisLines.x,
-                    yLine: axisLines.y,
+                    xLine: xAxisLine,
+                    yLine: yAxisLine,
                 })
             }
         },
-        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth]
+        [
+            showGrid,
+            xAxisLine,
+            yAxisLine,
+            meanRadius,
+            whiskerCapRatio,
+            boxStrokeWidth,
+            boxCornerRadius,
+            axisOrientation,
+            horizontal,
+        ]
     )
 
     const drawHover = useCallback(
@@ -324,6 +352,7 @@ function BoxPlotInner<Meta = unknown>({
                 cursor: hoverPosition,
                 scales: priv.scales,
                 grouped: priv.grouped,
+                horizontal,
             })
             if (hits.size === 0) {
                 return false
@@ -349,59 +378,58 @@ function BoxPlotInner<Meta = unknown>({
                 if (!box) {
                     continue
                 }
-                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25))
+                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal, boxCornerRadius)
                 drewAny = true
             }
             return drewAny
         },
-        [series]
+        [series, horizontal, boxCornerRadius]
     )
 
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta> ctx={ctx} userTooltip={tooltip} grouped={grouped} />
-        ),
-        [tooltip, grouped]
+    const renderTooltip = (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>): React.ReactNode => (
+        <BoxPlotTooltip<Meta>
+            ctx={ctx}
+            userTooltip={tooltip}
+            grouped={grouped}
+            valueFormatter={config?.tooltip?.valueFormatter}
+        />
     )
 
-    const onPointClick = useCallback(
-        (data: PointClickData<BoxPlotAdaptedMeta<Meta>>): void => {
-            if (!onBoxClick) {
-                return
+    const onPointClick = (data: PointClickData<BoxPlotAdaptedMeta<Meta>>): void => {
+        if (!onBoxClick) {
+            return
+        }
+        const primaryDatums = data.series.meta?.datums
+        const datum = primaryDatums?.[data.dataIndex]
+        const primarySeries = seriesByKey.get(data.series.key)
+        if (!datum || !primarySeries) {
+            return
+        }
+        const crossSeriesData: BoxPlotClickData<Meta>['crossSeriesData'] = []
+        for (const entry of data.crossSeriesData) {
+            const ds = entry.series.meta?.datums?.[data.dataIndex]
+            const origin = seriesByKey.get(entry.series.key)
+            if (!ds || !origin) {
+                continue
             }
-            const primaryDatums = data.series.meta?.datums
-            const datum = primaryDatums?.[data.dataIndex]
-            const primarySeries = seriesByKey.get(data.series.key)
-            if (!datum || !primarySeries) {
-                return
-            }
-            const crossSeriesData: BoxPlotClickData<Meta>['crossSeriesData'] = []
-            for (const entry of data.crossSeriesData) {
-                const ds = entry.series.meta?.datums?.[data.dataIndex]
-                const origin = seriesByKey.get(entry.series.key)
-                if (!ds || !origin) {
-                    continue
-                }
-                crossSeriesData.push({ series: origin, datum: ds })
-            }
-            onBoxClick({
-                series: primarySeries,
-                seriesIndex: data.seriesIndex,
-                dataIndex: data.dataIndex,
-                label: data.label,
-                datum,
-                crossSeriesData,
-            })
-        },
-        [onBoxClick, seriesByKey]
-    )
+            crossSeriesData.push({ series: origin, datum: ds })
+        }
+        onBoxClick({
+            series: primarySeries,
+            seriesIndex: data.seriesIndex,
+            dataIndex: data.dataIndex,
+            label: data.label,
+            datum,
+            crossSeriesData,
+        })
+    }
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-box-plot-legend">
             <Chart<BoxPlotAdaptedMeta<Meta>>
                 series={visibleSeries}
                 labels={labels}
-                config={{ ...config, axisOrientation: 'vertical' }}
+                config={{ ...config, axisOrientation }}
                 theme={theme}
                 createScales={createScales}
                 drawStatic={drawStatic}

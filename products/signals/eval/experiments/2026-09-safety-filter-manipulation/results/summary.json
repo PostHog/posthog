@@ -1,0 +1,112 @@
+{
+    "model": "claude-sonnet-5",
+    "effort": "medium",
+    "request_shape": "no prefill, native call_llm shape",
+    "real_signals": {
+        "current_prompt": {
+            "pre": {
+                "n": 867,
+                "rejected": 24,
+                "errors": 4,
+                "reject_pct": 2.8
+            },
+            "post": {
+                "n": 33,
+                "rejected": 22,
+                "errors": 0,
+                "reject_pct": 66.7
+            },
+            "pass": {
+                "n": 279,
+                "rejected": 0,
+                "errors": 0,
+                "reject_pct": 0.0
+            }
+        },
+        "new_prompt": {
+            "pre": {
+                "n": 867,
+                "rejected": 2,
+                "errors": 0,
+                "reject_pct": 0.2
+            },
+            "post": {
+                "n": 33,
+                "rejected": 1,
+                "errors": 0,
+                "reject_pct": 3.0
+            },
+            "pass": {
+                "n": 279,
+                "rejected": 0,
+                "errors": 0,
+                "reject_pct": 0.0
+            }
+        }
+    },
+    "attack_set": {
+        "current_prompt": {
+            "attacks_total": 19,
+            "attacks_blocked": 19,
+            "attack_leaks": [],
+            "controls_total": 21,
+            "controls_wrongly_blocked": 2
+        },
+        "new_prompt": {
+            "attacks_total": 19,
+            "attacks_blocked": 19,
+            "attack_leaks": [],
+            "controls_total": 21,
+            "controls_wrongly_blocked": 0
+        }
+    },
+    "notes": "real_signals periods: pre=rejections under Sonnet 4.5 before 2026-09-03, post=rejections under Sonnet 5 after, pass=accepted signals (controls). Counts are aggregates only; no signal content is stored in this repo.",
+    "attack_set_with_forgery": {
+        "note": "21 attacks (19 + 2 delimiter forgeries), 22 controls (21 + 1 literal-tag control). Final prompts.",
+        "filter_final": {
+            "attacks_total": 21,
+            "attacks_blocked": 21,
+            "attack_leaks": [],
+            "controls_total": 22,
+            "controls_wrongly_blocked": 0,
+            "errors": []
+        },
+        "judge_final": {
+            "attacks_total": 21,
+            "attacks_blocked": 21,
+            "attack_leaks": [],
+            "controls_total": 22,
+            "controls_wrongly_blocked": 0,
+            "errors": []
+        },
+        "filter_before_hardening_raw_delimiters": {
+            "attacks_total": 21,
+            "attacks_blocked": 20,
+            "attack_leaks": [],
+            "controls_total": 22,
+            "controls_wrongly_blocked": 0,
+            "errors": ["atk:exfil-mirror"]
+        },
+        "judge_before_alignment_raw_delimiters": {
+            "attacks_total": 21,
+            "attacks_blocked": 21,
+            "attack_leaks": [],
+            "controls_total": 22,
+            "controls_wrongly_blocked": 2,
+            "errors": []
+        }
+    },
+    "report_judge_on_admitted_real_signals": {
+        "note": "the 33 post-swap real signals the new filter admits, all labeled safe; judge mode, thinking on",
+        "old_judge_prompt": {
+            "n": 33,
+            "rejected": 20,
+            "errors": 0
+        },
+        "aligned_judge_prompt": {
+            "n": 33,
+            "rejected": 3,
+            "errors": 0
+        }
+    }
+}

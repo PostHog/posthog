@@ -79,6 +79,7 @@ export const jsSnippetVersionPinLogic = kea<jsSnippetVersionPinLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/projects/${teamId}/js-snippet/version`)
                 },
                 saveVersionPin: async ({ pin }: { pin: string | null }) => {
@@ -86,6 +87,7 @@ export const jsSnippetVersionPinLogic = kea<jsSnippetVersionPinLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.update(`api/projects/${teamId}/js-snippet/version`, {
                         js_snippet_version: pin,
                     })

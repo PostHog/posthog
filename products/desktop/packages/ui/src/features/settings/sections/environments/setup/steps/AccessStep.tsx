@@ -3,6 +3,7 @@ import { validateDomains } from "@posthog/core/settings/environmentSetup";
 import { Checkbox, Label, Text, Textarea } from "@posthog/quill";
 import { NetworkAccessSelect } from "@posthog/ui/features/settings/sections/environments/NetworkAccessSelect";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
+import { StepFieldError } from "@posthog/ui/features/settings/sections/environments/setup/StepFieldError";
 import { EnvVarRows } from "@posthog/ui/features/settings/sections/environments/setup/steps/EnvVarRows";
 import { useId } from "react";
 
@@ -11,6 +12,7 @@ interface AccessStepProps {
   onChange: (plan: EnvironmentSetupPlan) => void;
   /** Names of the variables the environment already holds; their values are not shown back. */
   savedVariableKeys?: readonly string[];
+  error: string | null;
 }
 
 /** What the sandbox may reach, and what it gets in its shell. */
@@ -18,10 +20,13 @@ export function AccessStep({
   plan,
   onChange,
   savedVariableKeys = [],
+  error,
 }: AccessStepProps) {
   const defaultsId = useId();
   const domainsId = useId();
   const domains = validateDomains(plan.allowedDomainsText);
+  const attemptError =
+    domains.errors.length === 0 && domains.domains.length === 0 ? error : null;
 
   return (
     <StepBody
@@ -64,6 +69,7 @@ export function AccessStep({
               {error}
             </Text>
           ))}
+          {attemptError && <StepFieldError>{attemptError}</StepFieldError>}
           <label
             htmlFor={defaultsId}
             className="flex w-fit cursor-pointer items-start gap-2"

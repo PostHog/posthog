@@ -1,4 +1,9 @@
+import { kafkaProducerMessagesDiscardedCounter } from '~/common/kafka/blackhole-producer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
+    INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
+} from '~/ingestion/common/outputs/producers'
 
 import { AllowedConfigKey } from './kafka-producer-config'
 import { KafkaProducerRegistryBuilder } from './kafka-producer-registry-builder'
@@ -19,6 +24,29 @@ describe('KafkaProducerRegistryBuilder', () => {
         'metadata.broker.list': 'BROKER_LIST',
         'linger.ms': 'LINGER_MS',
     } as const satisfies Partial<Record<AllowedConfigKey, string>>
+
+    it.each([INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP])(
+        'forwards authentication for an application output',
+        async (outputMap) => {
+            const config = Object.fromEntries(Object.values(outputMap).map((key) => [key, '']))
+            config[outputMap['security.protocol']] = 'SASL_PLAINTEXT'
+            config[outputMap['sasl.mechanisms']] = 'plain'
+            config[outputMap['sasl.username']] = '00123'
+            config[outputMap['sasl.password']] = 'false'
+            const map: Partial<Record<AllowedConfigKey, string>> = outputMap
+            await new KafkaProducerRegistryBuilder(undefined).register('AUTHENTICATED', map).build(config)
+            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
+                undefined,
+                expect.objectContaining({
+                    'security.protocol': 'sasl_plaintext',
+                    'sasl.mechanisms': 'PLAIN',
+                    'sasl.username': '00123',
+                    'sasl.password': 'false',
+                }),
+                'AUTHENTICATED'
+            )
+        }
+    )
 
     it('creates a registry with a single producer', async () => {
         const config = { BROKER_LIST: 'kafka:9092', LINGER_MS: '20' }
@@ -94,6 +122,42 @@ describe('KafkaProducerRegistryBuilder', () => {
         await expect(
             new KafkaProducerRegistryBuilder(undefined).register('DEFAULT', configMap).build(config)
         ).rejects.toThrow('connection refused')
+    })
+
+    it('buildBlackhole connects to no broker, and its producers discard messages and pass the checks', async () => {
+        kafkaProducerMessagesDiscardedCounter.reset()
+
+        const producer = new KafkaProducerRegistryBuilder(undefined)
+            .register('DEFAULT', configMap)
+            .buildBlackhole()
+            .getProducer('DEFAULT')
+
+        await producer.produce({ topic: 'events', key: null, value: Buffer.from('v') })
+        await producer.queueMessages({ topic: 'events', messages: [{ value: 'a' }, { value: 'b' }] })
+
+        expect(KafkaProducerWrapper.createWithConfig).not.toHaveBeenCalled()
+        await expect(producer.checkConnection()).resolves.toBeUndefined()
+        await expect(producer.checkTopicExists('events')).resolves.toBeUndefined()
+        expect((await kafkaProducerMessagesDiscardedCounter.get()).values).toEqual([
+            expect.objectContaining({ labels: { topic_name: 'events', producer_name: 'DEFAULT' }, value: 3 }),
+        ])
+    })
+
+    it('registerBlackhole adds a slot that connects to no broker and discards while the others connect', async () => {
+        kafkaProducerMessagesDiscardedCounter.reset()
+        const config = { BROKER_LIST: 'kafka:9092', LINGER_MS: '20' }
+
+        const registry = await new KafkaProducerRegistryBuilder(undefined)
+            .register('DEFAULT', configMap)
+            .registerBlackhole('VOID')
+            .build(config)
+        await registry.getProducer('VOID').produce({ topic: 'events', key: null, value: Buffer.from('v') })
+
+        expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
+        expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(undefined, expect.any(Object), 'DEFAULT')
+        expect((await kafkaProducerMessagesDiscardedCounter.get()).values).toEqual([
+            expect.objectContaining({ labels: { topic_name: 'events', producer_name: 'VOID' }, value: 1 }),
+        ])
     })
 
     it('builds an empty registry when no producers are registered', async () => {

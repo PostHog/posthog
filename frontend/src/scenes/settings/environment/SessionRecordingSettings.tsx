@@ -172,7 +172,7 @@ export function ReplayNetworkHeadersPayloads(): JSX.Element {
                     if (checked) {
                         LemonDialog.open({
                             maxWidth: '650px',
-                            title: 'Network header capture',
+                            title: 'Header capture',
                             description: <PayloadWarning />,
                             primaryButton: {
                                 'data-attr': 'network-header-capture-accept-warning-and-enable',
@@ -196,7 +196,7 @@ export function ReplayNetworkHeadersPayloads(): JSX.Element {
                         })
                     }
                 }}
-                label="Capture headers"
+                label="Header capture"
                 bordered
                 checked={
                     currentTeam?.session_recording_opt_in

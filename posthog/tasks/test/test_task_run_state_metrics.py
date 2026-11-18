@@ -12,7 +12,7 @@ from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 
 from posthog.models import Organization, Team
-from posthog.tasks.tasks import capture_task_run_state_metrics
+from posthog.tasks.tasks import capture_task_run_state_metrics, capture_task_status_shadow_metrics
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -219,12 +219,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
     def test_emits_runs_terminal_1h_grouped_by_status_and_origin(self) -> None:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
-        # 2 completed Slack runs + 1 failed User run in the last hour, plus 1 old completed run (outside 1h).
+        # 2 completed Slack runs + 1 failed User run in the last hour, plus 2 old completed runs (outside 1h).
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         self._make_task_run(origin=Task.OriginProduct.USER_CREATED, status=TaskRun.Status.FAILED)
         old = self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         TaskRun.objects.filter(pk=old.pk).update(updated_at=timezone.now() - timedelta(hours=2))
+        touched = self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(pk=touched.pk).update(completed_at=timezone.now() - timedelta(hours=2))
 
         registry = self._run_with_registry()
 
@@ -299,3 +301,27 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             )
             == 1
         )
+
+
+class TestCaptureTaskStatusShadowMetrics(TestCase):
+    def test_reports_the_drift_it_found_and_the_repairs_it_made(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(team=team, title="t", description="d", origin_product=Task.OriginProduct.SLACK)
+        TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS)
+        Task.objects.filter(pk=task.pk).update(status=Task.Status.QUEUED)
+        registry = CollectorRegistry()
+        context = MagicMock()
+        context.__enter__ = MagicMock(return_value=registry)
+        context.__exit__ = MagicMock(return_value=False)
+
+        with patch("posthog.tasks.tasks.pushed_metrics_registry", return_value=context):
+            capture_task_status_shadow_metrics()
+
+        labels = {"stored_status": "queued", "derived_status": "running"}
+        assert registry.get_sample_value("posthog_tasks_status_shadow_mismatches", labels) == 1
+        assert registry.get_sample_value("posthog_tasks_status_shadow_repaired", labels) == 1
+        task.refresh_from_db()
+        assert task.status == Task.Status.RUNNING

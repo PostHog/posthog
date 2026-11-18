@@ -48,7 +48,7 @@ export function writeJson<T>(key: string, value: T): void {
   }
 }
 
-export function removeKey(key: string): void {
+function removeKey(key: string): void {
   try {
     window.localStorage.removeItem(key);
   } catch {

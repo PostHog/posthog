@@ -3,10 +3,13 @@ import structlog
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration
+from posthog.user_permissions import user_can_access_team
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import TaskProfile
 
 logger = structlog.get_logger(__name__)
 
@@ -14,26 +17,21 @@ SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
 SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
 
 
-def get_or_create_signals_sandbox_env(
-    team_id: int,
-    name: str,
-    network_access_level: "tasks_facade.SandboxNetworkAccessLevel",
-    *,
-    allowed_domains: list[str] | None = None,
-    include_default_domains: bool = False,
-) -> str:
+def get_or_create_signals_sandbox_env(team_id: int, name: str, profile: TaskProfile) -> str:
     """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
 
-    Reasserts the expected policy on every call, so manual edits via the API are corrected on
-    next run.
+    The network policy comes from the task profile, so the environment and the profile cannot
+    disagree. Reasserts the expected policy on every call, so manual edits via the API are
+    corrected on next run.
     """
+    network = profile.network
     return str(
         tasks_facade.upsert_internal_sandbox_env(
             team_id,
             name,
-            network_access_level,
-            allowed_domains=allowed_domains,
-            include_default_domains=include_default_domains,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
     )
 
@@ -77,32 +75,45 @@ def resolve_user_id_for_team(team_id: int, github: GitHubIntegrationBase | None 
     return membership.user_id
 
 
+def _can_act_on_team(user_id: int, team: Team) -> bool:
+    """Whether a scout run started as this user survives the workflow dispatcher.
+
+    Mirrors `_user_can_dispatch` in the tasks workflow dispatcher, which is the authority. A run
+    resolved as a user this returns False for is killed at dispatch and booked as failed.
+    """
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    return user is not None and user_can_access_team(user, team)
+
+
 def resolve_acting_user_id_for_team(team_id: int) -> int | None:
-    """Resolve the user a Signals scout sandbox acts as, *without* requiring GitHub.
+    """Resolve the user a Signals scout sandbox acts as. Does not require a GitHub integration.
 
-    `resolve_user_id_for_team` gates on a GitHub integration because the repo-cloning callers
-    (report generation, repo selection, custom agent) need those credentials. The scout cadence
-    path never clones a repo — `user_id` only scopes the sandbox connection token / MCP identity —
-    so a GitHub integration is the wrong precondition there. Prefer the GitHub-integration creator
-    when one exists (stable attribution, matches the other surfaces), otherwise fall back to any
-    active org member.
+    `resolve_user_id_for_team` requires GitHub because its callers clone a repo. The scout cadence
+    path does not clone: `user_id` only scopes the sandbox connection token and MCP identity.
 
-    Returns ``None`` only when the org has no active member to act as — a genuine "can't run yet"
-    that the scheduled caller short-circuits on, rather than crashing deep in the spawn path and
-    booking a bogus `failed` outcome. Genuine errors (missing team, DB failures) still propagate.
+    Every candidate must pass `_can_act_on_team`, because the run mints a sandbox token as this
+    user. Org membership is not enough. A project can deny a member by going private or by one
+    per-member rule, and either way org membership keeps picking a user the dispatcher rejects on
+    every tick. `Team.all_users_with_access()` narrows the pool first, which keeps the walk short
+    on a private project. Prefer the GitHub integration creator when that user qualifies, so
+    attribution matches the other surfaces.
+
+    Return None when the project has no such member. The scheduled caller then skips the tick
+    instead of crashing deep in the spawn path and booking a bogus `failed` run. Genuine errors
+    (missing team, DB failures) still propagate.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     github = resolve_team_github_integration(team_id, team=team)
     if github is not None:
         try:
-            return resolve_user_id_for_team(team_id, github=github)
+            github_user_id = resolve_user_id_for_team(team_id, github=github)
         except RuntimeError:
-            # Integration present but its user is unusable — fall through to any active member.
-            pass
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
+            github_user_id = None
+        if github_user_id is not None and _can_act_on_team(github_user_id, team):
+            return github_user_id
+    candidate_ids = (
+        OrganizationMembership.objects.filter(organization=team.organization, user__in=team.all_users_with_access())
         .order_by("id")
-        .first()
+        .values_list("user_id", flat=True)
     )
-    return membership.user_id if membership else None
+    return next((user_id for user_id in candidate_ids.iterator() if _can_act_on_team(user_id, team)), None)

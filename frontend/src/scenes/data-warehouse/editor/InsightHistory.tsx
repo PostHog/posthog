@@ -9,11 +9,15 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
-import { QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightModel } from '~/types'
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightQueryVersion, insightHistoryLogic } from './insightHistoryLogic'
@@ -125,7 +129,7 @@ function OriginalVersionRow({
     sql,
     isCurrent,
 }: {
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     sql: string
     isCurrent: boolean
 }): JSX.Element {
@@ -186,12 +190,23 @@ function SqlDiffViewer({ before, after }: { before: string; after: string }): JS
     )
 }
 
-export function InsightHistory({ insight }: { insight: QueryBasedInsightModel | null }): JSX.Element {
-    return insight ? (
-        <InsightHistoryContent insight={insight} />
-    ) : (
-        // The insight itself is still loading — the tab shows immediately, the content follows
-        <InsightHistorySkeleton />
+export function InsightHistory({ insight }: { insight: InsightModel | null }): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return (
+        <PayGateMini
+            feature={AvailableFeature.AUDIT_LOGS}
+            featureDetail="sql-editor-insight-history"
+            overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+        >
+            {insight ? (
+                <InsightHistoryContent insight={insight} />
+            ) : (
+                // The insight itself is still loading — the tab shows immediately, the content follows
+                <InsightHistorySkeleton />
+            )}
+        </PayGateMini>
     )
 }
 
@@ -205,7 +220,7 @@ function InsightHistorySkeleton(): JSX.Element {
     )
 }
 
-function InsightHistoryContent({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
+function InsightHistoryContent({ insight }: { insight: InsightModel }): JSX.Element {
     const logic = insightHistoryLogic({ insightId: insight.id })
     const { versions, activityPageLoading, historyComplete } = useValues(logic)
 

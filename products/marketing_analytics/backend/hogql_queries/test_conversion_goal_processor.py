@@ -1,8 +1,12 @@
 from pathlib import Path
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
+from unittest import skipIf
+from unittest.mock import patch
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -25,7 +29,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.event.util import bulk_create_events
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.marketing_analytics.backend.hogql_queries import (
+    conversion_goal_processor as conversion_goal_processor_module,
+)
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
@@ -40,7 +47,7 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name", name)
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
+    action = create_action(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
     return action
 
 
@@ -109,7 +116,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     def _create_test_data(self):
         """Create comprehensive test data covering various scenarios"""
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # Basic users
             _create_person(distinct_ids=["user1"], team=self.team, properties={"$browser": "Chrome"})
             _create_person(distinct_ids=["user2"], team=self.team, properties={"$browser": "Firefox"})
@@ -218,7 +225,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="actions_basic",
             conversion_goal_name="Actions Basic",
             math=BaseMathType.TOTAL,
@@ -317,7 +324,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test TOTAL math type correctly counts all events - business logic validation"""
 
         # Create test data: multiple events per user to test total count vs unique users
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: 3 sign_ups (should count as 3 total events)
             _create_person(distinct_ids=["total_test_user1"], team=self.team)
             _create_event(
@@ -397,7 +404,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test DAU math type correctly counts unique users - business logic validation"""
 
         # Create test data: 3 users with different patterns
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: 3 sign_ups (should count as 1 unique user)
             _create_person(distinct_ids=["dau_test_user1"], team=self.team)
             _create_event(
@@ -486,7 +493,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test SUM math type correctly adds revenue property values - business logic validation"""
 
         # Create test data: purchases with different revenue amounts
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: $100 purchase
             _create_person(distinct_ids=["sum_test_buyer1"], team=self.team)
             _create_event(
@@ -575,7 +582,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test SUM math type correctly handles missing properties and zero values - business logic validation"""
 
         # Create test data: events with different revenue scenarios
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: Mix of valid, zero, and missing revenue values
             _create_person(distinct_ids=["sum_missing_test_user1"], team=self.team)
             _create_event(
@@ -722,7 +729,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""
 
         # Create test data: events to test AVG fallback behavior
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: 2 purchase events (should count as 2 events, not average revenue)
             _create_person(distinct_ids=["avg_test_user1"], team=self.team)
             _create_event(
@@ -800,7 +807,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test property filters actually filter events based on numeric conditions (>= operator) - business logic validation"""
 
         # Create test data: purchases with different revenue amounts
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: revenue=75 (should be EXCLUDED by revenue >= 100 filter)
             _create_person(distinct_ids=["filter_test_buyer1"], team=self.team)
             _create_event(
@@ -889,7 +896,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_property_filters_multiple_filters(self):
         """Test ConversionGoalProcessor query correctly filters events with multiple property conditions"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: High revenue + correct source (should MATCH both filters)
             _create_person(distinct_ids=["multi_filter_user1"], team=self.team)
             _create_event(
@@ -970,7 +977,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_property_filters_complex_operators(self):
         """Test complex property filter operators LT and ICONTAINS work correctly together"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # User1: Low revenue + campaign contains "sale" (should MATCH both filters)
             _create_person(distinct_ids=["complex_user1"], team=self.team)
             _create_event(
@@ -1164,7 +1171,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         logic in the processor wasn't working properly.
         """
         # Create events with UTM data stored in CUSTOM field names
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_person(distinct_ids=["custom_fields_user"], team=self.team)
             _create_event(
                 distinct_id="custom_fields_user",
@@ -1181,7 +1188,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="custom_fields_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -1329,7 +1336,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_error_empty_event_name(self):
         """Test what actually happens when we execute query with empty event name"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # Create different event types to see what gets matched with empty event name
             _create_person(distinct_ids=["empty_test_user1"], team=self.team)
             _create_event(
@@ -1391,7 +1398,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_edge_case_very_long_goal_names(self):
         """Test that queries work correctly with very long goal names"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # Create test event for very long goal name
             _create_person(distinct_ids=["long_name_user"], team=self.team)
             _create_event(
@@ -1448,7 +1455,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_edge_case_special_characters_in_event_names(self):
         """Test that events with special characters in names are correctly matched"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             special_event = "event-with_special.chars@123!$%"  # Removed quotes/backslashes to avoid escaping issues
 
             # Create event with special characters in the name
@@ -1516,7 +1523,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def test_edge_case_unicode_in_properties(self):
         """Test that Unicode property names work correctly in queries and attribution"""
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             # Create event with Unicode property names and values
             _create_person(distinct_ids=["unicode_user"], team=self.team)
             _create_event(
@@ -1578,7 +1585,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """Test that ConversionGoalProcessor correctly handles conversions with complex temporal scenarios"""
 
         # Create complex timeline: UTM before range → conversion in range → UTM after
-        with freeze_time("2022-12-15"):
+        with time_machine.travel("2022-12-15", tick=False):
             _create_person(distinct_ids=["temporal_user"], team=self.team)
             _create_event(
                 distinct_id="temporal_user",
@@ -1588,7 +1595,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-01-10"):
+        with time_machine.travel("2023-01-10", tick=False):
             _create_event(
                 distinct_id="temporal_user",
                 event="purchase",
@@ -1597,7 +1604,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-01-20"):
+        with time_machine.travel("2023-01-20", tick=False):
             _create_event(
                 distinct_id="temporal_user",
                 event="$pageview",
@@ -1684,7 +1691,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="integration_actions",
             conversion_goal_name="Integration Actions",
             math=BaseMathType.TOTAL,
@@ -1767,7 +1774,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Conversion should be attributed to the April ad
         Rule: Ads must come BEFORE conversions to get attribution credit
         """
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_person(distinct_ids=["forward_user"], team=self.team)
             _create_event(
                 distinct_id="forward_user",
@@ -1777,7 +1784,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="forward_user",
                 event="purchase",
@@ -1834,7 +1841,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution goes to ad1 (direct UTM) NOT ad2 (last temporal touchpoint)
         """
         # Setup: Create ad1 touchpoint first
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_person(distinct_ids=["direct_utm_user"], team=self.team)
             _create_event(
                 distinct_id="direct_utm_user",
@@ -1845,7 +1852,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Setup: Create ad2 touchpoint later (would be last touch temporally)
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="direct_utm_user",
                 event="$pageview",
@@ -1856,7 +1863,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Note: Conversion event has ad1 UTM params directly
         # This should override temporal attribution to ad2
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="direct_utm_user",
                 event="purchase",
@@ -1923,7 +1930,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Conversion should NOT be attributed to the May ad (Unknown attribution)
         Rule: Ads that come after conversions cannot get credit for those conversions
         """
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_person(distinct_ids=["backward_user"], team=self.team)
             _create_event(
                 distinct_id="backward_user",
@@ -1933,7 +1940,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="backward_user",
                 event="$pageview",
@@ -1990,7 +1997,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution should go to April Google ad (last touch)
         Note: This tests last-touch attribution model
         """
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["multi_touch_user"], team=self.team)
             _create_event(
                 distinct_id="multi_touch_user",
@@ -2000,7 +2007,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="multi_touch_user",
                 event="$pageview",
@@ -2009,7 +2016,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(distinct_id="multi_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -2061,7 +2068,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution should go to March email ad (first touch)
         Note: This tests first-touch attribution model using AttributionModeOperator.FIRST_TOUCH
         """
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["first_touch_user"], team=self.team)
             _create_event(
                 distinct_id="first_touch_user",
@@ -2071,7 +2078,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="first_touch_user",
                 event="$pageview",
@@ -2080,7 +2087,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(distinct_id="first_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -2122,6 +2129,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+        with patch.object(conversion_goal_processor_module, "MAX_TOUCHPOINTS_PER_PERSON", 1):
+            capped_query = processor.generate_cte_query(additional_conditions)
+        capped_result = execute_hogql_query(query=capped_query, team=self.team).results[0]
+        assert (capped_result[1], capped_result[3]) == ("spring_sale", "google")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):
         """
@@ -2138,7 +2150,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Only ads before conversion should be considered for attribution
         Attribution should go to April Google ad (last valid touchpoint)
         """
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["mixed_timeline_user"], team=self.team)
             _create_event(
                 distinct_id="mixed_timeline_user",
@@ -2148,7 +2160,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="mixed_timeline_user",
                 event="$pageview",
@@ -2157,7 +2169,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="mixed_timeline_user",
                 event="purchase",
@@ -2166,7 +2178,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-05"):
+        with time_machine.travel("2023-06-05", tick=False):
             _create_event(
                 distinct_id="mixed_timeline_user",
                 event="$pageview",
@@ -2175,7 +2187,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-07-01"):
+        with time_machine.travel("2023-07-01", tick=False):
             _create_event(
                 distinct_id="mixed_timeline_user",
                 event="$pageview",
@@ -2232,7 +2244,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should attribute if within attribution window
         Tests attribution window limits and long customer journeys
         """
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             _create_person(distinct_ids=["long_window_user"], team=self.team)
             _create_event(
                 distinct_id="long_window_user",
@@ -2242,7 +2254,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-12-31"):
+        with time_machine.travel("2023-12-31", tick=False):
             _create_event(
                 distinct_id="long_window_user",
                 event="purchase",
@@ -2296,7 +2308,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         Expected: Each conversion gets attributed to the most recent qualifying ad
         """
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["multi_conversion_user"], team=self.team)
             _create_event(
                 distinct_id="multi_conversion_user",
@@ -2306,7 +2318,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="multi_conversion_user",
                 event="purchase",
@@ -2315,7 +2327,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-20"):
+        with time_machine.travel("2023-05-20", tick=False):
             _create_event(
                 distinct_id="multi_conversion_user",
                 event="$pageview",
@@ -2324,7 +2336,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-25"):
+        with time_machine.travel("2023-05-25", tick=False):
             _create_event(
                 distinct_id="multi_conversion_user",
                 event="purchase",
@@ -2333,7 +2345,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-10"):
+        with time_machine.travel("2023-06-10", tick=False):
             _create_event(
                 distinct_id="multi_conversion_user",
                 event="purchase",
@@ -2479,7 +2491,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should attribute to morning ad ✅
         Tests intraday temporal precision
         """
-        with freeze_time("2023-05-15 08:00:00"):
+        with time_machine.travel("2023-05-15 08:00:00", tick=False):
             _create_person(distinct_ids=["same_day_morning_user"], team=self.team)
             _create_event(
                 distinct_id="same_day_morning_user",
@@ -2489,7 +2501,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-15 20:00:00"):
+        with time_machine.travel("2023-05-15 20:00:00", tick=False):
             _create_event(
                 distinct_id="same_day_morning_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -2539,14 +2551,14 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should NOT attribute to evening ad ❌ (Unknown attribution)
         Tests that temporal order matters even within the same day
         """
-        with freeze_time("2023-05-15 08:00:00"):
+        with time_machine.travel("2023-05-15 08:00:00", tick=False):
             _create_person(distinct_ids=["same_day_evening_user"], team=self.team)
             _create_event(
                 distinct_id="same_day_evening_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-15 20:00:00"):
+        with time_machine.travel("2023-05-15 20:00:00", tick=False):
             _create_event(
                 distinct_id="same_day_evening_user",
                 event="$pageview",
@@ -2601,7 +2613,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """
         timestamp = "2023-05-15 12:00:00"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(distinct_ids=["simultaneous_user"], team=self.team)
             _create_event(
                 distinct_id="simultaneous_user",
@@ -2658,12 +2670,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should NOT attribute ❌ (Unknown attribution)
         Tests temporal precision down to the second level
         """
-        with freeze_time("2023-05-15 12:00:00"):
+        with time_machine.travel("2023-05-15 12:00:00", tick=False):
             _create_person(distinct_ids=["one_second_user"], team=self.team)
             _create_event(distinct_id="one_second_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-15 12:00:01"):
+        with time_machine.travel("2023-05-15 12:00:01", tick=False):
             _create_event(
                 distinct_id="one_second_user",
                 event="$pageview",
@@ -2719,7 +2731,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         conversion_count should be 3 (not 1)
         Tests that attribution properly aggregates multiple conversions
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["repeat_buyer"], team=self.team)
             _create_event(
                 distinct_id="repeat_buyer",
@@ -2730,17 +2742,17 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # First purchase
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
         # Second purchase
-        with freeze_time("2023-05-20"):
+        with time_machine.travel("2023-05-20", tick=False):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 75})
             flush_persons_and_events_in_batches()
 
         # Third purchase
-        with freeze_time("2023-06-10"):
+        with time_machine.travel("2023-06-10", tick=False):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 150})
             flush_persons_and_events_in_batches()
 
@@ -2793,27 +2805,27 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_props = {"utm_campaign": "spring_sale", "utm_source": "google"}
 
         # User A: sees ad, purchases once
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_person(distinct_ids=["user_a"], team=self.team)
             _create_event(distinct_id="user_a", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_a", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
         # User B: sees ad, purchases once
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_person(distinct_ids=["user_b"], team=self.team)
             _create_event(distinct_id="user_b", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_b", event="purchase", team=self.team, properties={"revenue": 150})
             flush_persons_and_events_in_batches()
 
         # User C: sees ad, purchases twice
-        with freeze_time("2023-04-20"):
+        with time_machine.travel("2023-04-20", tick=False):
             _create_person(distinct_ids=["user_c"], team=self.team)
             _create_event(distinct_id="user_c", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_c", event="purchase", team=self.team, properties={"revenue": 200})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-21"):
+        with time_machine.travel("2023-04-21", tick=False):
             _create_event(distinct_id="user_c", event="purchase", team=self.team, properties={"revenue": 75})
             flush_persons_and_events_in_batches()
 
@@ -2869,7 +2881,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Purchase should be attributed to Facebook retargeting (last paid touchpoint before conversion)
         Post-purchase touchpoints should not affect the original purchase attribution
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["complex_journey_user"], team=self.team)
             _create_event(
                 distinct_id="complex_journey_user",
@@ -2879,7 +2891,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_event(
                 distinct_id="complex_journey_user",
                 event="email_open",
@@ -2888,7 +2900,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="complex_journey_user",
                 event="$pageview",
@@ -2897,7 +2909,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-05"):
+        with time_machine.travel("2023-04-05", tick=False):
             _create_event(
                 distinct_id="complex_journey_user",
                 event="add_to_cart",
@@ -2906,7 +2918,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_event(
                 distinct_id="complex_journey_user",
                 event="purchase",
@@ -2915,7 +2927,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-01"):
+        with time_machine.travel("2023-05-01", tick=False):
             _create_event(
                 distinct_id="complex_journey_user",
                 event="email_click",
@@ -2971,7 +2983,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution should go to paid search (last paid touchpoint)
         Tests how organic vs paid touchpoints are prioritized in attribution
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["organic_paid_user"], team=self.team)
             _create_event(
                 distinct_id="organic_paid_user",
@@ -2981,7 +2993,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="organic_paid_user",
                 event="$pageview",
@@ -2990,7 +3002,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_event(
                 distinct_id="organic_paid_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3042,7 +3054,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         - Last-touch: Could be organic or paid (depending on how organic is handled)
         - Paid-only last-touch: Should be paid search (last paid touchpoint)
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["paid_organic_user"], team=self.team)
             _create_event(
                 distinct_id="paid_organic_user",
@@ -3052,7 +3064,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="paid_organic_user",
                 event="$pageview",
@@ -3061,7 +3073,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_event(
                 distinct_id="paid_organic_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3115,7 +3127,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution should go to Google search ad (last touch)
         Tests multi-channel customer journey attribution
         """
-        with freeze_time("2023-03-01"):  # Week 1
+        with time_machine.travel("2023-03-01", tick=False):  # Week 1
             _create_person(distinct_ids=["cross_channel_user"], team=self.team)
             _create_event(
                 distinct_id="cross_channel_user",
@@ -3125,7 +3137,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-08"):  # Week 2
+        with time_machine.travel("2023-03-08", tick=False):  # Week 2
             _create_event(
                 distinct_id="cross_channel_user",
                 event="email_click",
@@ -3134,7 +3146,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):  # Week 3
+        with time_machine.travel("2023-03-15", tick=False):  # Week 3
             _create_event(
                 distinct_id="cross_channel_user",
                 event="$pageview",
@@ -3143,7 +3155,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-22"):  # Week 4
+        with time_machine.travel("2023-03-22", tick=False):  # Week 4
             _create_event(
                 distinct_id="cross_channel_user",
                 event="$pageview",
@@ -3152,7 +3164,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-24"):  # Week 4
+        with time_machine.travel("2023-03-24", tick=False):  # Week 4
             _create_event(
                 distinct_id="cross_channel_user", event="purchase", team=self.team, properties={"revenue": 300}
             )
@@ -3206,7 +3218,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Tests attribution across session boundaries and device switching
         """
         # Session 1 - Mobile (Instagram discovery)
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["multi_session_user"], team=self.team)
             _create_event(
                 distinct_id="multi_session_user",
@@ -3228,7 +3240,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Session 2 - Desktop (Direct visit)
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_event(
                 distinct_id="multi_session_user",
                 event="$pageview",
@@ -3245,7 +3257,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Session 3 - Mobile (Email conversion)
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="multi_session_user",
                 event="$pageview",
@@ -3314,7 +3326,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Validates: use_temporal_attribution=True ignores query_date_range for UTM lookback
         """
         # Setup: Create UTM touchpoint BEFORE query range
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_person(distinct_ids=["filtered_utm_user"], team=self.team)
             _create_event(
                 distinct_id="filtered_utm_user",
@@ -3325,7 +3337,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Setup: Conversion WITHIN query range
-        with freeze_time("2023-05-10"):
+        with time_machine.travel("2023-05-10", tick=False):
             _create_event(
                 distinct_id="filtered_utm_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3391,7 +3403,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: First purchase attributed, second purchase not attributed
         Tests attribution window cutoff logic
         """
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             _create_person(distinct_ids=["window_test_user"], team=self.team)
             _create_event(
                 distinct_id="window_test_user",
@@ -3401,11 +3413,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-01-29"):  # Day 29 - within window
+        with time_machine.travel("2023-01-29", tick=False):  # Day 29 - within window
             _create_event(distinct_id="window_test_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-02-01"):  # Day 31 - beyond window
+        with time_machine.travel("2023-02-01", tick=False):  # Day 31 - beyond window
             _create_event(distinct_id="window_test_user", event="purchase", team=self.team, properties={"revenue": 50})
             flush_persons_and_events_in_batches()
 
@@ -3495,7 +3507,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Currently the processor attributes to any campaign regardless of age.
         Business requirement: Implement ~30-90 day attribution window limits.
         """
-        with freeze_time("2022-01-01"):
+        with time_machine.travel("2022-01-01", tick=False):
             _create_person(distinct_ids=["old_campaign_user"], team=self.team)
             _create_event(
                 distinct_id="old_campaign_user",
@@ -3505,7 +3517,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2024-01-01"):  # 2 years later
+        with time_machine.travel("2024-01-01", tick=False):  # 2 years later
             _create_event(
                 distinct_id="old_campaign_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3563,7 +3575,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         credited to paid (facebook → meta). The Apr 01 pageview has a campaign but no source
         and no click id, so it is not a touchpoint.
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["malformed_utm_user"], team=self.team)
             _create_event(
                 distinct_id="malformed_utm_user",
@@ -3573,7 +3585,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="malformed_utm_user",
                 event="$pageview",
@@ -3582,7 +3594,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-01"):
+        with time_machine.travel("2023-05-01", tick=False):
             _create_event(
                 distinct_id="malformed_utm_user",
                 event="$pageview",
@@ -3591,7 +3603,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-01"):
+        with time_machine.travel("2023-06-01", tick=False):
             _create_event(
                 distinct_id="malformed_utm_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3643,7 +3655,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         expected_channel: str,
     ) -> None:
         self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE
-        with freeze_time("2023-05-01"):
+        with time_machine.travel("2023-05-01", tick=False):
             _create_person(distinct_ids=["click_id_user"], team=self.team)
             _create_event(
                 distinct_id="click_id_user",
@@ -3653,7 +3665,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-01"):
+        with time_machine.travel("2023-06-01", tick=False):
             _create_event(distinct_id="click_id_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -3691,7 +3703,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Organic Social — a paid source inside an organic channel.
         """
         self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE
-        with freeze_time("2023-05-01"):
+        with time_machine.travel("2023-05-01", tick=False):
             _create_person(distinct_ids=["fbclid_user"], team=self.team)
             _create_event(
                 distinct_id="fbclid_user",
@@ -3701,7 +3713,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-01"):
+        with time_machine.travel("2023-06-01", tick=False):
             _create_event(distinct_id="fbclid_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -3729,6 +3741,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         source_name = response.results[0][3]
         assert source_name == "organic", f"Expected the conversion to stay organic, got {source_name}"
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "groupArray has no tie-break for equal timestamps and the native-JSON table reads these rows in another order",
+    )
     def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
         Test Case: Duplicate events at the same timestamp
@@ -3744,7 +3760,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """
         timestamp = "2023-05-15 12:00:00"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(distinct_ids=["duplicate_events_user"], team=self.team)
             _create_event(
                 distinct_id="duplicate_events_user",
@@ -3762,7 +3778,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-15 13:00:00"):
+        with time_machine.travel("2023-05-15 13:00:00", tick=False):
             _create_event(
                 distinct_id="duplicate_events_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3801,6 +3817,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "groupArray has no tie-break for equal timestamps and the native-JSON table reads these rows in another order",
+    )
     def test_duplicate_events_same_timestamp_but_second_event_id_is_first(self):
         """
         Test Case: Duplicate events at the same timestamp
@@ -3816,7 +3836,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """
         timestamp = "2023-05-15 12:00:00"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(distinct_ids=["duplicate_events_user"], team=self.team)
             _create_event(
                 distinct_id="duplicate_events_user",
@@ -3834,7 +3854,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-15 13:00:00"):
+        with time_machine.travel("2023-05-15 13:00:00", tick=False):
             _create_event(
                 distinct_id="duplicate_events_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3885,7 +3905,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should handle special characters properly in attribution
         Tests URL encoding, special characters, and data sanitization
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["special_chars_user"], team=self.team)
             _create_event(
                 distinct_id="special_chars_user",
@@ -3901,7 +3921,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="special_chars_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -3954,7 +3974,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         long_campaign = "very_long_campaign_name_" + "x" * 500
         long_source = "extremely_long_source_name_" + "y" * 300
 
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["long_utm_user"], team=self.team)
             _create_event(
                 distinct_id="long_utm_user",
@@ -3964,7 +3984,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(distinct_id="long_utm_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -4014,7 +4034,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should handle case sensitivity consistently
         Tests whether attribution treats "Google", "google", "GOOGLE" as same or different
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["case_sensitive_user"], team=self.team)
             _create_event(
                 distinct_id="case_sensitive_user",
@@ -4024,7 +4044,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_event(
                 distinct_id="case_sensitive_user",
                 event="$pageview",
@@ -4033,7 +4053,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="case_sensitive_user",
                 event="$pageview",
@@ -4042,7 +4062,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_event(
                 distinct_id="case_sensitive_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
@@ -4095,7 +4115,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: All should be treated consistently as "Unknown" attribution
         Tests handling of null, empty, and missing UTM parameters
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["null_empty_user"], team=self.team)
             _create_event(
                 distinct_id="null_empty_user",
@@ -4105,7 +4125,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_event(
                 distinct_id="null_empty_user",
                 event="$pageview",
@@ -4114,7 +4134,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_event(
                 distinct_id="null_empty_user",
                 event="$pageview",
@@ -4123,7 +4143,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_event(distinct_id="null_empty_user", event="purchase", team=self.team, properties={"revenue": 100})
             flush_persons_and_events_in_batches()
 
@@ -4178,7 +4198,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Attribution should go to the $pageview event UTM, not the other events
         Tests that only $pageview events are considered for UTM attribution
         """
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["non_pageview_user"], team=self.team)
             # Sign-up with UTM - should be ignored
             _create_event(
@@ -4189,7 +4209,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-05"):
+        with time_machine.travel("2023-03-05", tick=False):
             # Purchase with UTM - should be ignored
             _create_event(
                 distinct_id="non_pageview_user",
@@ -4199,7 +4219,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             # $pageview with UTM - should be used for attribution
             _create_event(
                 distinct_id="non_pageview_user",
@@ -4209,7 +4229,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             # Final conversion
             _create_event(
                 distinct_id="non_pageview_user", event="purchase", team=self.team, properties={"revenue": 100}
@@ -4270,7 +4290,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Tests comprehensive real-world attribution complexity
         """
         # Week 1 - Brand awareness (potentially outside window)
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             _create_person(distinct_ids=["real_world_user"], team=self.team)
             _create_event(
                 distinct_id="real_world_user",
@@ -4281,7 +4301,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 5 - Email campaign
-        with freeze_time("2023-02-01"):
+        with time_machine.travel("2023-02-01", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="$pageview",
@@ -4291,7 +4311,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 6 - Organic search (no UTM)
-        with freeze_time("2023-02-08"):
+        with time_machine.travel("2023-02-08", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="$pageview",
@@ -4301,7 +4321,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 7 - Facebook retargeting (last paid touchpoint)
-        with freeze_time("2023-02-15"):
+        with time_machine.travel("2023-02-15", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="$pageview",
@@ -4311,7 +4331,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 7 - First purchase (no UTM on conversion event - tests temporal attribution)
-        with freeze_time("2023-02-17"):
+        with time_machine.travel("2023-02-17", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="purchase",
@@ -4324,7 +4344,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 8 - Post-purchase upsell (should not affect first purchase attribution)
-        with freeze_time("2023-02-22"):
+        with time_machine.travel("2023-02-22", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="$pageview",
@@ -4334,7 +4354,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Week 10 - Second purchase
-        with freeze_time("2023-03-08"):
+        with time_machine.travel("2023-03-08", tick=False):
             _create_event(
                 distinct_id="real_world_user",
                 event="purchase",
@@ -4451,7 +4471,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         """
 
         # Create user journey across multiple distinct IDs
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["laptop_anon", "mobile_app", "user@email.com"], team=self.team)
             # UTM campaign from laptop
             _create_event(
@@ -4462,17 +4482,17 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-05"):
+        with time_machine.travel("2023-03-05", tick=False):
             # Mobile browsing (no UTM)
             _create_event(distinct_id="mobile_app", event="$pageview", team=self.team, properties={"page": "/products"})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             # Purchase from email distinct_id (signed in)
             _create_event(distinct_id="user@email.com", event="purchase", team=self.team, properties={"revenue": 99})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             # Purchase from original laptop session
             _create_event(distinct_id="laptop_anon", event="purchase", team=self.team, properties={"revenue": 149})
             flush_persons_and_events_in_batches()
@@ -4521,7 +4541,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Create complex user journey with multiple distinct IDs over time
         distinct_ids = ["session_1", "session_2", "session_3", "user@test.com", "session_5"]
 
-        with freeze_time("2023-01-15"):
+        with time_machine.travel("2023-01-15", tick=False):
             _create_person(distinct_ids=distinct_ids, team=self.team)
             # First touchpoint: organic
             _create_event(
@@ -4532,7 +4552,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-02-01"):
+        with time_machine.travel("2023-02-01", tick=False):
             # Second session: UTM campaign
             _create_event(
                 distinct_id="session_2",
@@ -4542,7 +4562,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-02-15"):
+        with time_machine.travel("2023-02-15", tick=False):
             # Third session: different UTM campaign
             _create_event(
                 distinct_id="session_3",
@@ -4552,19 +4572,19 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             # Fourth session: signed up with email
             _create_event(
                 distinct_id="user@test.com", event="sign_up", team=self.team, properties={"source": "website"}
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             # Purchase 1: Should attribute to valentines_special (most recent UTM)
             _create_event(distinct_id="user@test.com", event="purchase", team=self.team, properties={"revenue": 75})
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             # Fifth session: New UTM campaign
             _create_event(
                 distinct_id="session_5",
@@ -4574,7 +4594,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             # Purchase 2: Should attribute to spring_launch (most recent UTM)
             _create_event(
                 distinct_id="session_1",  # Back to original session
@@ -4638,7 +4658,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should generate SQL with attribution window logic
         Attribution window: 6 months (180 days) to include Jan events for Jun conversions
         """
-        with freeze_time("2025-01-01"):
+        with time_machine.travel("2025-01-01", tick=False):
             _create_person(distinct_ids=["demo_user"], team=self.team)
             _create_event(
                 distinct_id="demo_user",
@@ -4648,7 +4668,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2025-03-15"):
+        with time_machine.travel("2025-03-15", tick=False):
             _create_event(
                 distinct_id="demo_user",
                 event="$pageview",
@@ -4657,7 +4677,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2025-06-06"):
+        with time_machine.travel("2025-06-06", tick=False):
             _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events_in_batches()
 
@@ -4721,7 +4741,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should generate SQL with attribution window logic
         Attribution window: 6 months (180 days) to include Jan events for Jun conversions
         """
-        with freeze_time("2025-01-01"):
+        with time_machine.travel("2025-01-01", tick=False):
             _create_person(distinct_ids=["demo_user"], team=self.team)
             _create_event(
                 distinct_id="demo_user",
@@ -4731,7 +4751,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2025-03-15"):
+        with time_machine.travel("2025-03-15", tick=False):
             _create_event(
                 distinct_id="demo_user",
                 event="$pageview",
@@ -4740,7 +4760,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2025-06-06"):
+        with time_machine.travel("2025-06-06", tick=False):
             _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events_in_batches()
 
@@ -4813,7 +4833,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         This validates that attribution windows work per-conversion, not per-query.
         """
         # User2: Pageview on May 29 with UTM
-        with freeze_time("2024-05-29"):
+        with time_machine.travel("2024-05-29", tick=False):
             _create_person(distinct_ids=["user2"], team=self.team)
             _create_event(
                 distinct_id="user2",
@@ -4824,7 +4844,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # User1: Pageview on May 30 with UTM
-        with freeze_time("2024-05-30"):
+        with time_machine.travel("2024-05-30", tick=False):
             _create_person(distinct_ids=["user1"], team=self.team)
             _create_event(
                 distinct_id="user1",
@@ -4835,12 +4855,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # User2: Converts on June 5 (7 days after pageview - within 30-day window)
-        with freeze_time("2024-06-05"):
+        with time_machine.travel("2024-06-05", tick=False):
             _create_event(distinct_id="user2", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events_in_batches()
 
         # User1: Converts on July 1 (32 days after pageview - outside 30-day window)
-        with freeze_time("2024-07-01"):
+        with time_machine.travel("2024-07-01", tick=False):
             _create_event(distinct_id="user1", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events_in_batches()
 
@@ -4917,7 +4937,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         Expected: TOTAL math should count both events (2 conversions)
         """
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_person(distinct_ids=["multi_event_user"], team=self.team)
             _create_event(
                 distinct_id="multi_event_user",
@@ -4927,22 +4947,22 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(distinct_id="multi_event_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-20"):
+        with time_machine.travel("2023-04-20", tick=False):
             _create_event(distinct_id="multi_event_user", event="activate_account", team=self.team)
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="User Conversion", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_events_total",
             conversion_goal_name="Multi Events Total",
             math=BaseMathType.TOTAL,
@@ -4986,7 +5006,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         Expected: TOTAL = 4 conversions, DAU = 3 unique users
         """
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             # Create users and show them the ad
             for user_id in ["user_a", "user_b", "user_c"]:
                 _create_person(distinct_ids=[user_id], team=self.team)
@@ -4998,7 +5018,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             # User A signs up
             _create_event(
                 distinct_id="user_a",
@@ -5008,7 +5028,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-20"):
+        with time_machine.travel("2023-04-20", tick=False):
             # User B activates account (without signing up in our data)
             _create_event(
                 distinct_id="user_b",
@@ -5018,7 +5038,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-25"):
+        with time_machine.travel("2023-04-25", tick=False):
             # User C signs up
             _create_event(
                 distinct_id="user_c",
@@ -5028,7 +5048,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-30"):
+        with time_machine.travel("2023-04-30", tick=False):
             # User A activates account (second event from same user)
             _create_event(
                 distinct_id="user_a",
@@ -5039,7 +5059,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="User Conversion Steps",
             steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
@@ -5048,7 +5068,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Test with TOTAL math
         goal_total = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_users_total",
             conversion_goal_name="Multi Users Total",
             math=BaseMathType.TOTAL,
@@ -5078,7 +5098,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Test with DAU math
         goal_dau = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_users_dau",
             conversion_goal_name="Multi Users DAU",
             math=BaseMathType.DAU,
@@ -5112,7 +5132,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         Expected: Should only count events that match the property filters (2 conversions)
         """
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_person(distinct_ids=["filter_user"], team=self.team)
             _create_event(
                 distinct_id="filter_user",
@@ -5122,7 +5142,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             # Sign up with matching property
             _create_event(
                 distinct_id="filter_user",
@@ -5132,7 +5152,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-20"):
+        with time_machine.travel("2023-04-20", tick=False):
             # Activate with matching property
             _create_event(
                 distinct_id="filter_user",
@@ -5142,7 +5162,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-25"):
+        with time_machine.travel("2023-04-25", tick=False):
             # Sign up with non-matching property
             _create_event(
                 distinct_id="filter_user",
@@ -5152,7 +5172,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-30"):
+        with time_machine.travel("2023-04-30", tick=False):
             # Activate with non-matching property
             _create_event(
                 distinct_id="filter_user",
@@ -5163,7 +5183,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events and property filters
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Filtered User Conversion",
             steps_json=[
@@ -5177,7 +5197,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="filtered_multi_events",
             conversion_goal_name="Filtered Multi Events",
             math=BaseMathType.TOTAL,
@@ -5216,7 +5236,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         This test clarifies the current behavior.
         """
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_person(distinct_ids=["semantics_user"], team=self.team)
             _create_event(
                 distinct_id="semantics_user",
@@ -5227,7 +5247,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # User triggers ONLY the first event
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(
                 distinct_id="semantics_user",
                 event="sign_up",
@@ -5236,13 +5256,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with 2 events
-        action_both_events = Action.objects.create(
+        action_both_events = create_action(
             team=self.team, name="Two Event Action", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action_both_events.pk,
+            id=action_both_events.id,
             conversion_goal_id="semantics_test",
             conversion_goal_name="Semantics Test",
             math=BaseMathType.TOTAL,
@@ -5267,7 +5287,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_event_only_count = response.results[0][4] if response.results else 0
 
         # Now user triggers the second event too
-        with freeze_time("2023-04-20"):
+        with time_machine.travel("2023-04-20", tick=False):
             _create_event(distinct_id="semantics_user", event="activate_account", team=self.team)
             flush_persons_and_events_in_batches()
 
@@ -5286,7 +5306,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Scenario: UTM pageview → action event
         Expected: Action should attribute to the prior pageview UTM parameters
         """
-        with freeze_time("2023-04-10"):
+        with time_machine.travel("2023-04-10", tick=False):
             _create_person(distinct_ids=["attribution_test_user"], team=self.team)
             _create_event(
                 distinct_id="attribution_test_user",
@@ -5296,15 +5316,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(distinct_id="attribution_test_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        action = Action.objects.create(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
+        action = create_action(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="attribution_test",
             conversion_goal_name="Attribution Test",
             math=BaseMathType.TOTAL,
@@ -5346,7 +5366,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Both action events attribute to same pageview UTMs
         """
         # Create test data with temporal attribution scenario
-        with freeze_time("2023-06-01 10:00:00"):
+        with time_machine.travel("2023-06-01 10:00:00", tick=False):
             _create_person(distinct_ids=["test_user"], team=self.team)
             _create_event(
                 distinct_id="test_user",
@@ -5356,16 +5376,16 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-01 10:05:00"):
+        with time_machine.travel("2023-06-01 10:05:00", tick=False):
             _create_event(distinct_id="test_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-06-01 10:10:00"):
+        with time_machine.travel("2023-06-01 10:10:00", tick=False):
             _create_event(distinct_id="test_user", event="activate_account", team=self.team)
             flush_persons_and_events_in_batches()
 
         # Create multi-event action
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="User Onboarding", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
@@ -5383,7 +5403,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         actions_goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="actions_test",
             conversion_goal_name="Actions Test",
             math=BaseMathType.TOTAL,
@@ -5426,7 +5446,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Both should attribute to same UTM source
         assert events_campaign == actions_campaign == "summer_launch"
-        assert events_source == actions_source == "twitter_ads"
+        assert events_source == actions_source == "twitter"
 
         # ActionsNode should count both events, EventsNode only one
         assert events_count == 1
@@ -5448,7 +5468,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Action correctly attributes to prior pageview UTMs
         """
         # Create temporal attribution test data
-        with freeze_time("2023-05-01"):
+        with time_machine.travel("2023-05-01", tick=False):
             _create_person(distinct_ids=["test_user"], team=self.team)
             _create_event(
                 distinct_id="test_user",
@@ -5458,7 +5478,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-02"):
+        with time_machine.travel("2023-05-02", tick=False):
             _create_event(distinct_id="test_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
@@ -5467,7 +5487,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="signup_test",
             conversion_goal_name="Signup Test",
             math=BaseMathType.TOTAL,
@@ -5514,7 +5534,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         This validates that utm_medium is threaded through the conversion pipeline
         and used in channel type classification, matching the behavior of adapter cost data.
         """
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["paid_user"], team=self.team)
             _create_event(
                 distinct_id="paid_user",
@@ -5524,7 +5544,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-12"):
+        with time_machine.travel("2023-03-12", tick=False):
             _create_event(
                 distinct_id="paid_user",
                 event="purchase",
@@ -5533,7 +5553,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_person(distinct_ids=["organic_user"], team=self.team)
             _create_event(
                 distinct_id="organic_user",
@@ -5543,7 +5563,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-12"):
+        with time_machine.travel("2023-03-12", tick=False):
             _create_event(
                 distinct_id="organic_user",
                 event="purchase",
@@ -5604,7 +5624,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         expected_weights: dict[str, float],
     ):
         for i, (campaign, source, date) in enumerate(touchpoints):
-            with freeze_time(date):
+            with time_machine.travel(date, tick=False):
                 if i == 0:
                     _create_person(distinct_ids=[user_id], team=self.team)
                 _create_event(
@@ -5615,7 +5635,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 )
                 flush_persons_and_events_in_batches()
 
-        with freeze_time(conversion_date):
+        with time_machine.travel(conversion_date, tick=False):
             _create_event(distinct_id=user_id, event="purchase", team=self.team, properties={})
             flush_persons_and_events_in_batches()
 
@@ -5698,7 +5718,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
     def test_time_decay_attribution_recent_gets_more_credit(self):
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             _create_person(distinct_ids=["decay_user"], team=self.team)
             _create_event(
                 distinct_id="decay_user",
@@ -5708,7 +5728,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-25"):
+        with time_machine.travel("2023-03-25", tick=False):
             _create_event(
                 distinct_id="decay_user",
                 event="$pageview",
@@ -5717,7 +5737,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-31"):
+        with time_machine.travel("2023-03-31", tick=False):
             _create_event(distinct_id="decay_user", event="purchase", team=self.team, properties={})
             flush_persons_and_events_in_batches()
 
@@ -5821,7 +5841,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
     def test_multi_touch_no_touchpoints_returns_no_results(self):
-        with freeze_time("2023-04-01"):
+        with time_machine.travel("2023-04-01", tick=False):
             _create_person(distinct_ids=["no_utm_user"], team=self.team)
             _create_event(
                 distinct_id="no_utm_user",
@@ -5831,7 +5851,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-04-15"):
+        with time_machine.travel("2023-04-15", tick=False):
             _create_event(distinct_id="no_utm_user", event="purchase", team=self.team, properties={})
             flush_persons_and_events_in_batches()
 
@@ -5866,7 +5886,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # ── Multi-touch attribution snapshot tests ──────────────────────────
 
     def _create_multi_touch_scenario(self):
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["mt_user"], team=self.team)
             _create_event(
                 distinct_id="mt_user",
@@ -5876,7 +5896,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_event(
                 distinct_id="mt_user",
                 event="$pageview",
@@ -5885,7 +5905,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-20"):
+        with time_machine.travel("2023-03-20", tick=False):
             _create_event(
                 distinct_id="mt_user",
                 event="$pageview",
@@ -5894,7 +5914,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-25"):
+        with time_machine.travel("2023-03-25", tick=False):
             _create_event(
                 distinct_id="mt_user",
                 event="purchase",
@@ -6165,7 +6185,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     def test_multi_touch_linear_with_actions_node(self):
         # 3 touchpoints → action-based conversion (sign_up OR activate_account)
-        with freeze_time("2023-03-01"):
+        with time_machine.travel("2023-03-01", tick=False):
             _create_person(distinct_ids=["mt_action_user"], team=self.team)
             _create_event(
                 distinct_id="mt_action_user",
@@ -6175,7 +6195,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-10"):
+        with time_machine.travel("2023-03-10", tick=False):
             _create_event(
                 distinct_id="mt_action_user",
                 event="$pageview",
@@ -6184,11 +6204,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-20"):
+        with time_machine.travel("2023-03-20", tick=False):
             _create_event(distinct_id="mt_action_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Signup Flow",
             steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
@@ -6196,7 +6216,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="mt_actions_linear",
             conversion_goal_name="Multi Touch Actions Linear",
             math=BaseMathType.TOTAL,
@@ -6231,7 +6251,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     def test_position_based_no_touchpoints_in_window_returns_no_rows(self):
         # Touchpoint exists but outside the attribution window → 0 results
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             _create_person(distinct_ids=["outside_window_user"], team=self.team)
             _create_event(
                 distinct_id="outside_window_user",
@@ -6242,7 +6262,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Conversion 1 year later — touchpoint is outside the 90-day window
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             _create_event(
                 distinct_id="outside_window_user",
                 event="purchase",
@@ -6286,7 +6306,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # When all touchpoints share the exact same timestamp, exp(0) = 1 for each,
         # producing equal weights (degrades to linear behavior).
         timestamp = "2023-03-15 12:00:00"
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(distinct_ids=["same_ts_user"], team=self.team)
             _create_event(
                 distinct_id="same_ts_user",
@@ -6302,7 +6322,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-20"):
+        with time_machine.travel("2023-03-20", tick=False):
             _create_event(distinct_id="same_ts_user", event="purchase", team=self.team)
             flush_persons_and_events_in_batches()
 
@@ -6339,7 +6359,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # When two touchpoints share the same timestamp as min, both get 0.4 before
         # normalization. With 3 touchpoints (two at min, one at max), pre-normalization
         # sum = 0.4 + 0.4 + 0.4 = 1.2, which normalizes to 0.333 each.
-        with freeze_time("2023-03-01 12:00:00"):
+        with time_machine.travel("2023-03-01 12:00:00", tick=False):
             _create_person(distinct_ids=["dup_ts_user"], team=self.team)
             _create_event(
                 distinct_id="dup_ts_user",
@@ -6355,7 +6375,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-15"):
+        with time_machine.travel("2023-03-15", tick=False):
             _create_event(
                 distinct_id="dup_ts_user",
                 event="$pageview",
@@ -6364,7 +6384,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-03-20"):
+        with time_machine.travel("2023-03-20", tick=False):
             _create_event(distinct_id="dup_ts_user", event="purchase", team=self.team)
             flush_persons_and_events_in_batches()
 

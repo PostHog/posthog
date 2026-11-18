@@ -22,6 +22,8 @@ from products.tasks.backend.presentation.serializers import (
 
 
 class TaskUsageCrossRegionAuthentication(WebhookSignatureAuthentication):
+    activity_credential_type = "cross_region_signature"
+
     def get_signature_header(self) -> str:
         return TASK_USAGE_SIGNATURE_HEADER
 

@@ -43,6 +43,27 @@ export const Basic: Story = {
     },
 }
 
+export const SharedValueDomain: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesComboChart
+                    series={BAR_AND_LINE}
+                    labels={MONTHLY_LABELS}
+                    theme={theme}
+                    config={{
+                        valueDomain: { min: 0, max: 500 },
+                        xAxis: { timezone: 'UTC', interval: 'month' },
+                        yAxis: { showGrid: true },
+                        legend: { show: true },
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const StackedBarsAndLine: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -133,6 +154,34 @@ export const DualYAxis: Story = {
                     config={{
                         xAxis: { timezone: 'UTC', interval: 'month' },
                         yAxis: { showGrid: true },
+                        legend: { show: true },
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+/** `yAxis.min` / `max` apply to axes that carry no bars. Here the bars sit on the left axis from
+ *  zero, while the right axis (lines only) is bounded to 100..350 to zoom in on the variation. */
+export const AxisBoundsWithoutBars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesComboChart
+                    series={[
+                        { ...BAR_AND_LINE[0], yAxisId: 'left' },
+                        { ...BAR_AND_LINE[1], yAxisId: 'right' },
+                    ]}
+                    labels={MONTHLY_LABELS}
+                    theme={theme}
+                    config={{
+                        xAxis: { timezone: 'UTC', interval: 'month' },
+                        yAxis: [
+                            { id: 'left', showGrid: true, min: 200 },
+                            { id: 'right', position: 'right', min: 100, max: 350 },
+                        ],
                         legend: { show: true },
                     }}
                 />

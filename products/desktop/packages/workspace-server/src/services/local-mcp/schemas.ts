@@ -18,7 +18,7 @@ const localMcpTransportSchema: z.ZodType<LocalMcpTransport> = z.union([
   z.object({ type: z.literal("unknown") }),
 ]);
 
-export const localMcpServerDescriptorSchema: z.ZodType<LocalMcpServerDescriptor> =
+const localMcpServerDescriptorSchema: z.ZodType<LocalMcpServerDescriptor> =
   z.object({
     name: z.string(),
     scope: z.enum(["user", "project"]),

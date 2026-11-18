@@ -120,9 +120,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        testOptions: {
-            loaderTimeout: 15000,
-        },
     },
     decorators: [
         mswDecorator({
@@ -237,7 +234,7 @@ export const GroupRecordingTabMultipleAndFound: Story = {
     },
     parameters: {
         testOptions: {
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     tags: ['test-skip'],
@@ -291,7 +288,7 @@ export const GroupRecordingTabWide: Story = {
     parameters: {
         testOptions: {
             viewport: { width: 1300, height: 720 },
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     tags: ['test-skip'],
@@ -345,7 +342,7 @@ export const GroupRecordingTabNarrow: Story = {
     parameters: {
         testOptions: {
             viewport: { width: 568, height: 1024 },
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     tags: ['test-skip'],
@@ -400,7 +397,7 @@ export const GroupEventsTabWithModal: Story = {
     },
     parameters: {
         testOptions: {
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     tags: ['test-skip'],

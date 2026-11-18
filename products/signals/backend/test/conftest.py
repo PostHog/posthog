@@ -26,12 +26,19 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 
 @pytest.fixture(autouse=True)
 def _scout_team_scope(request: pytest.FixtureRequest):
     instance = getattr(request, "instance", None)
-    if instance is None or not hasattr(instance, "team") or instance.team is None:
+    # Per-test setup creates the team later; an inherited class team can refer to a rolled-back row.
+    if (
+        instance is None
+        or not getattr(instance, "CLASS_DATA_LEVEL_SETUP", True)
+        or not hasattr(instance, "team")
+        or instance.team is None
+    ):
         yield
         return
     with team_scope(instance.team.id):
@@ -44,7 +51,7 @@ async def aorganization():
         name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -54,4 +61,4 @@ async def ateam(aorganization):
         name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)

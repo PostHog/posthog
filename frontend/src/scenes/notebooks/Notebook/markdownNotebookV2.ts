@@ -21,6 +21,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urlToResource } from 'scenes/urls'
 
+import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     ArtifactContentType,
@@ -28,7 +29,6 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'
@@ -50,11 +50,9 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.Dashboard]: 'Dashboard',
     [NotebookNodeType.Action]: 'Action',
     [NotebookNodeType.Workflow]: 'Workflow',
-    [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.PythonV2]: 'PythonV2',
-    [NotebookNodeType.DuckSQL]: 'DuckSQL',
-    [NotebookNodeType.HogQLSQL]: 'HogQLSQL',
     [NotebookNodeType.SQLV2]: 'SQLV2',
+    [NotebookNodeType.GeneratedWidget]: 'Widget',
     [NotebookNodeType.Recording]: 'Recording',
     [NotebookNodeType.RecordingPlaylist]: 'RecordingPlaylist',
     [NotebookNodeType.FeatureFlag]: 'FeatureFlag',

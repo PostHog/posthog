@@ -37,10 +37,13 @@ describe('AiIngestionPipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockTeamManager: jest.Mocked<TeamManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
-    let mockEventFilterManager: { getFilter: jest.Mock }
+    let mockEventFilterManager: { getFilter: jest.Mock; dropsAllEvents: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+        Pick<
+            HogTransformer,
+            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+        >
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
@@ -105,6 +108,7 @@ describe('AiIngestionPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -113,7 +117,10 @@ describe('AiIngestionPipeline', () => {
             forceRefresh: jest.fn(),
         } as unknown as jest.Mocked<EventIngestionRestrictionManager>
 
-        mockEventFilterManager = { getFilter: jest.fn().mockReturnValue(undefined) }
+        mockEventFilterManager = {
+            getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
+        }
 
         mockCookielessManager = {
             doBatch: jest.fn().mockImplementation((events: any[]) => Promise.resolve(events.map((e) => ok(e)))),
@@ -124,8 +131,12 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+            Pick<
+                HogTransformer,
+                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+            >
         >
 
         mockPersonRepository = {
@@ -163,6 +174,8 @@ describe('AiIngestionPipeline', () => {
                 [APP_METRICS_OUTPUT]: single(APP_METRICS_OUTPUT, 'clickhouse_app_metrics2_test'),
             }),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager as any,
             cookielessManager: mockCookielessManager,
@@ -202,12 +215,49 @@ describe('AiIngestionPipeline', () => {
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
+    it('reports the bytes above the included allowance as an ai_overage_bytes record', async () => {
+        const message = createMessage('$ai_generation', { $ai_input: 'x'.repeat(150_000) })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        expect(ingestedUsage).toHaveLength(2)
+        const [eventRecord, overageRecord] = ingestedUsage
+        expect(eventRecord.usageKey).toBe('ai_events')
+        expect(overageRecord).toEqual({
+            teamId: team.id,
+            usageKey: 'ai_overage_bytes',
+            recordId: `${eventRecord.recordId}:${receivedBytes}`,
+            quantity: receivedBytes - 100_000,
+            unit: 'bytes',
+            timestampMs: eventRecord.timestampMs,
+        })
+    })
+
     it('double-writes AI events to both the events and ai_events outputs', async () => {
         await runPipeline([createMessage('$ai_generation')])
 
         expect(producedForTopic(EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(AI_EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+    })
+
+    it('stamps the received size as $ai_event_bytes on both copies, over client and transform values', async () => {
+        mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
+            Promise.resolve({
+                event: { ...event, properties: { ...event.properties, $ai_event_bytes: 2 } },
+                invocationResults: [],
+            })
+        )
+        const message = createMessage('$ai_generation', { $ai_event_bytes: 1, $ai_input: 'café ☕' })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(parseJSON(eventsCopy.properties).$ai_event_bytes).toBe(receivedBytes)
+        expect(parseJSON(aiCopy.properties).$ai_event_bytes).toBe(receivedBytes)
     })
 
     it('nulls invalid AI token properties before emitting', async () => {
@@ -217,7 +267,30 @@ describe('AiIngestionPipeline', () => {
         expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
     })
 
-    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event'])(
+    it('admits an unlisted $ai_* event and splits, strips and bills it like a listed one', async () => {
+        await runPipeline([
+            createMessage('$ai_custom_step', {
+                $ai_input: 'large input',
+                $ai_model: 'gpt-4',
+                $set: { plan: 'pro' },
+            }),
+        ])
+
+        expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(eventsCopy.event).toBe('$ai_custom_step')
+        expect(aiCopy.event).toBe('$ai_custom_step')
+        // Large AI properties live only on ai_events; person updates never leave this pipeline.
+        expect(parseJSON(eventsCopy.properties).$ai_input).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$ai_input).toBe('large input')
+        expect(parseJSON(eventsCopy.properties).$set).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$set).toBeUndefined()
+        expect(ingestedUsage).toHaveLength(1)
+        expect(ingestedUsage[0].usageKey).toBe('ai_events')
+    })
+
+    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event', 'ai_generation'])(
         'DLQs non-AI %s events instead of processing them',
         async (eventName) => {
             await runPipeline([createMessage(eventName)])

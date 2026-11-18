@@ -1,20 +1,22 @@
 import json
 from collections.abc import Callable
-from datetime import timedelta
+from copy import copy
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
+from django.templatetags.static import static
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -30,15 +32,19 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_publisher
-from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+from posthog.api.sharing_publish_gate import denied_resources_in_share
+from posthog.auth import (
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    mint_export_renderer_token,
+)
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.hogql_queries.refresh_policy import ComputeSurface
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
@@ -49,14 +55,14 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.scopes import APIScopeObject
-from posthog.security.url_validation import is_url_allowed
+from posthog.scopes.catalog import APIScopeObject
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_ip_address, render_template
+from posthog.utils import get_ip_address, get_persisted_feature_flags_for_app_context, render_template
 from posthog.views import preflight_check
 
+from products.access_control.backend.facade.api import team_has_public_sharing_access_rules
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
@@ -67,11 +73,12 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
-from products.dashboards.backend.api.dashboard import DashboardSerializer
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.access import dashboard_access_method, record_dashboard_view
+from products.dashboards.backend.facade.api import get_dashboard
+from products.dashboards.backend.facade.contracts import DashboardSummary
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
-from products.exports.backend.facade.api import export_limit_context
+from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -79,7 +86,7 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
-from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
+from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
@@ -194,38 +201,16 @@ def _require_resource_access(resource: APIScopeObject, resource_label: str) -> S
     return check
 
 
-def _require_dashboard_access(
-    view: "SharingConfigurationViewSet",
-    user_access_control: UserAccessControl,
-    dashboard: Model,
-    required_level: AccessControlLevel,
-) -> None:
-    dashboard = cast(Dashboard, dashboard)
-    # Legacy check: remove once all users are on the new access control. It restricts editing only, so
-    # it must not gate a read.
-    if (
-        required_level == "editor"
-        and dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-    ):
-        if not view.user_permissions.dashboard(dashboard).can_edit:
-            raise PermissionDenied("You don't have edit permissions for this dashboard.")
-        return
-
-    access_level = user_access_control.get_user_access_level(dashboard)
-    if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, required_level):
-        raise PermissionDenied(_denied_message("dashboard", required_level))
-
-
 # Maps every shareable FK on SharingConfiguration to the permission check that gates access to it.
 # A ``None`` value means the resource is created server-side and is not reachable through this viewset; if such
 # a config ever reaches the gate we fail closed rather than fall through to "allowed". The relationship is
 # enforced against the model below, so a newly added shareable resource cannot ship without a decision here.
 SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
-    "dashboard": _require_dashboard_access,
+    "dashboard": _require_resource_access("dashboard", "dashboard"),
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
-    # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
+    # The user interviews product is retired. No flow creates these configs, and this viewset never edits them.
     "interviewee_context": None,
 }
 
@@ -284,6 +269,7 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
             "export_format": "image/png",
+            "export_context": {"sharing_configuration_id": resource.pk},
         },
         context={"team_id": cast(Team, resource.team).pk},
     )
@@ -324,9 +310,7 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
         "suggested_users_with_access": None,
         "commit_sha": get_git_commit_short(),
         "livestream_host": settings.LIVESTREAM_HOST,
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": True,
     }
 
@@ -359,6 +343,9 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
+    has_relevant_access_controls = serializers.SerializerMethodField(
+        help_text="Whether the project has configured access controls for shared content or its underlying data."
+    )
 
     class Meta:
         model = SharingConfiguration
@@ -370,8 +357,17 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
             "password_required",
             "share_passwords",
             "user_access_level",
+            "has_relevant_access_controls",
         ]
         read_only_fields = ["created_at", "access_token", "share_passwords", "user_access_level"]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_relevant_access_controls(self, obj: SharingConfiguration) -> bool:
+        if not (obj.dashboard_id or obj.notebook_id or obj.insight_id):
+            return False
+        if not obj.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return False
+        return team_has_public_sharing_access_rules(team_id=obj.team_id)
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -429,10 +425,10 @@ class SharingConfigurationViewSet(
             raise ValidationError("Either a dashboard, insight, recording or notebook must be specified")
 
         if dashboard_id:
-            try:
-                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id)
-            except Dashboard.DoesNotExist:
+            dashboard = get_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
+            if dashboard is None:
                 raise NotFound("Dashboard not found.")
+            context["dashboard"] = dashboard
         if insight_id:
             try:
                 context["insight"] = Insight.objects.get(id=insight_id, team__project_id=self.team.project_id)
@@ -463,7 +459,8 @@ class SharingConfigurationViewSet(
         never invalidates public share tokens.
         """
         context = context or self.get_serializer_context()
-        dashboard = context.get("dashboard")
+        dashboard_summary: DashboardSummary | None = context.get("dashboard")
+        dashboard_id = dashboard_summary.id if dashboard_summary else None
         insight = context.get("insight")
         recording = context.get("recording")
         notebook = context.get("notebook")
@@ -471,7 +468,7 @@ class SharingConfigurationViewSet(
         config_kwargs = {
             "team_id": self.team_id,
             "insight": insight,
-            "dashboard": dashboard,
+            "dashboard_id": dashboard_id,
             "recording": recording,
             "notebook": notebook,
             "expires_at": None,
@@ -481,14 +478,15 @@ class SharingConfigurationViewSet(
             dedupe=dedupe,
             team_id=self.team_id,
             insight=insight,
-            dashboard=dashboard,
+            dashboard_id=dashboard_id,
             recording=recording,
             notebook=notebook,
         )
         if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
-        if dashboard:
+        dashboard = instance.dashboard if dashboard_id else None
+        if dashboard is not None:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:
                 if (
@@ -532,43 +530,53 @@ class SharingConfigurationViewSet(
 
         check_can_access_sharing_configuration(self, request, instance)
 
-        # Now that the caller is authorized to edit, collapse any duplicate active rows.
-        instance = self._get_sharing_configuration(context, dedupe=True)
-
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
                     {"error": "Sharing with password requires the Access Control feature"}, status=403
                 )
 
-        if context.get("recording"):
-            recording = cast(SessionRecording, context.get("recording"))
-            # Special case where we need to save the instance for recordings so that the actual record gets created
-            recording.save()
-
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
         # access to everything the artifact queries, or sharing becomes an escalation channel.
+        denied_resources: list[str] = []
         if (
             request.data.get("enabled")
-            and not instance.enabled
             and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
-            if blocked_names:
-                blocked = ", ".join(f"`{name}`" for name in blocked_names)
-                raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {blocked}, "
-                    "which the shared queries use. Ask an admin for access, or remove those queries first."
-                )
-
+            denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
 
-        if context.get("insight"):
+        with transaction.atomic():
+            if context.get("recording"):
+                recording = cast(SessionRecording, context.get("recording"))
+                # Recordings may not have a persisted row until they are shared.
+                recording.save()
+
+            instance.lock_resource()
+            instance = self._get_sharing_configuration(context, dedupe=True)
+            if denied_resources and not instance.enabled:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+                raise ValidationError(
+                    f"Can't enable sharing: you don't have access to {denied_names}, "
+                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                )
+            serializer.instance = instance
+            was_enabled = instance.enabled
+            serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))
+
+            if serializer.validated_data.get("enabled") is False:
+                SharingConfiguration.objects.filter(
+                    team_id=self.team_id,
+                    dashboard_id=instance.dashboard_id,
+                    insight_id=instance.insight_id,
+                    notebook_id=instance.notebook_id,
+                    recording_id=instance.recording_id,
+                ).update(enabled=False)
+
+        if context.get("insight") and "enabled" in serializer.validated_data:
             name = instance.insight.name or instance.insight.derived_name
             log_activity(
                 organization_id=None,
@@ -585,6 +593,7 @@ class SharingConfigurationViewSet(
                             type="Insight",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
@@ -608,13 +617,14 @@ class SharingConfigurationViewSet(
                             type="Dashboard",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
                 ),
             )
 
-        if context.get("notebook"):
+        if context.get("notebook") and "enabled" in serializer.validated_data:
             log_activity(
                 organization_id=None,
                 team_id=self.team_id,
@@ -630,6 +640,7 @@ class SharingConfigurationViewSet(
                             type="Notebook",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
@@ -920,10 +931,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "insight",
                         "recording",
                         "notebook",
-                        "interviewee_context",
-                        "interviewee_context__topic",
                     )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .filter(
+                        Q(expires_at__isnull=True) | Q(expires_at__gt=now()),
+                        SharingConfiguration.without_retired_resources_q(),
+                    )
                     .get(access_token=access_token)
                 )
             except SharingConfiguration.DoesNotExist:
@@ -987,6 +999,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         return True
 
     @xframe_options_exempt
+    @ip_restrictions_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         try:
             resource = self.get_object()
@@ -1073,6 +1086,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     request=request,
                     context={
                         "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_safe_og_tags": resource.insight or resource.dashboard,
                         "add_og_tags": None,
                     },
                 )
@@ -1131,7 +1145,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
             if not exported_asset:
                 raise NotFound()
-            return get_content_response(exported_asset, False)
+            try:
+                return get_content_response(exported_asset, False)
+            except NotFound:
+                fallback = HttpResponseRedirect(static("blank-dashboard-hog.png"))
+                fallback["Cache-Control"] = "no-store"
+                return fallback
         elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
@@ -1139,7 +1158,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_safe_og_tags = resource.insight or resource.dashboard
+        add_og_tags = add_safe_og_tags and not (
+            isinstance(resource, SharingConfiguration) and resource.password_required
+        )
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
@@ -1155,19 +1177,34 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
+            if (
+                is_export_render
+                and isinstance(resource, ExportedAsset)
+                and resource.export_context
+                and resource.export_context.get("reference_lines")
+            ):
+                insight_data["query"] = query_with_reference_lines(
+                    insight_data.get("query") or {}, resource.export_context["reference_lines"]
+                )
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
             exported_data.update({"cohorts": _collect_cohorts_for_sharing([resource.insight], resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
+            record_dashboard_view(dashboard_id=resource.dashboard.id, access_method=context["dashboard_access_method"])
+            # Reload the stamp that the view just wrote, so the payload shows this view as the last access.
+            resource.dashboard.refresh_from_db(fields=["last_accessed_at"])
 
             with task_chain_context():
                 # Viewers of a shared dashboard never get the tile details panel, so the people
                 # who created and last modified the dashboard and its tiles stay out of the payload
                 dashboard_context = {**context, "hide_extra_details": True}
-                dashboard_data = DashboardSerializer(resource.dashboard, context=dashboard_context).data
+                dashboard = resource.dashboard
+                if is_export_render and isinstance(resource, ExportedAsset):
+                    dashboard = copy(dashboard)
+                    dashboard.filters = resource.get_dashboard_filters()
+                dashboard_data = DashboardSerializer(dashboard, context=dashboard_context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
@@ -1212,10 +1249,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
-                    export_access_token = encode_jwt(
-                        {"id": resource.created_by.id},
-                        timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.EXPORT_RENDERER,
+                    export_access_token = mint_export_renderer_token(
+                        user_id=resource.created_by.id,
+                        team_id=resource.team_id,
+                        exported_asset_id=resource.id,
+                        scope="session_recording:read",
                     )
 
                 asset_title = "Session Recording"
@@ -1253,7 +1291,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"), resource.team)
             if not ok:
                 raise ValidationError(f"heatmap_url not allowed: {err}")
 
@@ -1269,10 +1307,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
-                    export_access_token = encode_jwt(
-                        {"id": resource.created_by.id},
-                        timedelta(minutes=5),
-                        PosthogJwtAudience.EXPORT_RENDERER,
+                    export_access_token = mint_export_renderer_token(
+                        user_id=resource.created_by.id,
+                        team_id=resource.team_id,
+                        exported_asset_id=resource.id,
+                        scope="heatmap:read",
                     )
 
                 asset_title = "Heatmap"
@@ -1337,47 +1376,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "query_results": serialized_response,
                     "query_title": resource.export_context.get("title"),
                     "themes": get_themes_for_team(resource.team),
-                }
-            )
-        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import (
-                has_replied,
-                is_shared_interviewee_context,
-                parse_interviewee_identifier,
-            )
-
-            ic = resource.interviewee_context
-            topic = ic.topic
-            asset_title = topic.topic or "User interview"
-            asset_description = "PostHog AI user interview"
-            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
-            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
-            # viewer prompts for a name before starting.
-            shared = is_shared_interviewee_context(ic.interviewee_identifier)
-            if shared:
-                user_name = ""
-                already_replied = False
-            else:
-                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-                already_replied = has_replied(
-                    team_id=topic.team_id,
-                    topic_id=topic.id,
-                    interviewee_identifier=ic.interviewee_identifier,
-                )
-            # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
-            # the recipient would otherwise see their own internal-notes context in view-source.
-            # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
-            exported_data.update(
-                {
-                    "type": "interview",
-                    "interview": {
-                        "topic_id": str(topic.id),
-                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
-                        "user_name": user_name,
-                        "topic": topic.topic,
-                        "already_replied": already_replied,
-                        "shared": shared,
-                    },
                 }
             )
         elif isinstance(resource, SharingConfiguration) and resource.recording:
@@ -1529,6 +1527,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
             "asset_title": asset_title,
             "asset_description": asset_description,
+            "add_safe_og_tags": add_safe_og_tags,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }
@@ -1550,6 +1549,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             insight=resource.insight or None,
             dashboard=resource.dashboard or None,
             export_format=ExportedAsset.ExportFormat.PNG.value,
+            export_context={"sharing_configuration_id": resource.pk},
+            created_by__isnull=True,
+            source_authentication__isnull=True,
         )
 
         if exported_asset_matches.exists():

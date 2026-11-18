@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { getToolsFromContext } from '@/tools'
 import { GENERATED_TOOLS } from '@/tools/generated/platform_features'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -34,6 +35,49 @@ function mockContext(): Context {
 
 describe('advanced-activity-logs-list selectable fields', () => {
     const listTool = GENERATED_TOOLS['advanced-activity-logs-list'] as () => ToolBase<ZodObjectAny>
+
+    it.each(['Team', 'FeatureFlag', 'Experiment', 'Survey'])(
+        'lets a project-scoped scout query bounded %s history through the runtime catalog',
+        async (scope) => {
+            const context = mockContext()
+            context.stateManager.getAiConsentGiven = async () => true
+            context.stateManager.getApiKey = async () => ({
+                scopes: ['activity_log:read', 'internal_run:read', 'signal_scout_internal:write'],
+                scoped_teams: [1],
+                scoped_organizations: [],
+            })
+            const request = vi.spyOn(context.api, 'request')
+            const tools = await getToolsFromContext(context, {
+                tools: ['advanced-activity-logs-list'],
+                scopedTeams: [1],
+                availableFeatures: ['audit_logs'],
+                isCloud: true,
+            })
+            const tool = tools.find((candidate) => candidate.name === 'advanced-activity-logs-list')
+            expect(tool).toBeTruthy()
+            expect(tool!.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false })
+
+            const query = {
+                scopes: [scope],
+                item_ids: ['42'],
+                start_date: '2026-01-01T00:00:00Z',
+                end_date: '2026-01-02T00:00:00Z',
+                page_size: 10,
+            }
+            const params = tool!.schema.parse({ ...query, fields: ['activity', 'created_at'] })
+            const result = await tool!.handler(context, params)
+
+            expect(request).toHaveBeenCalledExactlyOnceWith({
+                method: 'GET',
+                path: '/api/projects/1/advanced_activity_logs/',
+                query: expect.objectContaining(query),
+            })
+            expect(result).toMatchObject({
+                results: [{ activity: 'updated', created_at: FULL_ENTRY.created_at }],
+            })
+            expect(result).not.toHaveProperty('results.0.detail')
+        }
+    )
 
     it('narrows each result to the requested fields when `fields` is passed', async () => {
         const result: any = await listTool().handler(mockContext(), {

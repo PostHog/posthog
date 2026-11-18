@@ -4,8 +4,9 @@ use axum::http::{header, HeaderMap, Method};
 use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
-use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
+use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATHS};
 use super::context::Context;
+use super::lenient::parse_batch;
 use super::types::Batch;
 use tracing::Level;
 
@@ -21,14 +22,7 @@ pub async fn handle_request(
     path: MatchedPath,
     body: Body,
 ) -> Result<axum::response::Response, v1::Error> {
-    let static_path: &'static str = match path.as_str() {
-        CAPTURE_V1_PATH => CAPTURE_V1_PATH,
-        CAPTURE_V1_PATH_TRAILING => CAPTURE_V1_PATH_TRAILING,
-        other => {
-            tracing::warn!(path = other, "unexpected matched path");
-            CAPTURE_V1_PATH
-        }
-    };
+    let static_path = pin_static_path(path.as_str());
     let mut context = Context::new(
         &headers,
         &ip,
@@ -93,8 +87,8 @@ pub async fn handle_request(
     metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(payload.len() as f64);
 
-    let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
-        let err = v1::Error::RequestParsingError(e.to_string());
+    let batch: Batch = parse_batch(&payload).map_err(|failure| {
+        let err = v1::Error::RequestParsingError(failure);
         log_stat_error!(err, &context);
         err
     })?;
@@ -106,6 +100,25 @@ pub async fn handle_request(
         Err(err) => {
             log_stat_error!(err, &context);
             Err(err)
+        }
+    }
+}
+
+/// Resolve a matched route pattern to its `&'static str`, which the Context
+/// carries into every metric and warning this request emits.
+///
+/// `MatchedPath` borrows from the request, so a label taken straight from it
+/// could not be `&'static`; matching it back against the registered set is what
+/// keeps the label a fixed-cardinality literal no matter what the client sent.
+/// An unknown pattern means a route was registered without being listed, which
+/// is a bug rather than client input, so falling back keeps the request served
+/// and the warning says where to look.
+fn pin_static_path(matched: &str) -> &'static str {
+    match CAPTURE_V1_PATHS.iter().find(|p| **p == matched) {
+        Some(path) => path,
+        None => {
+            tracing::warn!(path = matched, "unexpected matched path");
+            CAPTURE_V1_PATH
         }
     }
 }
@@ -179,6 +192,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::Router;
+    use rstest::rstest;
     use tower::ServiceExt;
     use uuid::Uuid;
 
@@ -316,18 +330,60 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[rstest]
+    #[case::invalid_json(
+        "not json at all {{{",
+        "Failed to parse request body: invalid JSON at line 1, column 2."
+    )]
+    #[case::wrong_type_distinct_id(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e","uuid":"019a0000-0000-7000-8000-000000000001","distinct_id":12345678901234567890123,"timestamp":"2026-03-19T14:30:00Z"}]}"#,
+        "Failed to parse request body: batch[0].distinct_id must be a string, got number."
+    )]
+    #[case::missing_event_name_in_later_event(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e","uuid":"019a0000-0000-7000-8000-000000000001","distinct_id":"d","timestamp":"2026-03-19T14:30:00Z"},{"uuid":"019a0000-0000-7000-8000-000000000002","distinct_id":"alice@example.com","timestamp":"2026-03-19T14:30:00Z"}]}"#,
+        "Failed to parse request body: batch[1].event is missing."
+    )]
+    #[case::wrong_type_created_at(
+        r#"{"created_at":{"secret":"alice@example.com"},"batch":[]}"#,
+        "Failed to parse request body: created_at must be a string, got object."
+    )]
+    #[case::wrong_type_batch(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":"alice@example.com"}"#,
+        "Failed to parse request body: wrong JSON type or value at line 1, column 64."
+    )]
+    #[case::truncated(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e""#,
+        "Failed to parse request body: unexpected end of JSON at line 1, column 58."
+    )]
     #[tokio::test]
-    async fn malformed_json() {
+    async fn unparseable_body_describes_the_problem_without_content(
+        #[case] body: &str,
+        #[case] expected_description: &str,
+    ) {
         let ts = TestStateBuilder::new().build();
         let app = test_app(ts.state);
 
-        let garbage = b"not json at all {{{".to_vec();
         let resp = app
-            .oneshot(valid_request().body(Body::from(garbage)).unwrap())
+            .oneshot(valid_request().body(Body::from(body.to_owned())).unwrap())
             .await
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = response_json(resp).await;
+        let raw = json.to_string();
+        for value in [
+            "alice@example.com",
+            "12345678901234567890123",
+            "1.2345678901234568e22",
+            "secret",
+        ] {
+            assert!(
+                !raw.contains(value),
+                "response echoes request content: {raw}"
+            );
+        }
+        assert_eq!(json["error"], "request_parsing_error");
+        assert_eq!(json["error_description"], expected_description);
     }
 
     #[tokio::test]
@@ -431,18 +487,32 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 
-    #[tokio::test]
-    async fn service_unavailable_no_sink() {
-        let mut ts = TestStateBuilder::new().build();
-        ts.state.v1_sink_router = None;
-        let app = test_app(ts.state);
+    /// Every registered route must map to its own `&'static` label. The
+    /// fallback is silent apart from a log line, so a route registered without
+    /// being added to `CAPTURE_V1_PATHS` would quietly report AI traffic under
+    /// the analytics path -- on metrics and on ingestion warnings alike.
+    #[rstest::rstest]
+    #[case(CAPTURE_V1_PATH)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_PATH_TRAILING)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH_TRAILING)]
+    fn pin_static_path_round_trips_every_registered_route(#[case] path: &str) {
+        assert_eq!(super::pin_static_path(path), path);
+    }
 
-        let payload = batch_payload(&[valid_event()]);
-        let resp = app
-            .oneshot(valid_request().body(Body::from(payload)).unwrap())
-            .await
-            .unwrap();
+    /// The AI path must not collapse onto the analytics label, which is what
+    /// the fallback would do.
+    #[test]
+    fn pin_static_path_keeps_the_ai_path_distinct() {
+        let ai = super::pin_static_path(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH);
+        assert_ne!(ai, CAPTURE_V1_PATH);
+        assert_eq!(ai, "/i/v1/ai/events");
+    }
 
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    /// An unregistered pattern falls back rather than panicking, so a routing
+    /// mistake degrades a metric label instead of dropping the request.
+    #[test]
+    fn pin_static_path_falls_back_for_an_unregistered_route() {
+        assert_eq!(super::pin_static_path("/i/v1/not/a/route"), CAPTURE_V1_PATH);
     }
 }

@@ -127,12 +127,21 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         stats_table = self._level_tables().stats_table
         stats_table_name = stats_table.name
 
-        # Google reports cost in micros (millionths of the account currency).
+        # Google reports cost in micros (millionths of the account currency). The column can
+        # sync as a string, so the cast comes before the division — ClickHouse rejects a
+        # divide on a String argument before any surrounding cast runs.
         cost_micros = ast.Field(chain=[stats_table_name, "metrics_cost_micros"])
-        cost_standard = ast.ArithmeticOperation(
-            left=cost_micros, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        cost_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Call(name="toFloat", args=[cost_micros]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Constant(value=1000000),
+                ),
+                ast.Constant(value=0),
+            ],
         )
-        cost_float = ast.Call(name="toFloat", args=[cost_standard])
 
         converted = self._apply_currency_conversion(stats_table, stats_table_name, "customer_currency_code", cost_float)
         if converted:

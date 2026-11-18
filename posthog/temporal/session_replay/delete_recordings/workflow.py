@@ -72,6 +72,7 @@ async def _delete_page(
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(minutes=1),
+                    non_retryable_error_types=["RecordingApiConfigurationError"],
                 ),
             )
             progress.total_deleted += len(result.deleted)

@@ -1,0 +1,72 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "PDF whitepaper SEO extraction fails with 500",
+  "scenario": "ContentForge's OTel-instrumented content pipeline sends an uploaded whitepaper PDF to GPT-5.4 to pull SEO keywords and a meta description, but the call fails with an upstream 500 from OpenAI.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 1,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-5.4"
+    ],
+    "content_types": [
+      "input_file",
+      "input_text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "Error code: 500 - {'error': {'message': 'The server had an error while processing your request. Sorry about that!', 'type': 'server_error'}}",
+        "$ai_http_status": 500,
+        "$ai_ingestion_source": "otel",
+        "$ai_is_error": true,
+        "$ai_span_id": "7a6cc23ee92e14ec",
+        "$ai_trace_id": "09eed3013d592a7d4c94dad0c3bf16c3",
+        "$geoip_disable": true,
+        "environment": "production-eu",
+        "service.name": "marketing-content-api",
+        "deploy.hash": "d4f9a2",
+        "$ai_span_name": "pdf_extract",
+        "$ai_provider": "openai",
+        "$ai_model": "gpt-5.4",
+        "$ai_latency": 0.000512244,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are the extraction stage of a marketing content pipeline named ContentForge. You receive an uploaded PDF and a short instruction from an editor, and you must return a single JSON object with exactly three fields: seo_keywords (an array of five to ten keyword phrases ranked by relevance to organic search intent, each phrase between two and five words, lowercase unless it is a proper noun), meta_description (a single sentence under 160 characters written for a search engine results snippet, active voice, no superlatives, no ending period), and summary (two to three sentences describing the document for an internal content calendar so an editor who has not read it can decide whether to repurpose it). Read the entire document before answering rather than skimming the first page. Prefer keyword phrases that already appear verbatim in the text over invented ones, and never fabricate statistics, dates, customer names, or pricing figures that are not present in the source. If the PDF is a scanned image with no extractable text, or the extraction tool returns fewer than 200 characters of text, return an empty seo_keywords array, an empty meta_description string, and explain the limitation in the summary field instead of guessing at the content. Do not include markdown formatting, code fences, or any text outside the JSON object."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Pull the top SEO keywords and a 3-sentence meta description from the attached whitepaper PDF."
+              },
+              {
+                "type": "input_file",
+                "filename": "2026-Q3-SaaS-Content-Marketing-Benchmark-Report-Global-Edition-Whitepaper-Draft-v3-FINAL.pdf",
+                "file_data": "data:application/pdf;base64,⟦media:otel_openai_input_file_500_error__M1368356.pdf⟧"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

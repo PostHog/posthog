@@ -26,3 +26,28 @@ class TestLogsSqlPanel(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         sql = response.clickhouse or ""
         assert "JSONExtract" not in sql
+
+    @parameterized.expand(
+        [
+            ("equals", "SELECT count() FROM logs WHERE body = 'Error'", True),
+            ("equals_reversed", "SELECT count() FROM logs WHERE 'Error' = body", True),
+            ("equals_message_alias", "SELECT count() FROM logs WHERE message = 'Error'", True),
+            ("equals_tostring", "SELECT count() FROM logs WHERE toString(body) = 'Error'", True),
+            ("like", "SELECT count() FROM logs WHERE body LIKE '%Error%'", True),
+            ("in_list", "SELECT count() FROM logs WHERE body IN ('Error', 'Warning')", True),
+            ("not_equals", "SELECT count() FROM logs WHERE body != 'Error'", False),
+            ("equals_column", "SELECT count() FROM logs WHERE body = service_name", False),
+            ("other_column", "SELECT count() FROM logs WHERE service_name = 'api'", False),
+        ]
+    )
+    def test_body_constant_comparison_keeps_lower_index_hint(self, _name, query, expects_hint):
+        # idx_body_ngram3 is built on lower(body), so a comparison against the bare column reads every granule. The
+        # printed SQL must keep the original case-sensitive comparison and add an indexHint over lower(body).
+        runner = HogQLQueryRunner(query=HogQLQuery(query=query), team=self.team)
+        response = runner.calculate()
+        sql = response.clickhouse or ""
+        assert ("indexHint(" in sql) == expects_hint
+        assert ("lower(logs_distributed.body)" in sql) == expects_hint
+        if expects_hint:
+            bare_body_reads = sql.replace("lower(logs_distributed.body)", "").count("logs_distributed.body")
+            assert bare_body_reads == 1

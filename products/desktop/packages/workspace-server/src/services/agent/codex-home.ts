@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { tomlBasicString } from "@posthog/shared";
 import {
   findSkillDirs,
   getUserSkillsDir,
@@ -8,6 +9,17 @@ import {
   linkSkillsInto,
 } from "../skills/skill-discovery";
 import type { AgentScopedLogger } from "./ports";
+
+/** The CODEX_HOME the user logs into for cloud runs. Separate from `~/.codex`, which stays local. */
+export const CODEX_CLOUD_HOME_DIRNAME = ".codex-posthog";
+
+export function getCodexCloudHomeDir(): string {
+  return path.join(os.homedir(), CODEX_CLOUD_HOME_DIRNAME);
+}
+
+export function getCodexCloudAuthFilePath(): string {
+  return path.join(getCodexCloudHomeDir(), "auth.json");
+}
 
 /**
  * Resolves a task run's private CODEX_HOME directory. Each run gets its own so
@@ -134,8 +146,16 @@ export async function prepareCodexHome(options: {
   return codexHome;
 }
 
-const MCP_SERVERS_HEADER = /^\[\[?\s*mcp_servers\s*(?:[.\]])/;
-const MCP_SERVERS_KEY = /^mcp_servers\s*[.=]/;
+/** Matches a table header and a top-level key rooted at `name`, bare or quoted. */
+function rootPatterns(name: string): { header: RegExp; key: RegExp } {
+  const root = `(?:${name}|"${name}"|'${name}')`;
+  return {
+    header: new RegExp(String.raw`^\[\[?\s*${root}\s*[.\]]`),
+    key: new RegExp(String.raw`^${root}\s*[.=]`),
+  };
+}
+
+const MCP_SERVERS = rootPatterns("mcp_servers");
 
 /**
  * Drops every `mcp_servers` definition from a codex config.toml: `[mcp_servers]`
@@ -151,6 +171,47 @@ const MCP_SERVERS_KEY = /^mcp_servers\s*[.=]/;
  * rejects at startup.
  */
 export function stripMcpServers(toml: string): string {
+  return stripTomlRoot(toml, MCP_SERVERS.header, MCP_SERVERS.key);
+}
+
+const MODEL_PROVIDERS = rootPatterns("model_providers");
+
+export async function writeCodexGatewayProvider(
+  codexHome: string,
+  baseUrl: string,
+  log: AgentScopedLogger,
+): Promise<boolean> {
+  const configPath = path.join(codexHome, "config.toml");
+  try {
+    const existing = await fs.promises
+      .readFile(configPath, "utf-8")
+      .catch(() => "");
+    const stripped = stripTomlRoot(
+      existing,
+      MODEL_PROVIDERS.header,
+      MODEL_PROVIDERS.key,
+    ).replace(/\s*$/, "");
+    const table = `[model_providers.posthog]\nbase_url = ${tomlBasicString(baseUrl)}\n`;
+    await fs.promises.writeFile(
+      configPath,
+      stripped ? `${stripped}\n\n${table}` : table,
+      { mode: 0o600 },
+    );
+    await fs.promises.chmod(configPath, 0o600);
+    return true;
+  } catch (err) {
+    log.warn("Failed to write the codex gateway provider", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+function stripTomlRoot(
+  toml: string,
+  headerPattern: RegExp,
+  keyPattern: RegExp,
+): string {
   const kept: string[] = [];
   let inMcpTable = false;
   let inTable = false;
@@ -165,10 +226,10 @@ export function stripMcpServers(toml: string): string {
     const trimmed = line.trim();
     if (structural && trimmed.startsWith("[")) {
       inTable = true;
-      inMcpTable = MCP_SERVERS_HEADER.test(trimmed);
+      inMcpTable = headerPattern.test(trimmed);
     }
     const drop: boolean = structural
-      ? inMcpTable || (!inTable && MCP_SERVERS_KEY.test(trimmed))
+      ? inMcpTable || (!inTable && keyPattern.test(trimmed))
       : inMcpTable || dropRestOfValue;
 
     value = scanLine(line, value);

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
   }[],
   channelsLoading: false,
@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   historyTabId: undefined as string | undefined,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
@@ -85,22 +88,32 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ channelId: mocks.routeChannelId }),
+  useParams: ({
+    select,
+  }: {
+    select?: (params: { channelId: string | undefined }) => unknown;
+  } = {}) => {
+    const params = { channelId: mocks.routeChannelId };
+    return select ? select(params) : params;
+  },
   useRouterState: ({
     select,
   }: {
     select: (s: {
       matches: { fullPath: string }[];
-      location: { state: { tabId?: string } };
+      location: { pathname: string; href: string; state: { tabId?: string } };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath }],
-      location: { state: { tabId: mocks.historyTabId } },
+      location: {
+        pathname: mocks.fullPath,
+        href: mocks.fullPath,
+        state: { tabId: mocks.historyTabId },
+      },
     }),
 }));
 
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   showChannelList,
@@ -323,6 +336,17 @@ describe("ChannelsSidebar", () => {
       expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
     });
 
+    // The pane carries the space's own tabs, so holding it back until the space
+    // list lands left a cold load with nothing to switch between.
+    it("opens the route's channel before the channel list lands", () => {
+      mocks.routeChannelId = ENG.id;
+      mocks.channels = [];
+      mocks.channelsLoading = true;
+      renderSidebar();
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
+      expect(listIsInteractive()).toBe(false);
+    });
+
     it("stays on the list while no channel resolves", () => {
       mocks.channels = [ENG];
       renderSidebar();
@@ -458,7 +482,6 @@ describe("ChannelsSidebar", () => {
     // with it — that part is deliberate.
     it("is absent in the channels alpha", () => {
       useSidebarStore.setState({ channelsEnabled: true });
-      mocks.featureFlags.set(PROJECT_BLUEBIRD_FLAG, true);
       renderSidebar();
       expect(screen.queryByText("Archived")).toBeNull();
     });

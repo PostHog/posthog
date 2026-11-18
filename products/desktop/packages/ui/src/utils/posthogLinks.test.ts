@@ -1,7 +1,11 @@
 import {
   canvasShareUrl,
+  colonOffsetToSeconds,
   errorTrackingIssueUrl,
+  inboxReportUrl,
   parseShareLink,
+  sessionRecordingUrl,
+  supportTicketUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { describe, expect, it, vi } from "vitest";
 
@@ -10,10 +14,50 @@ vi.mock("@posthog/ui/utils/urls", () => ({
 }));
 
 describe("canvasShareUrl", () => {
-  it("builds an https /code/canvas link with encoded ids", () => {
-    expect(canvasShareUrl("chan/1", "dash 2", "us")).toBe(
-      "https://us.posthog.com/code/canvas/chan%2F1/dash%202",
-    );
+  it.each([
+    [null, "https://us.posthog.com/code/canvas/chan%2F1/dash%202"],
+    [123, "https://us.posthog.com/project/123/code/canvas/chan%2F1/dash%202"],
+  ])(
+    "builds an https /code/canvas link for project %s",
+    (projectId, expected) => {
+      expect(
+        canvasShareUrl("chan/1", "dash 2", { projectId, cloudRegion: "us" }),
+      ).toBe(expected);
+    },
+  );
+});
+
+describe("inboxReportUrl", () => {
+  it("builds the browser-accessible report URL", () => {
+    expect(
+      inboxReportUrl("report/id", { projectId: 123, cloudRegion: "us" }),
+    ).toBe("https://us.posthog.com/project/123/inbox/report%2Fid");
+  });
+});
+
+describe("supportTicketUrl", () => {
+  it.each([
+    [
+      "a ticket number",
+      4821,
+      "https://us.posthog.com/project/123/support/tickets/4821",
+    ],
+    [
+      "a ticket uuid",
+      "0197-uuid",
+      "https://us.posthog.com/project/123/support/tickets/0197-uuid",
+    ],
+  ])(
+    "links the source project's ticket page by %s",
+    (_label, ref, expected) => {
+      expect(supportTicketUrl(ref, { projectId: 123, cloudRegion: "us" })).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("has no destination without a project to resolve the ticket against", () => {
+    expect(supportTicketUrl(4821, { projectId: null })).toBeNull();
   });
 });
 
@@ -39,6 +83,16 @@ describe("parseShareLink", () => {
       "https://us.posthog.com/code/channel/chan1/tasks/task1",
       { kind: "channel", channelId: "chan1", taskId: "task1" },
     ],
+    [
+      "canvas link with a project prefix",
+      "https://us.posthog.com/project/2/code/canvas/chan1/dash1",
+      { kind: "canvas", channelId: "chan1", dashboardId: "dash1" },
+    ],
+    [
+      "channel thread link with a project prefix",
+      "https://us.posthog.com/project/2/code/channel/chan1/tasks/task1",
+      { kind: "channel", channelId: "chan1", taskId: "task1" },
+    ],
   ])("parses a %s", (_label, href, expected) => {
     expect(parseShareLink(href)).toEqual(expected);
   });
@@ -56,6 +110,10 @@ describe("parseShareLink", () => {
     [
       "a channel thread link with a malformed tail",
       "https://us.posthog.com/code/channel/chan1/foo/task1",
+    ],
+    [
+      "a project prefix that is not an id",
+      "https://us.posthog.com/project/abc/code/canvas/chan1/dash1",
     ],
     ["a malformed url", "not a url"],
   ])("returns null for %s", (_label, href) => {
@@ -85,5 +143,61 @@ describe("errorTrackingIssueUrl", () => {
     ).toBe(
       "https://us.posthog.com/project/123/error_tracking/old-issue-id?fingerprint=fp%2Fvalue%20with%20spaces%26eq%3D1",
     );
+  });
+});
+
+describe("colonOffsetToSeconds", () => {
+  it.each([
+    ["MM:SS", "01:47", 107],
+    ["HH:MM:SS", "1:02:03", 3723],
+    ["zero-padded minutes", "10:00", 600],
+  ])("parses %s", (_label, offset, expected) => {
+    expect(colonOffsetToSeconds(offset)).toBe(expected);
+  });
+
+  it.each([
+    ["a bare number", "47"],
+    ["too many parts", "1:2:3:4"],
+    ["a non-numeric part", "ab:cd"],
+    ["a negative part", "-1:00"],
+    ["an empty segment", "1::2"],
+    ["a hex literal", "0x10:00"],
+    ["scientific notation", "1e308:00"],
+    ["padded whitespace", " 1 : 2 "],
+    ["seconds of 60", "1:60"],
+    ["minutes of 60 in HH:MM:SS", "1:60:00"],
+  ])("returns null for %s", (_label, offset) => {
+    expect(colonOffsetToSeconds(offset)).toBeNull();
+  });
+});
+
+describe("sessionRecordingUrl", () => {
+  it("links to the recording without a seek offset", () => {
+    expect(
+      sessionRecordingUrl("session-id-1", undefined, {
+        projectId: 123,
+        cloudRegion: "us",
+      }),
+    ).toBe("https://us.posthog.com/project/123/replay/session-id-1");
+  });
+
+  it("includes a ?t= seek offset when provided", () => {
+    expect(
+      sessionRecordingUrl(
+        "session-id-1",
+        { secondsOffsetFromStart: 107 },
+        { projectId: 123, cloudRegion: "us" },
+      ),
+    ).toBe("https://us.posthog.com/project/123/replay/session-id-1?t=107");
+  });
+
+  it("omits the offset when it is explicitly null", () => {
+    expect(
+      sessionRecordingUrl(
+        "session-id-1",
+        { secondsOffsetFromStart: null },
+        { projectId: 123, cloudRegion: "us" },
+      ),
+    ).toBe("https://us.posthog.com/project/123/replay/session-id-1");
   });
 });

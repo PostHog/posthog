@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        },
+        "launch_id": {
+            "description": "Launch identity returned by the trial action.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "launch_id"],
+    "type": "object"
+}

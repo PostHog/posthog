@@ -7,7 +7,7 @@ export type ExportNudgeSubject =
 
 // A subscription renders a PNG, so only a PNG export is worth answering with the offer of one.
 // Someone taking a CSV wants the rows. The backend side of that is the PNG in
-// products/exports/backend/temporal/subscriptions/activities.py.
+// products/subscriptions/backend/temporal/activities.py.
 const SUBSCRIBABLE_EXPORT_FORMATS: ExporterFormat[] = [ExporterFormat.PNG]
 
 /**

@@ -5,7 +5,7 @@ import secrets
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,10 +17,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
+from posthog.admin.oauth2 import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
 from posthog.models import User
 from posthog.session.backend import SessionStore
 
-from ee.middleware import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
+# Any path under the prefix exercises the middleware branch; no route has to exist.
+ADMIN_API_PATH = "/admin/api/example/"
 
 
 class JWTTestHelper:
@@ -99,7 +101,7 @@ class TestGetEmailFromIdToken(BaseTest):
         ]
     )
     # Freeze so the token iat and the validation now() share one instant.
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_iat_bounds_checking(self, name, iat_offset, expected_success):
         payload = {**self.base_payload, "iat": int(time.time()) + iat_offset}
         token = self.jwt_helper.create_id_token(payload)
@@ -189,10 +191,10 @@ class TestNonceValidation(BaseTest):
         return request
 
     def _mock_token_exchange(self, id_token: str):
-        return patch("ee.middleware._exchange_code_for_token", return_value={"id_token": id_token})
+        return patch("posthog.admin.oauth2._exchange_code_for_token", return_value={"id_token": id_token})
 
     def _mock_get_email(self, email: str, payload: dict):
-        return patch("ee.middleware._get_email_from_id_token", return_value=(email, payload))
+        return patch("posthog.admin.oauth2._get_email_from_id_token", return_value=(email, payload))
 
     @staticmethod
     def _assert_redirects_to_admin(response: HttpResponse) -> HttpResponseRedirect:
@@ -407,19 +409,16 @@ class TestMiddlewareVerification(BaseTest):
         assert isinstance(response, HttpResponseRedirect)
         self.assertIn("accounts.google.com", response.url)
 
-    @parameterized.expand(
-        [
-            ("radar_bypass", "/admin/api/radar-bypass/"),
-            ("code_based_verification_bypass", "/admin/api/code-based-verification-bypass/"),
-        ]
-    )
     @override_settings(
         ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
         ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
         ADMIN_OAUTH2_COOKIE_SECURE=False,
     )
-    def test_api_admin_unverified_returns_403(self, _name, path):
-        request = self.factory.get(path)
+    def test_api_admin_unverified_returns_403(self):
+        # No /admin/api/ route exists right now, but the middleware still branches on that
+        # prefix (ee/middleware.py) to answer 403 instead of redirecting to Google. The
+        # middleware is called directly here, so the branch is covered without a route.
+        request = self.factory.get(ADMIN_API_PATH)
         request.user = self.user
         request.session = SessionStore()
 
@@ -428,19 +427,13 @@ class TestMiddlewareVerification(BaseTest):
 
         self.assertEqual(response.status_code, 403)
 
-    @parameterized.expand(
-        [
-            ("radar_bypass", "/admin/api/radar-bypass/"),
-            ("code_based_verification_bypass", "/admin/api/code-based-verification-bypass/"),
-        ]
-    )
     @override_settings(
         ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
         ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
         ADMIN_OAUTH2_COOKIE_SECURE=False,
     )
-    def test_api_admin_verified_passes(self, _name, path):
-        request = self.factory.get(path)
+    def test_api_admin_verified_passes(self):
+        request = self.factory.get(ADMIN_API_PATH)
         request.user = self.user
         request.session = SessionStore()
 

@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import {
@@ -200,6 +202,7 @@ describe('response opt-out policy', () => {
 })
 
 describe('ConfigurationPolicyService', () => {
+    beforeEach(() => register.resetMetrics())
     it('checks both files before it allows an image request', async () => {
         const { policy, fetch } = service()
 
@@ -219,6 +222,36 @@ describe('ConfigurationPolicyService', () => {
 
         await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({ allowed: true })
         expect(fetch).not.toHaveBeenCalled()
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        expect(lookups.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { file: 'robots', source: 'cache', outcome: 'absent' }, value: 1 }),
+                expect.objectContaining({ labels: { file: 'tdmrep', source: 'cache', outcome: 'absent' }, value: 1 }),
+            ])
+        )
+    })
+
+    it('counts shared configuration requests separately from new requests', async () => {
+        let resolve!: (result: ConfigurationFetchResult) => void
+        const pending = new Promise<ConfigurationFetchResult>((done) => {
+            resolve = done
+        })
+        const fetch = jest.fn(() => pending)
+        const policy = new ConfigurationPolicyService({ fetch } as unknown as HttpConfigurationFetcher)
+        const first = policy.check(`${ORIGIN}/first.png`, new Map(), NOW_MS)
+        const second = policy.check(`${ORIGIN}/second.png`, new Map(), NOW_MS)
+        expect(fetch).toHaveBeenCalledTimes(2)
+        resolve({ outcome: 'unreachable' })
+        await Promise.all([first, second])
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        for (const file of ['robots', 'tdmrep']) {
+            expect(lookups.values).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ labels: { file, source: 'network', outcome: 'unreachable' }, value: 1 }),
+                    expect.objectContaining({ labels: { file, source: 'shared', outcome: 'unreachable' }, value: 1 }),
+                ])
+            )
+        }
     })
 
     it('parses each cached policy revision once in a fetch pass', async () => {
@@ -283,6 +316,53 @@ describe('ConfigurationPolicyService', () => {
         })
     })
 
+    it.each([
+        ['1', true],
+        [true, true],
+        [0, false],
+    ])('reads a TDMRep reservation of %p as %p', async (reservation, tdmrepReservation) => {
+        const { policy } = service()
+        const cache = new Map([
+            [configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')],
+            [
+                configurationCacheKey(ORIGIN, 'tdmrep'),
+                cached('tdmrep', 'available', JSON.stringify([{ location: '/', 'tdm-reservation': reservation }])),
+            ],
+        ])
+
+        await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({
+            allowed: true,
+            tdmrepReservation,
+        })
+    })
+
+    it.each([
+        {
+            description: 'keeps a cached TDMRep file',
+            cachedTdmrep: [
+                [
+                    configurationCacheKey(ORIGIN, 'tdmrep'),
+                    {
+                        ...cached('tdmrep', 'available', JSON.stringify([{ location: '/', 'tdm-reservation': 1 }])),
+                        refreshAtMs: NOW_MS - 1,
+                    },
+                ] as const,
+            ],
+            status: 'available',
+            tdmrepReservation: true,
+        },
+        { description: 'records an absent TDMRep file', cachedTdmrep: [], status: 'absent', tdmrepReservation: false },
+    ])('$description when a refresh returns a non-array body', async ({ cachedTdmrep, status, tdmrepReservation }) => {
+        const { policy } = service({ tdmrep: { outcome: 'absent', nonArrayBody: true } })
+        const cache = new Map([[configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')], ...cachedTdmrep])
+
+        await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({
+            allowed: true,
+            tdmrepReservation,
+            updates: [expect.objectContaining({ kind: 'tdmrep', status })],
+        })
+    })
+
     it('keeps a previous usable file when its refresh is unreachable', async () => {
         const { policy } = service({ robots: { outcome: 'unreachable' } })
         const previous = { ...cached('robots', 'absent'), refreshAtMs: NOW_MS - 1 }
@@ -340,20 +420,25 @@ describe('ConfigurationPolicyService', () => {
 describe('HttpConfigurationFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
+        register.resetMetrics()
     })
 
     it.each([
-        [404, 'absent'],
-        [410, 'absent'],
-        [401, 'refused'],
-        [403, 'refused'],
-        [429, 'unreachable'],
-        [500, 'unreachable'],
-        [204, 'unreachable'],
-    ])('maps HTTP %s to %s', async (status, outcome) => {
+        [404, 'absent', 'absent'],
+        [410, 'absent', 'absent'],
+        [401, 'refused', 'http_401'],
+        [403, 'refused', 'http_403'],
+        [429, 'unreachable', 'http_429'],
+        [500, 'unreachable', 'http_5xx'],
+        [204, 'unreachable', 'unexpected_status'],
+    ])('maps HTTP %s to %s', async (status, outcome, reason) => {
         fetchStreamedMock.mockResolvedValue(response(status))
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome })
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual([
+            expect.objectContaining({ labels: { file: 'robots', outcome, reason }, value: 1 }),
+        ])
     })
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
@@ -381,13 +466,85 @@ describe('HttpConfigurationFetcher', () => {
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
     })
 
-    it('treats an oversized or invalid TDMRep document as unreachable', async () => {
-        fetchStreamedMock
-            .mockResolvedValueOnce(response(200, [], { bytes: Buffer.from('[]'), overLimit: true }))
-            .mockResolvedValueOnce(response(200, [], { bytes: Buffer.from('{invalid'), overLimit: false }))
+    it.each([
+        {
+            description: 'a string reservation',
+            bytes: Buffer.from('[{"location": "/", "tdm-reservation": "1"}]'),
+            overLimit: false,
+            result: { outcome: 'available' },
+            reason: 'available',
+        },
+        {
+            description: 'a byte order mark and leading whitespace',
+            bytes: Buffer.from('\uFEFF\n  []'),
+            overLimit: false,
+            result: { outcome: 'available' },
+            reason: 'available',
+        },
+        {
+            description: 'a damaged array',
+            bytes: Buffer.from('[{"location": "/",'),
+            overLimit: false,
+            result: { outcome: 'unreachable' },
+            reason: 'invalid_document',
+        },
+        {
+            description: 'an oversized array',
+            bytes: Buffer.from('[]'),
+            overLimit: true,
+            result: { outcome: 'unreachable' },
+            reason: 'body_limit',
+        },
+        {
+            description: 'an oversized whitespace prefix',
+            bytes: Buffer.from('\uFEFF \n\t '),
+            overLimit: true,
+            result: { outcome: 'unreachable' },
+            reason: 'body_limit',
+        },
+        {
+            description: 'an empty body',
+            bytes: Buffer.alloc(0),
+            overLimit: false,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
+        },
+        {
+            description: 'an HTML page',
+            bytes: Buffer.from('<!doctype html><title>Home</title>'),
+            overLimit: false,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
+        },
+        {
+            description: 'a JSON object',
+            bytes: Buffer.from('{"error": "not found"}'),
+            overLimit: false,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
+        },
+        {
+            description: 'an oversized HTML page',
+            bytes: Buffer.from('<!doctype html>'),
+            overLimit: true,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
+        },
+        {
+            description: 'a Latin-1 HTML page',
+            bytes: Buffer.from('<p>caf\u00e9</p>', 'latin1'),
+            overLimit: false,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
+        },
+    ])('maps a TDMRep body with $description to $result.outcome', async ({ bytes, overLimit, result, reason }) => {
+        fetchStreamedMock.mockResolvedValue(response(200, [], { bytes, overLimit }))
 
-        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
-        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
+        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toEqual(expect.objectContaining(result))
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual([
+            expect.objectContaining({ labels: { file: 'tdmrep', outcome: result.outcome, reason }, value: 1 }),
+        ])
     })
 
     it('treats repeated Location field lines as unreachable', async () => {
@@ -402,7 +559,7 @@ describe('HttpConfigurationFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('follows and signs each configuration redirect target', async () => {
+    it('follows, signs and identifies each configuration redirect target', async () => {
         fetchStreamedMock
             .mockResolvedValueOnce(response(302, [{ name: 'location', value: 'https://cdn.example.com/robots' }]))
             .mockResolvedValueOnce(
@@ -419,6 +576,11 @@ describe('HttpConfigurationFetcher', () => {
         expect(headersForGet.mock.calls).toEqual([
             ['https://example.com/robots.txt'],
             ['https://cdn.example.com/robots'],
+        ])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.headers)).toEqual([
+            expect.objectContaining({ referer: 'https://us.posthog.com/' }),
+            expect.objectContaining({ referer: 'https://us.posthog.com/' }),
         ])
     })
 

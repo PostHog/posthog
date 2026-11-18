@@ -1,4 +1,5 @@
 import { SandboxCustomImagesDisabledError } from "@posthog/api-client/posthog-client";
+import { CUSTOM_IMAGES_FEATURE_FLAG } from "@posthog/shared";
 import {
   isImageBuildInProgress,
   type SandboxCustomImage,
@@ -10,8 +11,6 @@ import { toast } from "../../../../primitives/toast";
 import { useFeatureFlag } from "../../../feature-flags/useFeatureFlag";
 import { watchImageBuild } from "./imageBuildWatcher";
 import { sandboxEnvKeys } from "./useSandboxEnvironments";
-
-const CUSTOM_IMAGES_FEATURE_FLAG = "tasks-modal-vm-sandbox";
 
 const sandboxCustomImageKeys = {
   list: ["sandbox-custom-images", "list"] as const,

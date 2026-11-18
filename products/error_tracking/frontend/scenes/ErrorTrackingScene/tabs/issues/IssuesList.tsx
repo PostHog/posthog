@@ -1,5 +1,5 @@
 import { BindLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -7,7 +7,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -21,6 +21,7 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
+import { SuppressSimilarIssuesDialog } from 'products/error_tracking/frontend/components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -161,7 +162,10 @@ const insightProps: InsightLogicProps = {
 
 export function IssuesList(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
-    const context = useIssueQueryContext()
+    // Keep the column headers visible below the filter bar while the list scrolls
+    const context: QueryContext = { ...useIssueQueryContext(), dataTableStickyHeader: true }
+    const stickyBarRef = useRef<HTMLDivElement>(null)
+    const stickyBarBottom = useSceneStickyBarBottom(stickyBarRef)
 
     return (
         <BindLogic
@@ -170,14 +174,19 @@ export function IssuesList(): JSX.Element {
         >
             {/* first:-mt-4 tucks the bar flush under the tab bar, but only when no banner
                 renders above — an unconditional -mt-4 would cover the banner's bottom edge */}
-            <SceneStickyBar className="first:-mt-4" showBorderBottom={false}>
+            <SceneStickyBar ref={stickyBarRef} className="first:-mt-4" showBorderBottom={false}>
                 <IssuesFilters />
                 <ListOptions />
             </SceneStickyBar>
 
-            <div data-attr="error-tracking-issue-row">
+            <div
+                data-attr="error-tracking-issue-row"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--lemon-table-sticky-header-top': `${stickyBarBottom}px` } as React.CSSProperties}
+            >
                 <Query query={query} context={context} />
             </div>
+            <SuppressSimilarIssuesDialog />
         </BindLogic>
     )
 }

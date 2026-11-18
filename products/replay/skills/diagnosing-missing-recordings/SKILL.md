@@ -48,8 +48,11 @@ posthog:session-recording-get
 }
 ```
 
-If this returns data, the recording exists — the issue is likely UI/filtering, not capture.
-If it returns 404, proceed to diagnose why.
+If it returns `found: false` with reason `recording_not_found`, no recording exists for this session in the active project.
+Proceed to Step 2 to diagnose why.
+If it returns recording metadata, the recording exists — the issue is likely UI/filtering, not capture.
+Any other error (for example, a missing project or a permission error) is not evidence about the recording.
+Fix that error first.
 
 ### Step 2 — Query diagnostic signals from events
 
@@ -155,3 +158,4 @@ map to verdicts. Use these to calibrate your interpretation of query results.
 - **`diagnosing-sdk-health`** — an outdated SDK is a common root cause and blunts the diagnostic signals
 - **`finding-sessions-to-watch`** — once capture works, pick the sessions worth watching
 - **`investigating-replay`** — analyze the recording once it exists
+- **`diagnosing-replay-capture-gaps`** — a recording exists but parts of the session are missing from it

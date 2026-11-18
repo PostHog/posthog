@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { cn } from 'lib/utils/css-classes'
-import { formatLocalizedDate } from 'lib/utils/datetime'
+import { formatLocalizedDate, formatLocalizedTime } from 'lib/utils/datetime'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
@@ -35,7 +35,7 @@ function formatTimestampForTooltip(timestamp: number | undefined, format: Timest
         return '--:--:--'
     }
     const d = format === TimestampFormat.UTC ? dayjs(timestamp).tz('UTC') : dayjs(timestamp)
-    const formatted = d.format(`${formatLocalizedDate()}, HH:mm:ss`)
+    const formatted = d.format(`${formatLocalizedDate()}, ${formatLocalizedTime()}`)
     const timezone = format === TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
     return `${formatted} ${timezone}`
 }

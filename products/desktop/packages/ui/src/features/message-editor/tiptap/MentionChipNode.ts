@@ -15,7 +15,8 @@ export type ChipType =
   | "feature_flag"
   | "posthog_object"
   | "github_issue"
-  | "github_pr";
+  | "github_pr"
+  | "comment_context";
 
 export interface MentionChipAttrs {
   type: ChipType;
@@ -28,6 +29,7 @@ export interface MentionChipAttrs {
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
+  imagePath?: string;
 }
 
 declare module "@tiptap/core" {
@@ -61,6 +63,7 @@ export const MentionChipNode = Node.create({
       skillPath: { default: undefined },
       skillSource: { default: undefined },
       skillName: { default: undefined },
+      imagePath: { default: undefined },
     };
   },
 
@@ -71,7 +74,11 @@ export const MentionChipNode = Node.create({
   renderHTML({ node, HTMLAttributes }) {
     const { type, label } = node.attrs as MentionChipAttrs;
     const isCommand = type === "command";
-    const prefix = isCommand ? "/" : type === "posthog_object" ? "" : "@";
+    const prefix = isCommand
+      ? "/"
+      : type === "posthog_object" || type === "comment_context"
+        ? ""
+        : "@";
 
     return [
       "span",

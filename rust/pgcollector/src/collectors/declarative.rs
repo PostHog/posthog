@@ -41,6 +41,8 @@ pub struct Spec {
     pub variants: Vec<Variant>,
     #[serde(default)]
     pub description: String,
+    /// Turn a raw statement/comment column into a `tags` jsonb column (see `tags.rs`).
+    pub tags: Option<crate::tags::Spec>,
 }
 fn default_true() -> bool {
     true
@@ -146,7 +148,11 @@ impl Collector for SqlCollector {
             .await
             .with_context(|| format!("{}: query failed", self.spec.name))?;
         let rows: Vec<Row> = pg_rows.iter().map(row_to_values).collect::<Result<_>>()?;
-        let types = pg_rows.first().map(column_types).unwrap_or_default();
+        let mut types = pg_rows.first().map(column_types).unwrap_or_default();
+        let rows = match &self.spec.tags {
+            Some(t) => crate::tags::apply(rows, &mut types, t),
+            None => rows,
+        };
 
         let interval_seconds = prev
             .and_then(|p| p.collected_at)
@@ -184,6 +190,7 @@ impl Collector for SqlCollector {
                 rows,
                 events,
                 aux: vec![],
+                indexes: vec![],
             },
             state,
         ))

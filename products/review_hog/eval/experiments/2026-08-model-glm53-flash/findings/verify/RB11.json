@@ -1,0 +1,6 @@
+{
+    "id": "RB11",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Refutation attempts failed. receivers.py:93 is pr_url's only assignment; it is never rebound, so the lambda (131-138) capturing pr_url directly is behaviorally identical to capturing the alias (closures capture the cell, value unchanged at commit time). The type-narrowing justification also fails: _start_stamphog_review declares pr_url: str (line 211), but repo-pinned mypy 2.1.0 --strict and ty both accept direct capture of a narrowed, never-reassigned local inside a lambda (verified with a minimal repro). The sibling closure at line 117 captures pr_url directly, underlining the inconsistency. The alias at line 130 is dead; minor readability nit, correctly filed as [consider]."
+}

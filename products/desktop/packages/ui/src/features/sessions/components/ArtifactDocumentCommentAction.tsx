@@ -11,16 +11,20 @@ import {
 } from "@posthog/quill";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useState } from "react";
+import { commentAgentContext } from "../commentAgentContext";
+import { sendCommentToAgent } from "../sendCommentToAgent";
 import { CommentComposer } from "./CommentComposer";
 import { useCreateComment } from "./useComments";
 
 export function ArtifactDocumentCommentAction({
   target,
   taskId,
+  name,
   onCreated,
 }: {
   target: CommentTarget;
   taskId: string;
+  name: string;
   onCreated?: (commentId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +68,17 @@ export function ArtifactDocumentCommentAction({
           rows={2}
           disabled={createComment.isPending}
           autoFocus
+          onSendToAgent={(content) =>
+            sendCommentToAgent({
+              taskId,
+              comment: content,
+              context: commentAgentContext(
+                { kind: "document" },
+                { kind: "artifact", name },
+              ),
+              surface: "artifact",
+            })
+          }
         />
       </PopoverContent>
     </Popover>

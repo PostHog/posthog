@@ -1,0 +1,345 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.DestinationsPreview {
+    --destinations-preview-accent: var(--empty-state-accent, var(--color-product-data-pipeline-light));
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden enabled state. A direct child of .DestinationsPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__chat,
+    &__stat {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Off/on pairs are stacked on one grid cell and crossfaded, so enabling the
+    // destination never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-on {
+        @include preview-swap-hidden;
+    }
+
+    &__when-off {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    // Destinations list
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        background: color-mix(in oklab, var(--destinations-preview-accent) 8%, transparent);
+    }
+
+    &__icon {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+
+        &--warehouse {
+            background: rgb(66 133 244 / 70%);
+        }
+
+        &--chat {
+            background: rgb(74 21 75 / 70%);
+        }
+
+        &--webhook {
+            background: var(--color-bg-fill-tertiary);
+        }
+    }
+
+    &__name {
+        display: flex;
+        flex-direction: column;
+        gap: 0.0625rem;
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__meta {
+        font-size: 0.5625rem;
+        font-weight: 400;
+        color: var(--color-text-tertiary);
+    }
+
+    // Mini switch. The off fill is darker than the surface with an inset ring so it stays legible.
+    &__switch {
+        position: relative;
+        width: 22px;
+        height: 12px;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px var(--color-border-primary);
+        transition: background $preview-swap-duration ease;
+
+        &::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 8px;
+            height: 8px;
+            content: '';
+            background: var(--color-bg-surface-primary);
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+            transition: transform $preview-swap-duration ease;
+        }
+
+        &--on {
+            background: var(--destinations-preview-accent);
+            box-shadow: none;
+
+            &::after {
+                transform: translateX(10px);
+            }
+        }
+    }
+
+    // Bottom row: chat window and stat card side by side.
+
+    &__bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 0.75rem;
+    }
+
+    &__chat-head {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.375rem 0.625rem;
+        background: rgb(74 21 75 / 8%);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__chat-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--color-success);
+        border-radius: 50%;
+    }
+
+    &__chat-channel {
+        font-size: 0.625rem;
+        font-weight: 600;
+    }
+
+    &__chat-body {
+        padding: 0.5rem 0.625rem 0.625rem;
+    }
+
+    &__chat-empty {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+    }
+
+    &__ghost {
+        width: 80%;
+        height: 6px;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+
+        &--short {
+            width: 55%;
+        }
+    }
+
+    &__chat-hint {
+        margin-top: 0.125rem;
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__message {
+        display: flex;
+        gap: 0.375rem;
+        align-items: flex-start;
+    }
+
+    &__avatar {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        background: var(--destinations-preview-accent);
+        border-radius: 4px;
+    }
+
+    &__message-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.0625rem;
+        min-width: 0;
+    }
+
+    &__message-author {
+        font-size: 0.5625rem;
+        font-weight: 700;
+    }
+
+    &__message-text {
+        font-size: 0.5625rem;
+        line-height: 1.35;
+        color: var(--color-text-secondary);
+    }
+
+    // Stat card
+
+    &__stat {
+        padding: 0.625rem 0.75rem 0.75rem;
+    }
+
+    &__spark-caption {
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__footer {
+        margin-top: 0.375rem;
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--destinations-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--destinations-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--destinations-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: DestinationsPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-sparkline;
+}
+
+// The sparkline mixin lays the value out as a flex row, which would place the two crossfading
+// values side by side; the swap needs them stacked on one grid cell.
+.DestinationsPreview__spark-value.DestinationsPreview__swap {
+    display: grid;
+}
+
+// Enabled state (user switched the Slack destination on)
+
+.DestinationsPreview__checkbox:checked ~ * .DestinationsPreview__when-on {
+    @include preview-swap-visible;
+}
+
+.DestinationsPreview__checkbox:checked ~ * .DestinationsPreview__when-off {
+    @include preview-swap-hidden;
+}
+
+.DestinationsPreview__checkbox:checked ~ .DestinationsPreview__panel .DestinationsPreview__switch--hero {
+    background: var(--destinations-preview-accent);
+    box-shadow: none;
+
+    &::after {
+        transform: translateX(10px);
+    }
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.DestinationsPreview__checkbox:focus-visible ~ .DestinationsPreview__panel .DestinationsPreview__row--hero {
+    outline: 2px solid var(--destinations-preview-accent);
+    outline-offset: -2px;
+}
+
+// Nudge attention at the paused destination until it's enabled.
+.DestinationsPreview:not(.DestinationsPreview--static)
+    .DestinationsPreview__checkbox:not(:checked)
+    ~ .DestinationsPreview__panel
+    .DestinationsPreview__switch--hero {
+    animation: DestinationsPreview__pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes DestinationsPreview__pulse {
+    0%,
+    100% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 0 color-mix(in oklab, var(--destinations-preview-accent) 40%, transparent);
+    }
+
+    50% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 4px color-mix(in oklab, var(--destinations-preview-accent) 16%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes DestinationsPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; enabling the destination
+// still posts the message (transitions only).
+@include preview-motion-guards('DestinationsPreview');

@@ -10,7 +10,7 @@ from .score_definitions import ScoreDefinition
 
 
 class TraceReview(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     trace_id = models.CharField(max_length=255)
     reviewed_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     comment = models.TextField(null=True, blank=True)
@@ -32,7 +32,7 @@ class TraceReview(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
 
 
 class TraceReviewScore(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     review = models.ForeignKey(TraceReview, on_delete=models.CASCADE, related_name="scores")
     definition = models.ForeignKey(ScoreDefinition, on_delete=models.CASCADE, related_name="trace_review_scores")
     definition_version = models.UUIDField()

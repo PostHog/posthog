@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -10,12 +10,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
+import { AvailableFeature, PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
+import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -320,6 +321,54 @@ describe('webAnalyticsLogic precompute payload', () => {
     })
 })
 
+describe('webAnalyticsLogic restricted UI gating', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const mountWithTeamModifier = (legacyEngineModifier: boolean): void => {
+        localStorage.clear()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            modifiers: { useWebAnalyticsPreAggregatedTables: legacyEngineModifier },
+        })
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    }
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Regression guard for the legacy-tables retirement: the restricted-ui flag
+    // must restrict on its own with no team modifier involved — a collapse of
+    // the OR re-exposes tiles that run unservable live queries on billion-event
+    // teams — while the legacy pair must keep working until it is removed, and
+    // neither half of the pair may restrict alone.
+    it.each([
+        ['restricted-ui flag alone', [FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI], false, true],
+        ['no flags, no modifier', [], false, false],
+        [
+            'legacy flag without the modifier',
+            [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES],
+            false,
+            false,
+        ],
+        ['modifier without the legacy flag', [], true, false],
+        ['legacy flag and modifier', [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES], true, true],
+    ])('%s → restricted %s', async (_name, flags, legacyEngineModifier, expected) => {
+        mountWithTeamModifier(legacyEngineModifier as boolean)
+        featureFlagLogic.actions.setFeatureFlags(
+            flags as string[],
+            Object.fromEntries((flags as string[]).map((flag) => [flag, true]))
+        )
+        await expectLogic(logic).toMatchValues({ restrictedUiEnabled: expected })
+    })
+})
+
 describe('webAnalyticsLogic compare filter', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
@@ -351,6 +400,41 @@ describe('webAnalyticsLogic compare filter', () => {
 
         logic.actions.setDates('-7d', null)
         await expectLogic(logic).toMatchValues({ compareFilter: { compare: true } })
+    })
+})
+
+describe('webAnalyticsLogic conversion goal tiles', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The replay filter group carries the conversion goal. If the error tracking query inherits it,
+    // selecting a goal silently narrows the errors the tile shows.
+    it('keeps the error tracking tile unfiltered by the conversion goal', async () => {
+        const errorTrackingFilterGroup = (): unknown =>
+            (logic.values.tiles.find((tile) => tile.tileId === TileId.ERROR_TRACKING) as any)?.query.source.filterGroup
+        const withoutGoal = errorTrackingFilterGroup()
+
+        logic.actions.setConversionGoal({ actionId: 42 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(withoutGoal).toBeTruthy()
+        expect(errorTrackingFilterGroup()).toEqual(withoutGoal)
     })
 })
 
@@ -422,11 +506,46 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams.graphs_tab).toBe(GraphsTab.UNIQUE_USERS)
     })
 
+    it('keeps an AI visibility prompt page open when a shared header control changes', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
+        router.actions.push('/web/ai-visibility/prompts/prompt-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDates('-30d', null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/web/ai-visibility/prompts/prompt-1')
+    })
+
     it('restores the date range and interval from the URL', async () => {
         router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'week' })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-30d', dateTo: '-1d', interval: 'week' })
+    })
+
+    it('keeps a date range and interval that equal the defaults when another filter changes', async () => {
+        // Arrive off the defaults, so the URL carries all three date params.
+        router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'hour' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Back onto the defaults: '-7d' with no end date, grouped by day. Every date param must drop
+        // out of the URL instead of keeping its previous value.
+        logic.actions.setDates('-7d', null)
+        logic.actions.setDateInterval('day')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.date_from).toBeUndefined()
+        expect(router.values.searchParams.date_to).toBeUndefined()
+        expect(router.values.searchParams.interval).toBeUndefined()
+
+        // Any later URL write runs urlToAction again. A param left behind is restored here and
+        // silently undoes what the user picked.
+        logic.actions.setCompareFilter({ compare: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-7d', dateTo: null, interval: 'day' })
     })
 
     it.each<[string, Record<string, string>]>([
@@ -443,17 +562,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(pushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('redirects off the bots tab when the bot-analysis flag is disabled', async () => {
-        router.actions.push('/web/bots')
-        await expectLogic(logic).toFinishAllListeners()
+    it.each(['/web/bots', '/web/ai-visibility'])(
+        'redirects off %s when the AI visibility flag is disabled',
+        async (path) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+                {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+                }
+            )
 
-        // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the bots route.
-        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
-    })
+            router.actions.push(path)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the route.
+            expect(router.values.location.pathname.endsWith('/web')).toBe(true)
+        }
+    )
 
     it('defaults the bots tab to the last day when the URL carries no date', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
 
         router.actions.push('/web/bots')
@@ -477,6 +607,24 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams[key]).toBe(expected)
     })
 
+    it('opens content autopilot without carrying dashboard filters', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
+        logic.actions.setWebAnalyticsFilters([
+            {
+                type: PropertyFilterType.Session,
+                key: '$entry_utm_source',
+                operator: PropertyOperator.Exact,
+                value: ['google'],
+            },
+        ])
+        logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/ai-visibility')).toBe(true)
+        expect(router.values.searchParams).toEqual({})
+    })
     const FILTER_A = {
         type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
@@ -494,7 +642,8 @@ describe('webAnalyticsLogic URL restoration', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
             [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
         })
-        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
+        router.actions.push('/web/page-performance')
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setDates('-30d', '2026-08-05')
         logic.actions.setConversionGoal({ actionId: 42 })
         logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
@@ -526,8 +675,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it("scrubs another tab's filters param when switching to the bots tab", async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         logic.actions.setWebAnalyticsFilters([FILTER_A])
         await expectLogic(logic).toFinishAllListeners()
@@ -542,8 +691,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it('adopts a deep-linked filters param when the bots tab mounts', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         router.actions.push('/web/bots', { filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
@@ -560,8 +709,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it('writes persisted bot filters into the URL when the bots tab mounts', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
@@ -593,7 +742,6 @@ describe('webAnalyticsLogic URL restoration', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
             [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
         })
-
         router.actions.push('/web/page-performance', { filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -601,94 +749,96 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
 
-    const enableBackNavReset = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-        })
+    it('leaves a drilled-in filter in place on back-navigation', async () => {
+        router.actions.push('/web', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+
+        router.actions.push('/web')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+})
+
+describe('webAnalyticsLogic warmablePresetShortId', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    const applyPreset = (): void => {
+        webAnalyticsFilterLogic.actions.loadPreset(logic.values.currentFiltersConfig)
+        webAnalyticsFilterLogic.actions.setAppliedPreset('abc123', logic.values.currentFiltersConfig)
     }
 
-    it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {
-        enableBackNavReset()
+    it('tags queries while the applied preset still matches the filters', () => {
+        expect(logic.values.warmablePresetShortId).toBeNull()
 
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+        applyPreset()
 
-        router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([])
+        expect(logic.values.warmablePresetShortId).toBe('abc123')
     })
 
-    it('keeps the outer filter when stepping back between two drill levels (flag on)', async () => {
-        enableBackNavReset()
+    it('stops tagging as soon as the user drifts off the preset', () => {
+        applyPreset()
 
-        router.actions.push('/web', { filters: [FILTER_A, FILTER_B] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A, FILTER_B])
+        // An applied preset stays applied while the filters move, so without the equality
+        // check the warmer would attribute unrelated shapes to this preset.
+        webAnalyticsFilterLogic.actions.togglePropertyFilter(PropertyFilterType.Event, '$browser', 'Chrome')
 
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+        expect(logic.values.appliedPresetShortId).toBe('abc123')
+        expect(logic.values.warmablePresetShortId).toBeNull()
+    })
+})
+
+describe('webAnalyticsLogic path cleaning filters', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization,
+                available_product_features: [{ key: AvailableFeature.PATHS_ADVANCED, name: 'Paths advanced' }],
+            },
+        } as UserType)
+        logic = webAnalyticsLogic()
+        logic.mount()
     })
 
-    it.each<[string, string, () => unknown]>([
-        ['domain', 'example.com', () => logic.values.domainFilter],
-        ['device_type', 'Desktop', () => logic.values.deviceTypeFilter],
-        ['country', 'US', () => logic.values.countryFilter],
-        ['referrer', 'google.com', () => logic.values.referrerFilter],
-    ])(
-        'clears a drilled-in %s filter when navigating back to a URL without it (flag on)',
-        async (param, value, read) => {
-            // These drill-downs fold into the query like `filters` do, so a back-navigation that
-            // omits the param must clear the value — otherwise the shown data no longer matches the URL.
-            featureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
-                {
-                    [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-                }
-            )
-
-            router.actions.push('/web/page-performance', { [param]: value })
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBe(value)
-
-            router.actions.push('/web/page-performance')
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBeNull()
-        }
-    )
-
-    it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
     })
 
-    it('keeps filters when moving to the Live tab, which never serializes them (flag on)', async () => {
-        enableBackNavReset()
+    it.each([
+        [PropertyOperator.Exact, PropertyOperator.IsCleanedPathExact],
+        [PropertyOperator.IsNot, PropertyOperator.IsCleanedPathNotExact],
+        [PropertyOperator.IContains, PropertyOperator.IContains],
+    ])('rewrites a %s path filter to %s', (operator, expectedOperator) => {
+        webAnalyticsFilterLogic.actions.setWebAnalyticsFilters([
+            { key: '$pathname', value: ['/user/:id'], operator, type: PropertyFilterType.Event },
+        ])
 
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web/live')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it('keeps filters when a cold /web/bots load redirects to /web with the bots flag off (reset flag on)', async () => {
-        enableBackNavReset()
-        logic.actions.setWebAnalyticsFilters([FILTER_A])
-        await expectLogic(logic).toFinishAllListeners()
-        logic.cache.hasRestoredWebUrl = false
-
-        router.actions.push('/web/bots')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+        expect(logic.values.webAnalyticsFilters).toEqual([
+            { key: '$pathname', value: ['/user/:id'], operator: expectedOperator, type: PropertyFilterType.Event },
+        ])
     })
 })

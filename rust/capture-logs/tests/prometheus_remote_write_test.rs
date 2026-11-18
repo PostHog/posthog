@@ -1,4 +1,10 @@
-use capture_logs::endpoints::prometheus::{decode_write_request, write_request_to_kafka_rows};
+use apache_avro::{types::Value, Reader, Schema, Writer};
+use capture_logs::endpoints::prometheus::{
+    decode_write_request, is_stale_marker, write_request_to_kafka_rows,
+    write_timeseries_to_kafka_rows_with_options, RemoteWriteEncoding, RemoteWriteOptions,
+    STALE_NAN_BITS,
+};
+use capture_logs::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use chrono::{Duration, Utc};
 use prometheus_rw_proto::prometheus::v1::{
     metric_metadata::MetricType, Label, MetricMetadata, Sample, TimeSeries, WriteRequest,
@@ -63,7 +69,9 @@ fn maps_labels_to_name_service_and_attributes() {
         "\"10.0.0.1:9100\""
     );
     assert_eq!(row.attributes.get("mode").unwrap(), "\"idle\"");
-    // __name__/job/instance are not duplicated into the attributes map.
+    // `instance` stays in the attributes map so Prometheus-style filters keep working.
+    assert_eq!(row.attributes.get("instance").unwrap(), "\"10.0.0.1:9100\"");
+    // __name__/job are not duplicated into the attributes map.
     assert!(!row.attributes.contains_key("__name__"));
     assert!(!row.attributes.contains_key("job"));
 }
@@ -193,7 +201,9 @@ fn clamps_far_past_timestamp_and_counts_override() {
     let (rows, overridden) = write_request_to_kafka_rows(req);
 
     assert_eq!(overridden, 1);
-    assert!(rows[0].attributes.contains_key("$originalTimestamp"));
+    assert!(rows[0]
+        .attributes
+        .contains_key("posthog.original_timestamp"));
     // Clamped forward to ~now.
     assert!((Utc::now() - rows[0].timestamp).num_seconds().abs() < 5);
 }
@@ -216,14 +226,8 @@ fn skips_series_without_metric_name() {
     assert!(rows.is_empty());
 }
 
-/// Prometheus marks a series stale with a specific NaN payload
-/// (`0x7ff0000000000002`) and remote-write forwards it. It must not become a
-/// metric value: NaN survives the storage `ifNull` and corrupts rate/aggregate
-/// queries. Non-finite samples are dropped before a row is built.
-#[test]
-fn drops_stale_marker_nan_samples() {
-    const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-    let req = WriteRequest {
+fn stale_marker_request() -> WriteRequest {
+    WriteRequest {
         timeseries: vec![series(
             vec![
                 label("__name__", "http_requests_total"),
@@ -242,17 +246,73 @@ fn drops_stale_marker_nan_samples() {
                     value: f64::INFINITY,
                     timestamp: now_ms() + 2,
                 },
+                Sample {
+                    value: f64::NAN,
+                    timestamp: now_ms() + 3,
+                },
             ],
         )],
         metadata: vec![],
-    };
+    }
+}
 
-    let (rows, _) = write_request_to_kafka_rows(req);
+#[test]
+fn drops_stale_marker_nan_samples() {
+    let (rows, _) = write_request_to_kafka_rows(stale_marker_request());
 
-    // Only the finite sample survives; the stale marker and the infinity are dropped.
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].value, 7.0);
-    assert!(rows.iter().all(|r| r.value.is_finite()));
+}
+
+#[test]
+fn keeps_only_exact_stale_markers_when_enabled() {
+    let req = stale_marker_request();
+    let (rows, _) = write_timeseries_to_kafka_rows_with_options(
+        req.timeseries,
+        &req.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: true,
+        },
+    );
+
+    let bits: Vec<u64> = rows.iter().map(|r| r.value.to_bits()).collect();
+    assert_eq!(bits, vec![7.0f64.to_bits(), STALE_NAN_BITS]);
+    assert!(is_stale_marker(rows[1].value));
+    assert_eq!(rows[0].series_fingerprint, rows[1].series_fingerprint);
+}
+
+/// ClickHouse finds a stale marker by its bits, so the Avro encoding must not
+/// turn it into the default NaN.
+#[test]
+fn avro_keeps_stale_marker_bits() {
+    let req = stale_marker_request();
+    let (rows, _) = write_timeseries_to_kafka_rows_with_options(
+        req.timeseries,
+        &req.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: true,
+        },
+    );
+    let schema = Schema::parse_str(METRICS_AVRO_SCHEMA).unwrap();
+    let mut writer = Writer::new(&schema, Vec::new());
+    writer.append_ser(&rows[1]).unwrap();
+    let encoded = writer.into_inner().unwrap();
+
+    let decoded = Reader::new(&encoded[..]).unwrap().next().unwrap().unwrap();
+    let Value::Record(fields) = decoded else {
+        panic!("expected a record, got {decoded:?}");
+    };
+    let value = fields
+        .iter()
+        .find_map(|(name, value)| (name == "value").then_some(value))
+        .unwrap();
+    let Value::Union(_, inner) = value else {
+        panic!("expected a nullable double, got {value:?}");
+    };
+    let Value::Double(double) = **inner else {
+        panic!("expected a double, got {inner:?}");
+    };
+    assert_eq!(double.to_bits(), STALE_NAN_BITS);
 }
 
 #[test]
@@ -273,7 +333,8 @@ fn snappy_round_trip_decodes_and_maps() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     let (decoded, _) =
-        decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, MAX_DECOMPRESSED)
+            .expect("snappy+protobuf decode");
     let (rows, _) = write_request_to_kafka_rows(decoded);
 
     assert_eq!(rows.len(), 1);
@@ -283,7 +344,12 @@ fn snappy_round_trip_decodes_and_maps() {
 
 #[test]
 fn rejects_non_snappy_garbage() {
-    assert!(decode_write_request(b"not snappy at all", MAX_DECOMPRESSED).is_err());
+    assert!(decode_write_request(
+        b"not snappy at all",
+        RemoteWriteEncoding::Snappy,
+        MAX_DECOMPRESSED
+    )
+    .is_err());
 }
 
 /// The raw-snappy length header is sender-controlled: a tiny body can claim a
@@ -307,10 +373,89 @@ fn rejects_decompression_bomb_before_allocating() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     // A cap below the (legitimate) decompressed size must reject the payload.
-    assert!(decode_write_request(&compressed, encoded.len() - 1).is_err());
+    assert!(
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, encoded.len() - 1).is_err()
+    );
     // The same payload passes with an adequate cap, so the rejection above is
     // the cap and not a decode failure.
-    assert!(decode_write_request(&compressed, encoded.len()).is_ok());
+    assert!(decode_write_request(&compressed, RemoteWriteEncoding::Snappy, encoded.len()).is_ok());
+}
+
+/// vmagent sends the same protobuf zstd-compressed (the VictoriaMetrics
+/// remote-write protocol). Before it was accepted, vmagent got a 400 on its
+/// first request and fell back to snappy, so a regression here is silent.
+#[test]
+fn zstd_round_trip_decodes_and_maps() {
+    let req = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "up"), label("job", "vmagent")],
+            vec![Sample {
+                value: 1.0,
+                timestamp: now_ms(),
+            }],
+        )],
+        metadata: vec![],
+    };
+
+    let mut encoded = Vec::new();
+    req.encode(&mut encoded).unwrap();
+    let compressed = common_compression::compress_zstd(&encoded).unwrap();
+
+    let (decoded, uncompressed_bytes) =
+        decode_write_request(&compressed, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED)
+            .expect("zstd+protobuf decode");
+    let (rows, _) = write_request_to_kafka_rows(decoded);
+
+    assert_eq!(uncompressed_bytes, encoded.len() as u64);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].metric_name, "up");
+    assert_eq!(rows[0].service_name, "vmagent");
+
+    // A snappy body labelled as zstd must fail, not be accepted by accident.
+    let snappy = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
+    assert!(decode_write_request(&snappy, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED).is_err());
+}
+
+/// zstd compresses repetitive input past 1000:1, so the cap has to hold on the
+/// decompressed size and not on the body size.
+#[test]
+fn zstd_rejects_decompression_bomb() {
+    let bomb = vec![0u8; 4 * MAX_DECOMPRESSED];
+    let compressed = common_compression::compress_zstd(&bomb).unwrap();
+    assert!(compressed.len() < 4096, "bomb should compress small");
+
+    assert!(
+        decode_write_request(&compressed, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED).is_err()
+    );
+    // The same body under an adequate cap fails only on the protobuf decode, so
+    // the rejection above comes from the cap and not from the zstd decoder.
+    let err = decode_write_request(&compressed, RemoteWriteEncoding::Zstd, bomb.len())
+        .expect_err("zeros are not a WriteRequest");
+    assert!(err.to_string().contains("protobuf"), "{err}");
+}
+
+#[test]
+fn content_encoding_header_selects_encoding() {
+    use axum::http::HeaderMap;
+
+    let cases: [(Option<&str>, RemoteWriteEncoding); 5] = [
+        (None, RemoteWriteEncoding::Snappy),
+        (Some("snappy"), RemoteWriteEncoding::Snappy),
+        (Some("zstd"), RemoteWriteEncoding::Zstd),
+        (Some(" ZSTD "), RemoteWriteEncoding::Zstd),
+        (Some("gzip"), RemoteWriteEncoding::Snappy),
+    ];
+    for (value, expected) in cases {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = value {
+            headers.insert("content-encoding", value.parse().unwrap());
+        }
+        assert_eq!(
+            RemoteWriteEncoding::from_headers(&headers),
+            expected,
+            "content-encoding {value:?}"
+        );
+    }
 }
 
 /// Quota and rate limiting charge the payload size the handler reports. This
@@ -336,7 +481,8 @@ fn reports_decompressed_payload_size() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     let (_, uncompressed_bytes) =
-        decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, MAX_DECOMPRESSED)
+            .expect("snappy+protobuf decode");
 
     assert_eq!(uncompressed_bytes, encoded.len() as u64);
     // Keeps the assertion above from passing vacuously: a payload that did not
@@ -468,7 +614,7 @@ fn assigns_stable_series_fingerprints_at_ingest() {
     );
 }
 
-/// A clamped timestamp adds $originalTimestamp to the row's attributes but must
+/// A clamped timestamp adds posthog.original_timestamp to the row's attributes but must
 /// never split the series: identity is computed before the synthetic attribute.
 #[test]
 fn overridden_timestamps_do_not_split_series_identity() {
@@ -497,10 +643,12 @@ fn overridden_timestamps_do_not_split_series_identity() {
 
     assert_eq!(rows.len(), 2);
     assert_eq!(overridden, 1);
-    assert!(rows[1].attributes.contains_key("$originalTimestamp"));
+    assert!(rows[1]
+        .attributes
+        .contains_key("posthog.original_timestamp"));
     assert_eq!(
         rows[0].series_fingerprint, rows[1].series_fingerprint,
-        "the synthetic $originalTimestamp attribute must not change identity"
+        "the synthetic posthog.original_timestamp attribute must not change identity"
     );
 }
 

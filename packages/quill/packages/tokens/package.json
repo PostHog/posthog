@@ -37,7 +37,7 @@
         "build:watch": "tsx watch src/build.ts"
     },
     "devDependencies": {
-        "tsx": "^4.19.0",
+        "tsx": "^4.23.15",
         "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     }

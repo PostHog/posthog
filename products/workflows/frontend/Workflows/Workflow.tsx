@@ -2,19 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { CanvasCommandGroup } from './hogflows/editor/tile-canvas/CanvasCommandGroup'
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
-    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
+    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit, logicProps } = useValues(
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
 
     return (
-        <div className="flex flex-col grow relative border rounded-md">
-            <WorkflowStatusBar {...props} />
+        <div className="relative flex min-h-[25rem] flex-1 flex-col overflow-hidden rounded-md border">
+            <WorkflowStatusBar {...props} commands={<CanvasCommandGroup {...logicProps} />} />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {externallyEdited && (

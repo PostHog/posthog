@@ -9,6 +9,8 @@ import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupCreateResult, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { GroupsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -775,6 +777,21 @@ describe('BatchWritingGroupStore', () => {
             expect(groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
             expect(groupRepository.fetchGroup).not.toHaveBeenCalled()
             expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        })
+
+        it('resolves when the read replica cancels the prefetch read for a recovery conflict', async () => {
+            // The caller does not await prefetchGroups, so a rejection here would stop the server.
+            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const replica = {
+                query: jest.fn().mockRejectedValue(new Error('Canceling statement due to conflict with recovery.')),
+            }
+            ;(router as any).pools.set(PostgresUse.PERSONS_READ, replica)
+            const store = new BatchWritingGroupStore(new PostgresGroupRepository(router), clickhouseGroupRepository)
+
+            await expect(
+                store.prefetchGroups([{ teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 }])
+            ).resolves.toBeUndefined()
+            expect(replica.query).toHaveBeenCalledTimes(1)
         })
     })
 

@@ -1,0 +1,1006 @@
+"""Serializers and endpoints for source schema operations."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable, Iterable
+from typing import Any, cast
+
+from django.db import connection, models, transaction
+from django.db.models import Q
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
+from posthog.api.fields import LengthFirstListField
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.utils import action
+from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
+from posthog.permissions import is_service_auth
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.added_tables import added_table_access_refusal
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
+from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_COLUMNS_PER_CALL,
+    MAX_TABLES_PER_CALL,
+    WIZARD_PATH,
+    fits_one_call,
+    recommend_for_candidates,
+)
+from products.warehouse_sources.backend.facade.models import (
+    MAX_FULL_REFRESH_INTERVAL_DAYS,
+    SCHEMA_PINNED_METADATA_KEY,
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
+    ExternalDataSchema,
+    ExternalDataSource,
+    auto_enable_new_schemas,
+    discovered_schema_finder,
+    sync_old_schemas_with_new_schemas,
+)
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.facade.source_management import (
+    AnySource,
+    ClickHouseSource,
+    Config,
+    CustomSource,
+    MySQLSource,
+    PostgresSource,
+    SQLSource,
+    build_default_sync_settings,
+    define_added_table_metadata,
+    known_source_key,
+    new_source_requires_ssl,
+    supports_adding_tables,
+)
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
+    ExternalDataSchemaSerializer,
+    RowFiltersField,
+)
+
+from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
+
+
+class RefreshSchemasResponseSerializer(serializers.Serializer):
+    added = serializers.IntegerField(help_text="Number of schemas newly created from the source.")
+    deleted = serializers.IntegerField(
+        help_text="Number of schemas removed because they no longer exist on the source."
+    )
+    auto_enabled = serializers.IntegerField(
+        help_text="Number of new schemas auto-enabled because the source has auto_sync_new_schemas on."
+    )
+    total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
+
+
+class ObjectStorageTableFileFormat(models.TextChoices):
+    INFER = "infer", "Infer from the file names"
+    CSV = "csv", "CSV with a header row"
+    CSV_NO_HEADER = "csv_no_header", "CSV without a header row"
+    JSONL = "jsonl", "JSON Lines"
+    PARQUET = "parquet", "Parquet"
+    DELTA = "delta", "Delta table"
+
+
+ADDED_TABLE_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+MAX_ADDED_TABLE_NAME_LENGTH = 128
+MAX_ADDED_TABLE_PATH_LENGTH = 2048
+
+
+class AddTableRequestSerializer(serializers.Serializer):
+    name = serializers.RegexField(
+        regex=ADDED_TABLE_NAME_PATTERN,
+        max_length=MAX_ADDED_TABLE_NAME_LENGTH,
+        error_messages={
+            "invalid": "Table names must start with a letter or underscore, and contain only letters, numbers and "
+            "underscores."
+        },
+        help_text=(
+            "Name of the new table in the source. Starts with a letter or underscore, and contains only letters, "
+            "numbers and underscores. Must not be the name of another table in the source."
+        ),
+    )
+    path = serializers.CharField(
+        max_length=MAX_ADDED_TABLE_PATH_LENGTH,
+        allow_blank=True,
+        help_text=(
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as "
+            "`events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder "
+            "reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole "
+            "folder. A source whose files URL names one file or a pattern can't add tables."
+        ),
+    )
+    file_format = serializers.ChoiceField(
+        choices=ObjectStorageTableFileFormat.choices,
+        default=ObjectStorageTableFileFormat.INFER,
+        help_text=(
+            "The format of the files. `infer` reads each file by its extension, and reads a folder that holds a "
+            "`_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards."
+        ),
+    )
+    csv_allow_double_quotes = serializers.BooleanField(
+        default=True,
+        help_text="For CSV files: whether a double quote encloses a field. When false, it is an ordinary character.",
+    )
+
+
+ADDED_TABLE_READ_ERROR_MESSAGE = (
+    "PostHog couldn't read this path. Check the path and the source's credentials, then try again."
+)
+BUCKET_WIDE_REFRESH_MESSAGE = (
+    "This source reads tables from anywhere in its bucket, so PostHog can't find new tables on its own. "
+    "Add each table by its path instead."
+)
+
+
+# Long enough for a nested document field path. The model reads a shorter prefix of each name.
+MAX_IDENTIFIER_LENGTH = 4096
+
+
+class IncrementalFieldCandidateSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=MAX_IDENTIFIER_LENGTH, trim_whitespace=False, help_text="Name of the field as shown in the UI."
+    )
+    field = serializers.CharField(
+        max_length=MAX_IDENTIFIER_LENGTH,
+        trim_whitespace=False,
+        help_text="Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.",
+    )
+    type = serializers.CharField(max_length=32, help_text="Type of the field as shown in the UI, such as timestamp.")
+    field_type = serializers.CharField(max_length=32, help_text="Type of the field in the source, such as timestamp.")
+    nullable = serializers.BooleanField(required=False, help_text="Whether the field allows null values.")
+    is_indexed = serializers.BooleanField(
+        required=False, help_text="Whether the field leads an index or sort key on the source table."
+    )
+    recommended = serializers.BooleanField(
+        required=False, help_text="Whether this is the field the source recommends as the incremental cursor."
+    )
+    picked_by_model = serializers.BooleanField(
+        required=False,
+        help_text="Whether the decision model, not the name rules, picked this field. Ignored on input.",
+    )
+    notes = LengthFirstListField(
+        child=serializers.CharField(max_length=1000),
+        max_length=16,
+        required=False,
+        help_text="Trade-offs of picking this field.",
+    )
+
+
+class IncrementalFieldTableSerializer(serializers.Serializer):
+    table = serializers.CharField(
+        max_length=MAX_IDENTIFIER_LENGTH,
+        trim_whitespace=False,
+        help_text="Name of the table, as returned by database_schema.",
+    )
+    incremental_fields = LengthFirstListField(
+        child=IncrementalFieldCandidateSerializer(),
+        max_length=GATEWAY_MAX_CHOICE_OPTIONS,
+        help_text=(
+            "The leading candidate incremental fields of the table, as returned by database_schema. "
+            "The decision model reads at most this many."
+        ),
+    )
+
+
+class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
+    tables = LengthFirstListField(
+        child=IncrementalFieldTableSerializer(),
+        max_length=MAX_TABLES_PER_CALL,
+        help_text=(
+            "Tables from database_schema to get a recommended incremental field for. One request is one "
+            f"model call: up to {MAX_TABLES_PER_CALL} tables with up to {MAX_COLUMNS_PER_CALL} candidate "
+            "fields in total, or a single table of any size."
+        ),
+    )
+
+    def validate_tables(self, tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not fits_one_call([len(table["incremental_fields"]) for table in tables]):
+            raise serializers.ValidationError(
+                f"Send at most {MAX_COLUMNS_PER_CALL} candidate fields across the tables of one request, "
+                "or one table on its own."
+            )
+        return tables
+
+
+class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
+    tables = IncrementalFieldTableSerializer(
+        many=True,
+        help_text="Only the tables where the decision model picked a field, with that field first and recommended.",
+    )
+
+
+class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Schema identifier to update.")
+    should_sync = serializers.BooleanField(required=False, help_text="Whether the schema should be queryable/synced.")
+    live_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the table is queryable live without syncing it. Only for synced sources with live "
+        "queries on, and not for tables with row filters or masked columns.",
+    )
+    sync_type = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=ExternalDataSchema.SyncType.choices,
+        help_text="Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).",
+    )
+    incremental_field = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Incremental cursor field for incremental or append syncs.",
+    )
+    incremental_field_type = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Type of the incremental cursor field.",
+    )
+    sync_frequency = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=SYNC_FREQUENCY_HELP_TEXT,
+    )
+    sync_time_of_day = serializers.TimeField(
+        required=False,
+        allow_null=True,
+        help_text="UTC anchor time for scheduled syncs.",
+    )
+    full_refresh_interval_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=MAX_FULL_REFRESH_INTERVAL_DAYS,
+        help_text=(
+            "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the "
+            "table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations "
+            "that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, "
+            "and never shorter than the sync frequency."
+        ),
+    )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
+    )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
+    )
+    cdc_table_mode = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=["consolidated", "cdc_only", "both"],
+        help_text="How CDC-backed tables should be exposed.",
+    )
+    enabled_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text="Columns to sync. Null means sync all columns.",
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. "
+            "Any change starts a full resync of the table."
+        ),
+    )
+    row_filters = RowFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.",
+    )
+    apply_sync_defaults = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true and the schema has no sync method configured yet (and this update does not set "
+            "one), discover the table on the source and fill in default sync settings: incremental sync "
+            "with an auto-selected tracking column where supported, otherwise append, otherwise full "
+            "refresh. Ignored for schemas that already have a sync method."
+        ),
+    )
+
+
+class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
+    schemas = ExternalDataSourceBulkUpdateSchemaSerializer(
+        many=True,
+        allow_empty=False,
+        help_text="Schema updates to apply in a single batch.",
+    )
+
+    # The endpoint is a PATCH, so the schema generator marks every field optional. The body is a
+    # batch command that always needs `schemas`, and the generated types and MCP tool must say so.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, _value: bool) -> None:
+        pass
+
+
+def _validation_error_message(error: ValidationError) -> str:
+    # DRF normalizes ValidationError.detail to a list or dict (never a bare string).
+    detail = error.detail
+    if isinstance(detail, dict):
+        return " ".join(f"{field}: {value}" for field, value in detail.items())
+    return " ".join(str(item) for item in detail)
+
+
+class BulkSchemaSaveError(APIException):
+    default_code = "bulk_schema_save_failed"
+
+    def __init__(self, failures: dict[str, tuple[str, str]], *, only_validation_errors: bool) -> None:
+        # Pure input problems are the caller's to fix (400). A database/infra error is ours and is
+        # retryable (503); treat a mix as a server problem so it surfaces as retryable.
+        self.status_code = (
+            status.HTTP_400_BAD_REQUEST if only_validation_errors else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        reasons = "; ".join(f"{name} ({reason})" for name, reason in failures.values())
+        # Each reason carries its own next step: retrying a webhook-only or missing table fails the same way.
+        super().__init__(detail=f"These schemas weren't saved: {reasons}. The other schemas in the batch were saved.")
+
+
+class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase):
+    def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        """Per-table gate for source-level endpoints that write or sync schemas.
+
+        Editor on the source isn't enough: a table can be locked below that, and these endpoints
+        never resolve a schema through DRF's object permissions, so nothing else checks it. Each
+        schema resolves like the schema viewset's permission: through its table, which falls back
+        to the source via RESOURCE_FALLBACK_MAP.
+        """
+        # Service credentials are synthetic users UserAccessControl can't evaluate; they're gated by
+        # API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table in this source.")
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(responses=RefreshSchemasResponseSerializer)
+    def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
+        instance: ExternalDataSource = self.get_object()
+        if instance.is_self_managed_migration:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": BUCKET_WIDE_REFRESH_MESSAGE})
+        base.logger.debug(
+            "refresh_schemas called",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+        )
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+        source: AnySource | None = None
+        try:
+            source_type = known_source_key(instance.source_type)
+            source = base.SourceRegistry.get_source(source_type)
+            config = source.parse_config(source_inputs)
+            # Explicit user action — bypass any cached schema discovery so newly added
+            # upstream resources (e.g. Slack channels) appear immediately.
+            schemas = source.get_schemas(
+                config, self.team_id, force_refresh=True, api_version=source.resolve_api_version(instance.api_version)
+            )
+            connection_metadata = (
+                helpers.get_direct_connection_metadata(
+                    source_impl=source,
+                    source_config=config,
+                    team_id=self.team_id,
+                    source_model=instance,
+                    fallback=instance.connection_metadata,
+                )
+                if is_direct_capable(instance)
+                else instance.connection_metadata
+            )
+            schema_names = {s.name: s.label for s in schemas}
+            base.logger.info(
+                "refresh_schemas fetched from source",
+                source_id=str(instance.id),
+                schema_count=len(schema_names),
+                schema_names=schema_names,
+            )
+        except Exception as e:
+            error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
+            base.logger.exception(
+                "Could not fetch schemas from source",
+                exc_info=e,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                source_type=instance.source_type,
+                error_type=type(e).__name__,
+                is_expected_source_error=is_expected_source_error,
+            )
+            if not is_expected_source_error:
+                base.capture_exception(
+                    e,
+                    {
+                        "source_id": str(instance.id),
+                        "source_type": instance.source_type,
+                        "team_id": self.team_id,
+                        "refresh_schemas": True,
+                    },
+                )
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
+            )
+
+        descriptions = {s.name: s.description for s in schemas}
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            if connection_metadata != instance.connection_metadata:
+                instance.connection_metadata = connection_metadata
+                instance.save(update_fields=["connection_metadata", "updated_at"])
+            # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
+            engine = get_direct_query_engine(instance.direct_engine)
+            name_substitutions = helpers._refresh_name_substitutions(
+                engine, source=instance, source_schemas=schemas, team_id=self.team_id
+            )
+
+            if name_substitutions:
+                schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
+                descriptions = {
+                    name_substitutions.get(name, name): description for name, description in descriptions.items()
+                }
+            # Namespaced-resource sources (GitHub) keep the legacy resource's rows bare alongside
+            # qualified rows for the others, so bare↔qualified tail matching would wrongly collapse
+            # them; match names exactly and seed per-resource location metadata on new rows.
+            namespaced_adapter = get_namespaced_resource_adapter(instance.source_type)
+            sync_result = sync_old_schemas_with_new_schemas(
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                descriptions=descriptions,
+                strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
+                schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
+                if namespaced_adapter is not None
+                else {name_substitutions.get(s.name, s.name): s.schema_metadata for s in schemas if s.schema_metadata},
+            )
+            # Mutable local: engine reconciliation below may extend the deleted set.
+            schemas_deleted = sync_result.deleted
+
+            if engine is not None:
+                reconciled_deleted_schemas = engine.reconcile_schemas(
+                    source=instance, source_schemas=schemas, team_id=self.team_id
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
+                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+
+        # Outside the atomic block: schedule creation talks to Temporal, which must not run under
+        # the source row lock or against rows that could still roll back. `sync_result.created` holds
+        # post-substitution stored names, so remap the discovered names to match.
+        auto_enabled_names: list[str] = []
+        if sync_result.created:
+            source_schemas_by_name = {name_substitutions.get(s.name, s.name): s for s in schemas}
+            auto_enabled_names = auto_enable_new_schemas(instance, sync_result.created, source_schemas_by_name)
+
+        base.logger.debug(
+            "refresh_schemas completed",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            added=len(sync_result.created),
+            deleted=len(schemas_deleted),
+            auto_enabled=len(auto_enabled_names),
+            total_tables_seen=len(schemas),
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data=RefreshSchemasResponseSerializer(
+                {
+                    "added": len(sync_result.created),
+                    "deleted": len(schemas_deleted),
+                    "auto_enabled": len(auto_enabled_names),
+                    "total_tables_seen": len(schemas),
+                }
+            ).data,
+        )
+
+    @validated_request(
+        request_serializer=AddTableRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=ExternalDataSchemaSerializer, description="The new table, turned off. Turn it on to sync it."
+            )
+        },
+        summary="Add a table to an object storage source by its path",
+        description=(
+            "Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or "
+            "Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only "
+            "that location to check the files, and does not sync data. The new table is turned off. Turn it on "
+            "with a schema update to start syncing it."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def add_table(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+        data = request.validated_data
+        name: str = data["name"]
+        if not supports_adding_tables(instance.source_type):
+            raise ValidationError("Only object storage sources can add a table by path.")
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
+            raise ValidationError("Source has no configuration.")
+        if (refusal := added_table_access_refusal(instance)) is not None:
+            raise PermissionDenied(refusal)
+        self._refuse_taken_table_name(instance, name)
+
+        # The storage requests run before the row lock, so a slow bucket can't hold the source row.
+        schema_metadata = self._define_added_table(instance, source_inputs, data)
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            self._refuse_taken_table_name(instance, name)
+            schema = ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team_id,
+                source=instance,
+                should_sync=False,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                sync_type_config={"schema_metadata": {**schema_metadata, SCHEMA_PINNED_METADATA_KEY: True}},
+            )
+        base.logger.info(
+            "add_table created a schema",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+            schema_id=str(schema.id),
+            table_kind=schema_metadata.get("kind"),
+        )
+        return Response(
+            ExternalDataSchemaSerializer(schema, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _refuse_taken_table_name(self, instance: ExternalDataSource, name: str) -> None:
+        # A deleted migration schema records that its table stays self-managed, so its name stays taken.
+        taken = ExternalDataSchema.objects.filter(
+            ~Q(deleted=True) | Q(sync_type_config__schema_metadata__has_key=SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY),
+            team_id=self.team_id,
+            source_id=instance.pk,
+            name__iexact=name,
+        ).exists()
+        if taken:
+            raise ValidationError({"name": f"A table named {name} already exists in this source."})
+
+    def _define_added_table(
+        self, instance: ExternalDataSource, source_inputs: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            return define_added_table_metadata(
+                instance.source_type,
+                source_inputs,
+                data["name"],
+                data["path"],
+                data["file_format"],
+                data["csv_allow_double_quotes"],
+            )
+        except AddedTableLocationError as e:
+            raise ValidationError({"path": str(e)}) from e
+        except Exception as e:
+            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
+            error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
+            base.logger.exception(
+                "Could not read the location of an added table",
+                exc_info=e,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                source_type=instance.source_type,
+                error_type=type(e).__name__,
+                is_expected_source_error=is_expected_source_error,
+            )
+            if not is_expected_source_error:
+                base.capture_exception(
+                    e, {"source_id": str(instance.id), "source_type": instance.source_type, "team_id": self.team_id}
+                )
+            if not is_expected_source_error or error_message == helpers.REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE:
+                error_message = ADDED_TABLE_READ_ERROR_MESSAGE
+            raise ValidationError({"path": error_message}) from e
+
+    @validated_request(
+        request_serializer=IncrementalFieldRecommendationsRequestSerializer,
+        responses={200: IncrementalFieldRecommendationsResponseSerializer},
+        summary="Recommend incremental fields with the decision model",
+        description=(
+            "Asks the decision model which incremental field to use for tables whose column names leave it "
+            "open. Send the tables database_schema returned; the response holds only the tables the model "
+            "picked a field for. Called after database_schema so the table list never waits for the model."
+        ),
+    )
+    @action(methods=["POST"], detail=False)
+    def incremental_field_recommendations(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        picks = recommend_for_candidates(
+            [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
+            team=self.team,
+            path=WIZARD_PATH,
+        )
+        return Response(
+            IncrementalFieldRecommendationsResponseSerializer(
+                {"tables": [{"table": name, "incremental_fields": fields} for name, fields in picks.items()]}
+            ).data
+        )
+
+    @extend_schema(request=credential_store.DatabaseSchemaRequestSerializer)
+    @action(methods=["POST"], detail=False)
+    def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
+        source_type = request.data.get("source_type", None)
+
+        if source_type is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "Missing required parameter: source_type. "
+                    "Use external-data-sources-wizard to list the valid source types."
+                },
+            )
+
+        secret_ref_response = credential_store._unresolved_secret_ref_response(request.data)
+        if secret_ref_response is not None:
+            return secret_ref_response
+
+        try:
+            source_type_model = resolve_known_source_key(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
+        source_type = str(source_type_model)
+
+        # A `credential_id` references connection details stored for this user via the connect flow.
+        # Discovery only reads the stored secrets: the credential stays so `setup` or `create` can still use it.
+        # `.items()` keeps scalar values when a form-encoded body arrives as a QueryDict.
+        resolved = self._resolve_stored_credential(source_type, dict(request.data.items()))
+        if resolved.error_response is not None:
+            return resolved.error_response
+        payload = resolved.payload
+
+        source = base.SourceRegistry.get_source(source_type_model)
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config: Config = source.parse_config(payload)
+
+        access_method = payload.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config),
+                    self.team_id,
+                    access_method,
+                    require_ssl=new_source_requires_ssl(source_config),
+                )
+            elif isinstance(source, CustomSource):
+                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+                # an unbound integration owned by the requester, or the probe could send another source's token
+                # to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = helpers._credentials_validation_failed(source, self.team_id, e)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE},
+            )
+
+        try:
+            schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
+            # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
+        except Exception as e:
+            error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
+            )
+
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
+        try:
+            endpoint_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in schemas]
+            )
+        except Exception as e:
+            base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            endpoint_permissions = {schema.name: None for schema in schemas}
+
+        # xmin is gated at the source-type level by the source's capability flag so it never
+        # leaks to another SQL source.
+        xmin_capable = source.supports_xmin
+        data = [
+            {
+                "table": schema.name,
+                "label": schema.label,
+                "should_sync": False,
+                "incremental_fields": schema.incremental_fields,
+                "incremental_available": schema.supports_incremental,
+                "append_available": schema.supports_append,
+                "cdc_available": schema.supports_cdc,
+                "xmin_available": schema.supports_xmin if xmin_capable else None,
+                "incremental_field": schema.incremental_fields[0]["field"]
+                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
+                else None,
+                "sync_type": None,
+                "rows": schema.row_count,
+                "supports_webhooks": schema.supports_webhooks,
+                "webhook_only": schema.webhook_only,
+                "prefers_full_refresh": schema.prefers_full_refresh,
+                "description": schema.description,
+                "should_sync_default": schema.should_sync_default,
+                "available_columns": [
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
+                    for col_name, col_type, nullable in schema.columns
+                ],
+                "detected_primary_keys": schema.detected_primary_keys,
+                "primary_key_detection_supported": source.detects_primary_keys,
+                "permission_error": endpoint_permissions.get(schema.name),
+                "rls_warning": schema.rls_warning,
+            }
+            for schema in schemas
+        ]
+        return Response(status=status.HTTP_200_OK, data=data)
+
+    def _fill_default_sync_settings(
+        self,
+        source: ExternalDataSource,
+        schema_updates: list[dict[str, Any]],
+        source_schemas_by_id: dict[uuid.UUID, ExternalDataSchema],
+        # nosemgrep: tuple-return-prefer-dataclass -- grandfathered backlog
+    ) -> tuple[dict[str, tuple[str, str]], set[str]]:
+        """Fill default sync settings into bulk-update items that ask for them.
+
+        Items with ``apply_sync_defaults`` targeting a schema that has no sync method yet (and
+        whose update doesn't set one) get their sync settings discovered from the source — one
+        discovery call for the whole batch. Returns per-schema failures (dropped tables,
+        webhook-only tables, discovery errors) for the caller to skip and report, plus the ids
+        of the schemas whose settings were filled in.
+        """
+        needing_defaults = [
+            schema_update
+            for schema_update in schema_updates
+            if schema_update.get("apply_sync_defaults")
+            and schema_update.get("sync_type") is None
+            and source_schemas_by_id[schema_update["id"]].sync_type is None
+        ]
+        # Direct-query sources have no sync method to configure — enabling is just should_sync.
+        if not needing_defaults or not source.supports_scheduled_sync:
+            return {}, set()
+
+        failures: dict[str, tuple[str, str]] = {}
+        names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
+        source_impl: AnySource | None = None
+        try:
+            source_impl = base.SourceRegistry.get_source(source.source_type)
+            config = source_impl.parse_config(SourceInputsStore.load(source))
+            discovered = source_impl.get_schemas(
+                config,
+                self.team_id,
+                names=None if source_impl.uses_stable_schema_resource_ids else names,
+                api_version=source_impl.resolve_api_version(source.api_version),
+            )
+        except Exception as e:
+            # Discovery connects to the customer's source, so an expected user/upstream failure
+            # (bad credentials, unreachable host) is theirs to fix and is already reported back to
+            # them below — don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
+            _, is_expected_source_error = helpers._classify_refresh_schemas_error(source_impl, e)
+            if not is_expected_source_error:
+                base.capture_exception(e)
+            reason = "could not read the source to pick default sync settings; check the source credentials"
+            for schema_update in needing_defaults:
+                schema = source_schemas_by_id[schema_update["id"]]
+                failures[str(schema.id)] = (schema.name, reason)
+            return failures, set()
+
+        # Not every source honors the `names` filter, so match by name instead of order. Sheets are
+        # discovered without that filter because a renamed worksheet is matched by its stable id.
+        find_discovered_schema = discovered_schema_finder(discovered)
+        defaulted_schema_ids: set[str] = set()
+        for schema_update in needing_defaults:
+            schema = source_schemas_by_id[schema_update["id"]]
+            discovered_schema = find_discovered_schema(schema.name, schema.schema_metadata)
+            if discovered_schema is None:
+                failures[str(schema.id)] = (
+                    schema.name,
+                    "not found on the source; pull new schemas to refresh the table list",
+                )
+                continue
+            if discovered_schema.webhook_only:
+                failures[str(schema.id)] = (
+                    schema.name,
+                    "can only be synced via webhooks; pick the Webhook sync method for it",
+                )
+                continue
+            for key, value in build_default_sync_settings(discovered_schema).items():
+                # A caller-sent value wins; None (missing or explicit null) means "not set".
+                if schema_update.get(key) is None:
+                    schema_update[key] = value
+            defaulted_schema_ids.add(str(schema.id))
+        return failures, defaulted_schema_ids
+
+    @extend_schema(
+        request=ExternalDataSourceBulkUpdateSchemasSerializer,
+        responses={200: ExternalDataSchemaSerializer(many=True)},
+    )
+    # The list-shaped response makes the generator add the viewset's search and paging params.
+    @action(methods=["PATCH"], detail=True, pagination_class=None, filter_backends=[])
+    def bulk_update_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source = self.get_object()
+        serializer = ExternalDataSourceBulkUpdateSchemasSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
+        # Built once: the context builds the team's HogQL database.
+        serializer_context = self.get_serializer_context()
+        updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        return Response(
+            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _apply_schema_updates(
+        self, source: ExternalDataSource, schema_updates: list[dict[str, Any]], serializer_context: dict[str, Any]
+    ) -> list[ExternalDataSchema]:
+        """Save each schema update in its own transaction, then run its Temporal schedule changes."""
+        schema_ids = [schema_update["id"] for schema_update in schema_updates]
+
+        if len(set(schema_ids)) != len(schema_ids):
+            raise ValidationError("Schema updates must contain unique ids")
+
+        source_schemas = ExternalDataSchema.objects.filter(
+            team_id=self.team_id,
+            source_id=source.id,
+            id__in=schema_ids,
+        ).select_related("source", "table__credential", "table__external_data_source")
+        source_schemas_by_id = {schema.id: schema for schema in source_schemas}
+
+        if len(source_schemas_by_id) != len(schema_ids):
+            raise ValidationError("One or more schemas could not be found for this source")
+
+        # Reject up front rather than per-schema, so a batch touching a locked table writes nothing.
+        self._assert_can_write_schemas(source_schemas_by_id.values())
+
+        # Items that ask for sync defaults on a not-yet-configured schema get them discovered and
+        # filled in up front. Tables that can't get defaults (dropped from the source, webhook-only)
+        # fail individually and are skipped below, without blocking the rest of the batch.
+        failed_schemas, defaulted_schema_ids = self._fill_default_sync_settings(
+            source, schema_updates, source_schemas_by_id
+        )
+        only_validation_errors = True
+
+        updated_schemas: list[ExternalDataSchema] = []
+        # Each deferred action is paired with its schema so a post-commit failure can be attributed.
+        post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
+
+        # Validate every payload before writing anything, so a malformed request is rejected up
+        # front. Some checks only run inside the serializer's update() (during save() below), so
+        # this catches the common input errors but not all of them — the save loop handles the rest.
+        prepared: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer, list[Callable[[], None]]]] = []
+        for schema_update in schema_updates:
+            schema_id = schema_update["id"]
+            schema = source_schemas_by_id[schema_id]
+            if str(schema.id) in failed_schemas:
+                continue
+            schema_payload = {
+                key: value for key, value in schema_update.items() if key not in ("id", "apply_sync_defaults")
+            }
+
+            schema_post_commit_actions: list[Callable[[], None]] = []
+            schema_serializer = ExternalDataSchemaSerializer(
+                schema,
+                data=schema_payload,
+                partial=True,
+                context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
+            )
+            schema_serializer.is_valid(raise_exception=True)
+            if str(schema.id) in defaulted_schema_ids:
+                # Defaults discovery already confirmed these tables aren't webhook-only; seed the
+                # cache so the warm step below doesn't re-probe the source once per schema.
+                schema_serializer.seed_webhook_only_check(False)
+            # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
+            prepared.append((schema, schema_serializer, schema_post_commit_actions))
+
+        # Commit each schema in its own transaction. A single atomic block around the whole batch
+        # meant one schema's failure rolled back every schema and failed the request, so the user
+        # got nothing applied. Isolating per schema keeps the ones that saved committed, attempts
+        # every schema so a single bad one can't block the rest, and reports the failures together.
+        for schema, schema_serializer, schema_post_commit_actions in prepared:
+            try:
+                with transaction.atomic():
+                    updated_schemas.append(schema_serializer.save())
+            except Exception as e:
+                if isinstance(e, ValidationError):
+                    reason = _validation_error_message(e)
+                    base.logger.warning(
+                        "bulk_update_schemas validation error during save",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                else:
+                    only_validation_errors = False
+                    reason = "a temporary error on our side; try again"
+                    base.capture_exception(e)
+                    base.logger.exception(
+                        "bulk_update_schemas failed to persist schema",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                failed_schemas[str(schema.id)] = (schema.name, reason)
+                # A dropped connection leaves Django holding a dead handle; reset it so the next
+                # schema reconnects instead of failing on the same broken connection.
+                if not connection.is_usable():
+                    connection.close()
+                continue
+
+            # Only run a schema's Temporal side effects once its own row is committed.
+            post_commit_actions.extend((schema, action) for action in schema_post_commit_actions)
+
+        post_commit_error: Exception | None = None
+        for action_schema, post_commit_action in post_commit_actions:
+            try:
+                post_commit_action()
+            except Exception as e:
+                # The row is already committed but its schedule still runs the old cadence. Capture +
+                # log every failure (with the schema id) so the drift is visible, and remember it so
+                # the request fails below — the caller must know the batch did not fully apply.
+                post_commit_error = e
+                base.capture_exception(e)
+                base.logger.warning(
+                    "bulk_update_schemas saved the schema but its Temporal schedule update failed",
+                    source_id=str(source.id),
+                    schema_id=str(action_schema.id),
+                    exc_info=e,
+                )
+
+        # Report save failures first so a schedule-update failure can't mask which schemas didn't
+        # save, then fail the request on the schedule-update failure.
+        if failed_schemas:
+            raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
+        if post_commit_error is not None:
+            raise post_commit_error
+
+        return updated_schemas

@@ -1,4 +1,6 @@
 import uuid
+import typing
+import asyncio
 import contextlib
 
 import pytest
@@ -30,6 +32,26 @@ async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> st
     )
 
     return str(run.id)
+
+
+class NeverFinishingActivity:
+    """Mock an activity that runs until the workflow cancels it."""
+
+    def __init__(self, name: str) -> None:
+        self.started = asyncio.Event()
+
+        @activity.defn(name=name)
+        async def never_finish(_: typing.Any) -> None:
+            self.started.set()
+            while True:
+                # Temporal delivers the cancellation to the activity in the heartbeat response.
+                activity.heartbeat()
+                await asyncio.sleep(1)
+
+        self.defn = never_finish
+
+    async def wait_until_started(self, timeout: float = 30) -> None:
+        await asyncio.wait_for(self.started.wait(), timeout=timeout)
 
 
 @contextlib.contextmanager

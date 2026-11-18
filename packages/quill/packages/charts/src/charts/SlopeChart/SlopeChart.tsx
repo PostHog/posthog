@@ -1,9 +1,10 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, useStableMargins } from '../../core/hooks/useChartMargins'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartConfig,
     ChartLegendConfig,
@@ -66,7 +67,8 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
     series: Series<Meta>[]
     labels: string[]
     config?: SlopeChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -76,10 +78,10 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function SlopeChart<Meta = SlopeSeriesMeta>({ onError, ...rest }: SlopeChartProps<Meta>): React.ReactElement {
+export function SlopeChart<Meta = SlopeSeriesMeta>(props: SlopeChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
-            <SlopeChartInner {...rest} />
+        <ChartErrorBoundary onError={props.onError} resetKey={props.series}>
+            <SlopeChartInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -92,13 +94,15 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     className,
     dataAttr,
     children,
+    onError,
 }: SlopeChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         showSeriesLabels = true,
         showStartLabels = true,
@@ -109,15 +113,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         pointRadius = DEFAULT_POINT_RADIUS,
         valueDomain,
     } = config ?? {}
-
-    const showsStart = useCallback(
-        (s: Series<Meta>): boolean => slopeLabelVisible(s, 'start', showStartLabels),
-        [showStartLabels]
-    )
-    const showsEnd = useCallback(
-        (s: Series<Meta>): boolean => slopeLabelVisible(s, 'end', showEndLabels),
-        [showEndLabels]
-    )
+    const marginsOverride = useStableMargins(config?.margins)
 
     // Legend rows come from the full series (so toggled-off ones stay listed and restorable);
     // `visibleSeries` carries the toggled-off entries as excluded for everything the chart draws.
@@ -131,8 +127,16 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     // Reserve left/right gutters for the value/name labels, which sit in the margins beyond the plot.
     const { margins, nameOffsetX } = useMemo(() => {
-        const startWidth = maxLabelWidth(visibleSeries.filter(showsStart).map((s) => valueFormatter(slopeStart(s))))
-        const endWidth = maxLabelWidth(visibleSeries.filter(showsEnd).map((s) => valueFormatter(slopeEnd(s))))
+        const startWidth = maxLabelWidth(
+            visibleSeries
+                .filter((s) => slopeLabelVisible(s, 'start', showStartLabels))
+                .map((s) => valueFormatter(slopeStart(s)))
+        )
+        const endWidth = maxLabelWidth(
+            visibleSeries
+                .filter((s) => slopeLabelVisible(s, 'end', showEndLabels))
+                .map((s) => valueFormatter(slopeEnd(s)))
+        )
         const nameWidth = showSeriesLabels
             ? maxLabelWidth(
                   visibleSeries
@@ -160,66 +164,50 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
         const base: Partial<ChartMargins> = { left, right }
         return {
-            margins: applyMarginOverride(base, config?.margins ?? {}),
+            margins: applyMarginOverride(base, marginsOverride),
             nameOffsetX: offset,
         }
-    }, [visibleSeries, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
-
-    // When the last point is the current incomplete period, dash only the *second half* of the
-    // connector so it reads as "the end is provisional", not the whole comparison.
-    const dashEnd = useMemo(
-        () => visibleSeries.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd),
-        [visibleSeries]
-    )
+    }, [visibleSeries, slopeLabels, showStartLabels, showEndLabels, showSeriesLabels, valueFormatter, marginsOverride])
 
     // A slope is a two-point line — collapse each series to its two points, with a dot at each. A
     // dashed end splits the single segment at its midpoint (renderer-side, no phantom point).
-    const slopeSeries = useMemo<Series<Meta>[]>(
-        () =>
-            visibleSeries.map((s) => ({
-                ...s,
-                data: [slopeStart(s), slopeEnd(s)],
-                points: { ...s.points, radius: pointRadius },
-                ...(dashEnd
-                    ? {
-                          stroke: {
-                              ...s.stroke,
-                              partial: {
-                                  ...s.stroke?.partial,
-                                  fromFraction: 0.5,
-                              },
+    const slopeSeries = useMemo<Series<Meta>[]>(() => {
+        // When the last point is the current incomplete period, dash only the *second half* of the
+        // connector so it reads as "the end is provisional", not the whole comparison.
+        const dashEnd = visibleSeries.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd)
+        return visibleSeries.map((s) => ({
+            ...s,
+            data: [slopeStart(s), slopeEnd(s)],
+            points: { ...s.points, radius: pointRadius },
+            ...(dashEnd
+                ? {
+                      stroke: {
+                          ...s.stroke,
+                          partial: {
+                              ...s.stroke?.partial,
+                              fromFraction: 0.5,
                           },
-                      }
-                    : {}),
-            })),
-        [visibleSeries, pointRadius, dashEnd]
-    )
+                      },
+                  }
+                : {}),
+        }))
+    }, [visibleSeries, pointRadius])
 
     // SlopeChart owns the legend (wrapper below); strip it from the inner LineChart's config so the
     // line chart's own built-in legend stays off and we don't render two.
-    const lineConfig = useMemo<LineChartConfig>(
-        () => ({
-            ...config,
-            legend: undefined,
-            hideYAxis: config?.hideYAxis ?? true,
-            showGrid: false,
-            margins,
-            valueDomain,
-        }),
-        [config, margins, valueDomain]
-    )
+    const lineConfig: LineChartConfig = {
+        ...config,
+        legend: undefined,
+        hideYAxis: config?.hideYAxis ?? true,
+        showGrid: false,
+        margins,
+        valueDomain,
+    }
 
     // A caller-supplied tooltip takes precedence; otherwise sort the default rows (see helper) and
     // format values with the chart's valueFormatter so the tooltip matches the on-chart labels' units.
-    const sortedTooltip = useCallback(
-        (ctx: TooltipContext<Meta>): React.ReactNode => (
-            <DefaultTooltip
-                {...ctx}
-                seriesData={sortSlopeTooltipRows(ctx.seriesData)}
-                valueFormatter={valueFormatter}
-            />
-        ),
-        [valueFormatter]
+    const sortedTooltip = (ctx: TooltipContext<Meta>): React.ReactNode => (
+        <DefaultTooltip {...ctx} seriesData={sortSlopeTooltipRows(ctx.seriesData)} valueFormatter={valueFormatter} />
     )
 
     return (
@@ -233,6 +221,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}
+                onError={onError}
             >
                 <SlopeValueLabels
                     valueFormatter={valueFormatter}

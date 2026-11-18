@@ -1,5 +1,4 @@
-type CloudRegion = "us" | "eu" | "dev";
-
+import type { CloudRegion } from "@posthog/shared";
 import { eq } from "drizzle-orm";
 import { inject, injectable } from "inversify";
 import { DATABASE_SERVICE } from "../identifiers";

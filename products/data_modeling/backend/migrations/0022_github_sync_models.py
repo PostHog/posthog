@@ -10,7 +10,6 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1089_ducklake_backfill_populate"),
-        ("data_warehouse", "0041_migrate_stripe_job_inputs_to_auth_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("data_modeling", "0021_dag_sync_frequency"),
     ]

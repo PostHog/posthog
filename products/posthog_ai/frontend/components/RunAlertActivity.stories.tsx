@@ -19,9 +19,23 @@ export default meta
 
 type Story = StoryObj<typeof RunAlertActivity>
 
-/** Terminal state after reconnect attempts are exhausted — title only, no detail to surface. */
 export const ConnectionLost: Story = {
-    args: { kind: 'connection_failed' },
+    args: {
+        kind: 'connection_failed',
+        retryable: true,
+        onRetry: () => {},
+        message: 'Connection lost. Retry to restore the conversation.',
+    },
+}
+
+export const ConnectionLostNarrow: Story = {
+    ...ConnectionLost,
+    parameters: { viewport: { defaultViewport: 'small' } },
+    render: (args) => (
+        <div className="w-130 max-w-full p-4">
+            <RunAlertActivity {...args} />
+        </div>
+    ),
 }
 
 /** Genuine agent failure — the detail message rides the always-visible region, not the collapsed body. */

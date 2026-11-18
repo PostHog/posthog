@@ -19,6 +19,8 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 pub struct RecordingIngestion {
     requests: Arc<Mutex<Vec<Vec<BillingUsageRecord>>>>,
     replies: Arc<Mutex<VecDeque<Code>>>,
+    rejected_teams: Arc<Mutex<Vec<i64>>>,
+    client_names: Arc<Mutex<Vec<Option<String>>>>,
 }
 
 impl RecordingIngestion {
@@ -27,9 +29,21 @@ impl RecordingIngestion {
         self.replies.lock().unwrap().push_back(code);
     }
 
+    /// Leaves `team_id` out of every accepted list, the way the real service answers a team
+    /// it cannot attribute: the batch succeeds without those records.
+    pub fn reject_team(&self, team_id: i64) {
+        self.rejected_teams.lock().unwrap().push(team_id);
+    }
+
     /// One entry per request received, in arrival order.
     pub fn requests(&self) -> Vec<Vec<BillingUsageRecord>> {
         self.requests.lock().unwrap().clone()
+    }
+
+    /// The `x-client-name` each request carried, which is the label the service's request
+    /// metrics slice by.
+    pub fn client_names(&self) -> Vec<Option<String>> {
+        self.client_names.lock().unwrap().clone()
     }
 }
 
@@ -39,9 +53,18 @@ impl UsageIngestion for RecordingIngestion {
         &self,
         request: Request<IngestBillingUsageRequest>,
     ) -> Result<Response<IngestBillingUsageResponse>, Status> {
+        self.client_names.lock().unwrap().push(
+            request
+                .metadata()
+                .get("x-client-name")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+        );
         let records = request.into_inner().records;
+        let rejected_teams = self.rejected_teams.lock().unwrap().clone();
         let accepted_record_ids = records
             .iter()
+            .filter(|record| !rejected_teams.contains(&record.team_id))
             .map(|record| record.record_id.clone())
             .collect();
         self.requests.lock().unwrap().push(records);

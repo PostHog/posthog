@@ -1,0 +1,16 @@
+export const OVERVIEW_SNAPSHOT_SCOPE: string[] = [
+    'session_recording_opt_in',
+    'session_recording_sample_rate',
+    'session_recording_minimum_duration_milliseconds',
+    'session_recording_linked_flag',
+    'session_recording_network_payload_capture_config',
+    'session_recording_masking_config',
+    'session_recording_url_trigger_config',
+    'session_recording_url_blocklist_config',
+    'session_recording_event_trigger_config',
+    'session_recording_retention_period',
+    'session_recording_trigger_match_type_config',
+    'session_recording_trigger_groups',
+    'session_replay_config',
+    'recording_domains',
+]

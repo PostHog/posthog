@@ -1,6 +1,7 @@
 import { buildDiscussReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildReportPromptContext } from "@posthog/core/inbox/reportPromptContext";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
@@ -23,6 +24,8 @@ interface UseDiscussReportOptions {
   redirectOnSuccess?: boolean;
   /** Called with the created task, before any navigation. */
   onTaskCreated?: (task: Task) => void;
+  surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 interface UseDiscussReportReturn {
@@ -56,6 +59,8 @@ export function useDiscussReport({
   channelId,
   redirectOnSuccess,
   onTaskCreated,
+  surface = "detail_pane",
+  triageId,
 }: UseDiscussReportOptions): UseDiscussReportReturn {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
@@ -97,6 +102,7 @@ export function useDiscussReport({
         // Routes the per-report cap: a discussion must not consume the
         // report's one-live-implementation (PR) gate.
         signalReportTaskRelationship: "discussion",
+        signalReportDiscussionQuestion: question?.trim() ?? "",
         // Files the session in the report's space so it shows in that
         // space's Sessions tab; without it the task belongs to no space.
         channelId: channelId ?? undefined,
@@ -108,6 +114,11 @@ export function useDiscussReport({
   const { run, isRunning } = useInboxCloudTaskRunner({
     reportId: report.id,
     reportTitle: report.title ?? null,
+    reportAction: {
+      action_type: "discuss",
+      surface,
+      ...(triageId ? { triage_id: triageId } : {}),
+    },
     // The server resolves the repo from the report itself; no client-side repo
     // or GitHub-integration gate applies to starting a discussion.
     cloudRepository: null,

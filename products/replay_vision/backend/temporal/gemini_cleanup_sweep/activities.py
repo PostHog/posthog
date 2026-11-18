@@ -2,7 +2,6 @@ import asyncio
 from datetime import UTC, datetime
 
 import structlog
-from google.genai import Client as RawGenAIClient
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
@@ -10,8 +9,8 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.replay_vision.backend.gemini_client import gemini_files_client
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     DELETE_CONCURRENCY,
     DESCRIBE_CONCURRENCY,
@@ -28,9 +27,18 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
     CleanupSweepResult,
     TrackedFile,
 )
-from products.replay_vision.backend.temporal.metrics import record_gemini_cleanup_backlog
+from products.replay_vision.backend.temporal.metrics import push_gemini_cleanup_gauges, record_gemini_cleanup_files
 
 logger = structlog.get_logger(__name__)
+
+_FILE_RESULTS = (
+    "deleted",
+    "delete_failed",
+    "skipped_running",
+    "skipped_too_young",
+    "skipped_temporal_error",
+    "skipped_invalid_value",
+)
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -69,12 +77,11 @@ async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSwee
 
 
 async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
-    raw_client = RawGenAIClient(api_key=gemini_api_key())
+    raw_client = gemini_files_client()
     temporal = await async_connect()
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
 
     total_tracked = await index_size()
-    record_gemini_cleanup_backlog(total_tracked)
     hit_max_files_cap = total_tracked > MAX_FILES_PER_SWEEP
 
     scanned = 0
@@ -133,6 +140,9 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     delete_failed = sum(1 for r in delete_results if not r)
 
     result = base_result.model_copy(update={"deleted": deleted, "delete_failed": delete_failed})
+    for name in _FILE_RESULTS:
+        record_gemini_cleanup_files(name, getattr(result, name))
+    await asyncio.to_thread(push_gemini_cleanup_gauges, total_tracked)
     logger.info(
         "replay_vision.cleanup_sweep.cycle_complete",
         scanned=result.scanned,

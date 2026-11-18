@@ -43,15 +43,17 @@ To run a single eval:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import (
     CalledTargetTool,
+    DidNotCiteRawSqlAfterTypedQuery,
     DidNotRenderUi,
     ExecBeforeRender,
     RenderedEntityUi,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 # Renderable experiment tools (detail + results). The agent may render the detail
 # view (``experiment-get``) or a results view for a status/results question. Two
@@ -93,8 +95,12 @@ async def eval_renders_entity_ui(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-renders-entity-ui-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_render_ui::eval_renders_entity_ui",
+            metrics=["rendered_entity_ui", "exec_before_render"],
+        ),
         cases=cases,
         scorers=[RenderedEntityUi(), ExecBeforeRender()],
         ctx=ctx,
@@ -107,7 +113,9 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
     ``query-trends`` (and the other insight ``query-*`` tools) carry the custom
     ``query-results`` app, which renders automatically — they are not in
     ``render-ui``'s enum. The agent should answer with the query tool and never
-    call ``render-ui``.
+    call ``render-ui``. It also should not hand-write the equivalent SQL in its
+    final answer once ``query-trends`` already returned a structured result —
+    doing so is the same SQL-first reasoning wearing a different disguise.
     """
 
     cases: list[SandboxedEvalCase] = [
@@ -117,13 +125,18 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
             expected={
                 "called_target_tool": {"tool": "query-trends"},
                 "did_not_render_ui": {},
+                "did_not_cite_raw_sql_after_typed_query": {"tool": "query-trends"},
             },
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_render_ui::eval_no_render_for_query_results",
+            metrics=["called_target_tool", "did_not_render_ui", "did_not_cite_raw_sql_after_typed_query"],
+        ),
         cases=cases,
-        scorers=[CalledTargetTool(), DidNotRenderUi()],
+        scorers=[CalledTargetTool(), DidNotRenderUi(), DidNotCiteRawSqlAfterTypedQuery()],
         ctx=ctx,
     )

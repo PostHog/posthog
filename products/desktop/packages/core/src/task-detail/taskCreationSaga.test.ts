@@ -21,9 +21,6 @@ const mockHost = vi.hoisted(() => ({
   detectRepo: vi.fn(),
   getCloudPromptTransport: vi.fn(),
   resolveLocalSkillCommandPrompt: vi.fn(async (prompt: string) => prompt),
-  takeWarmTaskLease: vi.fn(
-    (): { taskId: string; runId: string } | null => null,
-  ),
   uploadRunAttachments: vi.fn(),
   setProvisioningActive: vi.fn(),
   clearProvisioning: vi.fn(),
@@ -35,6 +32,13 @@ const mockHost = vi.hoisted(() => ({
   deleteClaudeCliImportRecord: vi.fn(),
   linkTaskBranch: vi.fn(),
 }));
+
+import type { WarmTaskSubmission } from "./warmTaskService";
+
+const warmSubmission = {
+  take: vi.fn<WarmTaskSubmission["take"]>(() => null),
+  finish: vi.fn(),
+};
 
 import { TaskCreationSaga } from "./taskCreationSaga";
 import { buildWorktreeAdoptionInput } from "./taskInput";
@@ -55,6 +59,8 @@ const sessionService = {
   watchCreatedCloudTask: vi.fn(),
   rememberInitialCloudPrompt: vi.fn(),
   markTaskCreationInFlight: vi.fn(),
+  clearVisibleTaskStarting: vi.fn(),
+  designateClaudeSubscription: vi.fn(),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -103,6 +109,7 @@ function makeSaga(
       ...posthog,
     } as never,
     host,
+    warmSubmission,
     sessionService,
     piRunner,
     fileReadClient,
@@ -114,6 +121,7 @@ function makeSaga(
 describe("TaskCreationSaga", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    warmSubmission.take.mockReturnValue(null);
     mockHost.createWorkspace.mockResolvedValue({});
     mockHost.deleteWorkspace.mockResolvedValue(undefined);
     mockHost.getTaskDirectory.mockResolvedValue(null);
@@ -137,6 +145,48 @@ describe("TaskCreationSaga", () => {
       }),
     );
   });
+
+  it.each([true, false])(
+    "starts a cold subscription run only when credential designation succeeds (%s)",
+    async (designationSucceeds) => {
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const startTaskRunMock = vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() }));
+      const designate = vi.mocked(sessionService.designateClaudeSubscription);
+      designate.mockImplementationOnce(async () => {
+        if (!designationSucceeds) throw new Error("Host unavailable");
+      });
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: startTaskRunMock,
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        adapter: "claude",
+        claudeCloudModelAccess: "own-subscription",
+      });
+
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining({
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(designate).toHaveBeenCalledWith("task-123", "run-123");
+      expect(result.success).toBe(designationSucceeds);
+      expect(startTaskRunMock).toHaveBeenCalledTimes(
+        designationSucceeds ? 1 : 0,
+      );
+    },
+  );
 
   it("waits for the cloud run response before surfacing the task", async () => {
     const createdTask = createTask();
@@ -387,9 +437,14 @@ describe("TaskCreationSaga", () => {
     });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
+    const localRun = createRun({ environment: "local" });
+    const createTaskRun = vi.fn().mockResolvedValue(localRun);
     const onTaskReady = vi.fn();
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
-    const saga = makeSaga({ createTask: createTaskRequest }, { onTaskReady });
+    const saga = makeSaga(
+      { createTask: createTaskRequest, createTaskRun },
+      { onTaskReady },
+    );
 
     const run = saga.run({
       content: "Draft a launch email",
@@ -410,15 +465,17 @@ describe("TaskCreationSaga", () => {
 
     expect(result.success).toBe(true);
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: { ...createdTask, latest_run: localRun },
       workspace: null,
     });
     expect(createTaskRequest).toHaveBeenCalledWith(
       expect.objectContaining({ runtime: "pi" }),
     );
+    expect(createTaskRun).toHaveBeenCalledWith("task-123");
     expect(piRunner.create).toHaveBeenCalledWith({
       taskContext: {
         taskId: "task-123",
+        taskRunId: "run-123",
         cwd: "/tmp/scratch/task-123",
         customInstructions: "Keep the patch small.",
         additionalDirectories: ["/tmp/shared"],
@@ -432,6 +489,45 @@ describe("TaskCreationSaga", () => {
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["the run call fails", vi.fn().mockRejectedValue(new Error("503"))],
+    ["the run has no id", vi.fn().mockResolvedValue(createRun({ id: "" }))],
+  ])(
+    "starts a new local Pi task untagged when %s",
+    async (_label, createTaskRun) => {
+      const createdTask = createTask({ repository: undefined });
+      const deleteTask = vi.fn();
+      const onTaskReady = vi.fn();
+      const saga = makeSaga(
+        {
+          createTask: vi.fn().mockResolvedValue(createdTask),
+          createTaskRun,
+          deleteTask,
+        },
+        { onTaskReady },
+      );
+
+      const result = await saga.run({
+        content: "Draft a launch email",
+        workspaceMode: "local",
+        runtime: "pi",
+        allowNoRepo: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(deleteTask).not.toHaveBeenCalled();
+      expect(piRunner.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskContext: expect.objectContaining({ taskRunId: undefined }),
+        }),
+      );
+      expect(onTaskReady).toHaveBeenCalledWith({
+        task: createdTask,
+        workspace: null,
+      });
+    },
+  );
+
   it("starts a Pi session before surfacing a new worktree task", async () => {
     let resolvePiSession: () => void = () => {};
     const piSessionCreated = new Promise<void>((resolve) => {
@@ -442,7 +538,12 @@ describe("TaskCreationSaga", () => {
     mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
     const saga = makeSaga(
-      { createTask: vi.fn().mockResolvedValue(createdTask) },
+      {
+        createTask: vi.fn().mockResolvedValue(createdTask),
+        createTaskRun: vi
+          .fn()
+          .mockResolvedValue(createRun({ environment: "local" })),
+      },
       { onTaskReady },
     );
 
@@ -462,7 +563,10 @@ describe("TaskCreationSaga", () => {
     expect(result).toMatchObject({ success: true });
     expect(mockHost.createWorkspace).toHaveBeenCalledOnce();
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: {
+        ...createdTask,
+        latest_run: expect.objectContaining({ id: "run-123" }),
+      },
       workspace: expect.objectContaining({ taskId: createdTask.id }),
     });
   });
@@ -523,6 +627,7 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       runtime: "pi",
+      claudeCloudModelAccess: "own-subscription",
       branch: "main",
       adapter: "codex",
       model: "gpt-5.4",
@@ -538,6 +643,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         adapter: undefined,
         piRuntime: true,
+        claudeModelAccess: undefined,
         model: "gpt-5.4",
         reasoningLevel: "high",
         initialPermissionMode: undefined,
@@ -548,6 +654,7 @@ describe("TaskCreationSaga", () => {
       pendingUserArtifactIds: undefined,
     });
     expect(piRunner.create).not.toHaveBeenCalled();
+    expect(sessionService.designateClaudeSubscription).not.toHaveBeenCalled();
   });
 
   it("uploads initial cloud attachments before starting the run", async () => {
@@ -747,7 +854,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue({
+    warmSubmission.take.mockReturnValue({
       taskId: "warm-task",
       runId: "warm-run",
     });
@@ -771,19 +878,12 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       branch: "main",
+      adapter: "claude",
+      executionMode: "plan",
       cloudAutoPublish: true,
     });
 
     expect(result.success).toBe(true);
-    expect(mockHost.takeWarmTaskLease).toHaveBeenCalledWith({
-      repository: "posthog/posthog",
-      branch: "main",
-      runtimeAdapter: null,
-      model: null,
-      reasoningEffort: null,
-      sandboxEnvironmentId: null,
-      customImageId: null,
-    });
     // The bundle must land on the warm run before createTask triggers activation.
     expect(mockHost.uploadRunAttachments).toHaveBeenCalledWith(
       expect.anything(),
@@ -797,6 +897,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         pending_user_message: "/my-skill do it",
         pending_user_artifact_ids: ["skill-artifact-1"],
+        initial_permission_mode: "plan",
         // Warm activation skips run creation, so the choice must ride along here.
         auto_publish: true,
       }),
@@ -821,7 +922,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue(null);
+    warmSubmission.take.mockReturnValue(null);
     mockHost.uploadRunAttachments.mockResolvedValue(["skill-artifact-1"]);
 
     const createdTask = createTask();
@@ -865,7 +966,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue({
+    warmSubmission.take.mockReturnValue({
       taskId: "warm-task",
       runId: "warm-run",
     });
@@ -905,6 +1006,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each([
+    { selection: "default settings", input: {}, expectedRunOptions: {} },
     {
       selection: "sandbox environment",
       input: { sandboxEnvironmentId: "environment-123" },
@@ -918,7 +1020,7 @@ describe("TaskCreationSaga", () => {
   ])(
     "falls back to a cold run without a matching warm $selection lease",
     async ({ input, expectedRunOptions }) => {
-      mockHost.takeWarmTaskLease.mockReturnValue(null);
+      warmSubmission.take.mockReturnValue(null);
       const createdTask = createTask();
       const startedTask = createTask({ latest_run: createRun() });
       const createTaskMock = vi.fn().mockResolvedValue(createdTask);
@@ -947,39 +1049,79 @@ describe("TaskCreationSaga", () => {
     },
   );
 
-  it("reuses a warm run built from the selected custom image", async () => {
-    mockHost.takeWarmTaskLease.mockReturnValue({
-      taskId: "warm-task",
-      runId: "warm-run",
-    });
-    const warmActivatedTask = createTask({
-      id: "warm-task",
-      latest_run: createRun({ id: "warm-run", task: "warm-task" }),
-    });
-    const createTaskMock = vi.fn().mockResolvedValue(warmActivatedTask);
-    const createTaskRunMock = vi.fn();
-    const saga = makeSaga({
-      createTask: createTaskMock,
-      createTaskRun: createTaskRunMock,
-    });
+  it.each([false, true])(
+    "targets a warm run only when the server supports mode negotiation (%s)",
+    async (mutable) => {
+      warmSubmission.take.mockReturnValue({
+        taskId: "warm-task",
+        runId: "warm-run",
+        permissionModeMutable: mutable,
+      });
+      const warmActivatedTask = createTask({
+        id: "warm-task",
+        latest_run: createRun({ id: "warm-run", task: "warm-task" }),
+      });
+      const createTaskMock = vi.fn().mockResolvedValue(warmActivatedTask);
+      const createTaskRunMock = vi.fn();
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+      });
 
-    const result = await saga.run({
-      content: "Ship the fix",
-      repository: "posthog/posthog",
-      workspaceMode: "cloud",
-      branch: "main",
-      customImageId: "image-123",
-    });
-
-    expect(result.success).toBe(true);
-    expect(createTaskMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
         branch: "main",
-        custom_image_id: "image-123",
-      }),
-    );
-    expect(createTaskRunMock).not.toHaveBeenCalled();
-  });
+        customImageId: "image-123",
+      });
+
+      expect(result.success).toBe(true);
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          branch: "main",
+          custom_image_id: "image-123",
+          warm_run_id: mutable ? "warm-run" : undefined,
+        }),
+      );
+      expect(createTaskRunMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([{ contextWindow: "1m" as const }, { fastMode: true }])(
+    "preserves cold-only settings even before the warm hook updates: %j",
+    async (input) => {
+      warmSubmission.take.mockReturnValue({
+        taskId: "warm-task",
+        runId: "warm-run",
+      });
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: vi
+          .fn()
+          .mockResolvedValue(createTask({ latest_run: createRun() })),
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        ...input,
+      });
+
+      expect(result.success).toBe(true);
+      expect(warmSubmission.take).not.toHaveBeenCalled();
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining(input),
+      );
+    },
+  );
 
   it("uses the selected user GitHub integration for cloud task creation", async () => {
     const createdTask = createTask({
@@ -1021,7 +1163,48 @@ describe("TaskCreationSaga", () => {
     );
   });
 
+  it("creates a GitLab task with its integration and never touches a warm run", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+    const saga = makeSaga({
+      createTask: createTaskMock,
+      createTaskRun: createTaskRunMock,
+      startTaskRun: vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() })),
+    });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repository: "acme/platform/api",
+      workspaceMode: "cloud",
+      branch: null,
+      githubIntegrationId: 7,
+      githubUserIntegrationId: "user-integration-123",
+      repositoryIntegrationId: 42,
+    });
+
+    expect(result.success).toBe(true);
+    expect(warmSubmission.take).not.toHaveBeenCalled();
+    const body = createTaskMock.mock.calls[0][0];
+    expect(body).toMatchObject({
+      repository: "acme/platform/api",
+      repository_integration: 42,
+      github_integration: undefined,
+      github_user_integration: undefined,
+      pending_user_message: undefined,
+    });
+    // Without `branch` the backend cannot activate a warm run at create time.
+    expect(body.branch).toBeUndefined();
+    expect(createTaskRunMock).toHaveBeenCalled();
+  });
+
   it("uses user authorship for signal report cloud task creation", async () => {
+    warmSubmission.take.mockReturnValue({
+      taskId: "warm-task",
+      runId: "warm-run",
+      permissionModeMutable: true,
+    });
     const createdTask = createTask({ origin_product: "signal_report" });
     const startedTask = createTask({
       origin_product: "signal_report",
@@ -1045,6 +1228,7 @@ describe("TaskCreationSaga", () => {
       cloudRunSource: "signal_report",
       signalReportId: "report-123",
       signalReportTaskRelationship: "discussion",
+      signalReportDiscussionQuestion: "why?",
       githubIntegrationId: 123,
     });
 
@@ -1061,8 +1245,11 @@ describe("TaskCreationSaga", () => {
         repositories: undefined,
         signal_report: "report-123",
         signal_report_task_relationship: "discussion",
+        signal_report_discussion_question: "why?",
+        warm_run_id: undefined,
       }),
     );
+    expect(warmSubmission.take).not.toHaveBeenCalled();
     expect(createTaskRunMock).toHaveBeenCalledWith(
       "task-123",
       expect.objectContaining({
@@ -1389,6 +1576,9 @@ describe("TaskCreationSaga", () => {
     expect(deleteTaskMock).not.toHaveBeenCalled();
     // Spinner is dismissed and no agent session starts without a worktree.
     expect(mockHost.clearProvisioning).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     // The early onTaskReady already navigated onto the task.
     expect(onTaskReady).toHaveBeenCalledTimes(1);
@@ -1420,6 +1610,9 @@ describe("TaskCreationSaga", () => {
     expect(result.success).toBe(false);
     // Only workspace_creation is protected; an agent_session failure rolls back.
     expect(deleteTaskMock).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(mockHost.deleteWorkspace).toHaveBeenCalled();
   });
 
@@ -1515,4 +1708,28 @@ describe("TaskCreationSaga", () => {
       );
     },
   );
+
+  it("forwards the selected Claude model access to the agent session", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    mockHost.detectRepo.mockResolvedValue(null);
+
+    const saga = makeSaga({ createTask: createTaskMock });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repoPath: "/repo",
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sessionService.connectToTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      }),
+    );
+  });
 });

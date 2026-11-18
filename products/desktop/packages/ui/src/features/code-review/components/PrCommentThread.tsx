@@ -18,6 +18,7 @@ import {
 import { Button } from "@posthog/quill";
 import type { PrReviewComment } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { Avatar, Badge, Box, Flex, Text } from "@radix-ui/themes";
 import {
   type ReactNode,
@@ -224,7 +225,7 @@ function CommentBody({
         <Avatar
           size="1"
           radius="full"
-          src={comment.user.avatar_url}
+          src={cachedImageUrl(comment.user.avatar_url)}
           fallback={comment.user.login[0]?.toUpperCase() ?? "?"}
           className="shrink-0"
         />

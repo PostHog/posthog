@@ -22,6 +22,7 @@ const server: McpGatewayServer = {
   docs_url: "",
   template_id: "template-1",
   template_auth_type: null,
+  auth_type: null,
   tool_count: 0,
   connections: [],
   your_connection: null,
@@ -284,9 +285,9 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    const shareButton = screen.getByRole("button", { name: "Share access" });
+    const shareButton = screen.getByRole("button", { name: /Share access/ });
     expect(shareButton).toBeDisabled();
-    expect(shareButton.querySelector(".rt-Spinner")).toBeInTheDocument();
+    expect(shareButton.querySelector('[role="status"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
 
     fireEvent.keyDown(document, { key: "Escape" });

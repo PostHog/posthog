@@ -1,6 +1,13 @@
 import { urls } from './urls'
 
 describe('urls', () => {
+    it('keeps the numeric transfer id and the insight short id separate', () => {
+        expect(urls.resourceTransfer('Insight', 42, 'abc123')).toBe(
+            '/resource-transfer/Insight/42?insight_short_id=abc123'
+        )
+        expect(urls.resourceTransfer('Dashboard', 42)).toBe('/resource-transfer/Dashboard/42')
+    })
+
     it('links to the web analytics recap scene', () => {
         expect(urls.webAnalyticsRecap()).toEqual('/web/recap')
     })

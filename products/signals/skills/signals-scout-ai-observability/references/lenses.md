@@ -28,7 +28,7 @@ queries for anything more):
 - Parse the numeric properties with a fallback via `toFloatOrDefault` / `toIntOrDefault`.
 - `$ai_tools_called` is a **comma-joined string**, not a JSON array —
   `arrayJoin(splitByChar(',', properties.$ai_tools_called))` to tally tool usage.
-- Not every team emits `$ai_embedding` (the dogfood project doesn't); including it in cost
+- Not every team emits `$ai_embedding`; including it in cost
   rollups is harmless but querying an absent event raises a taxonomy warning.
 
 ## The deep-dive skills

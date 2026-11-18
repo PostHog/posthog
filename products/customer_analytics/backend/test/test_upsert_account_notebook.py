@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.models import Team
 
@@ -14,6 +15,7 @@ from products.customer_analytics.backend.max_tools import (
     UpsertAccountNotebookTool,
 )
 from products.customer_analytics.backend.models import Account
+from products.notebooks.backend.facade.content import build_markdown_notebook_content, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 
@@ -52,8 +54,7 @@ class TestUpsertAccountNotebookTool(BaseTest):
         assert notebook.visibility == Notebook.Visibility.INTERNAL
         assert notebook.created_by_id == self.user.id
         assert notebook.title == "Q3 call recap"
-        assert notebook.content["type"] == "doc"
-        assert notebook.content["content"]
+        assert notebook.content == build_markdown_notebook_content("# Summary\n\nThey want SSO by Q3.")
         assert notebook.text_content == "# Summary\n\nThey want SSO by Q3."
         assert notebook.version == 0
 
@@ -62,7 +63,7 @@ class TestUpsertAccountNotebookTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_blank_markdown_falls_back_to_empty_paragraph(self):
+    async def test_create_blank_markdown_stores_an_empty_markdown_notebook(self):
         account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Beta Inc")
 
         _, artifact = await self._tool()._arun_impl(
@@ -70,7 +71,7 @@ class TestUpsertAccountNotebookTool(BaseTest):
         )
 
         notebook = await sync_to_async(Notebook.objects.get)(short_id=artifact["notebook_short_id"])
-        assert notebook.content == {"type": "doc", "content": [{"type": "paragraph"}]}
+        assert notebook.content == build_markdown_notebook_content("")
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -113,8 +114,42 @@ class TestUpsertAccountNotebookTool(BaseTest):
 
         notebook = await sync_to_async(Notebook.objects.get)(short_id=short_id)
         assert notebook.title == "Q3 recap (updated)"
+        assert notebook.content == build_markdown_notebook_content(
+            "# Summary\n\nSSO by Q3.\n\n## Pricing\n\nAsked about SSO pricing."
+        )
         assert notebook.text_content is not None and "Pricing" in notebook.text_content
         assert notebook.version == 1
+
+    @parameterized.expand(
+        [
+            ("holding a node", [{"type": "paragraph"}]),
+            ("empty", []),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_keeps_a_rich_text_note_in_rich_text(self, _name: str, stored_nodes: list) -> None:
+        def _make_rich_text_note() -> str:
+            account = Account.objects.unscoped().create(team=self.team, name="Legacy Corp")
+            notebook = Notebook.objects.create(
+                team=self.team,
+                title="Legacy note",
+                content={"type": "doc", "content": stored_nodes},
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+            ResourceNotebook.objects.create(notebook=notebook, account=account)
+            return notebook.short_id
+
+        short_id = await sync_to_async(_make_rich_text_note)()
+
+        _, artifact = await self._tool()._arun_impl(
+            action=UpdateAccountNotebookAction(notebook_short_id=short_id, content="# Later\n\nStill rich text.")
+        )
+
+        assert artifact["notebook_short_id"] == short_id
+        notebook = await sync_to_async(Notebook.objects.get)(short_id=short_id)
+        assert not is_markdown_notebook_content(notebook.content)
+        assert notebook.content["content"][0]["type"] == "heading"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

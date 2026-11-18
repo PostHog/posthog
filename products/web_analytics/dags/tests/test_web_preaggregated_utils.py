@@ -1,7 +1,9 @@
 import inspect
 
-from unittest.mock import Mock
+import pytest
+from unittest.mock import Mock, patch
 
+import dagster
 from dagster import DagsterInstance, DagsterRunStatus, RunsFilter, SkipReason, job, op, schedule
 
 import products.web_analytics.dags.web_preaggregated as wp
@@ -190,3 +192,15 @@ class TestWebPreaggregatedUtils:
         recreate_staging_table(context, cluster, "my_test_staging_table", mock_sql_func)
 
         context.log.info.assert_called_once_with("Recreating staging table my_test_staging_table")
+
+    @patch.object(wp, "sync_execute", return_value=[(0,)])
+    def test_pre_aggregation_fails_before_touching_tables_when_no_teams_are_selected(self, _mock_sync_execute):
+        context = Mock(op_config={})
+        sql_generator = Mock()
+        cluster = Mock()
+
+        with pytest.raises(dagster.Failure, match="No teams are selected"):
+            wp.pre_aggregate_web_analytics_data(context, "web_pre_aggregated_stats", sql_generator, cluster)
+
+        sql_generator.assert_not_called()
+        cluster.map_all_hosts.assert_not_called()

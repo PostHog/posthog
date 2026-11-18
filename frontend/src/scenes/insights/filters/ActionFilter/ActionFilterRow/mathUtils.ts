@@ -1,6 +1,9 @@
-import { COUNT_PER_ACTOR_MATH_DEFINITIONS, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
-
 import { CountPerActorMathType, InsightType, PropertyMathType } from '~/types'
+
+import {
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 // Property math types that can be meaningfully aggregated when rolling up histogram buckets
 // e.g. taking p99 of p99 values doesn't make sense

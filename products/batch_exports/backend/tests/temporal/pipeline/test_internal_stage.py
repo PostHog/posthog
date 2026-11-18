@@ -15,10 +15,11 @@ from django.test.utils import override_settings
 
 import pyarrow as pa
 import pytest_asyncio
+from aioresponses import aioresponses
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models.scoping import team_scope
+from posthog.models import Team, User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -34,16 +35,20 @@ from posthog.temporal.tests.utils.events import (
     insert_sessions_in_clickhouse,
 )
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportModel,
+    BatchExportPersonsModel,
+    BatchExportSessionsModel,
+    afetch_last_run_records_completed,
 )
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    DataIntervalEndInFutureError,
+    DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
     _execute_query,
     _raise_on_hogql_resource_limit_error,
@@ -53,6 +58,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -60,6 +67,9 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+if t.TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -77,11 +87,12 @@ def mock_clickhouse_client():
         yield mock_client
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
@@ -94,9 +105,10 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     data_interval_start,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
+    use_native_schema: bool,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -113,7 +125,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events"
+        expected_table = "events_json" if use_native_schema else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -131,7 +143,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         exclude_events=exclude_events,
         include_events=include_events,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=BackfillDetails(
             backfill_id=None,
@@ -144,7 +155,8 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
         {
@@ -155,11 +167,42 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     )
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
+async def test_insert_into_stage_activity_reads_native_events_for_workflows(
+    mock_clickhouse_client,
+    activity_environment,
+    ateam,
+    use_native_schema: bool,
+):
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=BatchExportEventsModel(),
+        backfill_details=None,
+        is_workflows=True,
+        destination_default_fields=None,
+    )
+
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    if use_native_schema:
+        mock_clickhouse_client.expect_select_from_table("events_json")
+    else:
+        mock_clickhouse_client.expect_select_from_table("events")
+        assert "events_json" not in mock_clickhouse_client.calls[0].query
+
+
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportSessionsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -170,7 +213,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
     data_interval_start,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is a sessions model."""
 
@@ -184,7 +227,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -212,7 +254,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
             await _write_batch_export_record_batches_to_internal_stage(
                 query_or_model="SELECT 1",
                 full_range=(data_interval_start, data_interval_end),
@@ -255,17 +297,17 @@ async def _generate_record_batches_from_internal_stage(
                 continue
 
 
-async def _run_activity(
+async def _stage_record_batches(
     activity_environment: ActivityEnvironment,
     object_storage_client,
     team_id,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
-    model: BatchExportModel | None = None,
+    model: AnyBatchExportModel | None = None,
     batch_export_id: str | None = None,
-) -> list[dict]:
-    """Get rows from the internal stage."""
+) -> list[pa.RecordBatch]:
+    """Run the stage activity and read back the record batches a destination would consume."""
 
     batch_export_id = batch_export_id or str(uuid.uuid4())
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -276,7 +318,6 @@ async def _run_activity(
         exclude_events=exclude_events,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -292,12 +333,36 @@ async def _run_activity(
         compression=None,
         json_columns=None,
     )
-    exported_rows = []
-    async for record_batch in _generate_record_batches_from_internal_stage(
-        batch_export_id, data_interval_start, data_interval_end, stage_folder
-    ):
-        exported_rows.extend(record_batch.to_pylist())
-    return exported_rows
+    return [
+        record_batch
+        async for record_batch in _generate_record_batches_from_internal_stage(
+            batch_export_id, data_interval_start, data_interval_end, stage_folder
+        )
+    ]
+
+
+async def _run_activity(
+    activity_environment: ActivityEnvironment,
+    object_storage_client,
+    team_id,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: list[str] | None = None,
+    model: AnyBatchExportModel | None = None,
+    batch_export_id: str | None = None,
+) -> list[dict]:
+    """Get rows from the internal stage."""
+    record_batches = await _stage_record_batches(
+        activity_environment=activity_environment,
+        object_storage_client=object_storage_client,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        model=model,
+        batch_export_id=batch_export_id,
+    )
+    return [row for record_batch in record_batches for row in record_batch.to_pylist()]
 
 
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
@@ -306,7 +371,7 @@ async def _run_activity(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -318,15 +383,10 @@ async def test_insert_into_stage_activity_for_events_model(
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     exclude_events,
     truncate_clickhouse_tables,
 ):
-    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
-
-    For now we just check that the number of records exported is correct, not the content of the records.
-    """
-
     records_exported = await _run_activity(
         activity_environment=activity_environment,
         object_storage_client=object_storage_client,
@@ -340,13 +400,16 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+    assert {record["uuid"]: record["person_id"] for record in records_exported} == {
+        event["uuid"]: event["person_id"] for event in events_to_export_created
+    }
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -358,7 +421,7 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
@@ -680,7 +743,7 @@ def assert_exported_rows_match_persons_to_export(exported_rows: list[dict], pers
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize("limited_export", [False, True])
 async def test_insert_into_stage_activity_for_persons_model(
@@ -692,7 +755,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     ateam,
     test_person_properties,
     clickhouse_client,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     limited_export: bool,
     truncate_clickhouse_tables,
 ):
@@ -869,29 +932,27 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
     assert result == 10
 
 
-async def test_compute_num_partitions_disabled_uses_static_default():
+@pytest.mark.parametrize(
+    "settings_overrides, call_overrides",
+    [
+        ({"BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED": False}, {}),
+        ({}, {"data_interval_start": None}),
+        ({}, {"on_demand": True}),
+    ],
+    ids=["dynamic partitioning disabled", "unbounded interval", "on-demand export"],
+)
+async def test_compute_num_partitions_skips_the_estimate(settings_overrides, call_overrides):
     with (
-        override_settings(
-            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
-            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
-        ),
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10, **settings_overrides),
         patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
     ):
         result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
-        )
-    assert result == 10
-    mock_fetch.assert_not_called()
-
-
-async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
-    """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
-    with (
-        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
-        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
-    ):
-        result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=None, data_interval_end=_INTERVAL_END
+            **{
+                "batch_export_id": str(uuid.uuid4()),
+                "data_interval_start": _INTERVAL_START,
+                "data_interval_end": _INTERVAL_END,
+                **call_overrides,
+            }
         )
     assert result == 10
     mock_fetch.assert_not_called()
@@ -921,7 +982,7 @@ async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
 async def _acreate_batch_export_for_test(team_id: int, interval: str = "hour") -> BatchExport:
     """Create a minimal BatchExport via the ORM (no Temporal schedule) for FK-backed run rows."""
     destination = await BatchExportDestination.objects.acreate(
-        type="S3",
+        type="AwsS3",
         config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"},
     )
     return await BatchExport.objects.acreate(
@@ -985,26 +1046,6 @@ async def test_afetch_last_run_records_completed_no_runs(ateam):
             batch_export.id, matching_interval_duration=batch_export.interval_time_delta
         )
         is None
-    )
-
-
-async def test_afetch_last_run_records_completed_for_on_demand_export(ateam):
-    destination = await BatchExportDestination.objects.acreate(
-        type="S3", config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"}
-    )
-    with team_scope(team_id=ateam.pk, canonical=True):
-        on_demand = await BatchExportOnDemand.objects.acreate(team_id=ateam.pk, destination=destination, model="events")
-    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
-    await BatchExportRun.objects.acreate(
-        batch_export_on_demand_id=on_demand.id,
-        data_interval_start=base,
-        data_interval_end=base + dt.timedelta(hours=1),
-        status=BatchExportRun.Status.COMPLETED,
-        records_completed=321,
-    )
-
-    assert (
-        await afetch_last_run_records_completed(on_demand.id, matching_interval_duration=dt.timedelta(hours=1)) == 321
     )
 
 
@@ -1130,7 +1171,7 @@ async def test_afetch_last_run_records_completed_ignores_runs_older_than(ateam):
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     generate_test_data,
@@ -1140,7 +1181,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """A previous run's row count drives how many staging files the activity writes."""
@@ -1162,7 +1203,6 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -1190,7 +1230,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_uses_static_default_without_previous_run(
     generate_test_data,
@@ -1200,7 +1240,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """With no previous run to estimate from, the activity writes the static-default number of files."""
@@ -1212,7 +1252,6 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -1291,9 +1330,9 @@ async def _fetch_staging_query_settings(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
-        BatchExportModel(name="persons", schema=None),
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportEventsModel(),
+        BatchExportPersonsModel(),
+        BatchExportSessionsModel(),
     ],
     ids=["events", "persons", "sessions"],
 )
@@ -1304,7 +1343,7 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
     clickhouse_client,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
 ):
     """Every model's settings and log comment reach the query ClickHouse runs.
 
@@ -1326,19 +1365,149 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
     await _assert_staging_query_settings(clickhouse_client, batch_export_id)
 
 
+@pytest.mark.parametrize("export_path", ["stage", "producer"])
+@pytest.mark.parametrize("interval_minutes", [5, 60])
+@pytest.mark.parametrize(
+    "table,host,database",
+    [
+        (None, "offline", "main_db"),
+        ("events", "offline", "main_db"),
+        ("logs", "logs", "logs_db"),
+        ("posthog.metrics", "metrics", "metrics_db"),
+    ],
+    ids=["raw-sql", "events", "logs", "metrics"],
+)
+async def test_exports_route_compiled_queries_to_their_workload(
+    settings: "Settings",
+    ateam: Team,
+    auser: User,
+    export_path: str,
+    interval_minutes: int,
+    table: str | None,
+    host: str,
+    database: str,
+) -> None:
+    settings.CLICKHOUSE_DATABASE = "main_db"
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_LOGS_CLUSTER_HOST = "logs.example.com"
+    settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = False
+    settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE = "logs_db"
+    settings.CLICKHOUSE_METRICS_CLUSTER_HOST = "metrics.example.com"
+    settings.CLICKHOUSE_METRICS_CLUSTER_SECURE = False
+    settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE = "metrics_db"
+    settings.CLICKHOUSE_USER = "batch_export"
+    settings.CLICKHOUSE_PASSWORD = "batch-export-password"
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    expected_host = "five-minute" if host == "offline" and interval_minutes == 5 else host
+    expected_url = f"http://{expected_host}.example.com:8123/"
+    request_url = re.compile(r"^" + re.escape(expected_url) + r"\?")
+    model = (
+        HogQLQueryRecordBatchModel(
+            team_id=ateam.pk, user_id=auser.pk, hogql_query=f"SELECT 'exported' AS value FROM {table}"
+        )
+        if table is not None
+        else None
+    )
+    raw_select = "SELECT %(value)s AS value"
+    s3_client = AsyncMock()
+    s3_client.__aenter__.return_value = s3_client
+    s3_client.list_objects_v2.return_value = {}
+    record_batch = pa.RecordBatch.from_pylist([{"value": "exported"}])
+    arrow_stream = pa.BufferOutputStream()
+    with pa.ipc.new_stream(arrow_stream, record_batch.schema) as writer:
+        writer.write_batch(record_batch)
+
+    with (
+        aioresponses() as responses,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client", return_value=s3_client),
+    ):
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.post(
+            request_url,
+            body=arrow_stream.getvalue().to_pybytes(),
+            headers={"X-ClickHouse-Summary": '{"written_rows":"1"}'},
+        )
+
+        if export_path == "stage":
+            written_rows = await _write_batch_export_record_batches_to_internal_stage(
+                query_or_model=model
+                or f"INSERT INTO FUNCTION s3('https://stage.example.com/export.arrow', 'ArrowStream') {raw_select}",
+                full_range=(start, end),
+                query_parameters={"value": "exported"},
+                team_id=ateam.pk,
+                batch_export_id=str(uuid.uuid4()),
+                data_interval_start=start.isoformat(),
+                data_interval_end=end.isoformat(),
+                s3_staging_folder_url="https://stage.example.com/",
+            )
+            assert written_rows == 1
+        else:
+            queue = RecordBatchQueue()
+            await ClickHouseTestProducer().produce_batch_export_record_batches_from_range(
+                query_or_model=model or raw_select,
+                full_range=(start, end),
+                queue=queue,
+                query_parameters={"value": "exported"},
+                team_id=ateam.pk,
+            )
+            assert queue.get_nowait().to_pylist() == [{"value": "exported"}]
+            assert queue.empty()
+
+        request = next(calls[0] for (method, _), calls in responses.requests.items() if method == "POST")
+        assert request.kwargs["params"]["database"] == database
+        assert request.kwargs["headers"]["X-ClickHouse-User"] == "batch_export"
+        assert b"'exported'" in request.kwargs["data"]
+        if model is not None:
+            assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
+
+
 class TestHogQLModel:
     """Tests for the 'hogql' model, which exports the results of a user-defined HogQL query."""
 
+    async def test_missing_actor_fails_without_executing_query(
+        self,
+        ateam: Team,
+        activity_environment: ActivityEnvironment,
+        mock_clickhouse_client: MockClickHouseClient,
+    ) -> None:
+        inputs = BatchExportInsertIntoInternalStageInputs(
+            team_id=ateam.pk,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+            data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+            batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1", user_id=None),
+        )
+
+        with patch("products.batch_exports.backend.temporal.pipeline.internal_stage._execute_query") as execute_query:
+            with pytest.raises(ValueError, match="requires user_id"):
+                await activity_environment.run(insert_into_internal_stage_activity, inputs)
+
+        execute_query.assert_not_called()
+        mock_clickhouse_client.expect_query_count(0)
+
     @pytest_asyncio.fixture
     async def hogql_model_test_data(
-        self, clickhouse_client, ateam, data_interval_start, data_interval_end, truncate_clickhouse_tables
+        self,
+        clickhouse_client,
+        ateam,
+        another_ateam,
+        data_interval_start,
+        data_interval_end,
+        truncate_clickhouse_tables,
     ):
         """Insert persons and events linked by person and distinct ID for HogQL model tests.
 
         All of this team's events share one session, which is also backfilled into
         `raw_sessions` so queries can read the sessions table. Events and persons are also
         inserted for another team, sharing that session ID, so tests verify the HogQL
-        printer's team scoping.
+        printer's team scoping. `another_ateam` does the same for system tables, which read
+        Postgres: it is a second team in the user's organization, so only the team filter
+        keeps its rows out.
         """
         session_id = str(uuid7())
         persons, _ = await generate_test_persons_in_clickhouse(
@@ -1412,6 +1581,18 @@ class TestHogQLModel:
                 id="events-with-special-chars",
             ),
             pytest.param(
+                r"""
+                SELECT 'quote\' backtick` slash\\ {log_comment} %(other)s' AS `{hogql_val_0}`,
+                    event AS `{log_comment}`, distinct_id AS `{{hogql_val_0}}`
+                FROM events
+                """,
+                ["{hogql_val_0}", "{log_comment}", "{{hogql_val_0}}"],
+                lambda events, persons: [
+                    ("quote' backtick` slash\\ {log_comment} %(other)s", e["event"], e["distinct_id"]) for e in events
+                ],
+                id="formatter-shaped-aliases",
+            ),
+            pytest.param(
                 "SELECT toString(id) AS id, properties.utm_medium AS utm_medium FROM persons",
                 ["id", "utm_medium"],
                 lambda events, persons: [(p["id"], "referral") for p in persons],
@@ -1458,6 +1639,12 @@ class TestHogQLModel:
                 ),
                 id="union",
             ),
+            pytest.param(
+                "SELECT count() AS team_count FROM system.teams",
+                ["team_count"],
+                lambda events, persons: [(1,)],
+                id="system-table-scoped-to-team",
+            ),
         ],
     )
     async def test_stages_expected_data(
@@ -1466,6 +1653,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         data_interval_start,
         data_interval_end,
         hogql_query,
@@ -1474,10 +1662,9 @@ class TestHogQLModel:
     ):
         """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
 
-        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
-        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
-        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
-        files.
+        These queries reference no interval placeholders, so each is executed as-is, scoped to
+        the team by the HogQL printer, and we don't wait for the interval end to pass. Each case
+        asserts exact rows and column names (aliases) read back from the staged Arrow files.
         """
         events, persons = hogql_model_test_data
 
@@ -1490,7 +1677,7 @@ class TestHogQLModel:
                 team_id=ateam.pk,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
-                model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
+                model=BatchExportHogQLModel(query=hogql_query, user_id=auser.pk, modifiers={}),
             )
 
         assert all(list(row.keys()) == expected_columns for row in exported_rows)
@@ -1499,12 +1686,63 @@ class TestHogQLModel:
         )
         mock_wait.assert_not_called()
 
+    async def test_stages_expected_data_bounded_by_interval_placeholders(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        auser,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """A query referencing the interval placeholders stages only rows within the run's interval.
+
+        The run covers the second half of the fixture's interval, so events stamped at the
+        interval start are excluded and those stamped later are kept. The wait for the interval
+        end is part of the contract too: a query bounded by the interval end must let
+        replication lag settle before reading, or the run misses rows that settle after it
+        queries.
+        """
+        events, _ = hogql_model_test_data
+        # Each person's events are stamped at either end of the fixture's interval, so halving
+        # it leaves exactly the later ones in range.
+        bounded_start = data_interval_start + (data_interval_end - data_interval_start) / 2
+
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
+        ) as mock_wait:
+            exported_rows = await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=bounded_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportHogQLModel(
+                    query=(
+                        "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+                    ),
+                    user_id=auser.pk,
+                    modifiers={},
+                ),
+            )
+
+        expected_uuids = {
+            uuid.UUID(event["uuid"])
+            for event in events
+            if dt.datetime.fromisoformat(event["timestamp"]).replace(tzinfo=dt.UTC) >= bounded_start
+        }
+        assert {row["uuid"] for row in exported_rows} == expected_uuids
+        mock_wait.assert_called_once()
+
     async def test_stages_expected_data_for_warehouse_view(
         self,
         hogql_model_test_data,
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         data_interval_start,
         data_interval_end,
     ):
@@ -1530,8 +1768,10 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event_id, event, distinct_id FROM events_view"
+            model=BatchExportHogQLModel(
+                query="SELECT event_id, event, distinct_id FROM events_view",
+                user_id=auser.pk,
+                modifiers={},
             ),
         )
 
@@ -1547,16 +1787,48 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT * FROM events_view"),
+            model=BatchExportHogQLModel(query="SELECT * FROM events_view", user_id=auser.pk, modifiers={}),
         )
         assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows_2) == sorted(
             (e["uuid"], e["event"], e["distinct_id"]) for e in events
         )
 
+    async def test_stages_column_types_destinations_map(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        auser,
+        data_interval_start,
+        data_interval_end,
+    ):
+        # Destinations create table columns from the staged Arrow types. If ClickHouse starts to stage
+        # a Date as uint16, for example, a Databricks export creates an integer column, not a DATE.
+        record_batches = await _stage_record_batches(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportHogQLModel(
+                query="SELECT toDate(timestamp) AS day, toDecimal(1.5, 2) AS amount, uuid AS uuid FROM events",
+                user_id=auser.pk,
+                modifiers={},
+            ),
+        )
+
+        assert {field.name: field.type for field in record_batches[0].schema} == {
+            "day": pa.date32(),
+            "amount": pa.decimal128(18, 2),
+            "uuid": pa.uuid(),
+        }
+
     @override_settings(
         BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
         BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
         BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+        BATCH_EXPORT_ARROW_COMPRESSION_METHOD="zstd",
     )
     async def test_applies_settings_and_log_comment(
         self,
@@ -1564,6 +1836,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         clickhouse_client,
         data_interval_start,
         data_interval_end,
@@ -1577,15 +1850,16 @@ class TestHogQLModel:
         """
         batch_export_id = str(uuid.uuid4())
 
-        await _run_activity(
-            activity_environment=activity_environment,
-            object_storage_client=object_storage_client,
-            team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"),
-            batch_export_id=batch_export_id,
-        )
+        with override_settings(BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS=[str(ateam.pk)]):
+            await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportHogQLModel(query="SELECT event AS event FROM events", user_id=auser.pk, modifiers={}),
+                batch_export_id=batch_export_id,
+            )
 
         # `Settings` in `system.query_log` records only settings changed from their default, so the
         # overflow modes are absent here (`throw` is already ClickHouse's default, and we pin it only
@@ -1600,6 +1874,7 @@ class TestHogQLModel:
                 "max_bytes_before_external_sort",
                 "max_bytes_ratio_before_external_sort",
                 "max_bytes_to_read",
+                "output_format_arrow_compression_method",
             ],
         )
-        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000"]]
+        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000", "zstd"]]

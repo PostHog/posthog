@@ -3,13 +3,12 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonMenuItem, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import {
@@ -18,14 +17,17 @@ import {
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
-import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
+
+import {
+    METRIC_CONTEXTS,
+    experimentMetricModalLogic,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'products/experiments/frontend/modals/SharedMetricDetailsModal/sharedMetricDetailsModalLogic'
 
 import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
@@ -90,11 +92,15 @@ const AddBreakdownMenuItem = ({
     )
 }
 
+const getBreakdownMenuItem = (experiment: Experiment, onChange: (breakdown: Breakdown) => void): LemonMenuItem => ({
+    label: () => <AddBreakdownMenuItem experiment={experiment} onChange={onChange} />,
+    custom: true,
+})
+
 export const MetricHeader = ({
     dragHandle,
     displayOrder,
     metric,
-    metricType,
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
@@ -106,7 +112,6 @@ export const MetricHeader = ({
     dragHandle?: JSX.Element | null
     displayOrder?: number
     metric: ExperimentMetric
-    metricType: any
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
@@ -115,16 +120,6 @@ export const MetricHeader = ({
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
 }): JSX.Element => {
-    /**
-     * This is necessary for legacy experiments support
-     */
-    const {
-        openPrimaryMetricModal,
-        openSecondaryMetricModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-
     const { moveMetricsBetweenSections } = useActions(experimentLogic)
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
@@ -136,23 +131,10 @@ export const MetricHeader = ({
 
     const openEditModal = (): void => {
         if (isSharedMetric) {
-            /**
-             * this is for legacy experiments support
-             */
-            const openSharedModal = isPrimaryMetric ? openPrimarySharedMetricModal : openSecondarySharedMetricModal
-            openSharedModal(metric.sharedMetricId!)
-
             openSharedMetricDetailModal(metric, METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'])
             return
         }
 
-        /**
-         * this is for legacy experiments support
-         */
-        const openMetricModal = isPrimaryMetric ? openPrimaryMetricModal : openSecondaryMetricModal
-        if (metric.uuid) {
-            openMetricModal(metric.uuid)
-        }
         openExperimentMetricModal(METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'], metric)
     }
 
@@ -233,23 +215,22 @@ export const MetricHeader = ({
     const metricUuid = metric.uuid
     const sectionUuids =
         (isPrimaryMetric ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ?? []
-    // An experiment still has to measure something, so the last primary metric can't leave.
-    const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
+    // An experiment still has to measure something, so the last primary metric can't leave. Counted
+    // from the metrics themselves, because the ordering array is a display hint that can hold stale uuids.
+    const isLastPrimaryMetric = isPrimaryMetric && getSectionMetricUuids(experiment, false).length <= 1
 
     const handleMoveSection = (): void => {
         // The menu item only renders when the metric has a uuid.
         if (!metricUuid) {
             return
         }
-        // Flips shared-metric links, prunes the ordering arrays and realigns existing
-        // results in one update.
+
         moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
     }
 
-    const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
     const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
-    const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
-    const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
+    const showRecalculatingTag = isMetricRecalculating(metric.uuid)
+    const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
         // The handle and the order number are their own columns, so the title and the tags below it
@@ -261,7 +242,7 @@ export const MetricHeader = ({
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
                         <div className="min-w-0 flex-1">
-                            <MetricTitle metric={metric} metricType={metricType} />
+                            <MetricTitle metric={metric} />
                         </div>
                     </div>
                     {!readOnly && (
@@ -290,18 +271,11 @@ export const MetricHeader = ({
                                     [
                                         {
                                             items: [
-                                                canAddBreakdown && {
-                                                    label: () => (
-                                                        <AddBreakdownMenuItem
-                                                            experiment={experiment}
-                                                            onChange={(breakdown) => {
-                                                                onBreakdownChange(breakdown)
-                                                                closeMenu()
-                                                            }}
-                                                        />
-                                                    ),
-                                                    custom: true,
-                                                },
+                                                canAddBreakdown &&
+                                                    getBreakdownMenuItem(experiment, (breakdown) => {
+                                                        onBreakdownChange(breakdown)
+                                                        closeMenu()
+                                                    }),
                                                 {
                                                     label: 'Duplicate',
                                                     icon: <IconCopy />,

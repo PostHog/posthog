@@ -147,14 +147,12 @@ export const actionsModel = kea<actionsModelType>([
         pin: {
             pinAction: async (action: ActionType) => {
                 const response = await api.actions.update(action.id, {
-                    name: action.name,
                     pinned_at: new Date().toISOString(),
                 })
                 actions.updateAction(response)
             },
             unpinAction: async (action: ActionType) => {
                 const response = await api.actions.update(action.id, {
-                    name: action.name,
                     pinned_at: null,
                 })
                 actions.updateAction(response)

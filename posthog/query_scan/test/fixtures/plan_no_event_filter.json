@@ -1,0 +1,100 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Expression",
+   "Node Id": "Expression_75",
+   "Description": "(Project names + Projection)",
+   "Plans": [
+    {
+     "Node Type": "MergingAggregated",
+     "Node Id": "MergingAggregated_71",
+     "Plans": [
+      {
+       "Node Type": "Union",
+       "Node Id": "Union_65",
+       "Plans": [
+        {
+         "Node Type": "Aggregating",
+         "Node Id": "Aggregating_23",
+         "Plans": [
+          {
+           "Node Type": "Expression",
+           "Node Id": "Expression_22",
+           "Description": "Before GROUP BY",
+           "Plans": [
+            {
+             "Node Type": "Expression",
+             "Node Id": "Expression_76",
+             "Description": "(WHERE + Change column names to column identifiers)",
+             "Plans": [
+              {
+               "Node Type": "ReadFromMergeTree",
+               "Node Id": "ReadFromMergeTree_19",
+               "Description": "posthog.sharded_events",
+               "Indexes": [
+                {
+                 "Type": "Min-Max",
+                 "Keys": [
+                  "timestamp"
+                 ],
+                 "Condition": "(timestamp in [1788461215, +Inf))",
+                 "Initial Parts": 3508,
+                 "Selected Parts": 66,
+                 "Initial Granules": 265491898,
+                 "Selected Granules": 5582406
+                },
+                {
+                 "Type": "Partition",
+                 "Keys": [
+                  "toYYYYMM(timestamp)"
+                 ],
+                 "Condition": "(toYYYYMM(timestamp) in [202609, +Inf))",
+                 "Initial Parts": 66,
+                 "Selected Parts": 66,
+                 "Initial Granules": 5582406,
+                 "Selected Granules": 5582406
+                },
+                {
+                 "Type": "PrimaryKey",
+                 "Keys": [
+                  "team_id",
+                  "toDate(timestamp)"
+                 ],
+                 "Condition": "and((toDate(timestamp) in [20699, +Inf)), (team_id in [2, 2]))",
+                 "Search Algorithm": "binary search",
+                 "Initial Parts": 66,
+                 "Selected Parts": 60,
+                 "Initial Granules": 5582406,
+                 "Selected Granules": 362907
+                },
+                {
+                 "Type": "Skip",
+                 "Name": "minmax_sharded_events_timestamp",
+                 "Description": "minmax GRANULARITY 1",
+                 "Condition": "(timestamp in [1788461215, +Inf))",
+                 "Initial Parts": 60,
+                 "Selected Parts": 56,
+                 "Initial Granules": 362907,
+                 "Selected Granules": 329267
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "Node Type": "ReadFromRemote",
+         "Node Id": "ReadFromRemote_64",
+         "Description": "Read from remote replica"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+]

@@ -38,6 +38,19 @@
     background-size: cover;
 }
 
+// Expo ship their mark as a single monochrome shape, so mask it with the current text color
+// rather than shipping one asset per theme
+.PropertyKeyInfo__logo--expo {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    mask-image: url('../../../public/expo-icon.svg');
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+}
+
 .PropertyKeyInfo__overlay {
     padding: 0.25rem;
     color: var(--text-3000);

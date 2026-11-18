@@ -38,7 +38,7 @@ Always a domain-scoped `api/<module>` entry, never a deep path, and there is del
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 ```
 
-Pick the narrowest module. `api/logics` and `api/types` are headless; `api/primitives` drags in markdown and virtualization; `api/tools` registers built-ins at module load, so importing it is a side effect that is not tree-shaken. A status badge that imports the wrong tier doubles its chunk.
+Pick the narrowest module. `api/logics` and `api/types` are headless; `api/primitives` drags in markdown and virtualization; `api/tools` initializes the registry from built-ins and the central manifest at module load, so importing it is a side effect that is not tree-shaken. A status badge that imports the wrong tier doubles its chunk.
 
 ## The two mistakes that matter
 

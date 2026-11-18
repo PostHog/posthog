@@ -30,10 +30,8 @@ and query recipes live in the shared reference:
 | `posthog:mcp-analytics-sessions-generate-intent` | LLM summary of a session's goal (cached after first call)  |
 | `posthog:execute-sql`                            | Errored sessions, effective tool names, cross-session cuts |
 
-The three `mcp-analytics-*` tools are gated behind the `mcp-analytics` flag and
-run the same code as the sessions UI, so results match the screen. If they aren't
-in your tool list, the project doesn't have the flag — fall back to
-`posthog:execute-sql`, which is ungated.
+The three `mcp-analytics-*` tools run the same code as the sessions UI, so results
+match the screen. If they aren't in your tool list, fall back to `posthog:execute-sql`.
 
 ## The date-window trap — read this first
 
@@ -112,12 +110,10 @@ back to reading the raw `$mcp_intent` values from the tool-call list.
 
 ## When to drop to SQL
 
-Four cases, all via `posthog:execute-sql`, which — unlike the typed tools above —
-is **not** gated behind the `mcp-analytics` flag.
+Four cases, all via `posthog:execute-sql`.
 
-**1. The project doesn't have the `mcp-analytics` flag.** The typed tools simply
-won't be in your tool list. Everything below still works; this query is the
-plain session listing:
+**1. The typed tools aren't in your tool list.** Everything below still works;
+this query is the plain session listing:
 
 ```sql
 SELECT

@@ -27,7 +27,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                 import (
                                     "time"
 
-                                    "github.com/posthog/posthog-go"
+                                    "github.com/posthog/posthog-go/v2"
                                 )
 
                                 if err != nil {
@@ -80,7 +80,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                 {dedent`
                     Confirm exception events are being captured and sent to PostHog. You should see events appear in the activity feed.
 
-                    [Check for exceptions in PostHog](https://app.posthog.com/activity/explore)
+                    [Check for exceptions in PostHog](https://app.posthog.com/activity/events)
                 `}
             </Markdown>
         ),

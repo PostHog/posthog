@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "The pagination cursor value.",
+            "type": "string"
+        },
+        "dashboard": {
+            "description": "Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "insight": {
+            "description": "Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

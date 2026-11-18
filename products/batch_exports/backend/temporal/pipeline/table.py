@@ -425,4 +425,4 @@ class Table(TableBase, typing.Generic[FieldType]):
             raise KeyError(key)
 
     def is_mutable(self) -> bool:
-        return len(self.primary_key) > 0 and len(self.version_key) > 0
+        return len(self.primary_key) > 0

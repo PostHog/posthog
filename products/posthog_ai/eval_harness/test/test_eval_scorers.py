@@ -1,8 +1,23 @@
 from __future__ import annotations
 
+import re
 import json
+from collections.abc import Sequence
 from typing import Any
 
+import pytest
+
+from products.posthog_ai.eval_harness.log_parser import SKILL_TOOL_NAME
+from products.posthog_ai.eval_harness.scorers import (
+    ANY_CLEAN_QUERY_SCOPE,
+    AnswerToolCallNot,
+    ServerUsed,
+    SourcesAvoided,
+    SourcesConsulted,
+    ToolMatch,
+    ToolOrder,
+)
+from products.posthog_ai.eval_harness.scorers.contract import Scorer
 from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
@@ -12,13 +27,23 @@ from products.posthog_ai.evals.error_tracking.scorers import (
     IssuesListToolUsed,
     _recordings_text_has_results,
 )
+from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
 
-def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
-    lines = []
-    for index, (name, raw_input, raw_output) in enumerate(calls, start=1):
+def _raw_tool_log(calls: Sequence[tuple[Any, ...]], *, parallel: bool = False) -> str:
+    """Build an ACP log. A fourth tuple element overrides the result status.
+
+    ``"failed"`` is what makes ``ToolCall.is_error`` true, which every scorer here
+    uses to ignore an attempt the agent made and lost. ``parallel`` starts every call
+    before any result arrives, so all calls share one assistant message.
+    """
+    starts: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+    for index, call in enumerate(calls, start=1):
+        name, raw_input, raw_output = call[0], call[1], call[2]
+        result_status = call[3] if len(call) > 3 else "completed"
         call_id = f"call-{index}"
-        lines.append(
+        starts.append(
             {
                 "timestamp": f"2026-01-01T00:00:{index:02d}Z",
                 "notification": {
@@ -35,7 +60,7 @@ def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
                 },
             }
         )
-        lines.append(
+        results.append(
             {
                 "timestamp": f"2026-01-01T00:00:{index:02d}Z",
                 "notification": {
@@ -44,13 +69,17 @@ def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
                         "update": {
                             "sessionUpdate": "tool_call_update",
                             "toolCallId": call_id,
-                            "status": "completed",
+                            "status": result_status,
                             "rawOutput": raw_output,
                         }
                     },
                 },
             }
         )
+    if parallel:
+        lines = [*starts, *results]
+    else:
+        lines = [line for pair in zip(starts, results) for line in pair]
     return "\n".join(json.dumps(line) for line in lines)
 
 
@@ -142,3 +171,312 @@ def test_issue_drilldown_order_accepts_non_empty_events() -> None:
     )
 
     assert score.score == 1.0
+
+
+_SKILL = "instrument-feature-flags"
+
+
+@pytest.mark.parametrize(
+    "load_call,should_load,expected_score",
+    [
+        ((SKILL_TOOL_NAME, {"skill": _SKILL}), True, 1.0),
+        (("Read", {"file_path": f"/root/.claude/skills/{_SKILL}/SKILL.md"}), True, 1.0),
+        (("Bash", {"command": f"cat /scripts/plugins/posthog/skills/{_SKILL}/SKILL.md"}), True, 1.0),
+        (None, False, 1.0),
+        (None, True, 0.0),
+        ((SKILL_TOOL_NAME, {"skill": _SKILL}), False, 0.0),
+    ],
+)
+def test_skill_triggered_grades_against_the_expected_direction(
+    load_call: tuple[str, dict[str, Any]] | None, should_load: bool, expected_score: float
+) -> None:
+    calls: list[tuple[str, dict[str, Any], object]] = [("Read", {"file_path": "src/app/page.tsx"}, "ok")]
+    if load_call is not None:
+        calls.append((*load_call, "loaded"))
+
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)},
+        {"trigger": {"should_load": should_load}},
+    )
+
+    assert score.score == expected_score
+    assert score.metadata["loaded"] is (load_call is not None)
+
+
+@pytest.mark.parametrize(
+    "load_call",
+    [
+        (SKILL_TOOL_NAME, {"skill": _SKILL}),
+        ("Read", {"file_path": f"/root/.claude/skills/{_SKILL}/SKILL.md"}),
+        ("Bash", {"command": f"cat /scripts/plugins/posthog/skills/{_SKILL}/SKILL.md"}),
+    ],
+)
+def test_skill_triggered_ignores_a_failed_load_attempt(load_call: tuple[str, dict[str, Any]]) -> None:
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log([(*load_call, "boom", "failed")])},
+        {"trigger": {"should_load": False}},
+    )
+
+    assert score.score == 1.0
+    assert score.metadata["loaded"] is False
+
+
+@pytest.mark.parametrize("expected", [None, {}, {"trigger": {}}, {"trigger": None}])
+def test_skill_triggered_skips_when_the_case_declares_no_direction(expected: dict | None) -> None:
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log([(SKILL_TOOL_NAME, {"skill": _SKILL}, "loaded")])},
+        expected,
+    )
+
+    assert score.score is None
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score,expected_answer_tool",
+    [
+        # Typed answer followed by an execute-sql validation call: the typed
+        # tool wins, the trailing SQL is validation. Reading only the last
+        # call instead of the answer scored this 0.
+        (
+            [
+                ("query-trends", {"query": {}}, {"results": []}),
+                ("execute-sql", {"query": "SELECT count() FROM events"}, "1"),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # execute-sql as the only answer-producing call: it is the answer.
+        ([("execute-sql", {"query": "SELECT count() FROM events"}, "1")], 0.0, "execute-sql"),
+        # Typed answer, no trailing SQL.
+        ([("query-trends", {"query": {}}, {"results": []})], 1.0, "query-trends"),
+        # information_schema discovery is not answer-producing and is dropped.
+        (
+            [
+                ("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"),
+                ("query-trends", {"query": {}}, {"results": []}),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # Two typed answers: the last typed call is the answer.
+        (
+            [
+                ("query-funnel", {"query": {}}, {"results": []}),
+                ("query-trends", {"query": {}}, {"results": []}),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # Intermediary calls after the typed answer never become the answer.
+        (
+            [
+                ("query-trends", {"query": {}}, {"results": []}),
+                ("read-data-schema", {"kind": "events"}, "ok"),
+                ("exec", {"command": "search"}, "ok"),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # execute-sql answer followed by an intermediary call: the SQL is
+        # still the answer, the intermediary is ignored.
+        (
+            [
+                ("execute-sql", {"query": "SELECT count() FROM events"}, "1"),
+                ("read-data-schema", {"kind": "events"}, "ok"),
+            ],
+            0.0,
+            "execute-sql",
+        ),
+        # Any typed query-* runner counts, not only trends/funnel: a runner
+        # outside the original four (web analytics here) is still
+        # answer-producing, so it scores as the answer rather than being skipped.
+        ([("query-web-stats", {"query": {}}, {"results": []})], 1.0, "query-web-stats"),
+    ],
+)
+def test_answer_tool_call_not_reads_answer_not_last_call(
+    calls: list[tuple], expected_score: float, expected_answer_tool: str
+) -> None:
+    score = AnswerToolCallNot(forbidden="execute-sql", preferred={"query-trends", "query-funnel"})._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)}
+    )
+
+    assert score.score == expected_score
+    assert score.metadata["answer_tool_call"] == expected_answer_tool
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        # Only schema-discovery SQL ran: no answer-producing call.
+        [("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t")],
+        # Only intermediary (non-query) calls ran: no answer-producing call.
+        [("read-data-schema", {"kind": "events"}, "ok"), ("exec", {"command": "search"}, "ok")],
+    ],
+)
+def test_answer_tool_call_not_skips_when_nothing_answer_producing_ran(calls: list[tuple]) -> None:
+    score = AnswerToolCallNot(forbidden="execute-sql", preferred={"query-trends"})._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)}
+    )
+
+    assert score.score is None
+
+
+_METRIC_LIST: tuple[str, dict[str, Any], str] = ("metric-list", {}, "mrr")
+_SQL_ANSWER = ("execute-sql", {"query": "SELECT sum(amount_usd) FROM crm_deals"}, "10")
+
+
+_METRIC_LOOKUP = ToolMatch(names=frozenset({"metric-list"}))
+
+
+@pytest.mark.parametrize(
+    "before,calls,parallel,expected_score",
+    [
+        (_METRIC_LOOKUP, [_METRIC_LIST, _SQL_ANSWER], False, 1.0),
+        (_METRIC_LOOKUP, [_SQL_ANSWER, _METRIC_LIST], False, 0.0),
+        # A failed lookup is not a lookup.
+        (_METRIC_LOOKUP, [("metric-list", {}, "boom", "failed"), _SQL_ANSWER], False, 0.0),
+        # Schema discovery SQL does not match the guarded data query pattern.
+        (
+            _METRIC_LOOKUP,
+            [("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"), _METRIC_LIST],
+            False,
+            None,
+        ),
+        # Calls in one assistant message share a position, so only the call sequence orders them.
+        (_METRIC_LOOKUP, [_METRIC_LIST, _SQL_ANSWER], True, 1.0),
+        (_METRIC_LOOKUP, [_SQL_ANSWER, _METRIC_LIST], True, 0.0),
+        (ToolMatch(server="slack"), [("mcp__slack__search_messages", {}, "ok"), _SQL_ANSWER], False, 1.0),
+        (ToolMatch(server="slack"), [("mcp__posthog__metric-list", {}, "mrr"), _SQL_ANSWER], False, 0.0),
+    ],
+)
+def test_tool_order_requires_the_lookup_before_the_guarded_call(
+    before: ToolMatch, calls: list[tuple], parallel: bool, expected_score: float | None
+) -> None:
+    scorer = ToolOrder(
+        before=before,
+        after=ToolMatch(names=frozenset({"execute-sql"}), query_pattern=r"\bfrom\s+crm_deals\b"),
+        name="catalog_before_sql",
+    )
+
+    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls, parallel=parallel)}).score == expected_score
+
+
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [({}, ValueError), ({"query_pattern": "(unclosed"}, re.error)],
+)
+def test_tool_match_rejects_a_matcher_that_cannot_select(kwargs: dict[str, Any], error: type[Exception]) -> None:
+    with pytest.raises(error):
+        ToolMatch(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        # The guarded query also matches the prerequisite, but it cannot come before itself.
+        ([_SQL_ANSWER], 0.0),
+        ([("execute-sql", {"query": "SELECT 1"}, "1"), _SQL_ANSWER], 1.0),
+    ],
+)
+def test_tool_order_needs_a_strictly_earlier_call(calls: list[tuple], expected_score: float) -> None:
+    scorer = ToolOrder(
+        before=ToolMatch(names=frozenset({"execute-sql"})),
+        after=ToolMatch(names=frozenset({"execute-sql"}), query_pattern=r"\bfrom\s+crm_deals\b"),
+        name="any_sql_before_crm_sql",
+    )
+
+    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls)}).score == expected_score
+
+
+@pytest.mark.parametrize(
+    "calls,spec,expected_score",
+    [
+        ([_SQL_ANSWER], {"tables": ["crm_deals", "slack_messages"]}, 0.5),
+        # A name inside a string literal is a catalog filter, and a longer table name is a different table.
+        (
+            [
+                ("execute-sql", {"query": "SELECT * FROM crm_deals_v3 WHERE note = 'crm_deals'"}, "0"),
+                ("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "crm_deals"),
+            ],
+            {"tables": ["crm_deals"]},
+            0.0,
+        ),
+        ([("execute-sql", {"query": "SELECT * FROM crm_deals"}, "boom", "failed")], {"tables": ["crm_deals"]}, 0.0),
+        (
+            [("execute-sql", {"query": "SELECT * FROM postgres.crm_deals"}, "1")],
+            {"tables": [["postgres_crm_deals", "postgres.crm_deals"]]},
+            1.0,
+        ),
+    ],
+)
+def test_sources_consulted_counts_successful_data_reads(
+    calls: list[tuple], spec: dict[str, Any], expected_score: float
+) -> None:
+    score = SourcesConsulted()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"sources_consulted": spec})
+
+    assert score.score == expected_score
+
+
+_V3_INSPECTION = ("execute-sql", {"query": "SELECT count() FROM crm_deals_v3"}, "0")
+
+
+@pytest.mark.parametrize(
+    "calls,scope,expected_score",
+    [
+        ([_V3_INSPECTION, _SQL_ANSWER], ANY_CLEAN_QUERY_SCOPE, 1.0),
+        ([_V3_INSPECTION, _SQL_ANSWER], None, 0.0),
+        ([_SQL_ANSWER, _V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 1.0),
+        ([_V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 0.0),
+        # A query that reads no table cannot be the clean query that answers.
+        ([("execute-sql", {"query": "SELECT 1"}, "1"), _V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 0.0),
+        ([_SQL_ANSWER], None, 1.0),
+        # A run that read nothing avoided nothing, in either scope.
+        ([_METRIC_LIST], None, None),
+        ([_METRIC_LIST], ANY_CLEAN_QUERY_SCOPE, None),
+        # An unknown scope is a case error, not the strict default.
+        ([_SQL_ANSWER], "answers", 0.0),
+    ],
+)
+def test_sources_avoided_scopes_to_the_answer_query(
+    calls: list[tuple], scope: str | None, expected_score: float | None
+) -> None:
+    spec: dict[str, Any] = {"tables": ["crm_deals_v3"]}
+    if scope:
+        spec["scope"] = scope
+
+    score = SourcesAvoided()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"sources_avoided": spec})
+
+    assert score.score == expected_score
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        ([("mcp__slack__search_messages", {"query": "tax"}, "ok")], 1.0),
+        ([("mcp__slack__search_messages", {"query": "tax"}, "boom", "failed")], 0.0),
+        ([("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1")], 0.0),
+    ],
+)
+def test_server_used_requires_a_successful_call_on_that_server(calls: list[tuple], expected_score: float) -> None:
+    score = ServerUsed()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"server_used": {"server": "slack"}})
+
+    assert score.score == expected_score
+
+
+@pytest.mark.parametrize("tables", [[{"name": "crm_deals_v3"}], [[]], [""], [["crm_deals_v3", ""]]])
+def test_sources_avoided_rejects_malformed_tables(tables: list[object]) -> None:
+    score = SourcesAvoided()._run_eval_sync(
+        {"raw_log": _raw_tool_log([_V3_INSPECTION])}, {"sources_avoided": {"tables": tables}}
+    )
+
+    assert (score.score, score.metadata["reason"]) == (0.0, "invalid expected metadata")
+
+
+@pytest.mark.parametrize(
+    "scorer",
+    [SourcesAvoided(), SourcesConsulted(), ServerUsed()],
+    ids=["sources_avoided", "sources_consulted", "server_used"],
+)
+def test_a_malformed_scorer_entry_is_a_scorer_error(scorer: Scorer) -> None:
+    with pytest.raises(ValueError, match="must be a dict"):
+        scorer._run_eval_sync({"raw_log": _raw_tool_log([_V3_INSPECTION])}, {scorer._name(): ["crm_deals_v3"]})

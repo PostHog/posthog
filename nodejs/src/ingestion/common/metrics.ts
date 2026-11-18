@@ -44,6 +44,11 @@ export const tokenOrTeamPresentCounter = new Counter({
     labelNames: ['team_id_present', 'token_present'],
 })
 
+export const tokenResolvedAsTeamIdCounter = new Counter({
+    name: 'ingestion_token_resolved_as_team_id_total',
+    help: 'Count of events whose token is not an API token but matches a team id, so the team was resolved by id.',
+})
+
 export const droppedBloatPropertyCounter = new Counter({
     name: 'ingestion_dropped_bloat_property_total',
     help: 'Count of deprecated posthog-js persistence-cache properties stripped from event payloads before ClickHouse write (see strip-bloat-properties.ts BLOAT_PROPERTIES).',

@@ -22,7 +22,9 @@ from posthog.models.oauth import OAuthApplication
 from ee.api.agentic_provisioning.authentication import (
     CLIENT_NOT_REGISTERED_MESSAGE,
     BearerTokenError,
+    ClientProof,
     ProvisioningAuthentication,
+    require_usable_bearer_partner,
     resolve_bearer_access_token,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -59,23 +61,18 @@ class LimitsView(ProvisioningAPIView):
                 access_token = resolve_bearer_access_token(request)
             except BearerTokenError as exc:
                 raise ProvisioningError("unauthorized", str(exc), status=401)
-            app = access_token.application
-            if app is None or not app.is_provisioning_partner:
-                raise ProvisioningError("unauthorized", "Authentication failed", status=401)
-            if not app.provisioning.active:
-                raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
-            return app
+            return require_usable_bearer_partner(access_token.application)
 
+        authentication = ProvisioningAuthentication()
         try:
-            result = ProvisioningAuthentication().authenticate(request)
+            result = authentication.authenticate(request)
         except AuthenticationFailed as exc:
             raise ProvisioningError("unauthorized", str(exc.detail), status=401)
         if result is None:
             raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
 
-        partner = result[1]
-        # A public partner presents a client_id anyone can send, which identifies it
-        # without proving the caller is it. Its bearer does.
-        if not partner.requires_client_authentication:
+        # A client_id anyone can send identifies the partner without proving the caller is it.
+        # Its bearer does.
+        if authentication.client_proof is ClientProof.CLIENT_ID:
             raise ProvisioningError("unauthorized", "This client must authenticate with a bearer token", status=401)
-        return partner
+        return result[1]

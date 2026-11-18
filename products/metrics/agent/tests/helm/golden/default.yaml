@@ -5,10 +5,10 @@ kind: ServiceAccount
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 ---
 # Source: posthog-metrics-agent/templates/secret.yaml
@@ -17,10 +17,10 @@ kind: Secret
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
@@ -32,10 +32,10 @@ kind: ConfigMap
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 data:
     config.yaml: |
@@ -112,10 +112,10 @@ kind: ClusterRole
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 rules:
     # Prometheus kubernetes_sd needs to watch scrape targets across the cluster.
@@ -132,10 +132,10 @@ kind: ClusterRoleBinding
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 roleRef:
     apiGroup: rbac.authorization.k8s.io
@@ -152,10 +152,10 @@ kind: Deployment
 metadata:
     name: test-release-posthog-metrics-agent
     labels:
-        helm.sh/chart: posthog-metrics-agent-0.2.0
+        helm.sh/chart: posthog-metrics-agent-0.3.0
         app.kubernetes.io/name: posthog-metrics-agent
         app.kubernetes.io/instance: test-release
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/managed-by: Helm
 spec:
     # A single replica by design: multiple replicas would scrape every target
@@ -173,7 +173,7 @@ spec:
             annotations:
                 checksum/config: fb8d668241257723315f18c0fe4dd43a8d388a91d53d004a2b77075b8b5d1957
                 # Covers the chart-managed Secret so an API key rotation rolls the pod.
-                checksum/secret: 2a1d8b23d96e03bb0c0b75692dfb4292d1a13c646b65f645da7f81a0daa32d58
+                checksum/secret: 7bd53dcd6d8870f80c69d246740a8b7c87ec21b6673c1de813e76271e941b928
         spec:
             serviceAccountName: test-release-posthog-metrics-agent
             securityContext:
@@ -182,7 +182,7 @@ spec:
                     type: RuntimeDefault
             containers:
                 - name: agent
-                  image: 'posthog/metrics-agent:0.2.0'
+                  image: 'posthog/metrics-agent:0.3.0'
                   imagePullPolicy: IfNotPresent
                   securityContext:
                       allowPrivilegeEscalation: false

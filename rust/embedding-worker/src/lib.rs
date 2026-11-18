@@ -88,11 +88,20 @@ pub async fn handle_single(
         .and([("from", "kafka")]);
 
     counter!(MESSAGES_RECEIVED, labels.render()).increment(1);
+    let embedding_failed = counter!(EMBEDDING_FAILED, labels.render());
     let (embedding, _) = match generate_embedding(context, model, &request.content, &labels).await {
         Ok(r) => r,
         Err(e) => {
-            counter!(EMBEDDING_FAILED, labels.render()).increment(1);
-            error!("Failed to handle request: {request:?}");
+            embedding_failed.increment(1);
+            // Log routing fields only: content and document_id can carry customer text.
+            error!(
+                team_id = request.team_id,
+                product = %request.product,
+                document_type = %request.document_type,
+                rendering = %request.rendering,
+                model = ?model,
+                "Failed to handle embedding request"
+            );
             return Err(e);
         }
     };
@@ -236,7 +245,9 @@ pub fn generate_embedding_text<'a>(
 ) -> Result<(Cow<'a, str>, usize)> {
     let content = model.escape_input(content);
     let (text, count) = match model {
-        EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+        EmbeddingModel::OpenAITextEmbeddingSmall
+        | EmbeddingModel::OpenAITextEmbeddingLarge
+        | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
             let encoder = &*CL100K_ENCODER;
             let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(&content)

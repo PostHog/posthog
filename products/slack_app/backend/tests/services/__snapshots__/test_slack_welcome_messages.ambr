@@ -1,0 +1,94 @@
+# serializer version: 1
+# name: test_assistant_pane_welcome_copy
+  '''
+  Hi! I'm PostHog, an AI agent. Ask me about your product data, or tell me what to fix and I'll open a pull request in a connected repo.
+  • Keep replying here while I'm working and I'll pick up what you say.
+  • Want a different model? Say so: `use fable for this one`.
+  • Answering from the wrong project? Name the one you want: `give me DAU for Staging please`.
+  • Hit the thumbs under my replies when I get something wrong.
+  '''
+# ---
+# name: test_welcome_copy[channel]
+  '''
+  Hey, I'm PostHog. Tag me with @PostHog to get started.
+  
+  ---
+  
+  :wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke around your codebase, or open a pull request to fix something.
+  
+  *Try asking me*
+  • `@PostHog why did signups drop in the EU last week?`
+  • `@PostHog open a PR that adds a unit test for src/utils.py`
+  
+  *A few things worth knowing*
+  • Tag me again in the thread while I'm working and I'll pick up what you say.
+  • Want a different model? Say so: `@PostHog use fable for this one`, or `@PostHog run this on opus 5 at high effort`.
+  • Answering from the wrong project? Name the one you want: `@PostHog give me DAU for Staging please`. `/posthog project` shows your default.
+  • You can DM me instead of tagging me here.
+  
+  *Tell me when I get it wrong*
+  Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
+  
+  I also unfurl PostHog links shared in this channel. `/posthog` lists my commands, and your default model and thread follow-ups live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
+  
+  [Read the docs](https://posthog.com/docs/slack-app)
+  '''
+# ---
+# name: test_welcome_copy[team_join]
+  '''
+  Hey, welcome! I'm PostHog. Message me to get started.
+  
+  ---
+  
+  :wave: Hey, welcome! I'm PostHog, an AI agent your team already uses here. Message me, or tag `@PostHog` in any channel, and I'll dig into your product data or open a pull request in a connected repo.
+  
+  *Try asking me*
+  • `why did signups drop in the EU last week?`
+  • `fix the flaky billing CI job`
+  
+  *A few things worth knowing*
+  • Keep replying in the thread while I'm working and I'll pick up what you say. In a channel, tag me in the reply.
+  • Want a different model? Say so: `use fable for this one`.
+  
+  *Tell me when I get it wrong*
+  Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
+  
+  In a channel, `/posthog` lists my commands. Your default model, thread follow-ups and linked accounts live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
+  
+  [Read the docs](https://posthog.com/docs/slack-app)
+  '''
+# ---
+# name: TestOnboardingDm.test_onboarding_dm_copy
+  '''
+  Set up PostHog - self-driving for your product
+  
+  ---
+  
+  👋 *Hi, I'm PostHog - self-driving for your product*
+  I'm an AI agent on autopilot: I watch your product for problems, investigate them myself, and open pull requests to fix them - so issues get handled before they reach your backlog.
+  
+  💬 *You can also just talk to me*
+  Tag `@PostHog` in any channel, or message me here, to dig into your product data or open a pull request. Name a project to route one question: `@PostHog give me DAU for Staging please`. In a channel, `/posthog` lists my commands.
+  
+  ---
+  
+  *1. Connect your codebase* :wrench:
+  Connect GitHub so I can fix things, not just flag them - when I spot a problem in your product I'll proactively open a pull request with the fix for you to review.
+  
+  [Connect GitHub](http://localhost:8010/integrations/connect/github/?project_id=<team_id>&connect_from=slack)
+  
+  *2. Choose what I watch* :eyes:
+  Tick the signals I should monitor and investigate.
+  
+  [ ] *Error tracking*: new, reopened & spiking issues
+  
+  *3. Where I report* :inbox_tray:
+  Everything I find lands in one shared channel so the team stays in the loop.
+  
+  [Create #posthog-inbox](slack_inbox_create)
+  
+  🎉 Once you're set up, I'll start watching your product and send your first report to #posthog-inbox as soon as I spot something.
+  
+  👍 Hit the thumbs under my replies when I get something wrong. Your default model and linked accounts live in my Home tab.
+  '''
+# ---

@@ -1,0 +1,4 @@
+<resources>
+  <string name="hedgehog_widget_label">Hedgehog</string>
+  <string name="hedgehog_widget_description">Your own little garden hedgehog. Tap to change its character.</string>
+</resources>

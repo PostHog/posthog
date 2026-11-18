@@ -3,10 +3,14 @@ name: Lint workflows
 on:
     pull_request:
         paths:
+            - .depot/workflows/ci-backend.yml
             - .github/workflows/**
             - .github/actions/**
             - services/**
+            # WF013 reads its staticDirs, so a new entry has to run the lint.
+            - common/storybook/.storybook/main.ts
             - tools/hogli-commands/hogli_commands/workflow_lint/**
+            - tools/workflow-plan/**
             - hogli.yaml
 
 concurrency:
@@ -18,10 +22,34 @@ permissions:
 
 jobs:
     lint-workflows:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
+            # The set names the files the lint and the uv install read. WF004, WF009 and WF013 read
+            # any tracked file outside it from the index, which git fetches one blob at a time. A new
+            # MCP import that reaches past the set therefore costs a fetch per file, but the check
+            # still reads it. Add the new tree here to keep those fetches off every run.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      /.github/
+                      /bin/
+                      /tools/hogli/
+                      /tools/hogli-commands/
+                      /packages/owners-yaml/
+                      /packages/personhog-proto/
+                      /packages/llm-normalizer/
+                      /services/mcp/
+                      /products/*/mcp/
+                      /products/error_tracking/frontend/generated/api.schemas.ts
+                      /products/notebooks/notebookResultPreview.ts
+                      /products/product_analytics/frontend/insights/
+                      /products/visual_review/frontend/generated/api.schemas.ts
+                      /products/webmcp/frontend/execTool.generated.ts
+                      /common/storybook/.storybook/
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -29,15 +57,46 @@ jobs:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows
+
+            - name: Verify Actions lockfile
+              if: ${{ !cancelled() }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh extension install github/gh-actions-lock --pin v0.4.0
+                  # Only onboarded workflows are verified, because an unscoped run fails on every workflow not yet in the lockfile.
+                  mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
+                  gh actions-lock --verify "${workflows[@]}"
+
+    workflow-run-plans:
+        name: Workflow run plans
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .depot/workflows/ci-backend*.yml
+                      .github
+                      tools/workflow-plan
+                      patches
+                      .nvmrc
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter @posthog/workflow-plan
+
+            - name: Check job and step conditions against the pinned run plans
+              run: pnpm --filter @posthog/workflow-plan test

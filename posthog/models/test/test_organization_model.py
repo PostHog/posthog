@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
 from unittest import mock
 from unittest.mock import patch
 
@@ -11,7 +11,13 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.models.user import User
+from posthog.organization_caching import (
+    get_cached_organization,
+    get_cached_organization_membership,
+    get_cached_organization_memberships,
+)
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
 
@@ -24,6 +30,74 @@ class TestOrganization(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+
+    def test_new_organizations_start_on_most_specific_access_resolution(self):
+        organization = Organization.objects.create(name="Fresh org")
+        self.assertTrue(organization.uses_most_specific_access_resolution)
+
+        opted_out = Organization.objects.create(name="Opted out org", uses_most_specific_access_resolution=False)
+        self.assertFalse(opted_out.uses_most_specific_access_resolution)
+
+    @parameterized.expand(
+        [
+            ("new_name", "Bar Baz Corp", "bar-baz-corp"),
+            ("name_with_same_slug", "Foo Inc!", "foo-inc"),
+        ]
+    )
+    def test_rename_updates_slug(self, _name, new_name, expected_slug):
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = new_name
+        organization.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, expected_slug)
+
+    def test_rename_to_taken_slug_appends_suffix(self):
+        Organization.objects.create(name="Bar Baz")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = "Bar Baz"
+        organization.save()
+        in_memory_slug = organization.slug
+        organization.refresh_from_db()
+        self.assertRegex(organization.slug, r"^bar-baz-[a-z]{4}$")
+        self.assertEqual(in_memory_slug, organization.slug)
+
+    def test_save_without_rename_keeps_diverged_slug(self):
+        Organization.objects.create(name="Foo Inc")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.refresh_from_db()
+        suffixed_slug = organization.slug
+        self.assertRegex(suffixed_slug, r"^foo-inc-[a-z]{4}$")
+        organization.is_member_join_email_enabled = False
+        organization.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, suffixed_slug)
+
+    def test_stale_instance_save_does_not_regenerate_slug(self):
+        Organization.objects.create(name="Foo Inc")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.refresh_from_db()
+        suffixed_slug = organization.slug
+        stale_copy = Organization.objects.get(pk=organization.pk)
+        organization.name = "Bar Baz"
+        organization.save()
+        stale_copy.is_member_join_email_enabled = False
+        stale_copy.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, suffixed_slug)
+
+    @parameterized.expand(
+        [
+            ("name_included", ["name"], "new-name", "New Name"),
+            ("name_excluded", ["is_member_join_email_enabled"], "foo-inc", "Foo Inc"),
+        ]
+    )
+    def test_rename_with_update_fields(self, _name, update_fields, expected_slug, expected_name):
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = "New Name"
+        organization.save(update_fields=update_fields)
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, expected_slug)
+        self.assertEqual(organization.name, expected_name)
 
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
@@ -38,8 +112,9 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
+    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get, mock_github_request):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -52,14 +127,16 @@ class TestOrganization(BaseTest):
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name,
             "helloworldplugin",
         )
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_github_request.call_count, 1)
+        self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip",
             headers={},
         )
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
+    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get, mock_github_request):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -68,6 +145,7 @@ class TestOrganization(BaseTest):
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
+        self.assertEqual(mock_github_request.call_count, 0)
         self.assertEqual(mock_get.call_count, 0)
 
     def test_plugins_access_level_is_determined_based_on_realm(self):
@@ -174,6 +252,117 @@ class TestOrganization(BaseTest):
         self.organization.session_cookie_age = 7200
         self.organization.save()
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
+
+    def test_access_cache_reuses_organization_and_membership_details(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with self.assertNumQueries(1):
+                membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            assert membership.organization == self.organization
+            assert membership.user == self.user
+
+            with self.assertNumQueries(1):
+                assert get_cached_organization_memberships(self.user)[0].organization == self.organization
+
+            with self.assertNumQueries(0):
+                assert get_cached_organization(self.organization.id) == self.organization
+                assert get_cached_organization_membership(self.organization.id, self.user) == membership
+                assert get_cached_organization_memberships(self.user)[0] == membership
+
+    @parameterized.expand(
+        [
+            ("memberships_one_organization_cold", 1, False, False, 4),
+            ("memberships_many_organizations_cold", 5, False, False, 4),
+            ("memberships_one_organization_warm", 1, True, False, 4),
+            ("memberships_many_organizations_warm", 5, True, False, 4),
+            ("membership_cold", 1, False, True, 1),
+            ("membership_warm", 1, True, True, 1),
+        ]
+    )
+    def test_access_cache_reads_in_constant_round_trips(self, _name, organization_count, warm, single, round_trips):
+        organizations = [self.organization]
+        for index in range(organization_count - 1):
+            organization = Organization.objects.create(name=f"Extra organization {index}")
+            OrganizationMembership.objects.create(organization=organization, user=self.user)
+            organizations.append(organization)
+
+        def lookup() -> list[OrganizationMembership]:
+            if not single:
+                return get_cached_organization_memberships(self.user)
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            return [] if membership is None else [membership]
+
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            if warm:
+                lookup()
+
+            with count_organization_access_cache_round_trips() as cache_round_trips:
+                memberships = lookup()
+
+            assert cache_round_trips() == round_trips
+            expected = {self.organization} if single else set(organizations)
+            assert {membership.organization for membership in memberships} == expected
+
+    def test_access_cache_invalidation_reaches_values_cached_by_another_django_release(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                assert get_cached_organization_membership(self.organization.id, self.user) is not None
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django6.1"):
+                with self.assertNumQueries(1):
+                    membership = get_cached_organization_membership(self.organization.id, self.user)
+                assert membership is not None
+                membership.level = OrganizationMembership.Level.ADMIN
+                with self.captureOnCommitCallbacks(execute=True):
+                    membership.save()
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                cached = get_cached_organization_membership(self.organization.id, self.user)
+            assert cached is not None
+            assert cached.level == OrganizationMembership.Level.ADMIN
+
+    def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            get_cached_organization_memberships(self.user)
+
+            membership.level = OrganizationMembership.Level.ADMIN
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.save()
+            updated_membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert updated_membership is not None
+            assert updated_membership.level == OrganizationMembership.Level.ADMIN
+            assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
+
+            self.organization.name = "Updated organization"
+            self.organization.save()
+            updated_organization = get_cached_organization(self.organization.id)
+            assert updated_organization is not None
+            assert updated_organization.name == "Updated organization"
+
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.delete()
+            assert get_cached_organization_membership(self.organization.id, self.user) is None
+            assert get_cached_organization_memberships(self.user) == []
+
+    def test_access_cache_is_invalidated_when_membership_is_created(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            new_user = User.objects.create_user(
+                email="cache-membership@example.com", password="password", first_name="Cache"
+            )
+
+            # Cache both the missing individual membership and the user's empty membership list.
+            assert get_cached_organization_membership(self.organization.id, new_user) is None
+            assert get_cached_organization_memberships(new_user) == []
+
+            with self.captureOnCommitCallbacks(execute=True):
+                OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+
+            membership = get_cached_organization_membership(self.organization.id, new_user)
+            assert membership is not None
+            assert membership.user_id == new_user.id
+            assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
 
     @parameterized.expand(
         [
@@ -603,6 +792,11 @@ class TestOrganizationMembership(BaseTest):
         mock_capture.assert_called_once_with(
             event="membership level changed",
             distinct_id=user.distinct_id,
-            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+            properties={
+                "new_level": 15,
+                "previous_level": 1,
+                "$set": mock.ANY,
+                "$update_person_last_seen_at": False,
+            },
             groups=mock.ANY,
         )

@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA5",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 schedules the initial review after the TaskRun save commits; its helper at 224-234 catches the facade's final exception and only logs it. stamphog/backend/facade/api.py:149-155 performs only process_inbox_pr_review.delay, with no durable dispatch record. The first ReviewRun is written inside the task at tasks.py:1223-1229, so a broker-rejected publication has no resumable run. review_hog/backend/tests/test_inbox_trigger.py:358-369 explicitly demonstrates broker failure, successful save, and one attempted dispatch. stamphog tasks.py:160-168 excludes initial opened and ready_for_review events from the bot/draft carve-out, leaving the saved URL without an automatic initial review after this failure.",
+            "refutation": "I first looked for worker retries, publisher retries, repeated output saves, or a webhook backstop. Worker retries at tasks.py:1150,1165,1237 only exist after a message reaches a worker; publisher retries can delay but cannot repair the final exception this helper swallows. A later output save or push/reopen can rescue it, but no such event is guaranteed, receiver.py:85-89 ignores ordinary state/status saves, and tasks/backend/webhooks.py:283-292 suppresses duplicate PR-field writes. This is a narrow outage-dependent omission with later-event/manual recovery, hence should_fix; keeping the save non-blocking does not require dropping the dispatch."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138 publishes in an on_commit callback, and :224-234 catches any queue failure and only logs it. /tmp/frozen-75215/products/stamphog/backend/facade/api.py:149-155 is a bare Celery delay, so a failed publish leaves no retryable dispatch or ReviewRun (the latter is created only inside the accepted worker at tasks/tasks.py:1185-1229). A final PR-output save followed by an exhausted broker publish therefore persists the task result while losing its initial approval review. Later status-only saves are expressly ignored by receivers.py:85-89.",
+            "refutation": "First looked for retries, a webhook backstop and tests covering recovery. tasks/tasks.py:1109 supplies worker retries, but those cannot run for an unpublished message. Its :160-168 excludes opened and ready_for_review from the bot carve-out, so neither necessarily repairs the lost initial review; another output save or later push can recover, but neither is guaranteed. tests/test_inbox_trigger.py:358-369 explicitly simulates broker failure and verifies only that the save succeeds and dispatch was attempted once, not eventual delivery. Searches of both products and scheduled task registration found no pending initial-review reconciliation. The failure is narrow to broker outages and has a retrigger workaround, hence should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/review_hog/backend/receivers.py:126-138 schedules publication after the target output transaction commits; :224-234 catches the publication error and only logs it. products/stamphog/backend/facade/api.py:149-155 calls delay before any ReviewRun exists, because run creation occurs inside the eventual worker at tasks/tasks.py:1223-1229. Publication failure therefore leaves no durable review/dispatch record. The initial bot/draft events do not provide a replacement: tasks.py:167-168 excludes opened/ready_for_review from the carve-out, while :226-231 skips their ordinary review path. Status-only follow-up saves are filtered by receivers.py:85-89. tests/test_inbox_trigger.py:358-369 explicitly confirms that a simulated broker exception does not fail the output save.",
+            "refutation": "I first checked worker retries, publication retry exhaustion, existing run recovery, and later event paths. Worker retry code cannot execute before publication succeeds, and an eventual transport exception is swallowed rather than propagated to retry the already-successful output write. A later push or another output save may recover but is not guaranteed after the only PR target write. No pending handoff is persisted. The specific broker-outage trigger thus causes a reachable missing initial review, with a manual retrigger workaround and narrow impact."
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+{
+    "id": "VB2",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "The claimed conflicting rule does not exist: no code, docstring, or help text in the frozen tree says any assigned user's opt-in enables Stamphog (grep for any-assignee phrasing returns nothing). The single-acting-reviewer selection is explicitly documented as intentional at receivers.py:159-174: creator when among resolved reviewers, otherwise the first resolved reviewer is canonical ('maintainer decisions, 2026-07-02/03'), and 'their review_inbox_prs / stamphog_review_inbox_prs toggles gate the respective reviews'. The ReviewHog gate applies the identical rule (receivers.py:111-115), the webhook resolver mirrors it (receivers.py:151-156), and inbox_hooks.py:20-22 states a singular acting-reviewer contract. tasks.py:206-207 marking None as opted_out matches that contract. Described behavior is design, not defect."
+}

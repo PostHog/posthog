@@ -9,7 +9,7 @@ class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDTMo
     before materializing them as actual saved queries.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     query = models.JSONField(default=dict, blank=True, help_text="HogQL query draft")
 
     # 255 should be safe. the max length of a view name is 128

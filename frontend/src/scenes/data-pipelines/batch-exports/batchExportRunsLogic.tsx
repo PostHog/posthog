@@ -184,6 +184,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     if (!nextUrl) {
                         return values.runsPaginatedResponse
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const res = await api.get<PaginatedResponse<RawBatchExportRun>>(nextUrl)
                     res.results = [...(values.runsPaginatedResponse?.results ?? []), ...res.results]
 

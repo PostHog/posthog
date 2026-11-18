@@ -444,6 +444,7 @@ def test_sample_payload_omits_streamed_response_body():
         "x-sn-apikey",
         "x-auth-token",
         "X-Metabase-Session",
+        "KALSHI-ACCESS-SIGNATURE",
         "Cookie",
         "Set-Cookie",
         "Proxy-Authorization",
@@ -495,6 +496,30 @@ def test_scrub_body_redacts_nested_json_secrets():
     assert out["data"]["refresh_token"] == "REDACTED"
     assert out["data"]["client_secret"] == "REDACTED"
     assert out["data"]["page"] == 2
+
+
+@pytest.mark.parametrize(
+    ("collection", "secret_key"),
+    [
+        ("webhooks", "secret"),
+        ("advertisers", "verification_token"),
+        ("clusters", "kube_config"),
+    ],
+)
+def test_scrub_body_redacts_secret_fields_in_listed_rows(collection: str, secret_key: str):
+    out = _scrub_body(json.dumps({collection: [{"id": "row-1", secret_key: "live-credential"}]}))
+    assert isinstance(out, dict)
+    assert out[collection][0] == {"id": "row-1", secret_key: "REDACTED"}
+
+
+def test_scrub_body_redacts_preauthenticated_download_urls():
+    out = _scrub_body(
+        '{"@microsoft.graph.downloadUrl": "https://download.example/file", '
+        '"content.downloadUrl": "https://download.example/content"}'
+    )
+    assert isinstance(out, dict)
+    assert out["@microsoft.graph.downloadUrl"] == "REDACTED"
+    assert out["content.downloadUrl"] == "REDACTED"
 
 
 def test_scrub_body_passes_through_non_json_string():

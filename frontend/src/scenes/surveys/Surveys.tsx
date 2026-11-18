@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -19,6 +22,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
+
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
@@ -28,10 +33,12 @@ export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
     productKey: ProductKey.SURVEYS,
+    emptyState: surveysEmptyState,
 }
 
 function NewSurveyButton(): JSX.Element {
     const { addProductIntent } = useActions(surveysLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const trackAddNewClick = (): void => {
         addProductIntent({
@@ -49,16 +56,28 @@ function NewSurveyButton(): JSX.Element {
                 interaction="click"
                 scope={Scene.Surveys}
             >
-                <LemonButton
-                    size="small"
-                    to={urls.surveyWizard()}
-                    type="primary"
-                    data-attr="new-survey"
-                    tooltip="New survey"
-                    onClick={trackAddNewClick}
-                >
-                    New survey
-                </LemonButton>
+                {todayRailNav ? (
+                    <Button
+                        variant="primary"
+                        render={<LinkPrimitive to={urls.surveyWizard()} />}
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                        onClick={trackAddNewClick}
+                    >
+                        New survey
+                    </Button>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        to={urls.surveyWizard()}
+                        type="primary"
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                        onClick={trackAddNewClick}
+                    >
+                        New survey
+                    </LemonButton>
+                )}
             </Shortcut>
         </AccessControlAction>
     )

@@ -1,15 +1,24 @@
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { isUUIDLike } from 'lib/utils/guards'
+import { chooseOperatorMap } from 'lib/utils/operators'
 
+import type {
+    AccountsTableCustomPropertyDefinition,
+    AccountsTableRelationshipDefinition,
+} from '~/queries/schema/schema-general'
 import {
     AccountsTableAccountField,
     AccountsTableAccountFieldFilter,
     AccountsTableAccountFieldOperator,
-    AccountsTableAccountIdFilter,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableColumn,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyOperator,
     AccountsTableFilter,
+    AccountsTablePropertyFilter,
+    AccountsTableRelationshipFilter,
+    AccountsTableRelationshipOperator,
     AccountsTableQuery,
     AccountsTableRow,
     AccountsTableSort,
@@ -21,14 +30,17 @@ import {
 } from '~/queries/schema/schema-general'
 import { AccountCustomPropertyFilter, PropertyOperator, PropertyType } from '~/types'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { TileFilter } from './accountsOverviewTilesLogic'
-import { ACCOUNT_FIELD_PROPERTY_TYPES, AccountFilter, isAccountPropertyFilter } from './accountsPropertyFilters'
+import {
+    ACCOUNT_FIELD_PROPERTY_TYPES,
+    AccountFilter,
+    isAccountPropertyFilter,
+    isAccountRelationshipFilter,
+    propertyTypeForDisplayType,
+} from './accountsPropertyFilters'
 
 const RELATIONSHIP_COLUMN_REGEX = /^accounts\.relationships\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
@@ -66,6 +78,13 @@ const ACCOUNT_FIELD_DATE_OPERATORS = new Set<AccountsTableAccountFieldOperator>(
     AccountsTableAccountFieldOperator.IsNotSet,
 ])
 
+const RELATIONSHIP_OPERATOR_MAP: Partial<Record<PropertyOperator, AccountsTableRelationshipOperator>> = {
+    [PropertyOperator.Exact]: AccountsTableRelationshipOperator.Exact,
+    [PropertyOperator.IsNot]: AccountsTableRelationshipOperator.IsNot,
+    [PropertyOperator.IsSet]: AccountsTableRelationshipOperator.IsSet,
+    [PropertyOperator.IsNotSet]: AccountsTableRelationshipOperator.IsNotSet,
+}
+
 const CUSTOM_PROPERTY_OPERATOR_MAP: Partial<Record<PropertyOperator, AccountsTableCustomPropertyOperator>> = {
     [PropertyOperator.Exact]: AccountsTableCustomPropertyOperator.Exact,
     [PropertyOperator.IsNot]: AccountsTableCustomPropertyOperator.IsNot,
@@ -92,20 +111,25 @@ export interface AccountsTableQueryPlan {
     columns: AccountsTablePlannedColumn[]
 }
 
-export interface BuildAccountsTableQueryPlanInput {
-    querySelectColumns: string[]
-    visibleColumnNames: string[]
+export interface AccountsTableDatasetInput {
     searchQuery: string
     tagsFilter: string[]
-    allRolesUnassigned: boolean
+    assignmentStatus: AssignmentStatus
     assignedToFilter: RoleFilterValue
-    accountIdFilter: string | null
     tileFilter: TileFilter | null
     accountFilters: AccountFilter[]
-    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+    accountFilterGroups: AccountFilter[][]
+    relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
+    customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+}
+
+export interface BuildAccountsTableQueryPlanInput extends AccountsTableDatasetInput {
+    querySelectColumns: string[]
+    renderSelectColumns?: string[]
+    useDefaultColumns?: boolean
+    visibleColumnNames: string[]
     columnDisplay: AccountColumnDisplayState
-    sortOrder: AccountSortOrder
-    canSortClientSide: boolean
+    serverSortOrder: AccountSortOrder
 }
 
 function accountFieldFromExpression(expression: string): AccountsTableAccountField | null {
@@ -178,43 +202,42 @@ function accountFieldFilter(filter: AccountFilter): AccountsTableAccountFieldFil
     return { kind: 'account_field', field, operator, values }
 }
 
+function relationshipFilter(
+    filter: AccountFilter,
+    _definitionsById: Record<string, AccountsTableRelationshipDefinition>
+): AccountsTableRelationshipFilter | null {
+    if (!isAccountRelationshipFilter(filter) || !isUUIDLike(filter.key)) {
+        return null
+    }
+    const operator = RELATIONSHIP_OPERATOR_MAP[filter.operator]
+    if (!operator) {
+        return null
+    }
+    const rawValues = Array.isArray(filter.value) ? filter.value : filter.value == null ? [] : [filter.value]
+    const userIds = rawValues.filter(
+        (value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
+    )
+    const doesNotNeedValues =
+        operator === AccountsTableRelationshipOperator.IsSet || operator === AccountsTableRelationshipOperator.IsNotSet
+    if (!doesNotNeedValues && userIds.length === 0) {
+        return null
+    }
+    return { kind: 'relationship', definitionId: filter.key, operator, userIds }
+}
+
 function customPropertyFilter(
     filter: AccountCustomPropertyFilter,
-    definitionsById: Record<string, CustomPropertyDefinitionApi>
+    definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 ): AccountsTableCustomPropertyFilter | null {
     if (!filter.key || !isUUIDLike(filter.key)) {
         return null
     }
-    const definition = definitionsById[filter.key]
     const operator = CUSTOM_PROPERTY_OPERATOR_MAP[filter.operator]
-    if (!definition || !operator) {
+    if (!operator) {
         return null
     }
-    if (
-        (operator === AccountsTableCustomPropertyOperator.Contains ||
-            operator === AccountsTableCustomPropertyOperator.DoesNotContain) &&
-        definition.display_type !== 'text' &&
-        definition.display_type !== 'link' &&
-        definition.display_type !== 'select'
-    ) {
-        return null
-    }
-    if (
-        (operator === AccountsTableCustomPropertyOperator.GreaterThan ||
-            operator === AccountsTableCustomPropertyOperator.GreaterThanOrEqual ||
-            operator === AccountsTableCustomPropertyOperator.LessThan ||
-            operator === AccountsTableCustomPropertyOperator.LessThanOrEqual) &&
-        !isNumericDisplayType(definition.display_type)
-    ) {
-        return null
-    }
-    if (
-        (operator === AccountsTableCustomPropertyOperator.DateExact ||
-            operator === AccountsTableCustomPropertyOperator.DateBefore ||
-            operator === AccountsTableCustomPropertyOperator.DateAfter) &&
-        definition.display_type !== 'date' &&
-        definition.display_type !== 'datetime'
-    ) {
+    const definition = definitionsById[filter.key]
+    if (definition && !(filter.operator in chooseOperatorMap(propertyTypeForDisplayType(definition.display_type)))) {
         return null
     }
     const rawValues = Array.isArray(filter.value) ? filter.value : filter.value == null ? [] : [filter.value]
@@ -238,20 +261,41 @@ function customPropertyFilter(
 
 export function supportedAccountFilters(
     filters: AccountFilter[],
-    definitionsById: Record<string, CustomPropertyDefinitionApi>
+    customPropertyDefinitionsById?: Record<string, AccountsTableCustomPropertyDefinition>,
+    relationshipDefinitionsById?: Record<string, AccountsTableRelationshipDefinition>
 ): AccountFilter[] {
     return filters.filter((filter) =>
         isAccountPropertyFilter(filter)
             ? accountFieldFilter(filter) !== null
-            : customPropertyFilter(filter, definitionsById) !== null
+            : isAccountRelationshipFilter(filter)
+              ? (!relationshipDefinitionsById || !!relationshipDefinitionsById[filter.key]) &&
+                relationshipFilter(filter, relationshipDefinitionsById ?? {}) !== null
+              : (!customPropertyDefinitionsById || !!customPropertyDefinitionsById[filter.key]) &&
+                customPropertyFilter(filter, customPropertyDefinitionsById ?? {}) !== null
     )
 }
 
-function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] {
-    if (input.accountIdFilter) {
-        return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]
-    }
+function queryPropertyFilter(
+    filter: AccountFilter,
+    input: AccountsTableDatasetInput
+): AccountsTablePropertyFilter | null {
+    return isAccountPropertyFilter(filter)
+        ? accountFieldFilter(filter)
+        : isAccountRelationshipFilter(filter)
+          ? relationshipFilter(filter, input.relationshipDefinitionsById)
+          : customPropertyFilter(filter, input.customPropertyDefinitionsById)
+}
 
+function queryPropertyFilterGroups(input: AccountsTableDatasetInput): AccountsTablePropertyFilter[][] {
+    return [input.accountFilters, ...input.accountFilterGroups]
+        .map((group) => group.map((filter) => queryPropertyFilter(filter, input)).filter((filter) => filter !== null))
+        .filter((group) => group.length > 0)
+}
+
+function queryFilters(
+    input: AccountsTableDatasetInput,
+    propertyGroups: AccountsTablePropertyFilter[][]
+): AccountsTableFilter[] {
     const filters: AccountsTableFilter[] = []
     const search = input.searchQuery.trim()
     if (search) {
@@ -260,24 +304,27 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     if (input.tagsFilter.length > 0) {
         filters.push({ kind: 'tags', tagNames: input.tagsFilter } satisfies AccountsTableTagsFilter)
     }
-    if (input.allRolesUnassigned) {
+    // `all` omits the assignment filter entirely so both assigned and unassigned accounts
+    // show. `assigned` narrows to assigned accounts, further restricted to specific users
+    // when any are selected.
+    if (input.assignmentStatus === 'unassigned') {
         filters.push({ kind: 'unassigned' } satisfies AccountsTableUnassignedFilter)
-    }
-    if (input.assignedToFilter.length > 0) {
-        filters.push({ kind: 'assigned_to', userIds: input.assignedToFilter } satisfies AccountsTableAssignedToFilter)
-    }
-    for (const filter of input.accountFilters) {
-        const translatedFilter = isAccountPropertyFilter(filter)
-            ? accountFieldFilter(filter)
-            : customPropertyFilter(filter, input.customPropertyDefinitionsById)
-        if (translatedFilter) {
-            filters.push(translatedFilter)
+    } else if (input.assignmentStatus === 'assigned') {
+        if (input.assignedToFilter.length > 0) {
+            filters.push({
+                kind: 'assigned_to',
+                userIds: input.assignedToFilter,
+            } satisfies AccountsTableAssignedToFilter)
+        } else {
+            filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
         }
+    }
+    if (propertyGroups.length === 1) {
+        filters.push(...propertyGroups[0])
     }
     if (input.tileFilter?.filter) {
         const filter = input.tileFilter.filter
-        const definition = input.customPropertyDefinitionsById[filter.definitionId]
-        if (isUUIDLike(filter.definitionId) && definition && isNumericDisplayType(definition.display_type)) {
+        if (isUUIDLike(filter.definitionId)) {
             if (filter.operator === AccountsTableCustomPropertyOperator.IsNot) {
                 filters.push({
                     kind: 'custom_property',
@@ -292,6 +339,16 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     return filters
 }
 
+export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {
+    const propertyGroups = queryPropertyFilterGroups(input)
+    return JSON.stringify({
+        filters: queryFilters(input, propertyGroups),
+        filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
+        includeChurned: false,
+        includeIgnored: false,
+    })
+}
+
 function sortableColumn(column: AccountsTableColumn): AccountsTableSortableColumn {
     if (column.kind === 'custom_property_history') {
         return { kind: 'custom_property', definitionId: column.definitionId }
@@ -299,39 +356,67 @@ function sortableColumn(column: AccountsTableColumn): AccountsTableSortableColum
     return column
 }
 
-export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan {
-    const columns: AccountsTablePlannedColumn[] = []
-    const columnCount = Math.min(input.querySelectColumns.length, input.visibleColumnNames.length)
-    for (let index = 0; index < columnCount; index++) {
-        const column = columnFromExpression(input.querySelectColumns[index], input.columnDisplay)
-        if (column) {
-            columns.push({ visibleName: input.visibleColumnNames[index], column })
-        }
+function sortColumnFromAlias(alias: string): AccountsTableSortableColumn | null {
+    if (alias === 'tag_names') {
+        return { kind: 'tags' }
     }
+    if (alias === 'notebook_count') {
+        return { kind: 'note_count' }
+    }
+    const reference = alias.match(/^(cp|rel)_([0-9a-fA-F]{32})$/)
+    if (reference) {
+        const hex = reference[2]
+        const definitionId =
+            `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`.toLowerCase()
+        return { kind: reference[1] === 'cp' ? 'custom_property' : 'relationship', definitionId }
+    }
+    const column = columnFromExpression(alias, {})
+    return column ? sortableColumn(column) : null
+}
+
+export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan {
+    const planColumns = (expressions: string[]): AccountsTablePlannedColumn[] =>
+        expressions.flatMap((expression) => {
+            const column = columnFromExpression(expression, input.columnDisplay)
+            return column
+                ? [{ visibleName: expression.includes(' AS ') ? expression.split(' AS ').pop()! : expression, column }]
+                : []
+        })
+    const requestedColumns = planColumns(input.querySelectColumns)
+    const columns = planColumns(input.renderSelectColumns ?? input.querySelectColumns)
 
     let sort: AccountsTableSort | undefined
-    if (input.sortOrder && !input.canSortClientSide) {
-        const plannedColumn = columns.find((column) => column.visibleName === input.sortOrder?.column)
-        if (plannedColumn) {
+    if (input.serverSortOrder) {
+        const plannedColumn = requestedColumns.find((column) => column.visibleName === input.serverSortOrder?.column)
+        const sortColumn = plannedColumn
+            ? sortableColumn(plannedColumn.column)
+            : input.useDefaultColumns
+              ? sortColumnFromAlias(input.serverSortOrder.column)
+              : null
+        if (sortColumn) {
             sort = {
-                column: sortableColumn(plannedColumn.column),
+                column: sortColumn,
                 direction:
-                    input.sortOrder.direction === 'asc'
+                    input.serverSortOrder.direction === 'asc'
                         ? AccountsTableSortDirection.Ascending
                         : AccountsTableSortDirection.Descending,
             }
         }
     }
 
-    const filters = queryFilters(input)
+    const propertyGroups = queryPropertyFilterGroups(input)
+    const filters = queryFilters(input, propertyGroups)
 
     return {
         query: {
             kind: NodeKind.AccountsTableQuery,
-            columns: columns.map(({ column }) => column),
+            columns: input.useDefaultColumns ? [] : requestedColumns.map(({ column }) => column),
+            useDefaultColumns: input.useDefaultColumns || undefined,
+            ignoreMissingDefinitions: true,
             filters,
-            includeChurned: input.accountIdFilter !== null,
-            includeIgnored: input.accountIdFilter !== null,
+            filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
+            includeChurned: false,
+            includeIgnored: false,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
         },

@@ -8,7 +8,9 @@
 //! step handlers.
 
 pub mod delete;
+pub mod detach;
 pub mod engine;
+pub(crate) mod leader_calls;
 pub mod merge;
 pub mod validation;
 
@@ -16,11 +18,13 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
 };
 
+use crate::config::OutboxWrites;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::delete::{
     DeleteDriver, DeleteOutcome, OUTCOME_DELETED, OUTCOME_NOT_FOUND, OUTCOME_SKIPPED_CONFLICT,
@@ -38,13 +42,24 @@ impl PersonHogLifecycleService {
         engine: Arc<Engine>,
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
+        leader_call_concurrency: usize,
+        changelog: LiveChangelog,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver::new(leader, tables),
+            delete_driver: DeleteDriver::new(
+                leader,
+                tables,
+                leader_call_concurrency,
+                changelog,
+                outbox_writes,
+            ),
         }
     }
 }
+
+const DELETE_PERSONS_PER_CALL: &str = "personhog_lifecycle_delete_persons_per_call";
 
 /// Translate a terminal op row's recorded outcome into the proto response.
 /// The recorded outcome is the single source of truth — a retried call gets
@@ -75,6 +90,7 @@ fn delete_response(row: &OpRow) -> Result<DeletePersonsResponse, Status> {
             DeletePersonResult {
                 person_id: record.person_id,
                 outcome: outcome.into(),
+                person_version: record.person_version,
             }
         })
         .collect();
@@ -93,6 +109,11 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         let request = request.into_inner();
         let op_id = validate_delete_persons(&request)?;
+        common_metrics::histogram(
+            DELETE_PERSONS_PER_CALL,
+            &[],
+            request.person_ids.len() as f64,
+        );
 
         let frozen = serde_json::to_value(delete::DeleteRequest {
             person_ids: request.person_ids,

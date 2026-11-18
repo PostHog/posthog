@@ -6,6 +6,11 @@ from typing import Any, Literal, cast
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
+
+from products.ai_observability.backend.facade.evaluation_runtime import consented_team_ids
+
 AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
 
@@ -31,6 +36,18 @@ async def fetch_all_clustering_filters_activity(
         return {config.team_id: config.event_filters for config in configs}
 
     return await asyncio.to_thread(_fetch_filters)
+
+
+@frozen
+class TeamAIConsentInput:
+    team_id: int
+
+
+@activity.defn
+async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
+    """Report whether the team's organization approved third-party AI data processing."""
+    consented = await database_sync_to_async_pool(consented_team_ids)([inputs.team_id])
+    return inputs.team_id in consented
 
 
 @dataclass

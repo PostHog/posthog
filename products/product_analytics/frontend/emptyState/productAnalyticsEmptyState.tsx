@@ -1,0 +1,36 @@
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
+import { IconGraph } from '@posthog/icons'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { ProductAnalyticsPreview } from './ProductAnalyticsPreview'
+import { ProductAnalyticsPrimaryAction } from './ProductAnalyticsPrimaryAction'
+import { productAnalyticsSetupLogic } from './productAnalyticsSetupLogic'
+
+const HedgehogChart = pngHoggie(chartPng)
+
+export const productAnalyticsEmptyState: SceneProductEmptyState = {
+    statusLogic: productAnalyticsSetupLogic,
+    config: {
+        productKey: ProductKey.PRODUCT_ANALYTICS,
+        productName: 'Product analytics',
+        icon: <IconGraph />,
+        accentColor: 'var(--color-product-product-analytics-light)',
+        accentColorDark: 'var(--color-product-product-analytics-dark)',
+        hedgehog: HedgehogChart,
+        text: {
+            'needs-setup': {
+                headline: 'Ask a question about your product and save the answer',
+                lead: 'An insight is one question about the events you already send: how many people did this, where do they drop off, who comes back. Break the answer down by any property, then save it so you can reopen it later or drop it on a dashboard.',
+            },
+        },
+        PrimaryAction: ProductAnalyticsPrimaryAction,
+        skippable: false,
+        docsUrl: 'https://posthog.com/docs/product-analytics/insights',
+        previewLabel: 'Your insights, once created',
+        Preview: ProductAnalyticsPreview,
+    },
+}

@@ -1,8 +1,16 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { z } from 'zod'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import {
+    type ConfirmedActionRuntime,
+    getConfirmedActionRuntime,
+    setConfirmedActionRuntime,
+} from '@/tools/confirmed-action-registry'
+import { executeConfirmedAction, prepareConfirmedAction } from '@/tools/confirmed-action-runtime'
+import type { Context } from '@/tools/types'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
@@ -100,13 +108,19 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('GET /.well-known/openai-apps-challenge', () => {
-        it('should return the challenge token', async () => {
+    describe('domain verification challenges', () => {
+        it.each([
+            ['/.well-known/openai-apps-challenge', 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'],
+            [
+                '/.well-known/muse-challenge/5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+                'muse-challenge=5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+            ],
+        ])('GET %s returns the challenge token', async (path, expected) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/.well-known/openai-apps-challenge')
+            const res = await app.request(path)
             expect(res.status).toBe(200)
             const body = await res.text()
-            expect(body).toBe('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
+            expect(body).toBe(expected)
         })
     })
 
@@ -181,12 +195,9 @@ describe('Hono App Routes', () => {
     })
 
     describe('hostname-based region detection', () => {
-        it('should detect EU from mcp.eu.posthog.com via X-Forwarded-Host', async () => {
+        it('should detect EU from mcp.eu.posthog.com', async () => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'POST',
-                headers: { 'X-Forwarded-Host': 'mcp.eu.posthog.com' },
-            })
+            const res = await app.request(new Request('http://mcp.eu.posthog.com/mcp', { method: 'POST' }))
             expect(res.status).toBe(401)
             const wwwAuth = res.headers.get('WWW-Authenticate') || ''
             expect(wwwAuth).toContain('mcp.eu.posthog.com')
@@ -202,13 +213,40 @@ describe('Hono App Routes', () => {
 
         it('should detect EU from legacy mcp-eu.posthog.com', async () => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'POST',
-                headers: { 'X-Forwarded-Host': 'mcp-eu.posthog.com' },
-            })
+            const res = await app.request(new Request('http://mcp-eu.posthog.com/mcp', { method: 'POST' }))
             expect(res.status).toBe(401)
             const wwwAuth = res.headers.get('WWW-Authenticate') || ''
             expect(wwwAuth).toContain('region=eu')
+        })
+    })
+
+    describe('client-sent X-Forwarded-Host', () => {
+        const headers = { 'X-Forwarded-Host': 'mcp-eu.posthog.com', 'X-Forwarded-Proto': 'https' }
+
+        it('does not change the resource in protected resource metadata', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(
+                new Request('http://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp', { headers })
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.resource).toBe('https://mcp.us.posthog.com/mcp')
+        })
+
+        it('does not change the host or region in the 401 challenge', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(new Request('http://mcp.us.posthog.com/mcp', { method: 'POST', headers }))
+            expect(res.status).toBe(401)
+            expect(res.headers.get('WWW-Authenticate')).toBe(
+                'Bearer resource_metadata="https://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp?region=us"'
+            )
+        })
+
+        it('does not change the host in the SSE redirect, and keeps the forwarded protocol', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(new Request('http://mcp.us.posthog.com/sse', { headers }))
+            expect(res.status).toBe(308)
+            expect(res.headers.get('location')).toBe('https://mcp.us.posthog.com/mcp?_deprecated=sse')
         })
     })
 
@@ -335,6 +373,30 @@ describe('Hono App Routes', () => {
             expect(res.status).toBe(401)
             expect(await res.text()).toContain('Invalid token')
         })
+
+        it('sends a project secret API key to the business knowledge URL', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp?project_id=1', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer phs_test_key' },
+            })
+            expect(res.status).toBe(400)
+            expect(await res.text()).toContain('/mcp/business-knowledge')
+        })
+
+        it.each([
+            ['no credential', undefined],
+            ['a personal API key', 'Bearer phx_test_key'],
+        ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp/business-knowledge', {
+                method: 'POST',
+                headers: authorization ? { Authorization: authorization } : {},
+            })
+            expect(res.status).toBe(401)
+            expect(await res.text()).toContain('project secret API key')
+            expect(res.headers.get('WWW-Authenticate')).toBeNull()
+        })
     })
 
     describe('OAuth redirect routes', () => {
@@ -435,34 +497,47 @@ describe('Hono App Routes', () => {
             // Restore the signing key after the "missing key" test below
             // unsets it, so following tests don't bleed into each other.
             process.env.MCP_SIGNED_STATE_KEY = TEST_SIGNING_KEY
+            setConfirmedActionRuntime(undefined)
         })
 
-        it('installs the runtime so generated -prepare/-execute handlers can resolve it', async () => {
-            // createApp wires setConfirmedActionRuntime at boot. Without
-            // that wiring, getConfirmedActionRuntime() throws — so the
-            // mere fact that we can resolve a non-undefined runtime after
-            // createApp ran proves the boot path is in place.
+        async function confirmsAcross(
+            prepareWith: ConfirmedActionRuntime,
+            executeWith: ConfirmedActionRuntime
+        ): Promise<boolean> {
+            const context = { getDistinctId: async () => 'did-1' } as unknown as Context
+            const inputSchema = z.object({ orgId: z.string() })
+            const prepared = await prepareConfirmedAction(context, {
+                args: { orgId: 'acme' },
+                purpose: 'enforce-2fa',
+                inputSchema,
+                actionLabel: 'enforce 2FA',
+                messageTemplate: 'Enforce 2FA?',
+                ...prepareWith,
+            })
+            const outcome = await executeConfirmedAction(context, {
+                incomingArgs: { confirmation_hash: prepared.confirmation_hash, confirmation: 'confirm' },
+                purpose: 'enforce-2fa',
+                inputSchema,
+                ...executeWith,
+            })
+            return outcome.ok
+        }
+
+        it('installs a runtime that confirms an action it prepared', async () => {
             createApp(mockRedis)
-            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
             const runtime = getConfirmedActionRuntime()
-            expect(runtime.codec).toBeInstanceOf(Object)
-            expect(runtime.ledger).toBeInstanceOf(Object)
+
+            expect(await confirmsAcross(runtime, runtime)).toBe(true)
         })
 
-        it('overwrites the singleton on each createApp call (latest wins)', async () => {
-            // app.ts deliberately re-installs the runtime on every
-            // createApp. Lock that behavior down so a future "guard
-            // against re-install" change doesn't silently make the second
-            // app instance share the first app's Redis-bound ledger.
-            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
-            const redis1 = createMockRedis()
-            createApp(redis1)
+        it('binds each createApp call to its own Redis (latest wins)', async () => {
+            createApp(createMockRedis())
             const first = getConfirmedActionRuntime()
-            const redis2 = createMockRedis()
-            createApp(redis2)
+            createApp(createMockRedis())
             const second = getConfirmedActionRuntime()
-            expect(second).not.toBe(first)
-            expect(second.ledger).not.toBe(first.ledger)
+
+            expect(await confirmsAcross(second, second)).toBe(true)
+            expect(await confirmsAcross(first, second)).toBe(false)
         })
 
         it('boots without a signing key — confirmed_action paradigm is disabled but the app still serves', async () => {
@@ -479,7 +554,6 @@ describe('Hono App Routes', () => {
                 expect(res.status).toBe(200)
                 expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('confirmed-action paradigm disabled'))
 
-                const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
                 expect(() => getConfirmedActionRuntime()).toThrow(/MCP_SIGNED_STATE_KEY/)
             } finally {
                 errorSpy.mockRestore()

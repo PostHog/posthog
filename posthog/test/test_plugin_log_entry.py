@@ -12,6 +12,7 @@ from products.cdp.backend.models.plugin import (
     PluginConfig,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginLogFilters,
     fetch_plugin_log_entries,
 )
 
@@ -62,9 +63,11 @@ class TestPluginLogEntry(BaseTest):
         )
 
         results = fetch_plugin_log_entries(
-            plugin_config_id=some_plugin_config.pk,
-            after=datetime.datetime.min,
-            before=timezone.now() + datetime.timedelta(seconds=5),
+            PluginLogFilters(
+                plugin_config_id=some_plugin_config.pk,
+                after=datetime.datetime.min,
+                before=timezone.now() + datetime.timedelta(seconds=5),
+            )
         )
 
         self.assertEqual(len(results), 1)
@@ -95,7 +98,7 @@ class TestPluginLogEntry(BaseTest):
             instance_id=plugin_server_instance_id,
         )
 
-        results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, search="somethinG")
+        results = fetch_plugin_log_entries(PluginLogFilters(plugin_config_id=some_plugin_config.pk, search="somethinG"))
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].message, "Something happened!")
@@ -135,8 +138,10 @@ class TestPluginLogEntry(BaseTest):
         )
 
         results = fetch_plugin_log_entries(
-            plugin_config_id=some_plugin_config.pk,
-            type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG],
+            PluginLogFilters(
+                plugin_config_id=some_plugin_config.pk,
+                type_filter=(PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG),
+            )
         )
 
         self.assertEqual(len(results), 2)
@@ -168,7 +173,7 @@ class TestPluginLogEntry(BaseTest):
             instance_id=plugin_server_instance_id,
         )
 
-        results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, limit=1)
+        results = fetch_plugin_log_entries(PluginLogFilters(plugin_config_id=some_plugin_config.pk), limit=1)
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].message, "Random error")

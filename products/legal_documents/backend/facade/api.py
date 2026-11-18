@@ -9,25 +9,37 @@ output, and never leaks ORM instances or QuerySets across the boundary.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
+from typing import IO
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.organization import Organization
 from posthog.ph_client import ph_scoped_capture
 
 from .. import logic
-from ..logic.pandadoc import (
-    PandaDocError,
-    verify_webhook_signature as _verify_pandadoc_webhook_signature,
+from ..logic import (
+    SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION,
+    webhooks,
 )
+from ..logic.pandadoc import PandaDocError
 from ..models import LegalDocument
 from . import contracts
-from .enums import LegalDocumentStatus
+from .enums import (
+    BaaBlockReason,
+    DocumentType,
+    LegalDocumentStatus,
+    StaffRefetchOutcome,
+    StaffResendOutcome,
+    StaffUploadOutcome,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -80,13 +92,28 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
     return logic.get_signed_pdf_presigned_url(document)
 
 
-def has_qualifying_baa_addon(organization: Organization) -> bool:
-    return logic.has_qualifying_baa_addon(organization)
+def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaBlockReason | None:
+    return logic.get_baa_block_reason(organization, impersonated)
 
 
-def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
-    """Passthrough so the presentation layer never reaches past the facade."""
-    return _verify_pandadoc_webhook_signature(secret=secret, body=body, signature=signature)
+def has_signed_baa(organization_id: UUID) -> bool:
+    """
+    True once the organization has a countersigned BAA on file. This is the
+    standing HIPAA gate: it decides whether AI training stays locked off, so it
+    must read the signature state rather than a cached flag.
+
+    One query per call. Use `annotate_signed_baa` when serializing a list, and
+    keep this for a single organization and for validating a write.
+    """
+    return logic.has_signed_baa(organization_id)
+
+
+def annotate_signed_baa(queryset: QuerySet[Organization]) -> QuerySet[Organization]:
+    """
+    Add the signed-BAA flag to an Organization queryset as `SIGNED_BAA_ANNOTATION`,
+    so serializing N organizations costs one query rather than N.
+    """
+    return logic.annotate_signed_baa(queryset)
 
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:
@@ -130,8 +157,8 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
     original signer with a still-completable document.
 
     Refuses signed documents — those are completed legal artifacts and stay
-    admin-only (Django admin bypasses this guard by calling
-    `logic.delete_document` directly with `strict_pandadoc=False`).
+    staff-only (`delete_as_staff` skips this guard and calls
+    `logic.delete_document` with `strict_pandadoc=False`).
 
     Raises:
         LegalDocumentNotFound: row doesn't exist or belongs to a different org.
@@ -165,6 +192,108 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
         ) from exc
 
 
+def list_for_staff(organization_id: UUID) -> list[contracts.StaffLegalDocument]:
+    return [
+        contracts.StaffLegalDocument(
+            id=document.id,
+            document_type=document.document_type,
+            status=document.status,
+            signed_pdf_stored=document.signed_pdf_stored,
+            has_pandadoc_envelope=bool(document.pandadoc_document_id),
+            created_at=document.created_at,
+        )
+        for document in logic.list_for_organization(organization_id)
+    ]
+
+
+def can_refetch_signed_pdf(document: contracts.StaffLegalDocument) -> bool:
+    # PandaDoc only has a final PDF for a completed envelope. Storing anything
+    # else would put an unsigned document behind the customer download link.
+    return document.status == LegalDocumentStatus.SIGNED and document.has_pandadoc_envelope
+
+
+def can_resend_signing_email(document: contracts.StaffLegalDocument) -> bool:
+    return document.status != LegalDocumentStatus.SIGNED and document.has_pandadoc_envelope
+
+
+def refetch_signed_pdf(document_id: UUID, organization_id: UUID) -> StaffRefetchOutcome:
+    """
+    Pull the document PandaDoc serves right now and overwrite the stored copy.
+    Recovers a row whose archive job failed every retry, and refreshes a copy
+    that no longer matches PandaDoc, for example after a counter-signature.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return StaffRefetchOutcome.NOT_FOUND
+    if document.status != LegalDocumentStatus.SIGNED or not document.pandadoc_document_id:
+        return StaffRefetchOutcome.UNAVAILABLE
+    if not logic.download_and_store_signed_pdf(document):
+        return StaffRefetchOutcome.FAILED
+    logic.mark_signed_pdf_stored(document)
+    return StaffRefetchOutcome.STORED
+
+
+def resend_signing_email(document_id: UUID, organization_id: UUID) -> StaffResendOutcome:
+    """
+    Recovery path for an envelope stranded because the `document.draft` webhook
+    that normally triggers the send was missed. The send is idempotent on
+    PandaDoc's side, so the signer gets their link without a delete and regenerate.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return StaffResendOutcome.NOT_FOUND
+    if document.status == LegalDocumentStatus.SIGNED or not document.pandadoc_document_id:
+        return StaffResendOutcome.NOTHING_TO_SEND
+    if not logic.send_pandadoc_envelope(document):
+        return StaffResendOutcome.FAILED
+    return StaffResendOutcome.SENT
+
+
+def get_organization_id_for_staff(document_id: UUID) -> UUID | None:
+    """The organization of a document, for staff links that only carry the document ID."""
+    document = logic.get_by_id(document_id)
+    return document.organization_id if document is not None else None
+
+
+def uploadable_document_types(documents: list[contracts.StaffLegalDocument]) -> list[str]:
+    """The document types an organization has no document of yet, since it can hold one of each."""
+    taken = {document.document_type for document in documents}
+    return [document_type.value for document_type in DocumentType if document_type.value not in taken]
+
+
+def upload_signed_document_as_staff(upload: contracts.StaffSignedDocumentUpload, pdf: IO[bytes]) -> StaffUploadOutcome:
+    try:
+        document = logic.create_signed_document_from_upload(
+            organization_id=upload.organization_id,
+            created_by_id=upload.created_by_id,
+            document_type=upload.document_type,
+            company_name=upload.company_name,
+            company_address=upload.company_address,
+            representative_email=upload.representative_email,
+            pdf=pdf,
+        )
+    except IntegrityError:
+        return StaffUploadOutcome.ALREADY_EXISTS
+    except logic.SignedPdfUploadFailed:
+        return StaffUploadOutcome.STORAGE_FAILED
+    # A signed BAA turns AI processing and AI training off, the same as one signed through PandaDoc.
+    logic.apply_baa_signed_side_effects(document)
+    return StaffUploadOutcome.STORED
+
+
+def delete_as_staff(document_id: UUID, organization_id: UUID) -> bool:
+    """
+    Staff delete, including signed documents, which the self-serve delete refuses.
+    The PandaDoc void and the PDF cleanup are best effort here, so a PandaDoc
+    outage cannot block staff. Returns False when the document does not exist.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return False
+    logic.delete_document(document)
+    return True
+
+
 def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.LegalDocumentDTO:
     document = logic.create_document(
         organization_id=data.organization_id,
@@ -185,69 +314,9 @@ def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.Legal
     return _to_dto(document)
 
 
-def mark_envelope_ready_by_pandadoc_document_id(
-    *,
-    pandadoc_document_id: str,
-    template_id: str,
-) -> contracts.LegalDocumentDTO | None:
-    """
-    Entry point from the PandaDoc `document.draft` webhook — the envelope
-    finished template processing and is ready to send. Dispatch the signing
-    email.
-
-    Idempotent: if the envelope has already been dispatched (row is already
-    signed, or the send call fails because PandaDoc has moved past draft)
-    we quietly skip.
-    """
-    document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
-    if document is None:
-        return None
-    if not logic.template_id_matches_document(document, template_id):
-        return None
-    if document.status == LegalDocumentStatus.SIGNED:
-        # Envelope already completed — the draft event is a late/replayed
-        # delivery; nothing left for us to do.
-        return _to_dto(document)
-    logic.send_pandadoc_envelope(document)
-    return _to_dto(document)
-
-
-def mark_signed_by_pandadoc_document_id(
-    *,
-    pandadoc_document_id: str,
-    template_id: str,
-) -> contracts.LegalDocumentDTO | None:
-    """
-    Entry point from the PandaDoc `document.completed` webhook. The caller must
-    have already verified the HMAC signature on the raw body; this function:
-
-    - Looks up the row by the PandaDoc document uuid (no IDOR surface: unknown ids 404).
-    - Double-checks the template matches the stored document variant, to guard
-      against misconfigured PandaDoc templates flipping the wrong row.
-    - Flips status to signed, fires analytics and BAA side effects, and schedules
-      the signed-PDF archive as a retried background job.
-
-    The signature is recorded as soon as the webhook lands — it is never gated
-    on the PDF archival, which used to leave the row stuck when a download or
-    upload failed. Idempotent: an already-signed row returns its DTO without
-    re-firing side effects.
-    """
-    document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
-    if document is None:
-        return None
-    if not logic.template_id_matches_document(document, template_id):
-        return None
-    if document.status == LegalDocumentStatus.SIGNED:
-        return _to_dto(document)
-    return _to_dto(_mark_signed_and_schedule_archive(document))
-
-
-def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
-    document = logic.mark_document_signed(document)
-    logic.apply_baa_signed_side_effects(document)
-    logic.fire_legal_document_signed_event(document)
-    _schedule_pdf_archive(document)
-    return document
+def accept_pandadoc_event(delivery: WebhookDelivery) -> None:
+    """The inbound PandaDoc webhook enters legal_documents here, so its consumer needs no internal import."""
+    webhooks.accept_pandadoc_event(delivery)
 
 
 def _try_mark_signed_and_schedule_archive(
@@ -264,18 +333,8 @@ def _try_mark_signed_and_schedule_archive(
         return False
     logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document, capture=capture)
-    _schedule_pdf_archive(document, delay_seconds=delay_seconds)
+    logic.schedule_pdf_archive(document, delay_seconds=delay_seconds)
     return True
-
-
-def _schedule_pdf_archive(document: LegalDocument, delay_seconds: int = 0) -> None:
-    # Local import breaks the facade ⇄ tasks import cycle (tasks import the facade).
-    from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
-
-    document_id = str(document.id)
-    transaction.on_commit(
-        lambda: archive_signed_legal_document_pdf.apply_async(args=[document_id], countdown=delay_seconds)
-    )
 
 
 def archive_signed_pdf(document_id: UUID) -> None:
@@ -293,6 +352,37 @@ def archive_signed_pdf(document_id: UUID) -> None:
     logic.mark_signed_pdf_stored(document)
 
 
+def _time_since_touched(document: LegalDocument) -> timedelta:
+    # updated_at is nullable on the model.
+    return timezone.now() - (document.updated_at or document.created_at)
+
+
+def _recreate_lost_envelope(document: LegalDocument) -> bool:
+    """
+    PandaDoc no longer has the envelope for a row still out for signature, so
+    the customer can never be emailed from it. Confirms the envelope is truly
+    gone before superseding it, records that in error tracking, then creates a
+    fresh envelope from the row's own data.
+    """
+    if not logic.confirm_pandadoc_envelope_gone(document):
+        return False
+    lost_pandadoc_document_id = document.pandadoc_document_id
+    logger.warning(
+        "legal_document_pandadoc_envelope_lost",
+        document_id=str(document.id),
+        pandadoc_document_id=lost_pandadoc_document_id,
+    )
+    capture_exception(
+        Exception("PandaDoc envelope no longer exists for a legal document still out for signature"),
+        additional_properties={
+            "legal_document_id": str(document.id),
+            "pandadoc_document_id": lost_pandadoc_document_id,
+            "organization_id": str(document.organization_id),
+        },
+    )
+    return logic.retry_pandadoc_envelope(document)
+
+
 def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     """
     Safety net for the whole completion path. Polls PandaDoc for every row we
@@ -305,16 +395,19 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     Each row is processed independently: `list_pending_signature_documents` is
     ordered oldest-first, so one row that deterministically errors (a bad
     PandaDoc response, a DB hiccup) must not block every row behind it on every
-    15-minute tick.
+    15-minute tick. Also retries envelope creation for rows whose PandaDoc
+    envelope disappeared or was never created.
     """
     newly_signed = 0
     drafts_resent = 0
+    envelopes_recreated = 0
     errors = 0
     pending_seen = 0
     # PandaDoc allows 100 downloads a minute across the whole account, shared with
     # live signings. Staggering one archive per second keeps a backlog drain from
     # starving a customer signing right now, and holds regardless of worker count.
     scheduled_archives = 0
+    recreate_attempts = 0
     signed_this_run: set[UUID] = set()
     # One scoped client for the whole loop, not one per row: this runs in a Celery
     # worker, where the global client's background flush may never run before the
@@ -334,12 +427,23 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
                         signed_this_run.add(document.id)
                 elif (
                     pandadoc_status == logic.PANDADOC_DRAFT_STATUS
-                    and timezone.now() - document.created_at >= logic.RECONCILE_DRAFT_MIN_AGE
+                    and _time_since_touched(document) >= logic.RECONCILE_DRAFT_MIN_AGE
                 ):
                     if logic.send_pandadoc_envelope(document):
                         drafts_resent += 1
                     else:
                         errors += 1
+                elif (
+                    pandadoc_status == logic.PANDADOC_ENVELOPE_MISSING
+                    and _time_since_touched(document) >= logic.RECONCILE_RECREATE_MIN_AGE
+                    and recreate_attempts < logic.RECONCILE_MAX_RECREATES_PER_RUN
+                ):
+                    if logic.claim_pandadoc_envelope_retry(document):
+                        recreate_attempts += 1
+                        if _recreate_lost_envelope(document):
+                            envelopes_recreated += 1
+                        else:
+                            errors += 1
             except Exception as exc:
                 errors += 1
                 logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
@@ -355,12 +459,35 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             cap=logic.RECONCILE_MAX_PER_RUN,
         )
 
+    for document in logic.list_pending_documents_missing_envelope():
+        if recreate_attempts >= logic.RECONCILE_MAX_RECREATES_PER_RUN:
+            logger.warning(
+                "legal_document_reconcile_recreate_cap_reached",
+                attempted=recreate_attempts,
+                cap=logic.RECONCILE_MAX_RECREATES_PER_RUN,
+            )
+            break
+        if _time_since_touched(document) < logic.RECONCILE_RECREATE_MIN_AGE:
+            continue
+        try:
+            if not logic.claim_pandadoc_envelope_retry(document):
+                continue
+            recreate_attempts += 1
+            if logic.retry_pandadoc_envelope(document):
+                envelopes_recreated += 1
+            else:
+                errors += 1
+        except Exception as exc:
+            errors += 1
+            logger.exception("legal_document_reconcile_missing_envelope_row_failed", document_id=str(document.id))
+            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+
     # Rows this run just signed and already scheduled an archive for above.
     # excluding them here is what keeps the archive from being `.delay()`'d twice.
     archives_requeued = 0
     for document in logic.list_signed_documents_missing_pdf(exclude_ids=signed_this_run):
         try:
-            _schedule_pdf_archive(document, delay_seconds=scheduled_archives)
+            logic.schedule_pdf_archive(document, delay_seconds=scheduled_archives)
             archives_requeued += 1
             scheduled_archives += 1
         except Exception as exc:
@@ -372,5 +499,6 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
         newly_signed=newly_signed,
         archives_requeued=archives_requeued,
         drafts_resent=drafts_resent,
+        envelopes_recreated=envelopes_recreated,
         errors=errors,
     )

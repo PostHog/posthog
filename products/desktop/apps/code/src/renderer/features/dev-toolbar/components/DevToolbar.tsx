@@ -18,6 +18,7 @@ import {
   useCurrentUser,
 } from "@posthog/ui/features/auth/authQueries";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
+import { useClearGithubUserIntegrations } from "@posthog/ui/features/integrations/useClearGithubUserIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -43,10 +44,12 @@ import {
   Cpu,
   FileText,
   FolderOpen,
+  GitBranch,
   Globe,
   LayoutGrid,
   MemoryStick,
   Moon,
+  MousePointerClick,
   Power,
   Radar,
   RefreshCw,
@@ -92,6 +95,10 @@ export function DevToolbar() {
   const setReactScanEnabledState = useDevFlagsStore(
     (s) => s.setReactScanEnabled,
   );
+  const reactGrabEnabled = useDevFlagsStore((s) => s.reactGrabEnabled);
+  const setReactGrabEnabledState = useDevFlagsStore(
+    (s) => s.setReactGrabEnabled,
+  );
 
   const [openPanel, setOpenPanel] = useState<DetailPanel>(null);
   const [panelHeight, setPanelHeight] = useState(480);
@@ -130,6 +137,10 @@ export function DevToolbar() {
             reactScanEnabled={reactScanEnabled}
             onToggleReactScan={() =>
               setReactScanEnabledState(!reactScanEnabled)
+            }
+            reactGrabEnabled={reactGrabEnabled}
+            onToggleReactGrab={() =>
+              setReactGrabEnabledState(!reactGrabEnabled)
             }
             onToggleRouterDevtools={toggleRouterDevtools}
           />
@@ -352,6 +363,7 @@ function UserMenu() {
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client, enabled: isAuthenticated });
   const logoutMutation = useLogoutMutation();
+  const clearGithubIntegration = useClearGithubUserIntegrations();
 
   const handleResetOnboarding = () => {
     useOnboardingStore.getState().resetOnboarding();
@@ -418,6 +430,13 @@ function UserMenu() {
             <RotateCcw size={12} className="mr-2 text-muted-foreground" />
             Reset product tours
           </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={clearGithubIntegration.isPending}
+            onClick={() => clearGithubIntegration.mutate()}
+          >
+            <GitBranch size={12} className="mr-2 text-muted-foreground" />
+            Clear GitHub integration
+          </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
@@ -447,12 +466,16 @@ function UserMenu() {
 interface DevGadgetsProps {
   reactScanEnabled: boolean;
   onToggleReactScan: () => void;
+  reactGrabEnabled: boolean;
+  onToggleReactGrab: () => void;
   onToggleRouterDevtools: () => void;
 }
 
 function DevGadgets({
   reactScanEnabled,
   onToggleReactScan,
+  reactGrabEnabled,
+  onToggleReactGrab,
   onToggleRouterDevtools,
 }: DevGadgetsProps) {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
@@ -473,6 +496,13 @@ function DevGadgets({
         active={reactScanEnabled}
       >
         <Radar size={14} />
+      </GadgetButton>
+      <GadgetButton
+        label={reactGrabEnabled ? "Disable react-grab" : "Enable react-grab"}
+        onClick={onToggleReactGrab}
+        active={reactGrabEnabled}
+      >
+        <MousePointerClick size={14} />
       </GadgetButton>
       {/* Router devtools are DEV-only — the overlay's code is stripped from
           prod builds, so the trigger must be too. */}

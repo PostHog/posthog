@@ -15,6 +15,8 @@ export {
     getMarkdownNotebookComponentDefaultProps,
     mergeMarkdownNotebookRegistries,
 } from './registry'
+export { NotebookComponentRunHandlerContext, usePublishNotebookComponentRunHandler } from './componentRunHandlers'
+export type { NotebookComponentRunHandler } from './componentRunHandlers'
 export { NotebookComponentRunStatusContext } from './componentRunStatus'
 export type { NotebookComponentRunStatus, NotebookComponentRunStatusResolver } from './componentRunStatus'
 export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNodes } from './markdown'

@@ -20,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -53,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -88,6 +88,7 @@ class TestReplayScanner(BaseTest):
             ("sampling_rate", 0.25),
             ("model", ScannerModel.GEMINI_3_5_FLASH_LITE),
             ("emits_signals", True),
+            ("scope", {"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]}),
         ]
     )
     def test_scanner_version_bumps_on_tracked_field_change(self, field: str, new_value) -> None:
@@ -95,6 +96,45 @@ class TestReplayScanner(BaseTest):
         setattr(scanner, field, new_value)
         scanner.save()
         self.assertEqual(scanner.scanner_version, 2)
+
+    @parameterized.expand(
+        [
+            ("scope_change_stales", {"prompt": "p", "experiment_id": 42, "variants": ["test"]}, True),
+            ("prompt_only_change_keeps", {"prompt": "sharper", "experiment_id": 42}, False),
+        ]
+    )
+    def test_experiment_config_edits_stale_the_estimate_only_on_scope_change(
+        self, _label: str, new_config: dict, expect_stale: bool
+    ) -> None:
+        # The experiment type's volume is set by experiment_id/variants inside scanner_config, so
+        # only a scope change may reset the estimate; a prompt edit must not discard it.
+        scanner = self._create_scanner(
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": 42},
+        )
+        stamped = timezone.now()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(estimated_monthly_observations=100, estimated_at=stamped)
+        scanner.refresh_from_db()
+
+        scanner.scanner_config = new_config
+        scanner.save()
+        scanner.refresh_from_db()
+
+        self.assertEqual(scanner.scanner_version, 2)
+        self.assertEqual(scanner.estimated_at is None, expect_stale)
+
+    def test_scope_change_stales_the_estimate(self) -> None:
+        scanner = self._create_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=100, estimated_at=timezone.now()
+        )
+        scanner.refresh_from_db()
+
+        scanner.scope = {"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]}
+        scanner.save()
+        scanner.refresh_from_db()
+
+        self.assertIsNone(scanner.estimated_at)
 
     def test_scanner_version_does_not_bump_on_metadata_change(self) -> None:
         scanner = self._create_scanner(name="original")
@@ -228,7 +268,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -295,7 +335,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -337,7 +377,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name=f"limit-scanner-{ReplayScanner.objects.count()}",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             **kwargs,
         )
 
@@ -351,7 +391,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name="limit-validator-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:
@@ -406,3 +446,17 @@ class TestTargetedRecordingsQuery(BaseTest):
         assert exposure is not None
         assert exposure.experiment_id == 42
         assert exposure.variant == "test"
+
+    def test_the_experiment_type_reads_its_scope_from_scanner_config(self) -> None:
+        # The experiment type carries no experiment_targeting column value; a sweep that kept
+        # reading only the column would scan the team's whole replay population.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": 42, "variants": ["control", "test"]},
+            query={"kind": "RecordingsQuery"},
+        )
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        assert exposure.experiment_id == 42
+        assert exposure.variants == ["control", "test"]

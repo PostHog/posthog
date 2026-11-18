@@ -1,7 +1,8 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
@@ -9,13 +10,23 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { Params } from 'scenes/sceneTypes'
+import { Params, Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { TodayMonitorRecent } from '~/layout/today/todayMonitor'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import { Breadcrumb } from '~/types'
+
+import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import {
     DEFAULT_ORDER_BY,
     DEFAULT_VIEW_MODE,
     logsViewerConfigLogic,
+    LogsViewerGroupBy,
     LogsViewerViewMode,
+    MAX_GROUP_BY_DIMENSIONS,
+    PatternsBaselineMode,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -35,10 +46,14 @@ import {
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { GROUPABLE_COLUMN_KEYS } from 'products/logs/frontend/components/LogsViewer/groupBySource'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { logsViewsRetrieve } from 'products/logs/frontend/generated/api'
+import { LogsGroupBySourceEnumApi, LogsViewApi } from 'products/logs/frontend/generated/api.schemas'
+import { DEFAULT_ANOMALIES_DATE_RANGE, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
-import type { LogMessage } from '../../../frontend/src/queries/schema/schema-general'
+import type { DateRange, LogMessage } from '../../../frontend/src/queries/schema/schema-general'
 import type { LogsOrderBy } from './types'
 
 export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
@@ -48,6 +63,50 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
+
+const VALID_BASELINE_MODES: PatternsBaselineMode[] = ['preceding', 'lastWeek']
+
+const VALID_GROUP_BY_SOURCES = Object.values(LogsGroupBySourceEnumApi)
+
+// A groupBys URL param is a JSON array of { key, source }. Returns null on any malformed shape so
+// a bad link leaves the live grouping alone rather than clearing it. Caps at the API's dimension
+// limit — the same guard the picker enforces — so a hand-edited URL can't build a combination the
+// endpoint would reject.
+const parseGroupBysParam = (raw: unknown): LogsViewerGroupBy[] | null => {
+    let value: unknown = raw
+    if (typeof value === 'string') {
+        try {
+            value = JSON.parse(value)
+        } catch {
+            return null
+        }
+    }
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const parsed: LogsViewerGroupBy[] = []
+    for (const entry of value) {
+        if (typeof entry !== 'object' || entry === null) {
+            return null
+        }
+        const { key, source } = entry as LogsViewerGroupBy
+        if (typeof key !== 'string' || key === '' || !VALID_GROUP_BY_SOURCES.includes(source)) {
+            return null
+        }
+        // A "column" dimension only groups by a top-level log field, so a link naming anything
+        // else there is a combination the endpoint rejects.
+        if (source === 'column' && !GROUPABLE_COLUMN_KEYS.has(key)) {
+            return null
+        }
+        // Duplicates are dropped rather than rejected, matching what addGroupBy does with a
+        // dimension already in the list.
+        if (parsed.some((d) => d.key === key && d.source === source)) {
+            continue
+        }
+        parsed.push({ key, source })
+    }
+    return parsed.slice(0, MAX_GROUP_BY_DIMENSIONS)
+}
 
 export type LogsSceneActiveTab =
     | 'viewer'
@@ -68,6 +127,44 @@ const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = [
 ]
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
+// pinned: URL search param. Pins and recents of saved views link with it.
+export const SAVED_VIEW_PARAM = 'savedView'
+
+const SAVED_VIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
+const SAVED_VIEW_FILTER_PARAMS = ['dateRange', 'filterGroup', 'searchTerm']
+
+/** The saved view a link opens, or the one the person loaded, so the shell can list it in Monitor. */
+export type LogsOpenSavedView = Pick<LogsViewApi, 'short_id' | 'name'>
+
+// The Anomalies tab needs its own two params. `dateRange` below is written from the viewer's
+// filters and `serviceNames` is deleted outright, so a shared name would let one tab reframe
+// the other tab's logs.
+const ANOMALIES_SERVICE_PARAM = 'anomaliesService'
+const ANOMALIES_DATE_RANGE_PARAM = 'anomaliesDateRange'
+
+const isDateRangeBound = (value: unknown): boolean => value === undefined || value === null || typeof value === 'string'
+
+// kea-router hands the param back as an object, but a hand-written link can carry the JSON string.
+// Anything that is not a pair of date bounds is dropped, so a stale or edited URL falls back to
+// the default window instead of reaching the picker and the series-bands request.
+const parseDateRangeParam = (raw: unknown): DateRange | null => {
+    let candidate: unknown = raw
+    if (typeof raw === 'string') {
+        try {
+            candidate = JSON.parse(raw)
+        } catch {
+            // Ignore malformed dateRange JSON in URL
+            return null
+        }
+    }
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        return null
+    }
+    const { date_from, date_to } = candidate as Record<string, unknown>
+    return isDateRangeBound(date_from) && isDateRangeBound(date_to) ? (candidate as DateRange) : null
+}
+
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
     if (typeof params.alertId === 'string' && params.alertId.length > 0) {
         return 'alerts'
@@ -81,6 +178,11 @@ const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null =
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface logsSceneLogicValues {
     facetNameSearch: string // facetRailLogic
+    anomaliesDateRange: DateRange // logsAnomaliesLogic
+    anomaliesService: string | null // logsAnomaliesLogic
+    baselineMode: PatternsBaselineMode // logsViewerConfigLogic
+    compareEnabled: boolean // logsViewerConfigLogic
+    groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
     initialLogsLimit: number | null // logsViewerDataLogic
@@ -91,8 +193,12 @@ export interface logsSceneLogicValues {
         explicitDate: boolean | null | undefined
     } // logsViewerFiltersLogic
     linkToLogId: string | null // logsViewerLogic
+    currentProjectId: number | string // teamLogic
     activeTab: LogsSceneActiveTab
+    breadcrumbs: Breadcrumb[]
     expandedAttributeBreaksdowns: string[]
+    openSavedView: LogsOpenSavedView | null
+    todayRecent: TodayMonitorRecent | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -103,9 +209,40 @@ export interface logsSceneLogicActions {
     closeLogDetails: () => {
         value: true
     } // logDetailsModalLogic
+    setAnomaliesDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
+    } // logsAnomaliesLogic
+    setAnomaliesService: (serviceName: string | null) => {
+        serviceName: string | null
+    } // logsAnomaliesLogic
     pushToFilterHistory: (filters: LogsViewerFilters) => {
         filters: LogsViewerFilters
     } // logsFilterHistoryLogic
+    addGroupBy: (groupBy: LogsViewerGroupBy) => {
+        groupBy: LogsViewerGroupBy
+    } // logsViewerConfigLogic
+    removeGroupByAt: (index: number) => {
+        index: number
+    } // logsViewerConfigLogic
+    replaceGroupByAt: (
+        index: number,
+        groupBy: LogsViewerGroupBy
+    ) => {
+        groupBy: LogsViewerGroupBy
+        index: number
+    } // logsViewerConfigLogic
+    setBaselineMode: (mode: PatternsBaselineMode) => {
+        mode: PatternsBaselineMode
+    } // logsViewerConfigLogic
+    setColumns: (columns: LogsColumnConfig[]) => {
+        columns: LogsColumnConfig[]
+    } // logsViewerConfigLogic
+    setCompareEnabled: (enabled: boolean) => {
+        enabled: boolean
+    } // logsViewerConfigLogic
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
+    } // logsViewerConfigLogic
     setOrderBy: (
         orderBy: LogsOrderBy,
         source?: 'header' | 'toolbar' | undefined
@@ -118,10 +255,10 @@ export interface logsSceneLogicActions {
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
         logs: LogMessage[],
-        payload?: any
+        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi | undefined
     ) => {
         logs: LogMessage[]
-        payload?: any
+        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi
     } // logsViewerDataLogic
     handleQueryChange: (
         filterType: string,
@@ -146,14 +283,31 @@ export interface logsSceneLogicActions {
     setLinkToLogId: (linkToLogId: string | null) => {
         linkToLogId: string | null
     } // logsViewerLogic
+    applySavedView: (
+        view: LogsViewApi,
+        keepFilters?: boolean
+    ) => {
+        keepFilters: boolean
+        view: LogsViewApi
+    }
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
+    }
+    openSavedViewById: (
+        shortId: string,
+        keepFilters?: boolean
+    ) => {
+        keepFilters: boolean
+        shortId: string
     }
     setActiveTab: (activeTab: LogsSceneActiveTab) => {
         activeTab: LogsSceneActiveTab
     }
     setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => {
         expandedAttributeBreaksdowns: string[]
+    }
+    setOpenSavedView: (view: LogsOpenSavedView | null) => {
+        view: LogsOpenSavedView | null
     }
     syncUrl: () => {
         value: true
@@ -163,7 +317,20 @@ export interface logsSceneLogicActions {
     }
 }
 
-export type logsSceneLogicType = MakeLogicType<logsSceneLogicValues, logsSceneLogicActions>
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSceneLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        breadcrumbs: (openSavedView: LogsOpenSavedView | null) => Breadcrumb[]
+        todayRecent: (openSavedView: LogsOpenSavedView | null) => TodayMonitorRecent | null
+    }
+}
+
+export type logsSceneLogicType = MakeLogicType<
+    logsSceneLogicValues,
+    logsSceneLogicActions,
+    Record<string, any>,
+    logsSceneLogicMeta
+>
 
 export const logsSceneLogic = kea<logsSceneLogicType>([
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
@@ -174,7 +341,17 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['setOrderBy', 'setViewMode'],
+            [
+                'setOrderBy',
+                'setViewMode',
+                'setGroupBys',
+                'addGroupBy',
+                'removeGroupByAt',
+                'replaceGroupByAt',
+                'setCompareEnabled',
+                'setBaselineMode',
+                'setColumns',
+            ],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -183,21 +360,65 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['closeLogDetails'],
             facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setFacetNameSearch'],
+            logsAnomaliesLogic,
+            ['setServiceName as setAnomaliesService', 'setDateRange as setAnomaliesDateRange'],
         ],
         values: [
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['orderBy', 'viewMode'],
+            ['orderBy', 'viewMode', 'groupBys', 'compareEnabled', 'baselineMode'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
             facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['facetNameSearch'],
+            logsAnomaliesLogic,
+            ['serviceName as anomaliesService', 'dateRange as anomaliesDateRange'],
+            teamLogic,
+            ['currentProjectId'],
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
+        // An absent or unrecognised param turns compare off. Set the baseline first, so that
+        // turning compare on loads one diff, against the linked baseline.
+        const applyCompareParam = (raw: unknown): void => {
+            const baseline = VALID_BASELINE_MODES.find((mode) => mode === raw) ?? null
+            if (baseline && baseline !== values.baselineMode) {
+                actions.setBaselineMode(baseline)
+            }
+            if (!!baseline !== values.compareEnabled) {
+                actions.setCompareEnabled(!!baseline)
+            }
+        }
+
+        // The view's own link, opened again after its filters changed, restores them.
+        const restoreOpenedView = (savedView: string): void => {
+            const view: LogsViewApi | undefined = cache.openedView
+            const viewFilters = view?.short_id === savedView ? (view.filters ?? {}) : {}
+            if (view && SAVED_VIEW_FILTER_PARAMS.some((key) => viewFilters[key as keyof typeof viewFilters])) {
+                actions.applySavedView(view)
+            }
+        }
+
+        const applySavedViewParam = (params: Params): void => {
+            const raw = params[SAVED_VIEW_PARAM]
+            // The id goes into the API path, so anything but a short id is ignored rather than requested.
+            const savedView = typeof raw === 'string' && SAVED_VIEW_ID_PATTERN.test(raw) ? raw : null
+            // A link edited after the view opened carries its own filters, which win over the view's.
+            const linkHasFilters = SAVED_VIEW_FILTER_PARAMS.some((key) => params[key])
+            if (!savedView) {
+                if (values.openSavedView) {
+                    actions.setOpenSavedView(null)
+                }
+            } else if (savedView !== values.openSavedView?.short_id) {
+                actions.openSavedViewById(savedView, linkHasFilters)
+            } else if (!linkHasFilters) {
+                restoreOpenedView(savedView)
+            }
+        }
+
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -306,9 +527,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (viewMode !== values.viewMode) {
                 actions.setViewMode(viewMode)
             }
+            // Grouping dimensions travel in the URL so a Group-lens link opens on the same
+            // grouping. Absent param means no grouping (reset); a malformed one is left alone so
+            // a broken link can't silently drop a live grouping.
+            const groupBys = params.groupBys != null ? parseGroupBysParam(params.groupBys) : []
+            if (groupBys && !equal(groupBys, values.groupBys)) {
+                actions.setGroupBys(groupBys)
+            }
+            applyCompareParam(params.compare)
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
+
+            applySavedViewParam(params)
 
             const linkToLogId = params.linkToLogId as string | undefined
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
@@ -319,6 +550,25 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             const facetNameSearch = typeof params.facetNameSearch === 'string' ? params.facetNameSearch : ''
             if (facetNameSearch !== values.facetNameSearch) {
                 actions.setFacetNameSearch(facetNameSearch)
+            }
+
+            // The Anomalies params are read only while that tab is the one shown. Picking a
+            // service fetches its band charts, so an ungated read would fire that request from
+            // any URL change made on the viewer or the SQL tab. The tab resolved above is
+            // already applied, so this reads the tab the URL asked for.
+            if (values.activeTab === 'anomalies') {
+                // An absent window param means the default, not "leave the picker alone", so
+                // stepping back past the change that wrote it returns to the default week.
+                const anomaliesDateRange =
+                    parseDateRangeParam(params[ANOMALIES_DATE_RANGE_PARAM]) ?? DEFAULT_ANOMALIES_DATE_RANGE
+                if (!equal(anomaliesDateRange, values.anomaliesDateRange)) {
+                    actions.setAnomaliesDateRange(anomaliesDateRange)
+                }
+                const serviceParam = params[ANOMALIES_SERVICE_PARAM]
+                const anomaliesService = typeof serviceParam === 'string' && serviceParam ? serviceParam : null
+                if (anomaliesService !== values.anomaliesService) {
+                    actions.setAnomaliesService(anomaliesService)
+                }
             }
         }
         return {
@@ -396,10 +646,43 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        // The two params belong to the Anomalies tab, so they leave the URL with it. Written on
+        // the tab switch as well, because a bucket deep link drops them on the way to the viewer
+        // and the selection they describe is still there when the user comes back.
+        const writeAnomaliesParams = (params: Params): void => {
+            const onAnomaliesTab = values.activeTab === 'anomalies'
+            updateSearchParams(params, ANOMALIES_SERVICE_PARAM, onAnomaliesTab ? values.anomaliesService : null, null)
+            updateSearchParams(
+                params,
+                ANOMALIES_DATE_RANGE_PARAM,
+                onAnomaliesTab ? values.anomaliesDateRange : DEFAULT_ANOMALIES_DATE_RANGE,
+                DEFAULT_ANOMALIES_DATE_RANGE
+            )
+        }
+
+        const syncAnomalies = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    writeAnomaliesParams(params)
+                    return params
+                })
+            )
+        }
+
         const syncActiveTab = (): ReturnType<typeof syncSearchParams> => {
             return withUrlSyncGuard(() =>
                 syncSearchParams(router, (params: Params) => {
                     updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                    writeAnomaliesParams(params)
+                    return params
+                })
+            )
+        }
+
+        const syncSavedView = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, SAVED_VIEW_PARAM, values.openSavedView?.short_id ?? null, null)
                     return params
                 })
             )
@@ -409,6 +692,26 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             return withUrlSyncGuard(() =>
                 syncSearchParams(router, (params: Params) => {
                     updateSearchParams(params, 'viewMode', values.viewMode, DEFAULT_VIEW_MODE)
+                    return params
+                })
+            )
+        }
+
+        const syncCompare = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'compare', values.compareEnabled ? values.baselineMode : null, null)
+                    return params
+                })
+            )
+        }
+
+        const syncGroupBys = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    // Empty grouping is the default, so it drops the param instead of pinning an
+                    // empty array into every copied URL.
+                    updateSearchParams(params, 'groupBys', values.groupBys, [])
                     return params
                 })
             )
@@ -424,6 +727,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
             setViewMode: () => syncViewMode(),
+            setOpenSavedView: () => syncSavedView(),
+            setAnomaliesService: () => syncAnomalies(),
+            setAnomaliesDateRange: () => syncAnomalies(),
+            setGroupBys: () => syncGroupBys(),
+            addGroupBy: () => syncGroupBys(),
+            removeGroupByAt: () => syncGroupBys(),
+            replaceGroupByAt: () => syncGroupBys(),
+            setCompareEnabled: () => syncCompare(),
+            setBaselineMode: () => syncCompare(),
         }
     }),
 
@@ -433,6 +745,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
+        openSavedViewById: (shortId: string, keepFilters: boolean = false) => ({ shortId, keepFilters }),
+        applySavedView: (view: LogsViewApi, keepFilters: boolean = false) => ({ view, keepFilters }),
+        setOpenSavedView: (view: LogsOpenSavedView | null) => ({ view }),
     }),
 
     reducers({
@@ -447,6 +762,32 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             {
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
+        ],
+        openSavedView: [
+            null as LogsOpenSavedView | null,
+            {
+                setOpenSavedView: (_, { view }) => (view ? { short_id: view.short_id, name: view.name } : null),
+            },
+        ],
+    }),
+
+    selectors({
+        breadcrumbs: [
+            (s) => [s.openSavedView],
+            (openSavedView: LogsOpenSavedView | null): Breadcrumb[] =>
+                openSavedView
+                    ? [
+                          { key: Scene.Logs, name: 'Logs', path: urls.logs(), iconType: 'logs' },
+                          { key: [Scene.Logs, openSavedView.short_id], name: openSavedView.name, iconType: 'logs' },
+                      ]
+                    : [{ key: Scene.Logs, name: 'Logs', iconType: 'logs' }],
+        ],
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.openSavedView],
+            (openSavedView: LogsOpenSavedView | null): TodayMonitorRecent | null =>
+                openSavedView
+                    ? { type: 'logs_view', name: openSavedView.name, href: urls.logsSavedView(openSavedView.short_id) }
+                    : null,
         ],
     }),
 
@@ -466,6 +807,28 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         },
         setFacetNameSearch: () => {
             actions.syncUrl()
+        },
+        openSavedViewById: async ({ shortId, keepFilters }, breakpoint) => {
+            let view: LogsViewApi
+            try {
+                view = await logsViewsRetrieve(String(values.currentProjectId), shortId)
+            } catch {
+                lemonToast.error('Couldn’t open the saved view. It may have been deleted.')
+                return
+            }
+            // A link opened while this one loaded wins, so a slower earlier response is dropped.
+            breakpoint()
+            actions.applySavedView(view, keepFilters)
+        },
+        applySavedView: ({ view, keepFilters }) => {
+            cache.openedView = view
+            // A null `columns` means the view has no column preference, so it opens with the default set.
+            actions.setColumns(view.columns ?? DEFAULT_LOGS_COLUMNS)
+            if (!keepFilters) {
+                actions.setFilters(view.filters || {})
+            }
+            actions.setActiveTab(DEFAULT_ACTIVE_TAB)
+            actions.setOpenSavedView(view)
         },
         keepSqlEditorMounted: ({ editorTabId }) => {
             if (cache.sqlEditorTabId === editorTabId) {

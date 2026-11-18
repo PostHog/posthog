@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import type { ReactNode } from 'react'
 
-import { IconCalendar, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
+import { IconCalendar, IconDatabase, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -16,12 +16,10 @@ import {
 
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { LemonCollapsePanel } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
@@ -160,6 +158,7 @@ const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> =
     'daily-digest': <IconCalendar />,
     'costly-users': <IconUser />,
     'error-patterns': <IconWarning />,
+    'cache-optimization': <IconDatabase />,
 }
 
 /**
@@ -213,7 +212,6 @@ function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplat
 }
 
 export function AIObservabilitySelfDriving(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { scoutConfigs, scoutConfigsLoading, updatingScoutIds } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
     const { evaluations, evaluationsLoadFailed, evaluationsLoading } = useValues(llmEvaluationsLogic)
@@ -499,12 +497,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         >
                                             Create an eval
                                         </LemonButton>
-                                        {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI] ? (
-                                            <MCPUseCaseCard
-                                                surfaceKey="ai_observability_evaluations.create"
-                                                className="!mt-1 w-full max-w-2xl"
-                                            />
-                                        ) : null}
+                                        <MCPUseCaseCard
+                                            surfaceKey="ai_observability_evaluations.create"
+                                            className="!mt-1 w-full max-w-2xl"
+                                        />
                                     </LemonCard>
                                 ) : (
                                     <LemonTable

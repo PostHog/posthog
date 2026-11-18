@@ -21,7 +21,7 @@ ROLLBAR_CONFIG = SignalSourceTableConfig(
         extra_fields=("level", "status", "environment", "framework", "last_occurrence_timestamp"),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="fromUnixTimestamp(toUInt32(first_occurrence_timestamp))",
+    partition_field="fromUnixTimestamp(toInt(first_occurrence_timestamp))",
     fields=ROLLBAR_FIELDS,
     where_clause="status != 'resolved'",
     max_records=500,

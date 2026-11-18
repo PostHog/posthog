@@ -1,5 +1,14 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import {
+  type BrowserTabDestination,
+  focusOrOpenBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import {
   navigateToChannelDashboard,
@@ -10,6 +19,18 @@ import { useCallback, useEffect } from "react";
 
 const log = logger.scope("open-target-deep-link");
 
+function targetDestination(target: NotificationTarget): BrowserTabDestination {
+  switch (target.kind) {
+    case "task":
+      return { href: `/tasks/${target.taskId}`, taskId: target.taskId };
+    case "canvas":
+      return {
+        href: `/spaces/${target.channelId}/dashboards/${target.dashboardId}`,
+        dashboardId: target.dashboardId,
+      };
+  }
+}
+
 /**
  * Consumes generic "open this target" intents emitted when a native
  * notification is clicked (any tier, any producer) and navigates by target
@@ -17,21 +38,29 @@ const log = logger.scope("open-target-deep-link");
  */
 export function useOpenTargetDeepLink() {
   const client = useHostTRPCClient();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const handleOpenTask = useHandleOpenTask();
 
   const handleTarget = useCallback(
     (target: NotificationTarget) => {
       log.info("Opening notification target", { kind: target.kind });
+
       switch (target.kind) {
         case "task":
-          handleOpenTask(target.taskId, target.taskRunId);
+          void handleOpenTask(target.taskId, target.taskRunId);
           break;
         case "canvas":
-          navigateToChannelDashboard(target.channelId, target.dashboardId);
+          void focusOrOpenBrowserTab(
+            tabsClient,
+            targetDestination(target),
+          ).then((handled) => {
+            if (handled) return;
+            navigateToChannelDashboard(target.channelId, target.dashboardId);
+          });
           break;
       }
     },
-    [handleOpenTask],
+    [handleOpenTask, tabsClient],
   );
 
   // Expose the same channel-aware routing to imperative, non-React callers (the

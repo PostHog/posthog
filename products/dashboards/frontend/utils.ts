@@ -1,4 +1,4 @@
-import type { DashboardTile, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedPatchedDashboardOpenApiApi } from './generated/api.schemas'
@@ -31,12 +31,12 @@ export async function updateDashboardWidgetTile({
 }: {
     teamId: number
     dashboardId: number
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile: DashboardTile
     config?: Record<string, unknown>
     name?: string | null
     description?: string
     showDescription?: boolean
-}): Promise<DashboardTile<QueryBasedInsightModel>> {
+}): Promise<DashboardTile> {
     if (!tile.widget) {
         throw new Error('Tile has no widget')
     }
@@ -73,7 +73,7 @@ export async function updateDashboardWidgetTile({
         if (!updatedTile) {
             throw new Error('Updated tile not found in dashboard response')
         }
-        return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
+        return updatedTile as unknown as DashboardTile
     } catch (error) {
         if (config !== undefined) {
             const fieldErrors = parseDashboardWidgetConfigApiError(tile.widget.widget_type, error, config)

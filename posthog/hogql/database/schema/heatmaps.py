@@ -37,10 +37,14 @@ class HeatmapsTable(Table):
             name="scale_factor", nullable=False, description="Grid resolution applied to `x`/`y` coordinates."
         ),
         "viewport_width": IntegerDatabaseField(
-            name="viewport_width", nullable=False, description="Browser viewport width at capture time, in pixels."
+            name="viewport_width",
+            nullable=False,
+            description="Viewport width at capture time, stored scaled down like `x`; multiply by `scale_factor` for CSS pixels.",
         ),
         "viewport_height": IntegerDatabaseField(
-            name="viewport_height", nullable=False, description="Browser viewport height at capture time, in pixels."
+            name="viewport_height",
+            nullable=False,
+            description="Viewport height at capture time, stored scaled down like `y`; multiply by `scale_factor` for CSS pixels.",
         ),
         "pointer_target_fixed": BooleanDatabaseField(
             name="pointer_target_fixed",

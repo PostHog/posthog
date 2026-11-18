@@ -373,7 +373,18 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()
@@ -796,7 +807,18 @@ export const ActionsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()
@@ -1221,7 +1243,18 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()
@@ -1301,6 +1334,10 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const actionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const actionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const actionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const ActionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -1312,5 +1349,8 @@ export const ActionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(actionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(actionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })

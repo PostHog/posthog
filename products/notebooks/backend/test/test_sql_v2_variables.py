@@ -1,5 +1,4 @@
 import time
-from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
 
@@ -9,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from products.notebooks.backend.sql_v2_references import SQLV2Ref, resolve_sql_node_run
+from products.notebooks.backend.sql_v2_serializers import MAX_VARIABLE_VALUE_CHARS, NotebookVariableSerializer
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
@@ -19,7 +19,6 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_hogql_variables,
 )
 
-UTC = ZoneInfo("UTC")
 COUNTRY = NotebookVariable(name="country", value="US")
 DAYS = NotebookVariable(name="lookback_days", value=30)
 
@@ -171,13 +170,12 @@ class TestBuildNotebookVariables(SimpleTestCase):
         ]
     )
     def test_coerces_by_type(self, _name: str, variable_type: str, value: object, expected: object) -> None:
-        built = build_notebook_variables([{"name": "v", "type": variable_type, "value": value}], UTC)
+        built = build_notebook_variables([{"name": "v", "type": variable_type, "value": value}])
         self.assertEqual(built[0].value, expected)
 
-    def test_a_relative_date_resolves_to_a_datetime(self):
-        built = build_notebook_variables([{"name": "since", "type": "date", "value": "-7d"}], UTC)
-        self.assertIsNotNone(built[0].value)
-        self.assertNotEqual(built[0].value, "-7d")
+    def test_a_date_stays_the_iso_string_it_was_declared_as(self):
+        built = build_notebook_variables([{"name": "since", "type": "date", "value": " 2026-08-20 "}])
+        self.assertEqual(built[0].value, "2026-08-20")
 
     def test_duplicates_keep_the_first_declaration(self):
         # Matches the editor, which flags the second one as invalid rather than shadowing.
@@ -186,7 +184,6 @@ class TestBuildNotebookVariables(SimpleTestCase):
                 {"name": "country", "type": "string", "value": "US"},
                 {"name": "country", "type": "string", "value": "DE"},
             ],
-            UTC,
         )
         self.assertEqual([(variable.name, variable.value) for variable in built], [("country", "US")])
 
@@ -197,20 +194,18 @@ class TestBuildNotebookVariables(SimpleTestCase):
                 {"name": "filters", "type": "string", "value": "x"},
                 {"name": "ok", "type": "string", "value": "x"},
             ],
-            UTC,
         )
         self.assertEqual([variable.name for variable in built], ["ok"])
 
 
 class TestPythonVariableBindings(SimpleTestCase):
-    def test_scalars_pass_through_and_dates_become_iso_strings(self):
+    def test_scalars_and_dates_pass_through(self):
         built = build_notebook_variables(
             [
                 {"name": "country", "type": "string", "value": "US"},
                 {"name": "days", "type": "number", "value": 30},
                 {"name": "since", "type": "date", "value": "-7d"},
             ],
-            UTC,
         )
         bindings = python_variable_bindings(built)
         self.assertEqual(bindings["country"], "US")
@@ -269,3 +264,24 @@ class TestRejectVariablesInRawQuery(SimpleTestCase):
     )
     def test_leaves_a_query_alone(self, _name: str, code: str) -> None:
         reject_variables_in_raw_query(code, [COUNTRY])
+
+
+class TestNotebookVariableSerializerValue(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dict", {"a": "b"}),
+            ("list", ["a"]),
+            ("nested", {"a": [{"b": 1}]}),
+            ("long_string", "x" * (MAX_VARIABLE_VALUE_CHARS + 1)),
+            ("long_number", int("9" * (MAX_VARIABLE_VALUE_CHARS + 1))),
+        ]
+    )
+    def test_rejects_a_value_the_engine_cannot_bind(self, _name: str, value: object) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "v", "type": "string", "value": value})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("value", serializer.errors)
+
+    @parameterized.expand([("string", "US"), ("number", 30), ("boolean", True), ("null", None)])
+    def test_accepts_a_scalar(self, _name: str, value: object) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "v", "type": "string", "value": value})
+        self.assertTrue(serializer.is_valid(), serializer.errors)

@@ -23,6 +23,14 @@ const mockRecap = webAnalyticsRecap as jest.Mock
 
 function makeRecap(overrides: Partial<WebAnalyticsRecapResponseApi> = {}): WebAnalyticsRecapResponseApi {
     return {
+        metadata: {
+            data_status: 'ok',
+            date_from: '2025-01-22T00:00:00Z',
+            date_to: '2025-01-29T00:00:00Z',
+            timezone: 'UTC',
+            filter_test_accounts: true,
+            notes: [],
+        },
         visitors: { current: 100, previous: 80, change: null },
         pageviews: { current: 200, previous: 150, change: null },
         sessions: { current: 90, previous: 70, change: null },
@@ -89,6 +97,23 @@ describe('webAnalyticsRecapLogic', () => {
                 visitors: 100,
             })
         )
+    })
+
+    it('keeps a failed load distinct from an empty recap until a retry succeeds', async () => {
+        mockRecap.mockRejectedValueOnce(new Error('Query timed out'))
+        logic = webAnalyticsRecapLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['markRecapLoadFailed', 'loadRecapSuccess'])
+            .toMatchValues({ recap: null, recapLoadFailed: true, recapLoading: false })
+
+        mockRecap.mockResolvedValue(makeRecap())
+        logic.actions.loadRecap()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecap', 'loadRecapSuccess'])
+            .toMatchValues({ recapLoadFailed: false, recap: expect.objectContaining({ project_name: 'Test' }) })
     })
 
     it('copies the recap link and records the share', async () => {

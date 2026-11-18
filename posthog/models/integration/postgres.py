@@ -2,9 +2,19 @@
 
 from typing import ClassVar, Literal, NamedTuple
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
+from posthog.psycopg_helpers import has_ipv6_route
+from posthog.security.postgres_hosts import ipv6_only_host_message
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ShapeError,
+    resolve_host_ips,
+    validate_external_host,
+)
 
-from . import common, model
+from . import common, model, row_writes
 
 
 class Credentials(NamedTuple):
@@ -59,14 +69,14 @@ class PostgreSQLServerIntegration:
     integration: model.Integration
     integration_kind: ClassVar[_PostgreSQLServerKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected PostgreSQL server integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_config(
@@ -74,14 +84,18 @@ class PostgreSQLServerIntegration:
         team_id: int,
         created_by: User | None = None,
         **config,
-    ) -> model.Integration:
-        from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
-
+    ) -> IntegrationRecord:
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
-            resolve_and_validate_host(host)
+            validate_external_host(host)
+        except ShapeError:
+            raise common.IntegrationError(INVALID_HOST_MESSAGE)
         except ValueError:
-            raise common.IntegrationError(f"Provided host '{host}' is not valid")
+            raise common.IntegrationError(UNREACHABLE_HOST_MESSAGE)
+
+        resolved_ips = resolve_host_ips(host)
+        if resolved_ips and all(ip.version == 6 for ip in resolved_ips) and not has_ipv6_route():
+            raise common.IntegrationError(ipv6_only_host_message(host))
 
         port = config.get("port", None)
         try:
@@ -109,6 +123,14 @@ class PostgreSQLServerIntegration:
         if ssl_mode not in ("require", "verify-ca", "verify-full"):
             raise common.IntegrationError("SSL mode must be one of: require, verify-ca, verify-full")
 
+        # Optional, and display only. It stays out of `integration_id` so that two connections to
+        # the same server under different names stay one integration.
+        name = config.get("name", None)
+        if name is not None:
+            if not isinstance(name, str):
+                raise common.IntegrationError("Name must be a string")
+            name = name.strip() or None
+
         ssl_root_cert = config.get("ssl_root_cert", None)
         if ssl_mode in ("verify-ca", "verify-full"):
             if not ssl_root_cert:
@@ -118,28 +140,30 @@ class PostgreSQLServerIntegration:
             if not isinstance(ssl_root_cert, str):
                 raise common.IntegrationError("SSL root certificate must be a string")
 
-        integration, _ = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=cls.integration_kind,
-            integration_id=f"{team_id}-{host}-{port}-{user}",
-            defaults={
-                "config": {
-                    "host": host,
-                    "port": port,
-                    "user": user,
-                    "ssl_mode": ssl_mode,
-                    "ssl_root_cert": ssl_root_cert,
-                },
-                "sensitive_config": {
-                    "password": password,
-                },
-                "created_by": created_by,
-            },
-        )
+        integration_id = f"{team_id}-{host}-{port}-{user}"
 
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
+        if name is None:
+            # `upsert` replaces the whole config, so a reconnect that omits the name
+            # would otherwise drop the one the user already chose.
+            existing = row_writes.creator_accessor(cls.integration_kind).find(team_id, external_id=integration_id)
+            name = existing.config.get("name") if existing else None
+
+        integration, _ = row_writes.creator_accessor(cls.integration_kind).upsert(
+            team_id,
+            integration_id,
+            config={
+                "host": host,
+                "port": port,
+                "user": user,
+                "ssl_mode": ssl_mode,
+                "ssl_root_cert": ssl_root_cert,
+                **({"name": name} if name else {}),
+            },
+            sensitive_config={
+                "password": password,
+            },
+            created_by_id=created_by.id if created_by else None,
+        )
 
         return integration
 

@@ -1,5 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -19,7 +20,7 @@ from posthog.hogql.parser import (
 )
 
 
-class TestParserCache(BaseTest):
+class TestParserCache(SimpleTestCase):
     def setUp(self):
         super().setUp()
         clear_parse_caches()

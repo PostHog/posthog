@@ -9,10 +9,10 @@ import Logo from "@posthog/ui/primitives/Logo";
 export function ProductWordmark() {
   return (
     <div className="flex items-center gap-2">
-      <span className="flex [&>svg]:h-[26px] [&>svg]:w-auto">
+      <span className="flex [&>svg]:h-[18px] [&>svg]:w-auto">
         <Logo wordmark={false} />
       </span>
-      <Text className="font-bold text-(--gray-12) text-[25px] leading-none tracking-[-0.05em]">
+      <Text className="font-bold text-foreground text-md leading-none tracking-[-0.05em]">
         PostHog Desktop
       </Text>
     </div>

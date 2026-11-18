@@ -1,8 +1,6 @@
-// A run's jobs with matrix shards rolled up (lib/jobGroups, the same rule as the backend's SQL
-// de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only —
-// links inside rows must stay clickable.
+// Groups expand through the caret only, because links inside rows must stay clickable.
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -48,7 +46,6 @@ function groupSpan(group: WorkflowJobGroup): GroupSpan {
     }
 }
 
-/** Earliest-start → latest-finish envelope of the group's shards on the run's shared time axis. */
 function TimingEnvelope({
     span,
     conclusion,
@@ -133,14 +130,11 @@ function resultTag(group: WorkflowJobGroup): JSX.Element {
             </LemonTag>
         )
     }
-    // The shared conclusion→tag convention; RunConclusionTag renders null as Running.
+    // RunConclusionTag renders null as Running.
     return <RunConclusionTag conclusion={group.conclusion === 'running' ? null : group.conclusion} />
 }
 
-/**
- * Grouped jobs of one workflow-run attempt. ``jobs == null`` is the not-loaded state; ``[]`` means the
- * job-level source isn't synced for this team (mirrors RunJobsTable's contract).
- */
+/** `jobs == null` is the not-loaded state. `[]` means the job-level source isn't synced for this team. */
 export function GroupedJobsTable({
     jobs,
     loading,
@@ -151,7 +145,13 @@ export function GroupedJobsTable({
     embedded?: boolean
 }): JSX.Element {
     if (jobs == null) {
-        return <div className="px-3 py-2 text-xs text-secondary">{loading ? 'Loading jobs…' : 'No job data yet.'}</div>
+        return loading ? (
+            <div className="flex flex-col gap-2 px-3 py-2">
+                <LemonSkeleton className="h-4 w-full" repeat={3} />
+            </div>
+        ) : (
+            <div className="px-3 py-2 text-xs text-secondary">No job data yet.</div>
+        )
     }
     if (jobs.length === 0) {
         return (
@@ -181,7 +181,6 @@ export function GroupedJobsTable({
             useURLForSorting={false}
             expandable={{
                 noIndent: true,
-                // Only matrix groups expand, straight to their individual shards.
                 rowExpandable: (group) => group.jobs.length > 1,
                 expandedRowRender: (group) => (
                     <div className="px-3 py-2">
@@ -266,7 +265,6 @@ export function GroupedJobsTable({
                     render: (_, group) => resultTag(group),
                 },
             ]}
-            emptyState="No jobs."
             nouns={['job group', 'job groups']}
         />
     )

@@ -1,13 +1,15 @@
 import logging
 from typing import TypeVar, cast
 
+import openai
 import pydantic
 from anthropic import APIError
 from anthropic.types import OutputConfigParam
+from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
 from pydantic import BaseModel
 from temporalio.exceptions import ApplicationError
 
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.llm.gateway_client import build_async_anthropic_client, build_async_openai_client, team_trace_id
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
 
@@ -24,6 +26,17 @@ _MAX_OUTPUT_TOKENS = 64_000
 _TIMEOUT_SECONDS = 600.0
 # HTTP statuses that are client errors yet still worth a Temporal retry.
 _RETRYABLE_CLIENT_STATUSES = (408, 409, 429)
+
+
+def _compact_api_error(step_name: str, error: Exception) -> ApplicationError:
+    """A raw API error chain is too large for Temporal's failure serialization, so it travels compact."""
+    status = getattr(error, "status_code", None)
+    non_retryable = status is not None and 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES
+    logger.exception("One-shot %s call failed (status=%s)", step_name, status)
+    return ApplicationError(
+        f"One-shot {step_name} LLM call failed: {type(error).__name__} (status={status})",
+        non_retryable=non_retryable,
+    )
 
 
 async def run_oneshot_review(
@@ -44,9 +57,11 @@ async def run_oneshot_review(
     through the LLM gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
     pins), with the response schema-constrained to ``model_to_validate`` via structured outputs (so
     the bare-JSON failure class the sandbox path retried on cannot occur). Callers that judge on a
-    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback is
-    deliberately off: the gateway's Bedrock path forwards only allowlisted params and would strip
-    ``output_config``, silently losing both the effort pin and the schema constraint.
+    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback
+    stays off: the Python gateway's Bedrock path forwards only allowlisted params and would strip
+    ``output_config``, losing both the effort pin and the schema constraint. The Go gateway drops
+    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out. It streams
+    because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
@@ -54,10 +69,13 @@ async def run_oneshot_review(
     non-retryable. ``step_name`` is stamped on the captured ``$ai_generation`` event as ``ai_stage``
     so dumps and cost queries can attribute the call to its pipeline stage.
     """
-    client = get_async_anthropic_gateway_client(product="review_hog", team_id=team_id)
+    # The Go gateway reads ai_stage from the builder; the Python fallback reads the per-call header below.
+    client = build_async_anthropic_client(
+        product="review_hog", ai_product="review_hog", ai_stage=step_name, team_id=team_id
+    )
     async with client:
         try:
-            response = await client.messages.parse(
+            async with client.messages.stream(
                 model=model,
                 max_tokens=_MAX_OUTPUT_TOKENS,
                 system=system_prompt,
@@ -70,15 +88,10 @@ async def run_oneshot_review(
                 metadata={"user_id": f"user-{user_id}"},
                 extra_headers={"x-posthog-property-ai_stage": step_name},
                 timeout=_TIMEOUT_SECONDS,
-            )
+            ) as stream:
+                response = await stream.get_final_message()
         except APIError as e:
-            status = getattr(e, "status_code", None)
-            non_retryable = status is not None and 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES
-            logger.exception("One-shot %s call failed (status=%s)", step_name, status)
-            raise ApplicationError(
-                f"One-shot {step_name} LLM call failed: {type(e).__name__} (status={status})",
-                non_retryable=non_retryable,
-            ) from None
+            raise _compact_api_error(step_name, e) from None
         except pydantic.ValidationError as e:
             # The SDK validates the text block against `model_to_validate` while building the parsed
             # response, so truncated/invalid JSON raises HERE — it never reaches `parsed_output`.
@@ -99,3 +112,63 @@ async def run_oneshot_review(
             non_retryable=response.stop_reason == "max_tokens",
         )
     return parsed
+
+
+async def run_oneshot_openai_review(
+    *,
+    team_id: int,
+    user_id: int,
+    prompt: str,
+    system_prompt: str,
+    model_to_validate: type[_ModelT],
+    step_name: str,
+    model: str,
+    reasoning_effort: OpenAIReasoningEffort,
+) -> _ModelT:
+    """The counterpart of `run_oneshot_review` for an OpenAI model: one Chat Completions call through the gateway.
+
+    The contract is the same. The reply is constrained to `model_to_validate` by a strict JSON schema
+    and validated against it, and `step_name` is stamped on the captured `$ai_generation` event as
+    `ai_stage`. Every failure raises a compact `ApplicationError`: an API error is non-retryable for a
+    4xx other than 408/409/429, a reply cut at the token limit is non-retryable because a retry hits
+    the same limit, and a refused or unparseable reply is retryable.
+    """
+    client = build_async_openai_client(
+        product="review_hog",
+        ai_product="review_hog",
+        trace_id=team_trace_id(team_id),
+        properties={"ai_stage": step_name, "team_id": str(team_id)},
+    )
+    schema = openai.pydantic_function_tool(model_to_validate)["function"]["parameters"]
+    async with client:
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+                reasoning_effort=reasoning_effort,
+                max_completion_tokens=_MAX_OUTPUT_TOKENS,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": model_to_validate.__name__, "strict": True, "schema": schema},
+                },
+                user=f"user-{user_id}",
+                timeout=_TIMEOUT_SECONDS,
+            )
+        except openai.APIError as e:
+            raise _compact_api_error(step_name, e) from None
+    if not response.choices:
+        raise ApplicationError(f"One-shot {step_name} returned no choices")
+    choice = response.choices[0]
+    if choice.finish_reason == "length" or not choice.message.content:
+        raise ApplicationError(
+            f"One-shot {step_name} returned no parseable output (finish_reason={choice.finish_reason})",
+            non_retryable=choice.finish_reason == "length",
+        )
+    try:
+        return model_to_validate.model_validate_json(choice.message.content)
+    except pydantic.ValidationError as e:
+        # Compact and retryable, like the Anthropic path: the raw error wraps the whole payload.
+        logger.exception("One-shot %s returned output that failed schema validation", step_name)
+        raise ApplicationError(
+            f"One-shot {step_name} returned unparseable output ({e.error_count()} validation error(s))"
+        ) from None

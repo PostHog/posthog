@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
@@ -9,12 +11,14 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationExecutor,
     LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
+    events_table_cache_key_context,
 )
 
 PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
@@ -458,6 +462,7 @@ def _run_daily_unique_persons_pageviews(
     query_to_insert: ast.SelectQuery,
     start: datetime,
     end: datetime,
+    modifiers: HogQLQueryModifiers,
 ) -> LazyComputationResult:
     """
     Orchestrate lazy computation jobs for daily unique persons pageviews.
@@ -468,10 +473,14 @@ def _run_daily_unique_persons_pageviews(
     3. Returns the result with job IDs for the combiner query
     """
     query_info = LazyComputationQuery(
-        query=query_to_insert, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
+        query=query_to_insert,
+        table=LazyComputationTable.PREAGGREGATION_RESULTS,
+        timezone=team.timezone,
+        cache_key_context=events_table_cache_key_context(team, modifiers, None),
+        modifiers=modifiers,
     )
 
-    executor = LazyComputationExecutor()
+    executor = LazyComputationExecutor(events_retention_months=events_retention_months_for_team(team, team.pk))
     result = executor.execute(
         team=team,
         query_info=query_info,
@@ -514,7 +523,7 @@ class Transformer(CloningVisitor):
         team = self.context.team
         if not team:
             return transformed_node
-        result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt)
+        result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt, self.context.modifiers)
 
         if not result.ready:
             # Lazy computation not ready, fall back to original query

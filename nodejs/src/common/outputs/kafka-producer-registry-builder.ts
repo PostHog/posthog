@@ -1,22 +1,10 @@
-import { ProducerGlobalConfig } from 'node-rdkafka'
-
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
+import { redactKafkaConfig } from '~/common/kafka/config'
+import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
-
-const SENSITIVE_KEYS = new Set([
-    'sasl.password',
-    'sasl.oauthbearer.client.secret',
-    'ssl.key.password',
-    'ssl.key.pem',
-    'ssl.certificate.pem',
-])
-
-function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
-    return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? '***' : v]))
-}
 
 /**
  * Builder for `KafkaProducerRegistry` that validates config keys at compile time.
@@ -35,6 +23,7 @@ function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
  */
 export class KafkaProducerRegistryBuilder<P extends string = never, CK extends string = never> {
     private registrations = new Map<string, Partial<Record<AllowedConfigKey, CK>>>()
+    private blackholes = new Set<string>()
 
     constructor(private kafkaClientRack: string | undefined) {}
 
@@ -50,7 +39,16 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
     ): KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys> {
         const next = new KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys>(this.kafkaClientRack)
         next.registrations = new Map(this.registrations)
+        next.blackholes = new Set(this.blackholes)
         next.registrations.set(name, configMap)
+        return next
+    }
+
+    registerBlackhole<Name extends string>(name: Name): KafkaProducerRegistryBuilder<P | Name, CK> {
+        const next = new KafkaProducerRegistryBuilder<P | Name, CK>(this.kafkaClientRack)
+        next.registrations = new Map(this.registrations)
+        next.blackholes = new Set(this.blackholes)
+        next.blackholes.add(name)
         return next
     }
 
@@ -61,7 +59,10 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
      * Connects to brokers in parallel. Throws if any producer fails to connect.
      */
     async build(config: Record<CK, string>): Promise<KafkaProducerRegistry<P>> {
-        const producers: Record<string, KafkaProducerWrapper> = {}
+        const producers: Record<string, KafkaProducer> = {}
+        for (const name of this.blackholes) {
+            producers[name] = new BlackholeKafkaProducer(name)
+        }
 
         await Promise.all(
             Array.from(this.registrations.entries()).map(async ([name, configMap]) => {
@@ -76,7 +77,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 }
 
                 const resolvedConfig = parseProducerConfig(values)
-                logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(resolvedConfig) })
+                logger.info('📝', `Creating producer "${name}"`, { config: redactKafkaConfig(resolvedConfig) })
                 producers[name] = await KafkaProducerWrapper.createWithConfig(
                     this.kafkaClientRack,
                     resolvedConfig,
@@ -86,8 +87,17 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         )
 
         // TypeScript cannot verify that an imperatively-built Record has all keys of a
-        // generic union P. The builder guarantees this: every `register()` call adds an
-        // entry to `this.registrations`, and `build()` creates a producer for each entry.
-        return new KafkaProducerRegistry<P>(producers as Record<P, KafkaProducerWrapper>)
+        // generic union P. The builder guarantees this: every `register()` and
+        // `registerBlackhole()` call adds a name, and `build()` creates a producer for each.
+        return new KafkaProducerRegistry<P>(producers as Record<P, KafkaProducer>)
+    }
+
+    buildBlackhole(): KafkaProducerRegistry<P> {
+        const producers: Record<string, KafkaProducer> = {}
+        for (const name of [...this.registrations.keys(), ...this.blackholes]) {
+            logger.warn('⚠️', `Producer "${name}" is a blackhole and discards every message`)
+            producers[name] = new BlackholeKafkaProducer(name)
+        }
+        return new KafkaProducerRegistry<P>(producers as Record<P, KafkaProducer>)
     }
 }

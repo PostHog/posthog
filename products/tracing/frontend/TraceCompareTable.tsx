@@ -12,22 +12,26 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
 import { buildRows, changeMagnitude, type CompareRow, type CompareRowStatus, isLowSample } from './compareUtils'
+import { ResizableColumnSpec } from './components/TableColumns/columnWidths'
+import { TableCell } from './components/TableColumns/TableCell'
+import { TableHeaderCell } from './components/TableColumns/TableHeaderCell'
+import { ResizableColumns, useResizableColumns } from './components/TableColumns/useResizableColumns'
 import { formatDuration } from './TraceWaterfallView'
 
 const ROW_HEIGHT = 44
 const HEADER_HEIGHT = 32
 
-// Fixed column widths (px). The name column flexes to fill the remaining space.
-const COL_WIDTH = {
-    service: 160,
-    count: 110,
-    p50: 110,
-    p95: 110,
-    errors: 110,
-} as const
-
-const NAME_MIN_WIDTH = 200
-const MIN_ROW_WIDTH = Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH
+// Default column widths (px), in render order. Anyone can drag a column wider or narrower from here.
+const COMPARE_COLUMNS: ResizableColumnSpec[] = [
+    { key: 'service_name', width: 200 },
+    { key: 'name', width: 320, grow: true },
+    { key: 'count', width: 110 },
+    { key: 'p50', width: 110 },
+    { key: 'p95', width: 110 },
+    { key: 'errors', width: 110 },
+]
+// pinned: identifies stored column widths — renaming resets everyone's widths
+const TABLE_KEY = 'compare'
 
 // 'change' is the default: biggest p95 movers (both directions) first, so the table answers
 // "what changed?" without any clicking. Column header clicks switch to plain value sorts.
@@ -97,40 +101,32 @@ function Delta({ current, previous, higherIsWorse, format }: DeltaProps): JSX.El
     )
 }
 
-function Cell({ width, align, children }: { width?: number; align?: 'right'; children: React.ReactNode }): JSX.Element {
-    return (
-        <div
-            className={cn(
-                'shrink-0 truncate px-2 text-xs',
-                width === undefined && 'flex-1 min-w-0',
-                align === 'right' && 'text-right'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={width !== undefined ? { width } : undefined}
-        >
-            {children}
-        </div>
-    )
-}
-
 interface SortProps {
     sortColumn: SortColumn
     sortOrder: SortOrder
     onSort: (column: SortColumn) => void
 }
 
-function SortableHeaderCell({
+/** Every column here is sortable, so the header cell always carries a sort button. */
+function CompareHeaderCell({
     column,
     label,
-    width,
     align,
+    widths,
+    columns,
     sortColumn,
     sortOrder,
     onSort,
-}: { column: SortColumn; label: string; width?: number; align?: 'right' } & SortProps): JSX.Element {
+}: {
+    column: Exclude<SortColumn, 'change'>
+    label: string
+    align?: 'right'
+    widths: Record<string, number>
+    columns: ResizableColumns
+} & SortProps): JSX.Element {
     const active = sortColumn === column
     return (
-        <Cell width={width} align={align}>
+        <TableHeaderCell width={widths[column]} align={align} resize={columns.resizeHandleProps(column, label)}>
             <button
                 type="button"
                 className={cn(
@@ -144,74 +140,37 @@ function SortableHeaderCell({
                 <span>{label}</span>
                 <SortingIndicator order={active ? sortOrder : null} />
             </button>
-        </Cell>
+        </TableHeaderCell>
     )
 }
 
-function CompareRowHeader({ sortColumn, sortOrder, onSort }: SortProps): JSX.Element {
+function CompareRowHeader({
+    widths,
+    columns,
+    sortColumn,
+    sortOrder,
+    onSort,
+}: { widths: Record<string, number>; columns: ResizableColumns } & SortProps): JSX.Element {
+    const shared = { widths, columns, sortColumn, sortOrder, onSort }
     return (
         <div
             className="flex items-center border-b border-border bg-surface-secondary font-medium text-muted"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: HEADER_HEIGHT }}
         >
-            <SortableHeaderCell
-                column="service_name"
-                label="Service"
-                width={COL_WIDTH.service}
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
-            <SortableHeaderCell
-                column="name"
-                label="Span name"
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
-            <SortableHeaderCell
-                column="count"
-                label="Count"
-                width={COL_WIDTH.count}
-                align="right"
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
-            <SortableHeaderCell
-                column="p50"
-                label="p50"
-                width={COL_WIDTH.p50}
-                align="right"
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
-            <SortableHeaderCell
-                column="p95"
-                label="p95"
-                width={COL_WIDTH.p95}
-                align="right"
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
-            <SortableHeaderCell
-                column="errors"
-                label="Errors"
-                width={COL_WIDTH.errors}
-                align="right"
-                sortColumn={sortColumn}
-                sortOrder={sortOrder}
-                onSort={onSort}
-            />
+            <CompareHeaderCell {...shared} column="service_name" label="Service" />
+            <CompareHeaderCell {...shared} column="name" label="Span name" />
+            <CompareHeaderCell {...shared} column="count" label="Count" align="right" />
+            <CompareHeaderCell {...shared} column="p50" label="p50" align="right" />
+            <CompareHeaderCell {...shared} column="p95" label="p95" align="right" />
+            <CompareHeaderCell {...shared} column="errors" label="Errors" align="right" />
         </div>
     )
 }
 
 interface CompareRowProps {
     dataSource: CompareRow[]
+    widths: Record<string, number>
     onRowClick?: (row: { service_name: string; name: string }) => void
 }
 
@@ -220,6 +179,7 @@ function CompareListRow({
     index,
     style,
     dataSource,
+    widths,
     onRowClick,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -262,10 +222,10 @@ function CompareListRow({
                 role={onRowClick ? 'button' : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
             >
-                <Cell width={COL_WIDTH.service}>
+                <TableCell width={widths.service_name}>
                     <span className="font-mono">{row.service_name}</span>
-                </Cell>
-                <Cell>
+                </TableCell>
+                <TableCell width={widths.name}>
                     <span className="inline-flex items-center gap-1.5 max-w-full">
                         <span className="font-mono truncate">{row.name}</span>
                         {statusTag && (
@@ -274,14 +234,14 @@ function CompareListRow({
                             </LemonTag>
                         )}
                     </span>
-                </Cell>
-                <Cell width={COL_WIDTH.count} align="right">
+                </TableCell>
+                <TableCell width={widths.count} align="right">
                     <div className="flex flex-col items-end">
                         <span>{row.current ? humanFriendlyNumber(row.current.count) : '—'}</span>
                         <Delta current={row.current?.count} previous={row.previous?.count} />
                     </div>
-                </Cell>
-                <Cell width={COL_WIDTH.p50} align="right">
+                </TableCell>
+                <TableCell width={widths.p50} align="right">
                     <div className="flex flex-col items-end">
                         <span>{row.current ? formatDuration(row.current.p50_duration_nano) : '—'}</span>
                         <Delta
@@ -291,8 +251,8 @@ function CompareListRow({
                             format={formatDuration}
                         />
                     </div>
-                </Cell>
-                <Cell width={COL_WIDTH.p95} align="right">
+                </TableCell>
+                <TableCell width={widths.p95} align="right">
                     <div className="flex flex-col items-end">
                         <span>{row.current ? formatDuration(row.current.p95_duration_nano) : '—'}</span>
                         <Delta
@@ -302,8 +262,8 @@ function CompareListRow({
                             format={formatDuration}
                         />
                     </div>
-                </Cell>
-                <Cell width={COL_WIDTH.errors} align="right">
+                </TableCell>
+                <TableCell width={widths.errors} align="right">
                     <div className="flex flex-col items-end">
                         <span>{row.current ? humanFriendlyNumber(row.current.error_count) : '—'}</span>
                         <Delta
@@ -312,7 +272,7 @@ function CompareListRow({
                             higherIsWorse={judged}
                         />
                     </div>
-                </Cell>
+                </TableCell>
             </div>
         </div>
     )
@@ -329,6 +289,7 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
     const [sortColumn, setSortColumn] = useState<SortColumn>('change')
     const [sortOrder, setSortOrder] = useState<SortOrder>(-1)
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+    const columns = useResizableColumns(TABLE_KEY, COMPARE_COLUMNS)
 
     const { allRows, statusCounts } = useMemo(() => {
         const built = buildRows(current, previous)
@@ -359,8 +320,6 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
             setSortOrder(-1)
         }
     }
-
-    const rowProps = useMemo((): CompareRowProps => ({ dataSource: rows, onRowClick }), [rows, onRowClick])
 
     if (allRows.length === 0) {
         return (
@@ -409,15 +368,22 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
                         if (!width || !height) {
                             return null
                         }
-                        const rowWidth = Math.max(width, MIN_ROW_WIDTH)
+                        const { widths, totalWidth } = columns.resolveWidths(width)
+                        const rowWidth = Math.max(width, totalWidth)
                         return (
                             // The viewport is fixed to the available box; the inner content can be wider
-                            // (MIN_ROW_WIDTH) so columns scroll horizontally and rows align with the header.
+                            // (totalWidth) so columns scroll horizontally and rows align with the header.
                             // eslint-disable-next-line react/forbid-dom-props
                             <div className="overflow-x-auto" style={{ width, height }}>
                                 {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div style={{ width: rowWidth }}>
-                                    <CompareRowHeader sortColumn={sortColumn} sortOrder={sortOrder} onSort={onSort} />
+                                    <CompareRowHeader
+                                        widths={widths}
+                                        columns={columns}
+                                        sortColumn={sortColumn}
+                                        sortOrder={sortOrder}
+                                        onSort={onSort}
+                                    />
                                     {rows.length === 0 ? (
                                         <div className="flex items-center justify-center p-8 text-muted">
                                             No spans in this bucket
@@ -429,7 +395,7 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
                                             rowCount={rows.length}
                                             rowHeight={ROW_HEIGHT}
                                             rowComponent={CompareListRow}
-                                            rowProps={rowProps}
+                                            rowProps={{ dataSource: rows, widths, onRowClick }}
                                         />
                                     )}
                                 </div>

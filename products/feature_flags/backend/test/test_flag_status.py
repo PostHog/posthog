@@ -8,6 +8,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.feature_flags.backend.flag_status import (
+    ROLLOUT_FULLY_ROLLED_OUT,
+    ROLLOUT_PARTIAL,
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
     filter_flags_by_active_param,
@@ -165,6 +167,24 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # The same split pinned to one variant. No variant is at 100%, so only the SQL's
+            # variant-override arm matches it, and this is the one case that reaches that arm.
+            (
+                "variant_override_without_a_hundred_percent_variant",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "control"}],
+                    },
+                },
+                True,
+            ),
             (
                 "young_flag_at_full_rollout",
                 {
@@ -193,6 +213,24 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # The two legacy shapes the checker reads as no targeting. Each matches its own arm
+            # of the SQL: an absent key is SQL NULL, a stored null is the jsonb scalar `null`.
+            (
+                "properties_key_absent",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            (
+                "null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                },
+                True,
+            ),
             # Only case that reaches the config branch's last OR arm, where `filters` being
             # non-nullable makes `= '{}'` the whole test.
             (
@@ -213,6 +251,126 @@ class TestFilterFlagsByActiveParam(BaseTest):
         filter_stale = self._filter("STALE")
         assert filter_stale == self._checker_stale()
         assert (key in filter_stale) is expected_stale
+
+    # The SQL admits these shapes and the checker does not, as the `filter_stale_flags` docstring
+    # records. A change that closes the gap on either side has to update that docstring too.
+    @parameterized.expand(
+        [
+            (
+                "targeted_override_before_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+            ),
+            (
+                "overallocated_variants",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 40},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+            ),
+            (
+                "mixed_aggregation_group_condition_first",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+            ),
+            (
+                "mixed_aggregation_group_condition_second",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                    ],
+                },
+            ),
+            (
+                "boolean_mixed_aggregation_only_group_condition_is_full",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_stale_filter_is_looser_than_the_checker(self, key: str, filters: dict[str, Any]) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            created_at=timezone.now() - timedelta(days=60),
+            filters=filters,
+        )
+
+        assert key in self._filter("STALE")
+        assert key not in self._checker_stale()
+
+    def test_stale_filter_honours_an_explicit_threshold(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="called-ten-days-ago",
+            active=True,
+            last_called_at=timezone.now() - timedelta(days=10),
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+        def stale_keys(**kwargs: Any) -> set[str]:
+            return {flag.key for flag in filter_stale_flags(FeatureFlag.objects.filter(team=self.team), **kwargs)}
+
+        assert "called-ten-days-ago" not in stale_keys()
+        assert "called-ten-days-ago" in stale_keys(stale_threshold=timezone.now() - timedelta(days=5))
+
+    def test_stale_filter_survives_a_legacy_scalar_groups_value(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="scalar-groups",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"groups": "all"},
+            created_by=self.user,
+        )
+
+        # Without the guard `jsonb_array_elements` raises, and the error aborts the statement for
+        # every flag the query covers rather than skipping this row.
+        assert "scalar-groups" not in self._filter("STALE")
+        assert "stale" in self._filter("STALE")
 
     def test_stale_filter_query_count_does_not_grow_with_candidate_count(self) -> None:
         def evaluate() -> list[FeatureFlag]:
@@ -271,6 +429,14 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            (
+                "null_group_properties",
+                {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
             # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
             # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
             # match the staleness detection it shares logic with.
@@ -295,6 +461,20 @@ class TestRolloutSummary(BaseTest):
                 {
                     "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
                     "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                False,
+                100,
+                True,
+            ),
+            # The multivariate path reads the same null `properties` through
+            # is_group_fully_rolled_out, where `len(None)` used to raise. The boolean case above
+            # reaches is_boolean_flag_fully_rolled_out instead.
+            (
+                "multivariate_null_group_properties",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": None, "rollout_percentage": 100}],
                 },
                 True,
                 False,
@@ -327,6 +507,32 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            # A group condition at 100% reaches only requests that carry the group key. The person
+            # condition decides for the rest, and at 50% it leaves the flag partially rolled out.
+            (
+                "mixed_aggregation_group_condition_first",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                    ]
+                },
+                False,
+                False,
+                100,
+                False,
+            ),
+            # The checker reads a document through the model accessors, which refuse any config
+            # format but v1, so it never calls such a flag fully rolled out. The summary's other
+            # fields still come from a raw read of the same document.
+            (
+                "other_config_format",
+                {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]},
+                False,
+                False,
+                100,
+                False,
+            ),
         ]
     )
     def test_rollout_summary(
@@ -351,3 +557,277 @@ class TestRolloutSummary(BaseTest):
         assert summary.effectively_full_rollout is True
         assert summary.max_rollout_percentage is None
         assert summary.is_multivariate is False
+
+
+class TestMultivariateFullRollout(BaseTest):
+    def _flag(self, key: str, filters: dict[str, Any]) -> FeatureFlag:
+        # Old enough, and with no call data, so `get_status` takes the configuration route.
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            last_called_at=None,
+            filters=filters,
+        )
+
+    # (name, filters, expected status, expected reason, expected rollout state, expected variant)
+    @parameterized.expand(
+        [
+            (
+                "targeted_override_before_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            (
+                "blanket_condition_before_the_targeted_override",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            (
+                "overallocated_variants",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 40},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            # What a finished experiment leaves behind: the override and the distribution agree.
+            (
+                "targeted_override_agrees_with_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 0},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "test"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "test",
+            ),
+            # A missing rollout_percentage evaluates to 100% at runtime, so the override is reachable.
+            (
+                "targeted_override_without_rollout_percentage_is_reachable",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            # A condition at 0% matches nobody, so its override cannot reach a user and the blanket
+            # condition below it still decides for everyone. This is what a targeted override leaves
+            # behind when it is zeroed instead of deleted.
+            (
+                "zeroed_targeted_override_does_not_block_full_rollout",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 0, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            (
+                "override_names_an_absent_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            # The matcher skips a group-aggregated condition when the request carries no key for
+            # that group, so those requests fall through to the person condition.
+            (
+                "mixed_group_condition_first_names_a_different_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            (
+                "mixed_conditions_pin_the_same_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                            "aggregation_group_type_index": None,
+                        },
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            # A flag whose conditions all aggregate on one group type addresses only requests that
+            # carry that key, so its group condition decides for the whole audience.
+            (
+                "pure_group_aggregated_condition_decides",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        }
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "test"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "test",
+            ),
+            # A condition with no `aggregation_group_type_index` key takes the flag-level value, so
+            # this flag mixes aggregation the same as the first mixed case. Reading the absent key
+            # as person aggregation would make both conditions person-level and name `test`.
+            (
+                "absent_condition_key_falls_back_to_the_flag_level_aggregation",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+        ]
+    )
+    def test_full_rollout_names_the_variant_the_matcher_serves(
+        self,
+        key: str,
+        filters: dict[str, Any],
+        expected_status: FeatureFlagStatus,
+        expected_reason: str,
+        expected_rollout_state: str,
+        expected_variant: str | None,
+    ) -> None:
+        flag = self._flag(key, filters)
+        checker = FeatureFlagStatusChecker(feature_flag=flag)
+
+        status, reason = checker.get_status()
+        assert (status, reason) == (expected_status, expected_reason)
+
+        # The pair `_get_flag_rollout_info` serves as `rollout_state` and `active_variant`.
+        summary = checker.get_rollout_summary(flag)
+        assert checker.rollout_state_and_variant(flag, summary) == (expected_rollout_state, expected_variant)

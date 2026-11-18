@@ -190,4 +190,3 @@ elif [ -n "$ZSH_VERSION" ]; then
     fi
 fi
 
-echo "PostHog worktree helper loaded. Use 'phw' command."

@@ -11,7 +11,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.tests.api.fixtures import (
     create_batch_export,
     create_destination,
@@ -22,7 +22,6 @@ from products.batch_exports.backend.tests.api.fixtures import (
 )
 from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
-    cancel_batch_export_run,
     cancel_batch_export_run_ok,
     create_batch_export_ok,
     get_batch_export,
@@ -38,31 +37,13 @@ pytestmark = [
 
 
 def test_can_get_export_runs_for_your_organizations(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
     response = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     response = get_batch_export_runs(client, team.pk, response["id"])
@@ -70,33 +51,15 @@ def test_can_get_export_runs_for_your_organizations(
 
 
 def test_cannot_get_exports_for_other_organizations(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     another_organization = create_organization("Another Org")
     another_user = create_user("another-test@user.com", "Another Test User", another_organization)
     client.force_login(user)
     response = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     client.force_login(another_user)
@@ -105,30 +68,12 @@ def test_cannot_get_exports_for_other_organizations(
 
 
 def test_batch_exports_are_partitioned_by_team(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """
     You shouldn't be able to fetch a BatchExport by id, via a team that it
     doesn't belong to.
     """
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     another_team = create_team(organization)
     # Integrations are team-scoped, so the other team's export needs its own.
     another_team_integration = Integration.objects.create(
@@ -143,7 +88,7 @@ def test_batch_exports_are_partitioned_by_team(
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     response = get_batch_export(client, another_team.pk, batch_export["id"])
@@ -153,7 +98,10 @@ def test_batch_exports_are_partitioned_by_team(
     batch_export = create_batch_export_ok(
         client,
         another_team.pk,
-        {**batch_export_data, "destination": {**destination_data, "integration": another_team_integration.id}},
+        {
+            **s3_batch_export_data,
+            "destination": {**s3_batch_export_data["destination"], "integration": another_team_integration.id},
+        },
     )
 
     response = get_batch_export(client, team.pk, batch_export["id"])
@@ -161,25 +109,8 @@ def test_batch_exports_are_partitioned_by_team(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
+def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organization, team, user, s3_batch_export_data):
     """Test cancelling a BatchExportRun."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
     with patch("products.batch_exports.backend.temporal.pipeline.producer.Producer.start") as mock_producer_start:
@@ -193,7 +124,7 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
         batch_export = create_batch_export_ok(
             client,
             team.pk,
-            batch_export_data,
+            s3_batch_export_data,
         )
         batch_export_id = batch_export["id"]
 
@@ -263,6 +194,7 @@ def test_get_batch_export_runs_filtered_by_status(client: HttpClient, team, user
         str(runs[BatchExportRun.Status.FAILED].id),
         str(runs[BatchExportRun.Status.FAILED_RETRYABLE].id),
     }
+    assert data["count"] == 2
 
     # List all runs, without any status filter, asserting that all runs are returned
     data = get_batch_export_runs_ok(client, team.pk, batch_export.id, **query_params)
@@ -330,7 +262,22 @@ def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClien
     assert [run["id"] for run in data["results"]] == [str(run_recent_interval.id), str(run_mid_interval.id)]
 
 
-def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
+@pytest.mark.parametrize(
+    "created_days_ago,query,export_deleted,expected_status",
+    [
+        pytest.param(0, "", False, status.HTTP_400_BAD_REQUEST, id="recent"),
+        pytest.param(30, "", False, status.HTTP_400_BAD_REQUEST, id="older-than-list-window"),
+        pytest.param(0, "?status=Running", False, status.HTTP_400_BAD_REQUEST, id="outside-status-query"),
+        pytest.param(0, "", True, status.HTTP_404_NOT_FOUND, id="deleted-export"),
+    ],
+)
+def test_cannot_cancel_completed_batch_export_run(
+    client: HttpClient, team, user, created_days_ago, query, export_deleted, expected_status
+):
+    """Cancel finds a run outside the list's filters, because the UI retries and cancels older runs.
+
+    A run of a deleted export is not found and not listed, as the export itself is not found.
+    """
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     run = create_run(
@@ -339,12 +286,20 @@ def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user
         data_interval_start=dt.datetime(2023, 10, 23, tzinfo=dt.UTC),
         data_interval_end=dt.datetime(2023, 10, 24, tzinfo=dt.UTC),
     )
+    BatchExportRun.objects.filter(id=run.id).update(
+        created_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=created_days_ago)
+    )
+    if export_deleted:
+        BatchExport.objects.filter(id=batch_export.id).update(deleted=True)
     client.force_login(user)
 
-    response = cancel_batch_export_run(client, team.pk, batch_export.id, run.id)
+    response = client.post(f"/api/projects/{team.pk}/batch_exports/{batch_export.id}/runs/{run.id}/cancel{query}")
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Cannot cancel a run that is in 'Completed' status"
+    assert response.status_code == expected_status, response.json()
+    if expected_status == status.HTTP_400_BAD_REQUEST:
+        assert response.json()["detail"] == "Cannot cancel a run that is in 'Completed' status"
+    if export_deleted:
+        assert get_batch_export_runs_ok(client, team.pk, batch_export.id)["results"] == []
 
     run.refresh_from_db()
     assert run.status == BatchExportRun.Status.COMPLETED

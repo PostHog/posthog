@@ -13,7 +13,7 @@ import * as zod from 'zod'
  * Make a `review-hog-blind-spots-*` skill the single sweep that runs on the requesting user's PR reviews, switching the user's other blind-spots skills off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
  * @summary Select the active blind-spots skill
  */
-export const ReviewHogBlindSpotsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CodeReviewBlindSpotsPartialUpdateBody = /* @__PURE__ */ zod.object({
     active: zod
         .boolean()
         .optional()
@@ -23,10 +23,43 @@ export const ReviewHogBlindSpotsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Choose which repositories of a connected GitHub installation this project reviews.
+ * @summary Claim a GitHub installation
+ */
+export const codeReviewInstallationClaimsCreateBodyInstallationIdMax = 64
+
+export const CodeReviewInstallationClaimsCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod
+        .string()
+        .max(codeReviewInstallationClaimsCreateBodyInstallationIdMax)
+        .describe('The GitHub App installation id.'),
+    scope: zod
+        .enum(['all', 'selected'])
+        .describe('\* `all` - All repositories\n\* `selected` - Only selected repositories')
+        .describe(
+            "'all' reviews every repository of the installation that no other project selected. At most one project per installation can choose it. 'selected' reviews only selected repositories.\n\n\* `all` - All repositories\n\* `selected` - Only selected repositories"
+        ),
+})
+
+/**
+ * Switch between all repositories and only selected repositories. Switching to selected removes the exceptions of the repositories that leave this project. Personal choices stay.
+ * @summary Change a GitHub installation claim
+ */
+export const CodeReviewInstallationClaimsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['all', 'selected'])
+        .describe('\* `all` - All repositories\n\* `selected` - Only selected repositories')
+        .optional()
+        .describe(
+            "'all' or 'selected'. Switching to 'selected' removes the exceptions of the repositories that leave the project.\n\n\* `all` - All repositories\n\* `selected` - Only selected repositories"
+        ),
+})
+
+/**
  * Toggle whether a `review-hog-perspective-*` skill runs on the requesting user's PR reviews. Only skills visible to the user — the canonicals plus the customs they authored — can be toggled; anything else 404s. Upserts the per-user config row, so enabling a freshly authored custom perspective works in one call. Rejected if it would leave the user with no enabled perspective.
  * @summary Enable or disable a review perspective
  */
-export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CodeReviewPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod
         .boolean()
         .optional()
@@ -34,10 +67,149 @@ export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Partially update the project rule. Only the provided fields change. Project admins only.
+ * @summary Update the project's code review rule
+ */
+export const CodeReviewProjectSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    flash_for: zod
+        .enum(['everyone', 'listed', 'off'])
+        .describe(
+            '\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only'
+        )
+        .optional()
+        .describe(
+            "Who gets automatic Standard reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.\n\n\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only"
+        ),
+    bot_prs: zod
+        .enum(['skip', 'run'])
+        .describe('\* `skip` - Not reviewed\n\* `run` - Automatic Flash')
+        .optional()
+        .describe(
+            "Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (an automatic Standard review that runs as the person who connected GitHub, with default settings and no changes to the pull request).\n\n\* `skip` - Not reviewed\n\* `run` - Automatic Flash"
+        ),
+    urgency_threshold: zod
+        .enum(['consider', 'should_fix', 'must_fix'])
+        .describe('\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix')
+        .optional()
+        .describe(
+            "Project default for the minimum priority a Deep review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
+        ),
+    celebrate_clean_reviews: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Project default for the image in a Deep review that finds nothing to raise. On by default. A person's own value wins."
+        ),
+})
+
+/**
+ * Add a project member to the project rule's 'listed' or 'excepted' list. Project admins only.
+ * @summary Add a person to a project rule list
+ */
+export const CodeReviewProjectSettingsPeopleCreateBody = /* @__PURE__ */ zod.object({
+    user_id: zod.number().describe('Id of the project member to add. Must be an active member.'),
+    kind: zod
+        .enum(['listed', 'excepted'])
+        .describe('\* `listed` - Listed\n\* `excepted` - Excepted')
+        .describe(
+            "Which list to add the person to: 'listed' or 'excepted'.\n\n\* `listed` - Listed\n\* `excepted` - Excepted"
+        ),
+})
+
+/**
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
+ * @summary Save a repository's settings
+ */
+export const codeReviewRepositoriesCreateBodyInstallationIdMax = 64
+
+export const codeReviewRepositoriesCreateBodyFullNameMax = 200
+
+export const CodeReviewRepositoriesCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod
+        .string()
+        .max(codeReviewRepositoriesCreateBodyInstallationIdMax)
+        .describe('The GitHub App installation that sees the repository, from the overview.'),
+    full_name: zod
+        .string()
+        .max(codeReviewRepositoriesCreateBodyFullNameMax)
+        .describe("GitHub repository in 'owner\/name' form, spelled as GitHub returns it."),
+    github_repo_id: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe("GitHub's id of the repository, from the overview. Keeps renames."),
+    selected: zod
+        .boolean()
+        .optional()
+        .describe(
+            "True includes the repository into this project, also when another project takes all repositories of the installation. False removes it; with an 'only selected' claim its exception goes too."
+        ),
+    flash_for: zod
+        .union([
+            zod
+                .enum(['everyone', 'listed', 'off'])
+                .describe(
+                    '\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The repository exception: 'everyone', 'listed', or 'off'. Null clears it, so the repository follows the project rule again. Omit it to keep the current value.\n\n\* `everyone` - Automatic Flash for everyone\n\* `listed` - Automatic Flash for these people\n\* `off` - Automatic Flash opt-in only"
+        ),
+    review_drafts: zod
+        .boolean()
+        .optional()
+        .describe(
+            'True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value.'
+        ),
+})
+
+/**
+ * Add a project member to the 'listed' or 'excepted' list of the repository exception. A project member who is not an admin can only add themselves to the 'listed' list.
+ * @summary Add a person to a repository exception list
+ */
+export const CodeReviewRepositoriesPeopleCreateBody = /* @__PURE__ */ zod.object({
+    user_id: zod.number().describe('Id of the project member to add. Must be an active member.'),
+    kind: zod
+        .enum(['listed', 'excepted'])
+        .describe('\* `listed` - Listed\n\* `excepted` - Excepted')
+        .describe(
+            "Which list to add the person to: 'listed' or 'excepted'.\n\n\* `listed` - Listed\n\* `excepted` - Excepted"
+        ),
+})
+
+/**
+ * Set the requesting user's own automatic review for their pull requests in one repository. It wins over their default and over the repository and project rules.
+ * @summary Set my choice for a repository
+ */
+export const codeReviewRepositoryChoicesCreateBodyInstallationIdMax = 64
+
+export const codeReviewRepositoryChoicesCreateBodyFullNameMax = 200
+
+export const CodeReviewRepositoryChoicesCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod
+        .string()
+        .max(codeReviewRepositoryChoicesCreateBodyInstallationIdMax)
+        .describe('The GitHub App installation.'),
+    full_name: zod
+        .string()
+        .max(codeReviewRepositoryChoicesCreateBodyFullNameMax)
+        .describe("GitHub repository in 'owner\/name' form."),
+    github_repo_id: zod.number().min(1).optional().describe("GitHub's repository id."),
+    mode: zod
+        .enum(['flash', 'off'])
+        .describe('\* `flash` - Flash\n\* `off` - Off')
+        .describe(
+            "The requesting user's own automatic review for their pull requests in this repository: 'flash' or 'off'. A value equal to what the user inherits clears the choice instead.\n\n\* `flash` - Flash\n\* `off` - Off"
+        ),
+})
+
+/**
  * Make a `review-hog-resolution-*` skill the single criteria the resolution stage applies on the requesting user's PRs, switching the user's other resolution skills off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
  * @summary Select the active resolution criteria
  */
-export const ReviewHogResolutionPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CodeReviewResolutionPartialUpdateBody = /* @__PURE__ */ zod.object({
     active: zod
         .boolean()
         .optional()
@@ -47,61 +219,76 @@ export const ReviewHogResolutionPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
+ * Start a PostHog Review run on any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
  * @summary Start a review of a pull request
  */
-export const reviewHogReviewsTriggerCreateBodyRunModeDefault = `review`
+export const codeReviewReviewsTriggerCreateBodyRunModeDefault = `review`
 
-export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
+export const CodeReviewReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
     pr_url: zod
         .string()
         .describe(
             "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
         ),
     run_mode: zod
-        .enum(['review', 'review_only', 'resolve_only'])
-        .describe('\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only')
-        .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only"
+            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
+        )
+        .default(codeReviewReviewsTriggerCreateBodyRunModeDefault)
+        .describe(
+            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })
 
 /**
- * Partially update the requesting user's ReviewHog settings for this project. Only the provided fields change.
- * @summary Update the user's ReviewHog settings
+ * Partially update the requesting user's code review preferences for this project. Only the provided fields change. A value equal to the inherited one clears the user's own value.
+ * @summary Update the user's code review settings
  */
-export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    review_inbox_prs: zod
-        .boolean()
+export const CodeReviewSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    default_review_mode: zod
+        .enum(['follow', 'flash', 'off'])
+        .describe('\* `follow` - Let each repository decide\n\* `flash` - On everywhere\n\* `off` - Off everywhere')
         .optional()
         .describe(
-            "Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request."
+            "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Let each repository decide\n\* `flash` - On everywhere\n\* `off` - Off everywhere"
         ),
-    stamphog_review_inbox_prs: zod
+    review_drafts: zod
         .boolean()
         .optional()
         .describe(
-            "Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected)."
-        ),
-    review_labeled_prs: zod
-        .boolean()
-        .optional()
-        .describe(
-            "Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored."
+            "Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts."
         ),
     resolve_comments: zod
         .boolean()
         .optional()
         .describe(
-            "After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing."
+            "After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies."
         ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])
-        .describe('\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix')
+        .describe('\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix')
         .optional()
         .describe(
-            "Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.\n\n\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix"
+            "Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.\n\n\* `consider` - Consider (all)\n\* `should_fix` - Should fix\n\* `must_fix` - Must fix"
+        ),
+    celebrate_clean_reviews: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies."
+        ),
+    review_inbox_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default.'
+        ),
+    approval_review_inbox_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Also have auto-approval review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled auto-approval repository (see approval_connected)."
         ),
 })
 
@@ -109,7 +296,7 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Make a `review-hog-validation-*` skill the single validator that runs on the requesting user's PR reviews, switching the user's other validators off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom validator works in one call.
  * @summary Select the active review validator
  */
-export const ReviewHogValidatorsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const CodeReviewValidatorsPartialUpdateBody = /* @__PURE__ */ zod.object({
     active: zod
         .boolean()
         .optional()

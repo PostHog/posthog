@@ -11,9 +11,10 @@
  * * `USR` - user
  * * `GIT` - GitHub
  */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
+export type AnnotationCreationTypeEnumApi =
+    (typeof AnnotationCreationTypeEnumApi)[keyof typeof AnnotationCreationTypeEnumApi]
 
-export const CreationTypeEnumApi = {
+export const AnnotationCreationTypeEnumApi = {
     Usr: 'USR',
     Git: 'GIT',
 } as const
@@ -93,6 +94,7 @@ export const AnnotationScopeEnumApi = {
 } as const
 
 export interface AnnotationApi {
+    /** Unique ID of the annotation. */
     readonly id: number
     /**
      * Annotation text shown on charts to describe the change, release, or incident.
@@ -109,7 +111,7 @@ export interface AnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
+    creation_type?: AnnotationCreationTypeEnumApi
     /**
      * Optional insight ID to attach this annotation to. Must belong to the current project.
      * @nullable
@@ -120,17 +122,34 @@ export interface AnnotationApi {
      * @nullable
      */
     dashboard_id?: number | null
-    /** @nullable */
+    /**
+     * Name of the dashboard in `dashboard_id`, or null when there is none.
+     * @nullable
+     */
     readonly dashboard_name: string | null
-    /** @nullable */
+    /**
+     * Short ID of the insight in `dashboard_item`, or null when there is none.
+     * @nullable
+     */
     readonly insight_short_id: string | null
-    /** @nullable */
+    /**
+     * Name of the insight in `dashboard_item`, or null when it has none.
+     * @nullable
+     */
     readonly insight_name: string | null
-    /** @nullable */
+    /**
+     * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+     * @nullable
+     */
     readonly insight_derived_name: string | null
+    /** User who created the annotation. */
     readonly created_by: UserBasicApi
-    /** @nullable */
+    /**
+     * When the annotation was created.
+     * @nullable
+     */
     readonly created_at: string | null
+    /** When the annotation was last changed. */
     readonly updated_at: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
@@ -165,6 +184,7 @@ export interface PaginatedAnnotationListApi {
 }
 
 export interface PatchedAnnotationApi {
+    /** Unique ID of the annotation. */
     readonly id?: number
     /**
      * Annotation text shown on charts to describe the change, release, or incident.
@@ -181,7 +201,7 @@ export interface PatchedAnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
+    creation_type?: AnnotationCreationTypeEnumApi
     /**
      * Optional insight ID to attach this annotation to. Must belong to the current project.
      * @nullable
@@ -192,17 +212,34 @@ export interface PatchedAnnotationApi {
      * @nullable
      */
     dashboard_id?: number | null
-    /** @nullable */
+    /**
+     * Name of the dashboard in `dashboard_id`, or null when there is none.
+     * @nullable
+     */
     readonly dashboard_name?: string | null
-    /** @nullable */
+    /**
+     * Short ID of the insight in `dashboard_item`, or null when there is none.
+     * @nullable
+     */
     readonly insight_short_id?: string | null
-    /** @nullable */
+    /**
+     * Name of the insight in `dashboard_item`, or null when it has none.
+     * @nullable
+     */
     readonly insight_name?: string | null
-    /** @nullable */
+    /**
+     * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+     * @nullable
+     */
     readonly insight_derived_name?: string | null
+    /** User who created the annotation. */
     readonly created_by?: UserBasicApi
-    /** @nullable */
+    /**
+     * When the annotation was created.
+     * @nullable
+     */
     readonly created_at?: string | null
+    /** When the annotation was last changed. */
     readonly updated_at?: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
@@ -227,9 +264,65 @@ export interface PatchedAnnotationApi {
     hidden_in_user_interface?: boolean | null
 }
 
+/**
+ * * `feature_flag` - Feature flag
+ * * `experiment` - Experiment
+ * * `release` - Release
+ * * `annotation` - Annotation
+ */
+export type ChangeKindEnumApi = (typeof ChangeKindEnumApi)[keyof typeof ChangeKindEnumApi]
+
+export const ChangeKindEnumApi = {
+    FeatureFlag: 'feature_flag',
+    Experiment: 'experiment',
+    Release: 'release',
+    Annotation: 'annotation',
+} as const
+
+export interface ChangeFeedItemApi {
+    /** The source of the change.
+     *
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation */
+    kind: ChangeKindEnumApi
+    /** When the change happened. For annotations, this is the time the annotation marks. */
+    timestamp: string
+    /** ID of the changed object: the feature flag, experiment, release, or annotation ID. */
+    item_id: string
+    /**
+     * Display name: the flag key, experiment name, release version, or annotation text.
+     * @nullable
+     */
+    name: string | null
+    /** What happened, for example `created`, `updated`, `deleted`, `released`, or `annotated`. */
+    activity: string
+    /** For flag and experiment updates, the names of the fields that changed. Empty for other kinds. */
+    changed_fields: string[]
+    /**
+     * For releases, the project or service the release belongs to. Null for other kinds.
+     * @nullable
+     */
+    service: string | null
+    /**
+     * Name or email of the person who made the change. Null for automated changes.
+     * @nullable
+     */
+    actor_name: string | null
+}
+
+export interface ChangeFeedApi {
+    /** Changes in the time window, newest first. */
+    results: ChangeFeedItemApi[]
+    /** True when the window holds more changes than `limit`. Narrow the window to see the rest. */
+    has_more: boolean
+}
+
 export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -241,3 +334,39 @@ export type AnnotationsListParams = {
      */
     search?: string
 }
+
+export type ChangeFeedListParams = {
+    /**
+     * Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the time window (inclusive), ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.
+     */
+    kinds?: ChangeFeedListKindsItem[]
+    /**
+     * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+}
+
+/**
+ * * `feature_flag` - Feature flag
+ * * `experiment` - Experiment
+ * * `release` - Release
+ * * `annotation` - Annotation
+ */
+export type ChangeFeedListKindsItem = (typeof ChangeFeedListKindsItem)[keyof typeof ChangeFeedListKindsItem]
+
+export const ChangeFeedListKindsItem = {
+    FeatureFlag: 'feature_flag',
+    Experiment: 'experiment',
+    Release: 'release',
+    Annotation: 'annotation',
+} as const

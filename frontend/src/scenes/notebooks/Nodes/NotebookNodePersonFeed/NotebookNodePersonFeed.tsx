@@ -6,9 +6,10 @@ import { NotFound } from 'lib/components/NotFound'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
-import { personLogic } from 'scenes/persons/personLogic'
 
 import { PersonType } from '~/types'
+
+import { personLogic } from 'products/persons/frontend/logics/personLogic'
 
 import { getCustomerProfileRemoveMenuItem } from '../customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from '../NodeWrapper'

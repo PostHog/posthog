@@ -17,9 +17,8 @@ import json
 import uuid
 import hashlib
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
-
-from django.db.models import Q
 
 import structlog
 
@@ -57,6 +56,8 @@ from posthog.hogql.errors import BaseHogQLError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnSensitivity
+
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -75,6 +76,7 @@ _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
 _NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
+_NULLABLE_DATETIME = "nullable_datetime"
 
 
 def _cell(value: Any) -> ast.Constant:
@@ -101,6 +103,10 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
+    if kind == _NULLABLE_DATETIME:
+        return ast.Call(
+            name="parseDateTimeBestEffort", args=[ast.Call(name="nullIf", args=[source, ast.Constant(value="")])]
+        )
     raise ValueError(f"Unknown information_schema column kind: {kind}")
 
 
@@ -361,6 +367,51 @@ def _pushdown_table_filter(node: Any, column: str) -> Optional[frozenset[str]]:
     return frozenset(bound) if bound is not None else None
 
 
+def _schema_split_aliases(
+    node: Any, allowed: Optional[frozenset[str]], database: Optional["Database"]
+) -> dict[str, str]:
+    """Map a qualified table name to its bare name for a SQL-standard `table_schema = … AND table_name = …` query.
+
+    The catalog names each table by its fully-qualified name (`system.insights`), so the split form
+    matches no row and silently returns nothing. When a bare name is not itself a visible table, the
+    caller reports the visible table with that last name segment in the filtered schema under the
+    bare name. The schema is the classified bucket (`posthog.ai_events` is in `public`), not the name
+    prefix. A bare name that matches more than one table in a schema stays unmatched.
+    """
+    if allowed is None or database is None:
+        return {}
+    schemas = _pushdown_table_filter(node, "table_schema")
+    if not schemas:
+        return {}
+    visible = _visible_table_names(database)
+    bare_names = allowed.difference(visible)
+    candidates = [name for name in visible if "." in name and name.rsplit(".", 1)[1] in bare_names]
+    if not candidates:
+        return {}
+    warehouse = set(database.get_warehouse_table_names())
+    views = set(database.get_view_names())
+    matches: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    for name in candidates:
+        try:
+            table = database.get_table(name)
+        except Exception:
+            continue
+        _, table_schema = _classify_table(name, table, warehouse, views)
+        if table_schema in schemas:
+            matches[(table_schema, name.rsplit(".", 1)[1])].append(name)
+    return {names[0]: bare for (_, bare), names in matches.items() if len(names) == 1}
+
+
+def _relabel_table_names(rows: list[list[Any]], aliases: dict[str, str], indexes: tuple[int, ...]) -> list[list[Any]]:
+    relabeled = []
+    for row in rows:
+        row = list(row)
+        for index in indexes:
+            row[index] = aliases.get(row[index], row[index])
+        relabeled.append(row)
+    return relabeled
+
+
 # ClickHouse column types for the external data table, keyed by the same kinds as `_constant_rows_select`.
 _KIND_TO_CLICKHOUSE: dict[str, str] = {
     _STRING: "String",
@@ -477,6 +528,7 @@ class _Introspection:
         self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
+        self._sensitivity_enabled: Optional[bool] = None
         self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
@@ -531,6 +583,33 @@ class _Introspection:
             _capture_unexpected("information_schema: failed to resolve expression column type", e)
             return "Expression"
 
+    def _traverser_target(self, table_name: str, column_name: str) -> Optional[DatabaseField]:
+        """The plain field a traverser column resolves to, or None when it lands on a table, an
+        expression, or nothing resolvable."""
+        scope = self._table_scope(table_name)
+        if scope is None:
+            return None
+        # Deferred: see `_table_scope`.
+        from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+        chain: list[str | int] = [*column_name.split(".")]
+        try:
+            resolved_type = resolve_types(ast.Field(chain=chain), self.context, "hogql", [scope]).type
+            # The table scope is a `SELECT *`, so a column comes back wrapped in its select alias.
+            while isinstance(resolved_type, ast.FieldAliasType):
+                resolved_type = resolved_type.type
+            if not isinstance(resolved_type, ast.FieldType):
+                return None
+            target = resolved_type.resolve_database_field(self.context)
+        except BaseHogQLError:
+            return None  # genuinely unresolvable chain — expected
+        except Exception as e:
+            _capture_unexpected("information_schema: failed to resolve field traverser target", e)
+            return None
+        if not isinstance(target, DatabaseField) or isinstance(target, ExpressionField):
+            return None
+        return target
+
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
         if table_type == "data_warehouse" and table.name:
             return self.row_counts.get(table.name)
@@ -544,6 +623,18 @@ class _Introspection:
 
     def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
         return self.table_descriptions.for_column(table, column_name, field)
+
+    def _column_sensitivity(self, table_type: str, column_name: str, data_type: str) -> Optional[str]:
+        if table_type != "data_warehouse" or self.context.team_id is None:
+            return None
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
+            column_sensitivity,
+            column_sensitivity_enabled,
+        )
+
+        if self._sensitivity_enabled is None:
+            self._sensitivity_enabled = column_sensitivity_enabled(self.context.team_id)
+        return column_sensitivity(column_name, data_type) if self._sensitivity_enabled else None
 
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
@@ -657,13 +748,14 @@ class _Introspection:
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
                 null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
+                data_type = self._data_type(table_name, field)
                 column_rows.append(
                     [
                         table_schema,
                         table_name,
                         qualified,
                         ordinal,
-                        self._data_type(table_name, field),
+                        data_type,
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
@@ -671,6 +763,7 @@ class _Introspection:
                         null_fraction,
                         min_value,
                         max_value,
+                        self._column_sensitivity(table_type, qualified, data_type),
                     ]
                 )
                 ordinal += 1
@@ -703,6 +796,26 @@ class _Introspection:
                         provenance_key=None,
                     )
                 )
+                target_field = self._traverser_target(table_name, qualified)
+                if target_field is not None:
+                    column_rows.append(
+                        [
+                            table_schema,
+                            table_name,
+                            qualified,
+                            ordinal,
+                            _field_type_name(target_field),
+                            bool(target_field.is_nullable()),
+                            bool(target_field.array),
+                            "field_traverser",
+                            self._column_description(table, qualified, field),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ]
+                    )
+                    ordinal += 1
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -715,6 +828,7 @@ class _Introspection:
                         False,
                         False,
                         "virtual_table",
+                        None,
                         None,
                         None,
                         None,
@@ -801,6 +915,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("null_fraction", _NULLABLE_FLOAT),
     ("min_value", _NULLABLE_STRING),
     ("max_value", _NULLABLE_STRING),
+    ("sensitivity", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -856,7 +971,6 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("definition", _NULLABLE_STRING),
     ("definition_kind", _NULLABLE_STRING),
     ("owner", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("source_insight_short_id", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
@@ -952,6 +1066,21 @@ _RELATIONSHIP_PROPOSALS_DESCRIPTION = (
 )
 
 
+class DeniedTableMatcher:
+    def __init__(self, denied: Iterable[str]) -> None:
+        normalized_names = {name.lower() for name in denied}
+        self._denied_names = frozenset(normalized_names | {name.rsplit(".", 1)[-1] for name in normalized_names})
+
+    def matches(self, referenced_table_names: Iterable[str] | None) -> bool:
+        if not self._denied_names or referenced_table_names is None:
+            return False
+        for name in referenced_table_names:
+            normalized = name.lower()
+            if normalized in self._denied_names or normalized.rsplit(".", 1)[-1] in self._denied_names:
+                return True
+        return False
+
+
 def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
     """Whether any of a metric's referenced tables is in the caller's denied set.
 
@@ -963,13 +1092,11 @@ def _references_denied_table(referenced_table_names: Optional[list[str]], denied
     """
     if not denied or not referenced_table_names:
         return False
-    denied_norm = {name.lower() for name in denied}
-    denied_norm |= {name.rsplit(".", 1)[-1] for name in denied_norm}
-    for name in referenced_table_names:
-        normalized = name.lower()
-        if normalized in denied_norm or normalized.rsplit(".", 1)[-1] in denied_norm:
-            return True
-    return False
+    return DeniedTableMatcher(denied).matches(referenced_table_names)
+
+
+def references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
+    return _references_denied_table(referenced_table_names, denied)
 
 
 def _can_read_catalog(context: "HogQLContext") -> bool:
@@ -1005,7 +1132,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
 
     record_catalog_read("metrics")
     try:
-        denied = context.database._denied_tables if context.database is not None else set()
+        denied_matcher = DeniedTableMatcher(context.database._denied_tables if context.database is not None else ())
         queryset = (
             Metric.objects.for_team(team_id).filter(deleted=False).select_related("owner").order_by("-created_at")
         )
@@ -1015,7 +1142,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         drift = compute_drift(metrics)
         rows: list[list[Any]] = []
         for metric in metrics:
-            if _references_denied_table(metric.referenced_table_names, denied):
+            if denied_matcher.matches(metric.referenced_table_names):
                 continue
             rows.append(
                 [
@@ -1029,7 +1156,6 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
                     metric.owner.email if metric.owner else None,
-                    metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
                     metric.last_run_at.isoformat() if metric.last_run_at else None,
@@ -1043,6 +1169,9 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
 
 
+_DATA_QUALITY_READ_ATTR = "_data_quality_read_verdict"
+
+
 def _can_read_data_quality(context: "HogQLContext") -> bool:
     """Whether the caller can read warehouse metadata, mirroring the REST viewsets' resource gate.
 
@@ -1050,12 +1179,18 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
     reading them is warehouse read access (either resource resolves through warehouse_objects).
     Fails closed with no access-control context (service tokens, shared links).
     """
+    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
     access_control = _access_control(context)
     if access_control is None:
         return False
-    return access_control.check_access_level_for_resource(
-        "warehouse_view", "viewer"
-    ) or access_control.check_access_level_for_resource("warehouse_table", "viewer")
+    # Resolved once per caller: for a member without resource-level warehouse access this falls
+    # through to a scan of every warehouse object, and all three loaders below ask the same question.
+    cached = getattr(access_control, _DATA_QUALITY_READ_ATTR, None)
+    if cached is None:
+        cached = bool(data_quality.authorized_subject_types(access_control, None))
+        setattr(access_control, _DATA_QUALITY_READ_ATTR, cached)
+    return cached
 
 
 def _access_control(context: "HogQLContext") -> Any:
@@ -1067,67 +1202,15 @@ def _access_control(context: "HogQLContext") -> Any:
 def _denial_applies(context: "HogQLContext", denied: set[str]) -> bool:
     """Whether the data quality gates have anything to decide for this caller.
 
-    A non-empty denial set settles it. So does an empty one held by a member of an organization with
-    access controls, because deleting the subject they were denied is what empties it -- which is the
-    case the gates withhold for. Only a caller who could never be denied a single object skips them.
+    A denied warehouse table settles it. Denied system tables share the same database set, but their
+    resource permissions do not imply that a warehouse subject can be denied. An empty warehouse
+    denial set still applies for a member with access controls because deleting a denied subject empties
+    that set. Only a caller who could never be denied a warehouse object skips these gates.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
-    return bool(denied) or data_quality.can_be_object_denied(_access_control(context))
-
-
-def _visible_data_quality_checks(
-    context: "HogQLContext", team_id: int, checks: list[Any], denied: set[str]
-) -> list[Any]:
-    """The checks a caller may see, by the rule the REST surfaces apply.
-
-    A check is out of reach on any of three counts: its own subject is denied, the definition it
-    would run next reads one that is, or the run behind its ``last_status`` read one. The row is both
-    tenses at once, so the definition is judged by the names it resolves today and the run by the
-    identities it pinned.
-
-    Subject names come from the subjects themselves rather than the copy denormalized onto the check,
-    which only a run rewrites, so a rename cannot carry a denied subject back into a list.
-    """
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    if not _denial_applies(context, denied):
-        return checks
-    recordings = data_quality.latest_run_recordings(team_id, [check.id for check in checks])
-    current_names = data_quality.resolve_subject_names(
-        team_id,
-        [
-            data_quality.subject_identity(check.subject_type, check.subject_uuid)
-            for check in checks
-            if check.subject_uuid
-        ]
-        + data_quality.pinned_subject_refs(recording.referenced_subjects for recording in recordings.values()),
-    )
-    return [
-        check
-        for check in checks
-        if not _references_denied_table(
-            [
-                current_names.get(
-                    data_quality.subject_identity(check.subject_type, check.subject_uuid), check.subject_name
-                )
-            ],
-            denied,
-        )
-        and not data_quality.check_reads_denied_subject(team_id, check.check_type, check.config, denied)
-        and not _last_run_read_a_denied_subject(recordings.get(check.id), current_names, denied)
-    ]
-
-
-def _last_run_read_a_denied_subject(recording: Any, current_names: dict[Any, str], denied: set[str]) -> bool:
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    # A check that never ran carries no verdict, so there is nothing here to authorize.
-    if recording is None:
-        return False
-    return data_quality.run_reads_unreadable_subject(
-        recording.check_type, recording.referenced_subjects, current_names, denied
-    )
+    has_warehouse_denial = any(not table_name.startswith("system.") for table_name in denied)
+    return has_warehouse_denial or data_quality.can_be_object_denied(_access_control(context))
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1143,10 +1226,21 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
-        queryset = DataQualityCheck.objects.for_team(team_id).filter(deleted=False).order_by("-created_at")
+        queryset = data_quality.live_subject_checks(
+            DataQualityCheck.objects.for_team(team_id).filter(deleted=False)
+        ).order_by("-created_at")
         if allowed is not None:
             queryset = queryset.filter(name__in=allowed)
+        checks = list(queryset)
+        if _denial_applies(context, denied):
+            if context.database is None:
+                return []
+            checks = data_quality.visible_checks(
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
+            )
         return [
             [
                 str(check.id),
@@ -1164,62 +1258,11 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 check.last_run_at.isoformat() if check.last_run_at else None,
                 check.created_at.isoformat(),
             ]
-            for check in _visible_data_quality_checks(context, team_id, list(queryset), denied)
+            for check in checks
         ]
     except Exception:
         logger.exception("information_schema: failed to load data quality checks", team_id=team_id)
         return []
-
-
-def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
-    """Exclude, in SQL, every run that read a subject the caller is denied.
-
-    A run is judged on the identities it pinned as it executed, by the same rule the REST routes
-    apply, so the two surfaces cannot come to different answers about the same run. Editing a check
-    therefore cannot rewrite what its history discloses, and deleting a subject cannot free its name
-    for something else to answer for it. A referencing run that pinned nothing predates the
-    recording and is withheld rather than assumed harmless.
-
-    Only the types that can read past their own subject reach the recording scan. A run of any other
-    type is readable whatever it recorded, and the aggregation this narrows runs over the team's
-    whole retained history before the window applies.
-    """
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
-    recordings = list(
-        runs.filter(check_type__in=data_quality.referencing_check_types())
-        .values_list("check_type", "referenced_subjects")
-        .distinct()
-    )
-    current_names = data_quality.resolve_subject_names(
-        team_id,
-        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
-        + data_quality.pinned_subject_refs(recorded for _, recorded in recordings),
-    )
-    blocked_subjects = [
-        subject_uuid
-        for subject_type, subject_uuid, stamped in subjects
-        if _references_denied_table(
-            [current_names.get(data_quality.subject_identity(subject_type, subject_uuid), stamped)], denied
-        )
-    ]
-    if blocked_subjects:
-        runs = runs.exclude(subject_uuid__in=blocked_subjects)
-
-    blocked_recordings = Q()
-    for check_type, recorded in recordings:
-        if not data_quality.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
-            continue
-        # A JSONField compares None against JSON null, not against the SQL NULL a run without a
-        # recording stores, so the two cases cannot share one lookup.
-        if recorded is None:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects__isnull=True)
-        else:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects=recorded)
-    if blocked_recordings:
-        runs = runs.exclude(blocked_recordings)
-    return runs
 
 
 def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1235,6 +1278,8 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
     from products.data_quality.backend.facade.models import DataQualityCheckRun  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
         base = DataQualityCheckRun.objects.for_team(team_id)
         if allowed is not None:
@@ -1246,7 +1291,9 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
         # Never on the denied set alone: deleting the subject a caller was denied is what empties it,
         # which is the case this withholds runs for.
         if _denial_applies(context, denied):
-            base = _without_denied_runs(team_id, base, denied)
+            if context.database is None:
+                return []
+            base = data_quality.without_denied_runs(base, data_quality.sql_denial_context(team_id, context.database))
         return [
             [
                 str(run.id),
@@ -1284,12 +1331,23 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
-        checks_qs = DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        checks_qs = data_quality.live_subject_checks(
+            DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        )
         if allowed is not None:
             checks_qs = checks_qs.filter(subject_name__in=allowed)
+        checks = list(checks_qs)
+        if _denial_applies(context, denied):
+            if context.database is None:
+                return []
+            checks = data_quality.visible_checks(
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
+            )
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
-        for check in _visible_data_quality_checks(context, team_id, list(checks_qs), denied):
+        for check in checks:
             # A hard-deleted subject has no id to key a rollup on, and its checks only skip.
             if check.subject_uuid is None:
                 continue
@@ -1667,6 +1725,9 @@ class InformationSchemaTablesTable(InformationSchemaTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         data_catalog_enrichment_requested = "certification" in self.fields and _accesses_any_field(
             table_to_add, _DATA_CATALOG_TABLE_FIELDS
@@ -1679,6 +1740,10 @@ class InformationSchemaTablesTable(InformationSchemaTable):
             table_rows = introspection.table_rows()
         columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enrichment_requested else _TABLES_COLUMNS
         table_label = "data_catalog_enriched_tables" if data_catalog_enrichment_requested else "tables"
+        if aliases:
+            # table_catalog and table_name both carry the table's name.
+            table_rows = _relabel_table_names(table_rows, aliases, (0, 2))
+            table_label = f"{table_label}_schema_split"
         return _rows_select(context, table_label, columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1692,7 +1757,8 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
-        "tables) profiling statistics: null_fraction, min_value, max_value."
+        "tables) profiling statistics (null_fraction, min_value, max_value) and a sensitivity flag for "
+        "columns that likely hold personal or secret data."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -1723,7 +1789,10 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
         "field_kind": _string_field(
             "field_kind",
             nullable=False,
-            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+            description=(
+                "How the column is backed: 'column', 'expression' (computed), 'field_traverser' (read "
+                "through a join, typed by the field it reaches), or 'virtual_table'."
+            ),
         ),
         "description": _string_field(
             "description", nullable=True, description="Human/agent-facing description of what the column holds."
@@ -1753,12 +1822,33 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
                 "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
             ),
         ),
+        "sensitivity": _string_field(
+            "sensitivity",
+            nullable=True,
+            description=(
+                "Kind of personal or secret data a data warehouse column likely holds, from its name and type: "
+                + ", ".join(f"'{kind.value}'" for kind in WarehouseColumnSensitivity)
+                + ". Avoid selecting or exposing these columns unless the task needs them. "
+                "NULL when the column is not flagged or is not a synced warehouse column."
+            ),
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         column_rows = introspection.column_rows() if introspection is not None else []
+        if aliases:
+            return _rows_select(
+                context,
+                "columns_schema_split",
+                _COLUMNS_COLUMNS,
+                _relabel_table_names(column_rows, aliases, (1,)),
+                allowed,
+            )
         return _rows_select(context, "columns", _COLUMNS_COLUMNS, column_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1890,10 +1980,11 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="AI author's design decisions and trade-offs behind the definition, as review context.",
         ),
-        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
         "source_insight_short_id": _string_field(
             "source_insight_short_id",
             nullable=True,
@@ -2025,7 +2116,7 @@ class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
 
 class InformationSchemaDataQualityChecksTable(LazyTable):
     description: str = (
-        "Data quality checks defined on the project's warehouse tables and views (dbt-test style); one row "
+        "Data quality checks defined on the project's warehouse tables, views, and HogQL metrics; one row "
         "per check. Query this before authoring a check so you extend the existing coverage instead of "
         "duplicating it. A check passes when its assertion finds zero failing rows; see "
         "information_schema.data_quality_check_runs for outcomes and data_quality_health for the per-subject "
@@ -2034,11 +2125,17 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
-        "subject_type": _string_field("subject_type", description="'table' (synced source) or 'view' (saved query)."),
-        "subject_uuid": _string_field(
-            "subject_uuid", nullable=True, description="UUID of the checked table or view; NULL once hard-deleted."
+        "subject_type": _string_field(
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
-        "subject_name": _string_field("subject_name", description="Queryable name of the checked table or view."),
+        "subject_uuid": _string_field(
+            "subject_uuid",
+            nullable=True,
+            description="UUID of the checked table, view, or metric; NULL once hard-deleted.",
+        ),
+        "subject_name": _string_field("subject_name", description="Name of the checked table, view, or metric."),
         "subject_status": _string_field(
             "subject_status", description="'active', or 'orphaned' once the subject stops resolving."
         ),
@@ -2094,8 +2191,12 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
             "check_id", nullable=True, description="UUID of the check definition; NULL once it is deleted."
         ),
         "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
-        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
-        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table or view."),
+        "subject_type": _string_field(
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
+        ),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table, view, or metric."),
         "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
         "check_type": _string_field("check_type", description="Which assertion ran."),
         "column_name": _string_field("column_name", nullable=True, description="Checked column, when applicable."),
@@ -2137,15 +2238,23 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
 
 class InformationSchemaDataQualityHealthTable(LazyTable):
     description: str = (
-        "One row per warehouse table or view that has data quality checks, rolled up to a single verdict. "
-        "Check this before trusting a source in an analysis: 'failing' means an error-severity check found bad "
-        "data, 'erroring' means a check could not run at all, 'warn' means only warn-severity checks failed, "
+        "One row per warehouse table, view, or catalog metric that has data quality checks, rolled up to a single "
+        "verdict. Check this before trusting a source in an analysis: 'failing' means an error-severity check found "
+        "bad data, 'erroring' means a check could not run at all, 'warn' means only warn-severity checks failed, "
         "'unknown' means nothing has run yet. Subjects with no checks do not appear."
     )
     fields: dict[str, FieldOrTable] = {
-        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
-        "subject_uuid": _string_field("subject_uuid", description="UUID of the table or view."),
-        "subject_name": _string_field("subject_name", description="Queryable name of the table or view."),
+        "subject_type": _string_field(
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
+        ),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the table, view, or metric."),
+        "subject_name": _string_field(
+            "subject_name",
+            description="Name of the table, view, metric, or PostHog table. "
+            "Table, view and PostHog table names are queryable in HogQL; a metric name is not.",
+        ),
         "health": _string_field(
             "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."
         ),
@@ -2227,6 +2336,29 @@ def direct_connection_information_schema_node() -> TableNode:
     return node
 
 
+def static_column_rows() -> list[list[Any]]:
+    """`columns` rows for the statically-defined schema, resolved without a team or any database
+    access, so build-time tooling can render exactly what `system.information_schema.columns`
+    serves at query time.
+
+    Team-scoped inputs (warehouse tables, semantic-layer annotations, column statistics) resolve
+    empty at `team_id=None` — the static schema is all that's left, which is the point.
+
+    Row layout matches `_Introspection.column_rows()`:
+    `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
+    description, null_fraction, min_value, max_value, sensitivity]`.
+    """
+    # Deferred: `Database` imports the schema package, so a module-level import would cycle.
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.database.database import Database  # noqa: PLC0415
+
+    database = Database()
+    # `enable_select_queries` lets expression columns be typed by the value they evaluate to
+    # (`deleted` → `Integer`) instead of falling back to the generic "Expression".
+    context = HogQLContext(team_id=None, database=database, enable_select_queries=True)
+    return _Introspection(database, context).column_rows()
+
+
 def disable_data_catalog(info_schema: TableNode) -> None:
     info_schema.children.pop("metrics", None)
     info_schema.children.pop("certifications", None)
@@ -2241,9 +2373,3 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
-
-
-def disable_data_quality(info_schema: TableNode) -> None:
-    info_schema.children.pop("data_quality_checks", None)
-    info_schema.children.pop("data_quality_check_runs", None)
-    info_schema.children.pop("data_quality_health", None)

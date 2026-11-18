@@ -7,31 +7,16 @@ import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AnyPropertyFilter, LiveEvent, PropertyFilterValue, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, LiveEvent, PropertyOperator } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
+import { LIVE_EVENTS_QUERY_POLL_MS, loadRecentLiveEvents } from './liveEventsQuery'
 
 const ERROR_TOAST_ID = 'live-stream-error'
-
-export const LIVE_EVENTS_SUPPORTED_OPERATORS: PropertyOperator[] = [
-    PropertyOperator.Exact,
-    PropertyOperator.IsNot,
-    PropertyOperator.IContains,
-    PropertyOperator.NotIContains,
-    PropertyOperator.Regex,
-    PropertyOperator.NotRegex,
-    PropertyOperator.GreaterThan,
-    PropertyOperator.GreaterThanOrEqual,
-    PropertyOperator.LessThan,
-    PropertyOperator.LessThanOrEqual,
-    PropertyOperator.IsSet,
-    PropertyOperator.IsNotSet,
-]
 
 export interface LiveEventsLogicProps {
     showLiveStreamErrorToast?: boolean
@@ -200,52 +185,50 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 return
             }
 
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                const teamId = values.currentTeam.id
+                const { eventType } = values.filters
+                cache.disposables.add(() => {
+                    let cancelled = false
+                    let timeoutId: ReturnType<typeof setTimeout> | undefined
+                    // Each poll waits for the previous one to settle, so slow queries never overlap.
+                    const poll = async (): Promise<void> => {
+                        try {
+                            const events = await loadRecentLiveEvents(teamId, eventType)
+                            if (!cancelled) {
+                                actions.addEvents(events)
+                            }
+                        } catch (error) {
+                            console.error('Failed to load recent events', error)
+                        }
+                        if (!cancelled) {
+                            timeoutId = setTimeout(() => void poll(), LIVE_EVENTS_QUERY_POLL_MS)
+                        }
+                    }
+                    void poll()
+                    return () => {
+                        cancelled = true
+                        clearTimeout(timeoutId)
+                    }
+                }, 'eventsConnection')
+                return
+            }
+
             const { eventType, properties } = values.filters
             const url = new URL(`${liveEventsHostOrigin()}/events`)
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
-            if (values.featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]) {
-                const richFilters: { key: string; operator: PropertyOperator; value?: PropertyFilterValue }[] = []
-                for (const pf of properties ?? []) {
-                    if (!isEventPropertyFilter(pf) || !pf.key || !pf.operator) {
-                        continue
-                    }
-                    if (!LIVE_EVENTS_SUPPORTED_OPERATORS.includes(pf.operator)) {
-                        continue
-                    }
-                    if (isOperatorFlag(pf.operator)) {
-                        richFilters.push({ key: pf.key, operator: pf.operator })
-                        continue
-                    }
-                    if (pf.value == null) {
-                        continue
-                    }
-                    if (Array.isArray(pf.value)) {
-                        const cleaned = pf.value.filter((v) => v != null)
-                        if (cleaned.length === 0) {
-                            continue
-                        }
-                        richFilters.push({ key: pf.key, operator: pf.operator, value: cleaned })
-                    } else {
-                        richFilters.push({ key: pf.key, operator: pf.operator, value: pf.value })
-                    }
+            for (const pf of properties ?? []) {
+                if (!isEventPropertyFilter(pf) || pf.operator !== PropertyOperator.Exact || !pf.key) {
+                    continue
                 }
-                if (richFilters.length > 0) {
-                    url.searchParams.append('properties', JSON.stringify(richFilters))
-                }
-            } else {
-                for (const pf of properties ?? []) {
-                    if (!isEventPropertyFilter(pf) || pf.operator !== PropertyOperator.Exact || !pf.key) {
+                const vals = Array.isArray(pf.value) ? pf.value : [pf.value]
+                for (const v of vals) {
+                    if (v == null) {
                         continue
                     }
-                    const vals = Array.isArray(pf.value) ? pf.value : [pf.value]
-                    for (const v of vals) {
-                        if (v == null) {
-                            continue
-                        }
-                        url.searchParams.append('property', `${pf.key}=${String(v)}`)
-                    }
+                    url.searchParams.append('property', `${pf.key}=${String(v)}`)
                 }
             }
             url.searchParams.append('columns', '$current_url,$screen_name')
@@ -256,6 +239,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.add(() => {
                 cache.batch = []
                 const controller = new AbortController()
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 void api.stream(url.toString(), {
                     headers: {
                         Authorization: `Bearer ${values.currentTeam?.live_events_token}`,

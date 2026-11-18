@@ -1,13 +1,19 @@
 // Postgres
 import { DateTime } from 'luxon'
-import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
+import { Client, DatabaseError, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
+import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
-import { postgresErrorCounter } from './metrics'
+import {
+    postgresClientErrorCounter,
+    postgresErrorCounter,
+    postgresOpenTransactionsGauge,
+    postgresPoolAcquireDurationHistogram,
+} from './metrics'
 import { timeoutGuard } from './utils'
 
 /** Config that PostgresRouter needs to create its connection pools. */
@@ -49,6 +55,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'no more connections allowed',
     'server closed the connection unexpectedly',
     'getaddrinfo EAI_AGAIN',
+    'getaddrinfo ENOTFOUND', // Cluster DNS briefly answering NXDOMAIN for the PgBouncer service name
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection
@@ -57,12 +64,40 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
+    'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
+    'timeout exceeded when trying to connect', // pg-pool waited connectionTimeoutMillis for a free client
+    'Connection terminated due to connection timeout', // pg-pool could not open a new connection within connectionTimeoutMillis
+    // A hot standby cancels a read when WAL replay conflicts with it.
+    // Some servers capitalize the first word of the message, so the entry holds only the words that every variant shares.
+    // Servers report the conflict as SQLSTATE 40001 or 57014.
+    // Both codes also cover other failures, so the list matches this phrase instead of a code.
+    'conflict with recovery',
 ]
 
-export function isTransientPgError(err: unknown): boolean {
+// A SQLSTATE covers every message variant of its code, also from servers with a localized lc_messages.
+// 57014 (query_canceled) stays out because a statement timeout can repeat on each retry of the same slow query.
+const POSTGRES_UNAVAILABLE_SQLSTATES = new Set([
+    '53300', // too_many_connections
+    '57P01', // admin_shutdown
+    '57P02', // crash_shutdown
+    '57P03', // cannot_connect_now: the server is starting up, shutting down, or in recovery
+])
+
+function findTransientPgErrorType(err: unknown): string | undefined {
+    const code = (err as DatabaseError | undefined)?.code
+    if (code && POSTGRES_UNAVAILABLE_SQLSTATES.has(code)) {
+        return code
+    }
     const message = (err as Error | undefined)?.message
-    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+    return message ? POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((m) => message.includes(m)) : undefined
 }
+
+export function isTransientPgError(err: unknown): boolean {
+    return findTransientPgErrorType(err) !== undefined
+}
+
+// Below the realtime cohort member page deadline, so a stalled connection fails before the page does.
+const BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS = 30_000
 
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
@@ -85,16 +120,28 @@ export class TransactionClient {
 
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
+    private readonly connectionTimeoutRouters = new Map<number, PostgresRouter>()
+    private ended = false
 
-    constructor(serverConfig: PostgresRouterConfig, appName?: string) {
+    constructor(
+        private readonly serverConfig: PostgresRouterConfig,
+        private readonly appName?: string,
+        connectionTimeoutMillis?: number
+    ) {
         installPostgresTypeParsers()
+
+        if (!serverConfig.DATABASE_URL) {
+            throw Error(MISSING_DATABASE_URL_MESSAGE)
+        }
 
         const app_name = appName ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(
             serverConfig.DATABASE_URL,
             serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-            app_name
+            app_name,
+            undefined,
+            connectionTimeoutMillis
         )
         logger.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
@@ -114,7 +161,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.DATABASE_READONLY_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Read-only common Postgresql ready`)
@@ -126,7 +175,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PLUGIN_STORAGE_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Plugin-storage Postgresql ready`)
@@ -138,7 +189,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PERSONS_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Persons Postgresql ready`)
@@ -151,7 +204,10 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    // A connection whose startup stalls would otherwise hold a pool slot forever.
+                    connectionTimeoutMillis ?? BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS
                 )
             )
             logger.info('👍', `Behavioral cohorts Postgresql ready`)
@@ -164,7 +220,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PERSONS_READONLY_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Persons read-only Postgresql ready`)
@@ -195,25 +253,54 @@ export class PostgresRouter {
         tag: string,
         transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
-        const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
+        const poolLabel = PostgresUse[usage]
+        const wrappedTag = `${poolLabel}:Tx<${tag}>`
 
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
-            const client = await this.pools.get(usage)!.connect()
+            const acquireStart = performance.now()
+            let client: PoolClient
+            try {
+                client = await this.pools.get(usage)!.connect()
+            } catch (error) {
+                clearTimeout(timeout)
+                handlePostgresError(error, usage)
+                throw error
+            }
+            postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
+
+            // pg removes the pool's error listener from a checked-out client, so a lost
+            // connection would otherwise crash the process as an unhandled 'error' event.
+            let releaseError: Error | undefined
+            const onClientError = (error: Error): void => {
+                releaseError = error
+                postgresClientErrorCounter.inc({ pool: poolLabel })
+                logger.warn('🔌', 'Postgres client error during transaction', { tag: wrappedTag, error: String(error) })
+            }
+            client.on('error', onClientError)
+            postgresOpenTransactionsGauge.inc({ pool: poolLabel, tag })
             try {
                 await client.query('BEGIN')
                 const response = await transaction(new TransactionClient(usage, client))
                 await client.query('COMMIT')
                 return response
             } catch (e) {
-                await client.query('ROLLBACK')
+                try {
+                    await client.query('ROLLBACK')
+                } catch (rollbackError) {
+                    // The connection's transaction state is unknown, so the pool must not reuse it.
+                    releaseError ??= rollbackError as Error
+                    logger.warn('🔌', 'Postgres ROLLBACK failed', { tag: wrappedTag, error: String(rollbackError) })
+                }
 
                 // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
                 handlePostgresError(e, usage)
 
                 throw e
             } finally {
-                client.release()
+                postgresOpenTransactionsGauge.dec({ pool: poolLabel, tag })
+                client.removeListener('error', onClientError)
+                client.release(releaseError)
                 clearTimeout(timeout)
             }
         })
@@ -223,7 +310,23 @@ export class PostgresRouter {
         return await this.pools.get(usage)!.connect()
     }
 
+    public withConnectionTimeout(connectionTimeoutMillis: number): PostgresRouter {
+        if (this.ended) {
+            return this
+        }
+        let router = this.connectionTimeoutRouters.get(connectionTimeoutMillis)
+        if (!router) {
+            router = new PostgresRouter(this.serverConfig, this.appName, connectionTimeoutMillis)
+            this.connectionTimeoutRouters.set(connectionTimeoutMillis, router)
+        }
+        return router
+    }
+
     async end(): Promise<void> {
+        this.ended = true
+        for (const router of this.connectionTimeoutRouters.values()) {
+            await router.end()
+        }
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {
@@ -290,11 +393,11 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
 
 /** Throws retriable DependencyUnavailableError for transient PG/PgBouncer errors, does nothing otherwise. */
 export function handlePostgresError(error: Error, databaseUse: PostgresUse): void {
-    const matchedMessage = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
-    if (!matchedMessage) {
+    const errorType = findTransientPgErrorType(error)
+    if (!errorType) {
         return
     }
 
-    postgresErrorCounter.inc({ error_type: matchedMessage, database_use: PostgresUse[databaseUse] })
+    postgresErrorCounter.inc({ error_type: errorType, database_use: PostgresUse[databaseUse] })
     throw new DependencyUnavailableError(error.message, 'Postgres', error)
 }

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 // see https://github.com/PostHog/posthog/pull/20359/files#r1490894232 for a visual example of what this is trying to
 // solve
@@ -46,7 +46,11 @@ export const EvenlyDistributedRows = ({
         })
     }, [setRowLayout, elementRef, minWidthRems, children.length, maxItemsPerRow])
 
-    useEffect(() => {
+    // Layout effect, not effect: the first commit has no children (the column count is unknown
+    // until the container is measured). Measuring before paint means the browser never paints the
+    // empty container, so the rows appearing does not count as a layout shift. With useEffect the
+    // empty frame was painted and everything below the grid moved down when the rows arrived.
+    useLayoutEffect(() => {
         const element = elementRef.current
         if (!element) {
             return

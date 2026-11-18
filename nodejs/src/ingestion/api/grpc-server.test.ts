@@ -11,10 +11,11 @@ import {
     SubBatchAck,
     SubBatchStatus,
 } from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+import { logger } from '~/common/utils/logger'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { FeedOrderSentinel } from './feed-order-sentinel'
-import { CompletedSubBatch, StreamIngestDriver, WorkerIngestServer } from './grpc-server'
+import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget, WorkerIngestServer } from './grpc-server'
 
 class Deferred<T> {
     resolve!: (value: T) => void
@@ -66,18 +67,32 @@ class FrameSource implements AsyncIterable<IngestStreamRequest> {
 
 /** Records feeds and lets the test hand-complete batches. */
 class FakeDriver implements StreamIngestDriver {
-    feeds: { streamId: number; seq: number; offsets: number[] }[] = []
+    feeds: { streamId: number; seq: number; offsets: number[]; partitions: number[]; budget: SubBatchBudget }[] = []
     feedResult: FeedResult = { ok: true }
+    pendingFeed: Promise<FeedResult> | null = null
+    nextCalls = 0
     private completions: CompletedSubBatch[] = []
     private nextWaiters: Deferred<CompletedSubBatch | null>[] = []
     nextError: Error | null = null
 
-    feed(streamId: number, seq: number, messages: { offset: number }[]): Promise<FeedResult> {
-        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset) })
-        return Promise.resolve(this.feedResult)
+    feed(
+        streamId: number,
+        seq: number,
+        messages: { partition: number; offset: number }[],
+        budget: SubBatchBudget
+    ): Promise<FeedResult> {
+        this.feeds.push({
+            streamId,
+            seq,
+            offsets: messages.map((m) => m.offset),
+            partitions: messages.map((m) => m.partition),
+            budget,
+        })
+        return this.pendingFeed ?? Promise.resolve(this.feedResult)
     }
 
     next(): Promise<CompletedSubBatch | null> {
+        this.nextCalls++
         if (this.nextError) {
             return Promise.reject(this.nextError)
         }
@@ -89,8 +104,11 @@ class FakeDriver implements StreamIngestDriver {
         return waiter.promise
     }
 
-    complete(batch: Omit<CompletedSubBatch, 'settled'>, settled: Promise<void> = Promise.resolve()): void {
-        const completed: CompletedSubBatch = { ...batch, settled }
+    complete(
+        batch: Omit<CompletedSubBatch, 'settled' | 'unfinished'> & Partial<Pick<CompletedSubBatch, 'unfinished'>>,
+        settled: Promise<void> = Promise.resolve()
+    ): void {
+        const completed: CompletedSubBatch = { unfinished: [], ...batch, settled }
         const waiter = this.nextWaiters.shift()
         if (waiter) {
             waiter.resolve(completed)
@@ -123,7 +141,12 @@ function hello(overrides: { consumerId?: string; streamEpoch?: bigint } = {}): I
 function subBatch(
     seq: number,
     offsets: number[],
-    overrides: { replay?: boolean; assignmentEpoch?: bigint } = {}
+    overrides: {
+        replay?: boolean
+        assignmentEpoch?: bigint
+        softBudgetMs?: bigint
+        partition?: number
+    } = {}
 ): IngestStreamRequest {
     return create(IngestStreamRequestSchema, {
         msg: {
@@ -133,10 +156,11 @@ function subBatch(
                 batchId: `batch-${seq}`,
                 replay: overrides.replay ?? false,
                 assignmentEpoch: overrides.assignmentEpoch ?? 1n,
+                softBudgetMs: overrides.softBudgetMs ?? 0n,
                 messages: offsets.map((offset) =>
                     create(KafkaMessageSchema, {
                         topic: 'events',
-                        partition: 0,
+                        partition: overrides.partition ?? 0,
                         offset: BigInt(offset),
                         timestamp: 0n,
                         key: 'k',
@@ -262,14 +286,18 @@ describe('WorkerIngestServer', () => {
             [2, SubBatchStatus.OK, 1],
             [1, SubBatchStatus.OK, 2],
         ])
+        expect(collected.acks.every((ack) => ack.unfinished.length === 0)).toBe(true)
         expect(server.streamCount).toBe(0)
     })
 
     it('stop() drains in-flight sub-batch acks before ending streams', async () => {
         const source = new FrameSource()
         const collected = collect(server, source)
+        const idleSource = new FrameSource()
+        const idle = collect(server, idleSource)
 
         source.push(hello())
+        idleSource.push(hello({ consumerId: 'consumer-idle' }))
         source.push(subBatch(1, [10]))
         await until(() => driver.feeds.length === 1)
         const streamId = driver.feeds[0].streamId
@@ -282,6 +310,8 @@ describe('WorkerIngestServer', () => {
         const late = collect(server, new FrameSource())
         await late.ended
         expect(late.error?.code).toBe(Code.Unavailable)
+        await idle.ended
+        expect(idle.error).toBeNull()
 
         driver.complete({ streamId, seq: 1, accepted: 1 })
         await stopping
@@ -348,6 +378,26 @@ describe('WorkerIngestServer', () => {
         expect(driver.feeds).toEqual([])
     })
 
+    it('arms the frame budget at read time, before the sub-batch waits for admission', async () => {
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        const before = Date.now()
+        source.push(hello())
+        source.push(subBatch(1, [10], { softBudgetMs: 300n }))
+        await until(() => driver.feeds.length === 1)
+        const after = Date.now()
+
+        const { budget } = driver.feeds[0]
+        expect(budget.softBudgetMs).toBe(300)
+        expect(budget.armedAt).toBeGreaterThanOrEqual(before)
+        expect(budget.armedAt).toBeLessThanOrEqual(after)
+
+        source.end()
+        driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+        await collected.ended
+    })
+
     it('fails the stream and reports fatal when the pipeline dies mid-batch', async () => {
         const source = new FrameSource()
         const collected = collect(server, source)
@@ -360,6 +410,239 @@ describe('WorkerIngestServer', () => {
 
         expect(collected.error!.code).toBe(Code.Internal)
         expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'pipeline poisoned' }))
+    })
+
+    describe('in-flight sub-batches', () => {
+        const STUCK_TIMEOUT_MS = 200
+        const HEALTHY_FED_AT_MS = 100
+        const FIRST_CHECK_PAST_DEADLINE_MS = 250
+
+        interface TestStream {
+            source: FrameSource
+            collected: Collected
+            streamId: number
+        }
+
+        let onStuck: jest.Mock
+        let onStuckDrained: jest.Mock
+        let errorLog: jest.SpyInstance
+        let watched: WorkerIngestServer
+
+        async function startWatched(options: {
+            stuckBatchTimeoutMs?: number
+            stuckDrainTimeoutMs?: number
+            drainTimeoutMs?: number
+        }): Promise<void> {
+            watched = new WorkerIngestServer(
+                {
+                    port: 0,
+                    maxConcurrentBatches: 4,
+                    capacityRetryMs: 1,
+                    pumpIdleMs: 1,
+                    drainTimeoutMs: 50,
+                    stuckBatchTimeoutMs: STUCK_TIMEOUT_MS,
+                    ...options,
+                },
+                { driver, feedOrderSentinel: sentinel, onFatal, onStuck, onStuckDrained }
+            )
+            await watched.start()
+        }
+
+        async function flushEventLoop(): Promise<void> {
+            for (let i = 0; i < 100; i++) {
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+        }
+
+        async function eventually(condition: () => boolean | Promise<boolean>): Promise<void> {
+            for (let i = 0; i < 100; i++) {
+                if (await condition()) {
+                    return
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            throw new Error('condition not met once the event loop went idle')
+        }
+
+        async function expectResolvesWithoutTimers(promise: Promise<unknown>): Promise<void> {
+            let resolved = false
+            void promise.then(() => (resolved = true))
+            await eventually(() => resolved)
+        }
+
+        async function feed(consumerId: string, offsets: number[], partition = 0): Promise<TestStream> {
+            const source = new FrameSource()
+            const collected = collect(watched, source)
+            const fedBefore = driver.feeds.length
+            source.push(hello({ consumerId }))
+            source.push(subBatch(1, offsets, { partition }))
+            await eventually(() => driver.feeds.length === fedBefore + 1)
+            return { source, collected, streamId: driver.feeds[fedBefore].streamId }
+        }
+
+        function settle(stream: TestStream, seq = 1): void {
+            driver.complete({ streamId: stream.streamId, seq, accepted: 1 })
+        }
+
+        function neverSettle(stream: TestStream, seq = 1): void {
+            driver.complete({ streamId: stream.streamId, seq, accepted: 1 }, new Deferred<void>().promise)
+        }
+
+        async function failWithSeqGap(stream: TestStream): Promise<void> {
+            stream.source.push(subBatch(99, [0]))
+            await stream.collected.ended
+        }
+
+        function loggedErrors(message: string): unknown[] {
+            return errorLog.mock.calls.filter(([, logged]) => logged === message).map(([, , fields]) => fields)
+        }
+
+        async function tripWithStuckAndHealthyBatch(): Promise<{ stuck: TestStream; healthy: TestStream }> {
+            const stuck = await feed('consumer-stuck', [10, 11], 2)
+            neverSettle(stuck)
+            await jest.advanceTimersByTimeAsync(HEALTHY_FED_AT_MS)
+            const healthy = await feed('consumer-healthy', [20])
+            await jest.advanceTimersByTimeAsync(FIRST_CHECK_PAST_DEADLINE_MS - HEALTHY_FED_AT_MS - 1)
+            expect(onStuck).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(1)
+            expect(onStuck).toHaveBeenCalledTimes(1)
+            return { stuck, healthy }
+        }
+
+        beforeEach(() => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+            onStuck = jest.fn()
+            onStuckDrained = jest.fn()
+            errorLog = jest.spyOn(logger, 'error')
+        })
+
+        afterEach(async () => {
+            jest.useRealTimers()
+            await watched.stop()
+            jest.restoreAllMocks()
+        })
+
+        it('leaves the pool, acks the other sub-batches, then asks the owner to exit', async () => {
+            await startWatched({ stuckDrainTimeoutMs: 5_000 })
+
+            const { stuck, healthy } = await tripWithStuckAndHealthyBatch()
+
+            expect(loggedErrors('WorkerIngest sub-batch stuck')).toEqual([
+                expect.objectContaining({
+                    key: `${stuck.streamId}:1`,
+                    inFlightMs: FIRST_CHECK_PAST_DEADLINE_MS,
+                    consumerId: 'consumer-stuck',
+                    count: 2,
+                    offsets: ['events[2]:10-11'],
+                    streamOpen: true,
+                }),
+            ])
+            expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(
+                FIRST_CHECK_PAST_DEADLINE_MS / 1000
+            )
+            await stuck.collected.ended
+            expect(stuck.collected.error?.code).toBe(Code.Unavailable)
+
+            const late = collect(watched, new FrameSource())
+            await late.ended
+            expect(late.error?.code).toBe(Code.Unavailable)
+            healthy.source.push(subBatch(2, [21]))
+            await flushEventLoop()
+            expect(driver.feeds).toHaveLength(2)
+            expect(onStuckDrained).not.toHaveBeenCalled()
+
+            settle(healthy)
+            await healthy.collected.ended
+            expect(healthy.collected.error).toBeNull()
+            expect(healthy.collected.acks.map((ack) => [Number(ack.seq), ack.status])).toEqual([[1, SubBatchStatus.OK]])
+            await jest.advanceTimersByTimeAsync(10)
+            expect(onStuckDrained).toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('stuck-batch deadline') })
+            )
+            expect(loggedErrors('WorkerIngest stuck-batch shutdown: drained, exiting')).toEqual([
+                expect.objectContaining({ openStreams: 0 }),
+            ])
+            expect(onFatal).not.toHaveBeenCalled()
+        })
+
+        it('asks the owner to exit at the drain timeout when another sub-batch never settles', async () => {
+            await startWatched({ stuckDrainTimeoutMs: 150, drainTimeoutMs: 60_000 })
+
+            const { healthy } = await tripWithStuckAndHealthyBatch()
+            await jest.advanceTimersByTimeAsync(140)
+            expect(onStuckDrained).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(10)
+
+            expect(onStuckDrained).toHaveBeenCalledTimes(1)
+            expect(healthy.collected.acks).toEqual([])
+            expect(loggedErrors('WorkerIngest stuck-batch shutdown: timeout, exiting')).toEqual([
+                expect.objectContaining({ openStreams: 1 }),
+            ])
+            await expectResolvesWithoutTimers(watched.stop())
+        })
+
+        it('measures the deadline per sub-batch, so an idle stream outlives it', async () => {
+            await startWatched({})
+            const stream = await feed('consumer-1', [10])
+            settle(stream)
+            await eventually(() => stream.collected.acks.length === 1)
+
+            await jest.advanceTimersByTimeAsync(10 * STUCK_TIMEOUT_MS)
+
+            expect(onStuck).not.toHaveBeenCalled()
+        })
+
+        it('trips the stuck-batch shutdown on a sub-batch whose feed never returns', async () => {
+            await startWatched({})
+            driver.pendingFeed = new Deferred<FeedResult>().promise
+            const hung = await feed('consumer-hung', [10])
+
+            await jest.advanceTimersByTimeAsync(FIRST_CHECK_PAST_DEADLINE_MS)
+
+            expect(onStuck).toHaveBeenCalledTimes(1)
+            expect(loggedErrors('WorkerIngest sub-batch stuck')).toEqual([
+                expect.objectContaining({ key: `${hung.streamId}:1` }),
+            ])
+        })
+
+        it('does not pull from the pipeline while its only collected sub-batch settles', async () => {
+            await startWatched({})
+            const stream = await feed('consumer-1', [10])
+            await eventually(() => driver.nextCalls === 1)
+
+            neverSettle(stream)
+            await flushEventLoop()
+
+            expect(driver.nextCalls).toBe(1)
+        })
+
+        it('collects every sub-batch of a stream that died, so none of them looks stuck', async () => {
+            await startWatched({})
+            const baselineInFlight = await metricValue('ingestion_api_batches_in_flight')
+            const stream = await feed('consumer-1', [10])
+            stream.source.push(subBatch(2, [11]))
+            await eventually(() => driver.feeds.length === 2)
+            await failWithSeqGap(stream)
+            expect(watched.streamCount).toBe(0)
+
+            settle(stream, 1)
+            settle(stream, 2)
+            await eventually(async () => (await metricValue('ingestion_api_batches_in_flight')) === baselineInFlight)
+            await jest.advanceTimersByTimeAsync(10 * STUCK_TIMEOUT_MS)
+
+            expect(onStuck).not.toHaveBeenCalled()
+        })
+
+        it('never starts when the stuck-batch timeout is 0, but still reports the oldest age', async () => {
+            await startWatched({ stuckBatchTimeoutMs: 0 })
+            neverSettle(await feed('consumer-1', [10]))
+
+            await jest.advanceTimersByTimeAsync(600_000)
+
+            expect(onStuck).not.toHaveBeenCalled()
+            expect(onStuckDrained).not.toHaveBeenCalled()
+            expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(600)
+        })
     })
 
     it('nacks a rejected sub-batch before closing the stream', async () => {
@@ -544,6 +827,79 @@ describe('WorkerIngestServer', () => {
         source.push(subBatch(3, [2], { assignmentEpoch: 2n }))
         await until(() => driver.feeds.length === 3)
         expect(await outOfOrderCount()).toBe(before + 1)
+    })
+
+    it('acks PARTIAL with the dispositions of a batch whose elements did not all finish, once it settles', async () => {
+        const baselineMessages = await metricValue('ingestion_api_messages_processed_total')
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10, 11, 12, 13], { partition: 3 }))
+        source.push(subBatch(2, [14]))
+        await until(() => driver.feeds.length === 2)
+        const streamId = driver.feeds[0].streamId
+        // A non-zero partition, because every other test uses partition 0 and
+        // would not notice the server dropping or defaulting it on either leg.
+        expect(driver.feeds[0].partitions).toEqual([3, 3, 3, 3])
+
+        // The consumer commits what a PARTIAL ack accepts.
+        const settled = new Deferred<void>()
+        driver.complete({ streamId, seq: 1, accepted: 3, unfinished: [{ partition: 3, offset: 11 }] }, settled.promise)
+        driver.complete({ streamId, seq: 2, accepted: 1 })
+        await until(() => collected.acks.length >= 1)
+        expect(collected.acks.map((ack) => ack.seq)).toEqual([2n])
+
+        settled.resolve()
+        await until(() => collected.acks.length >= 2)
+        source.end()
+        await collected.ended
+
+        expect(collected.acks.map((ack) => ack.seq)).toEqual([2n, 1n])
+        const ack = collected.acks[1]
+        expect(ack.status).toBe(SubBatchStatus.PARTIAL)
+        expect(ack.unfinished).toMatchObject([{ partition: 3, offset: 11n }])
+        expect(ack.accepted + ack.unfinished.length).toBe(4)
+        expect(await metricValue('ingestion_api_messages_processed_total')).toBe(
+            baselineMessages + collected.acks.reduce((sum, { accepted }) => sum + accepted, 0)
+        )
+    })
+
+    it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {
+        const budgeted = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await budgeted.start()
+        try {
+            const source = new FrameSource()
+            const collected = collect(budgeted, source)
+
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await until(() => driver.feeds.length === 1)
+            // The one slot is held by sub-batch 1, so sub-batch 2 parks.
+            source.push(subBatch(2, [11, 12], { softBudgetMs: 20n }))
+            await until(() => collected.acks.length === 1)
+
+            const ack = collected.acks[0]
+            expect(ack.seq).toBe(2n)
+            expect(ack.status).toBe(SubBatchStatus.PARTIAL)
+            expect(ack.accepted).toBe(0)
+            expect(ack.unfinished).toMatchObject([
+                { partition: 0, offset: 11n },
+                { partition: 0, offset: 12n },
+            ])
+            expect(driver.feeds.map((feed) => feed.seq)).toEqual([1])
+
+            // The stream stays usable: the reader moved on to the next frame.
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+            source.end()
+            await collected.ended
+            expect(collected.error).toBeNull()
+        } finally {
+            await budgeted.stop()
+        }
     })
 
     it('refuses a stream past the total concurrency ceiling with ResourceExhausted', async () => {

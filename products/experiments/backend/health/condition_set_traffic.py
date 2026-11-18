@@ -1,0 +1,363 @@
+"""
+Loads the `$feature_flag_called` events of a running experiment's flag in the last days, by the release condition
+set that served each person. The forced-variant check grades its finding by the share of people that the pinned
+sets served. These are the people the flag served a variant, not the exposures that the experiment's exposure
+criteria count when they name another event, filters or an action, so the finding speaks of the users who got a
+variant.
+
+The flag-state check reads the people who got a variant from a call that the flag service did not evaluate. When
+the flag has a 0% rollout, neither the flag service nor local evaluation serves a variant, so these people got it
+from the customer's own assignment.
+
+The flag service names the set in the reason "Matched condition set N", numbered from 1 in the stored order of the
+conditions (`get_reason_description` in rust/feature-flags/src/api/types.rs). Only calls of the flag's current
+version count, so the numbers match the conditions that the check reads. No call before the flag's last save can
+carry that version, so the scan starts there at the earliest.
+
+When the experiment applies the project's filter for internal and test users, the scan applies it to each call, as
+the exposure query does to each exposure. So the counts leave out the people that the results leave out. Only the
+events show who these are: the flag service can match a person on a property that an SDK sends with the flag
+request, and the events of that person can lack the property, so the filter keeps them.
+
+The scan runs under the reader's property access rules, as the reader's own queries do, so it reads no property that
+the rules mask. Readers with the same rules share its cached answer.
+"""
+
+import json
+import hashlib
+from dataclasses import asdict
+from datetime import datetime, timedelta
+from time import monotonic, sleep
+
+from django.core.cache import cache
+from django.utils import timezone
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import CloningVisitor, clone_expr
+
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions_capture import capture_exception
+from posthog.utils import safe_cache_add
+
+from products.access_control.backend.facade.property_access import restriction_fingerprint
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.health.checks.conditions_changed import removed_overrides_to_grade
+from products.experiments.backend.health.checks.flag_state import (
+    OUTSIDE_ASSIGNMENT_GRACE,
+    needs_outside_assignment_check,
+    outside_assignment_unsettled,
+)
+from products.experiments.backend.health.checks.forced_variant import overrides_to_grade
+from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext
+from products.experiments.backend.health.exposure_gate import UNKNOWN, cache_failed_scan
+from products.experiments.backend.health.pinned_share import (
+    TRAFFIC_WINDOW,
+    PinnedConditions,
+    PinnedShareUnknownReason,
+    grade_pinned_share,
+)
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    aggregates_by_group,
+    applies_test_account_filters,
+    get_test_accounts_filter,
+    multivariate_flag_response_expr,
+)
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
+
+QUERY_TIMEOUT_SECONDS = 10
+_ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
+# Too few people to grade usually means that the window started recently, at launch or at a save of the flag.
+# It fills up, so the answer is asked again sooner.
+_TOO_FEW_PEOPLE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
+_MATCHED_REASON = "^Matched condition set ([0-9]+)$"
+# The scan masks the properties that the reader's rules deny. A masked flag call property breaks the counts, for
+# example no call names a set without the reason, so a reader denied one of these gets no share instead.
+_SCANNED_PROPERTIES = frozenset(
+    {"$feature_flag", "$feature_flag_response", "$feature_flag_reason", "$feature_flag_version", "locally_evaluated"}
+)
+# The reason that posthog-node sends for a local evaluation. posthog-python sends `locally_evaluated` instead.
+_LOCALLY_EVALUATED_REASON = "Evaluated locally"
+# Part of the cache key. Raise it when the fields of `ConditionSetTraffic` change, because an answer cached with
+# other fields can't be read back into it.
+_ANSWER_SHAPE = 4
+_MAX_CONDITION_SETS = 1000
+_SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
+_WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
+_WAIT_STEP_SECONDS = 0.25
+
+
+def load_condition_set_traffic(
+    experiment: Experiment, ctx: HealthContext, *, reader_access: ExperimentHealthReaderAccess
+) -> ConditionSetTraffic | None:
+    """
+    The traffic of the experiment's flag when the forced-variant check grades by it, or None. None also when
+    unknown. Never raises: the health endpoint serves the other findings when this fails.
+    """
+    if (
+        not reader_access.can_query_events
+        or denied_scanned_properties(reader_access)
+        or not needs_condition_set_traffic(ctx)
+    ):
+        return None
+    try:
+        return _load_condition_set_traffic(experiment, ctx, reader_access.restricted_properties)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+def needs_condition_set_traffic(ctx: HealthContext) -> bool:
+    """Whether a check reads the flag's calls: the forced-variant or release-condition check to grade by the pinned
+    share, or the flag-state check for a flag with a 0% rollout."""
+    return grades_by_pinned_share(ctx) or needs_outside_assignment_check(ctx)
+
+
+def grades_by_pinned_share(ctx: HealthContext) -> bool:
+    """Whether a check grades its finding by the users that pinned conditions served: the forced-variant check for
+    the overrides in place, and the release-condition check for an override removed after launch."""
+    return ctx.is_launched and any(pins.weighted for pins in _pins_to_grade(ctx))
+
+
+def has_too_few_people(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
+    """Whether a check leaves the share of `traffic` unknown only because too few people count."""
+    return any(
+        pins.weighted and grade_pinned_share(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+        for pins in _pins_to_grade(ctx)
+    )
+
+
+def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
+    return [pins for pins in (overrides_to_grade(ctx), removed_overrides_to_grade(ctx)) if pins is not None]
+
+
+def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
+    """The flag call properties that the reader is denied. The scan does not run when there are any."""
+    return reader_access.denied_event_properties & _SCANNED_PROPERTIES
+
+
+def query_condition_set_traffic(
+    experiment: Experiment,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    restricted_properties: frozenset[RestrictedProperty],
+) -> ConditionSetTraffic:
+    """The calls of the experiment's flag in `[window_start, window_end)`, read under `restricted_properties`."""
+    team = experiment.team
+    flag = experiment.feature_flag
+    group_type_index = flag.aggregation_group_type_index
+    flag_calls = FlagCalls.of(team)
+    # A cohort filter compiles to `person_id IN COHORT`. On flag_evaluations, `person_id` applies person merges, which
+    # joins every merge of the team into this scan. The scan counts the stored person, as the modifier below makes
+    # events do, so the filter reads the stored person too.
+    test_accounts = [
+        _ReadStoredPerson(flag_calls.person_id).visit(expr)
+        for expr in get_test_accounts_filter(team, experiment.exposure_criteria)
+    ]
+    query = parse_select(
+        """
+        SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
+        FROM (
+            SELECT
+                entity,
+                argMaxIf(
+                    toInt(extract(reason, {matched_reason})),
+                    timestamp,
+                    toFloat(version) = {flag_version} AND match(reason, {matched_reason})
+                ) AS condition_set,
+                count() AS calls,
+                countIf(isNotNull(toFloat(version))) AS remotely_evaluated_calls,
+                countIf(
+                    isNull(toFloat(version))
+                        AND ifNull(toString(locally_evaluated), '') != 'true'
+                        AND ifNull(reason, '') != {locally_evaluated_reason}
+                        AND timestamp >= {assigned_outside_since}
+                ) > 0 AS assigned_outside
+            FROM (
+                SELECT
+                    {entity} AS entity,
+                    timestamp,
+                    properties.$feature_flag_reason AS reason,
+                    properties.$feature_flag_version AS version,
+                    properties.locally_evaluated AS locally_evaluated,
+                    {test_accounts} AS counted
+                FROM {table}
+                WHERE {only_calls}
+                    AND timestamp >= {window_start} AND timestamp < {window_end}
+                    AND {flag_key_field} = {flag_key}
+                    AND {returned_variant}
+            )
+            WHERE counted
+            GROUP BY entity
+        )
+        GROUP BY condition_set
+        LIMIT {max_rows}
+        """,
+        placeholders={
+            "table": ast.Field(chain=list(flag_calls.table)),
+            "only_calls": flag_calls.only_calls,
+            "flag_key_field": flag_calls.flag_key,
+            "entity": flag_calls.actor_column(group_type_index if aggregates_by_group(group_type_index) else None),
+            "matched_reason": ast.Constant(value=_MATCHED_REASON),
+            "flag_version": ast.Constant(value=flag.version),
+            "locally_evaluated_reason": ast.Constant(value=_LOCALLY_EVALUATED_REASON),
+            "assigned_outside_since": ast.Constant(value=window_start + OUTSIDE_ASSIGNMENT_GRACE),
+            "window_start": ast.Constant(value=window_start),
+            "window_end": ast.Constant(value=window_end),
+            "flag_key": ast.Constant(value=flag.key),
+            # A call that returned no variant, such as "Out of rollout bound", put nobody in the experiment, so it
+            # must not count toward the share of calls that name a set.
+            "returned_variant": multivariate_flag_response_expr(),
+            # A column of the inner query, not a condition of its WHERE. HogQL then limits the join that a filter on
+            # group properties needs to the groups of the calls that the WHERE matches, instead of every group.
+            "test_accounts": ast.And(exprs=test_accounts) if test_accounts else ast.Constant(value=True),
+            # One row per condition set, plus one for people without a matched set. HogQL adds LIMIT 100 otherwise.
+            "max_rows": ast.Constant(value=_MAX_CONDITION_SETS + 1),
+        },
+    )
+    with tags_context(
+        product=Product.EXPERIMENTS, feature=Feature.HEALTH_CHECK, team_id=team.pk, org_id=team.organization_id
+    ):
+        response = execute_hogql_query(
+            query,
+            team=team,
+            # The rules, not the user, because the answer is cached for every reader with the same rules.
+            context=HogQLContext(team_id=team.pk, team=team, restricted_properties=set(restricted_properties)),
+            # The scan reads the person and the person properties stored on each call, also on a project whose
+            # results join each person's current properties and apply person merges. Those joins read every person
+            # and every merge of the team, which costs seconds per scan on large projects and can pass the timeout.
+            # The counts differ only for people whose properties changed, or who merged, after the call.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+            # A profile that breaks on timeout returns partial counts, which would read as a smaller share.
+            settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"),
+        )
+    people_by_set: dict[int, int] = {}
+    calls = remotely_evaluated_calls = people_assigned_outside = 0
+    for condition_set, people, set_calls, set_remotely_evaluated_calls, set_assigned_outside in response.results or []:
+        if condition_set:
+            people_by_set[int(condition_set)] = int(people)
+        calls += int(set_calls)
+        remotely_evaluated_calls += int(set_remotely_evaluated_calls)
+        people_assigned_outside += int(set_assigned_outside)
+    return ConditionSetTraffic(
+        since=window_start,
+        until=window_end,
+        team_timezone=team.timezone,
+        people_by_set=people_by_set,
+        calls=calls,
+        remotely_evaluated_calls=remotely_evaluated_calls,
+        people_assigned_outside=people_assigned_outside,
+        filters_test_accounts=bool(test_accounts),
+    )
+
+
+class _ReadStoredPerson(CloningVisitor):
+    def __init__(self, stored_person_id: ast.Expr):
+        super().__init__()
+        self._stored_person_id = stored_person_id
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if node.chain == ["person_id"]:
+            return clone_expr(self._stored_person_id)
+        return super().visit_field(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        # A subquery's `person_id` belongs to the table that the subquery reads.
+        return clone_expr(node)
+
+
+def _load_condition_set_traffic(
+    experiment: Experiment, ctx: HealthContext, restricted_properties: frozenset[RestrictedProperty]
+) -> ConditionSetTraffic | None:
+    start_date = experiment.start_date
+    if start_date is None or experiment.feature_flag.version is None:
+        return None
+    cache_key = _cache_key(experiment, start_date, restricted_properties)
+    hit, traffic = _cached(cache_key)
+    if hit:
+        return traffic
+    # Readers share one scan. A request that finds another scan in flight waits for its answer. The lock is
+    # never released: every scan caches an answer, which readers check first, so the lock only has to expire.
+    if not safe_cache_add(f"{cache_key}:scanning", True, _SCAN_LOCK_SECONDS):
+        return _wait_for_scan(cache_key)
+    # A scan can finish between the read above and the lock.
+    hit, traffic = _cached(cache_key)
+    if hit:
+        return traffic
+    return _scan(experiment, ctx, cache_key, start_date, restricted_properties)
+
+
+def _scan(
+    experiment: Experiment,
+    ctx: HealthContext,
+    cache_key: str,
+    start_date: datetime,
+    restricted_properties: frozenset[RestrictedProperty],
+) -> ConditionSetTraffic | None:
+    flag = experiment.feature_flag
+    now = timezone.now()
+    window_start = max(start_date, flag.updated_at or start_date, now - TRAFFIC_WINDOW)
+    try:
+        traffic = query_condition_set_traffic(
+            experiment, window_start=window_start, window_end=now, restricted_properties=restricted_properties
+        )
+    except Exception as error:
+        cache_failed_scan(cache_key, error)
+        return None
+    asked_again_sooner = has_too_few_people(ctx, traffic) or outside_assignment_unsettled(ctx, traffic)
+    cache.set(
+        cache_key, asdict(traffic), _TOO_FEW_PEOPLE_CACHE_SECONDS if asked_again_sooner else _ANSWER_CACHE_SECONDS
+    )
+    return traffic
+
+
+def _cached(cache_key: str) -> tuple[bool, ConditionSetTraffic | None]:
+    """Whether the cache holds an answer, and the answer. A failed scan is cached as UNKNOWN, and answers None."""
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return True, ConditionSetTraffic(**cached)
+    return cached == UNKNOWN, None
+
+
+def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
+    """The answer of the scan in flight, or None when it does not arrive within the query timeout."""
+    deadline = monotonic() + _WAIT_FOR_SCAN_SECONDS
+    while monotonic() < deadline:
+        sleep(_WAIT_STEP_SECONDS)
+        hit, traffic = _cached(cache_key)
+        if hit:
+            return traffic
+    return None
+
+
+def _cache_key(
+    experiment: Experiment, start_date: datetime, restricted_properties: frozenset[RestrictedProperty]
+) -> str:
+    flag = experiment.feature_flag
+    team = experiment.team
+    # Every input of the query except the end of the window, which moves with the clock.
+    inputs = json.dumps(
+        [
+            _ANSWER_SHAPE,
+            start_date.isoformat(),
+            flag.key,
+            flag.version,
+            flag.updated_at.isoformat() if flag.updated_at else None,
+            flag.aggregation_group_type_index,
+            team.test_account_filters if applies_test_account_filters(team, experiment.exposure_criteria) else None,
+            restriction_fingerprint(restricted_properties),
+        ],
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(inputs.encode()).hexdigest()
+    return f"experiment_condition_set_traffic:{experiment.team_id}:{experiment.id}:{digest}"

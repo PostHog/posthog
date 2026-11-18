@@ -65,6 +65,17 @@ impl StagedBatch {
         });
     }
 
+    /// [`put`](Self::put) taking the value by value, so an already-encoded buffer moves into the
+    /// batch instead of being copied. For callers that encode straight into an owned `Vec`, such as
+    /// the sweep's advanced eviction states.
+    pub(crate) fn put_owned<K: Keyspace>(&mut self, key: &K::Key, value: Vec<u8>) {
+        self.ops.push(StagedOp::Put {
+            cf: K::CF,
+            key: K::encode(key),
+            value,
+        });
+    }
+
     /// Delete a typed key from its keyspace's CF.
     pub fn delete<K: Keyspace>(&mut self, key: &K::Key) {
         self.ops.push(StagedOp::Delete {

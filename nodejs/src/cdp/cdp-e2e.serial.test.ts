@@ -3,6 +3,8 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { createHmac } from 'node:crypto'
+
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -27,6 +29,7 @@ import {
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { template as webhookTemplate } from './templates/_destinations/webhook/webhook.template'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
@@ -194,6 +197,7 @@ describe('CDP Consumer loop', () => {
                     "headers": {
                       "Authorization": "Bearer super-secret-token",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -275,7 +279,7 @@ describe('CDP Consumer loop', () => {
 
         // Regression coverage for the production wire shape of an outgoing Kinesis
         // PutRecord. The pre-refactor Python template test
-        // (posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py) asserted a
+        // (products/cdp/backend/templates/aws_kinesis/test_template_aws_kinesis.py) asserted a
         // similar shape but ran against the Python Hog VM, whose `jsonStringify`
         // formats objects WITH spaces (`{"k": "v"}`). The Node Hog VM — what CDP
         // actually runs in production — formats WITHOUT spaces (`{"k":"v"}`), so the
@@ -528,6 +532,159 @@ describe('CDP Consumer loop', () => {
             // signature window.
             expect(sigv4AmzDates[0]).not.toEqual(sigv4AmzDates[1])
             expect(sigv4Authorizations[0]).not.toEqual(sigv4Authorizations[1])
+        })
+
+        // E2E coverage for Standard Webhooks signing, driven by the shipped webhook
+        // template rather than hand-written Hog. Three things only reachable here:
+        // `signing_secret` is a secret input, so in production it exists solely in
+        // Fernet-encrypted `encrypted_inputs`; the signing payload now carries
+        // `webhook_id`, so it has to survive the cyclotron serialization round-trip;
+        // and the signature has to cover the exact body bytes the Node Hog VM emits.
+        // The unit tests build `queueParameters` in memory and never see any of it.
+        it('should sign webhook template fetches so a receiver can verify them', async () => {
+            // Secret from the Standard Webhooks spec's reference example.
+            const SIGNING_SECRET = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+            const SIGNED_URL = 'https://signed.example.com/hooks'
+
+            const fixedTime = new Date('2024-04-16T12:34:51Z').getTime()
+            const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(fixedTime)
+
+            try {
+                await insertHogFunction({
+                    type: 'destination',
+                    hog: webhookTemplate.code,
+                    bytecode: await compileHog(webhookTemplate.code),
+                    inputs_schema: webhookTemplate.inputs_schema,
+                    inputs: {
+                        url: { value: SIGNED_URL },
+                        method: { value: 'POST' },
+                        body: { value: { event: '{event.event}' } },
+                        headers: { value: { 'Content-Type': 'application/json' } },
+                    },
+                    // Mirror what Django's `move_secret_inputs` produces on save: a
+                    // `secret: true` input is absent from `inputs` entirely, so the
+                    // executor can only find it by decrypting `encrypted_inputs`.
+                    encrypted_inputs: hub.encryptedFields.encrypt(
+                        JSON.stringify({ signing_secret: { value: SIGNING_SECRET } })
+                    ),
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                } as any)
+
+                // The default `fnFetchNoFilters` from beforeEach also matches this
+                // event, so select the signed call by URL.
+                const signedCalls = (): any[][] => mockFetch.mock.calls.filter((c: any[]) => c[0] === SIGNED_URL)
+
+                await eventsConsumer.processBatch([globals])
+
+                await waitForExpect(() => {
+                    expect(signedCalls()).toHaveLength(1)
+                }, 5000)
+
+                const [, opts] = signedCalls()[0] as [string, any]
+                const headers = opts.headers as Record<string, string>
+
+                expect(headers['webhook-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+                expect(headers['webhook-timestamp']).toBe('1713270891')
+                expect(headers['Content-Type']).toBe('application/json')
+
+                // Verify exactly the way a receiver's library does: recompute the HMAC
+                // over the body bytes that arrived, keyed with the decoded secret. A
+                // signature over anything but the sent bytes fails here.
+                const key = Buffer.from(SIGNING_SECRET.replace('whsec_', ''), 'base64')
+                const digest = createHmac('sha256', key)
+                    .update(`${headers['webhook-id']}.${headers['webhook-timestamp']}.${opts.body as string}`)
+                    .digest('base64')
+                expect(headers['webhook-signature']).toBe(`v1,${digest}`)
+            } finally {
+                dateSpy.mockRestore()
+            }
+        })
+
+        // E2E coverage for the webhook template's `secret_headers` input. In production the dictionary
+        // exists only in Fernet-encrypted `encrypted_inputs`, the fetch queue carries an input-key
+        // reference, and the executor resolves it again on every attempt. The unit tests seed
+        // `encrypted_inputs` in memory and never cross the queue, so a reference dropped during
+        // serialization, or a merge moved back into the Hog code, is only visible here.
+        it('should send webhook template secret headers from encrypted_inputs on the first attempt and the retry', async () => {
+            const TOKEN = 'sk_e2e_secret_headers_token_0000'
+            const API_KEY = 'e2e-secret-headers-api-key-0000'
+            const SECRET_HEADERS_URL = 'https://secret-headers.example.com/hooks'
+
+            let secretHeaderAttempts = 0
+            mockFetch.mockImplementation((url: string) => {
+                const status = url === SECRET_HEADERS_URL && ++secretHeaderAttempts === 1 ? 500 : 200
+                return Promise.resolve({
+                    status,
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    headers: { 'Content-Type': 'application/json' },
+                    dump: () => Promise.resolve(),
+                })
+            })
+
+            const fn = await insertHogFunction({
+                type: 'destination',
+                hog: webhookTemplate.code,
+                bytecode: await compileHog(webhookTemplate.code),
+                inputs_schema: webhookTemplate.inputs_schema,
+                inputs: {
+                    url: { value: SECRET_HEADERS_URL },
+                    method: { value: 'POST' },
+                    body: { value: { event: '{event.event}' } },
+                    // Same name as a secret header in another case, so the merge has to replace it
+                    // instead of sending both.
+                    headers: {
+                        value: { 'Content-Type': 'application/json', authorization: 'plaintext-authorization' },
+                    },
+                    debug: { value: true },
+                },
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({
+                        secret_headers: { value: { Authorization: `Bearer ${TOKEN}`, 'X-Api-Key': API_KEY } },
+                    })
+                ),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            } as any)
+
+            // The default `fnFetchNoFilters` from beforeEach also matches this event, so select by URL.
+            const secretHeaderCalls = (): any[][] =>
+                mockFetch.mock.calls.filter((c: any[]) => c[0] === SECRET_HEADERS_URL)
+
+            await eventsConsumer.processBatch([globals])
+
+            await waitForExpect(() => {
+                expect(secretHeaderCalls()).toHaveLength(2)
+            }, 5000)
+
+            for (const [, opts] of secretHeaderCalls() as [string, any][]) {
+                const headers = opts.headers as Record<string, string>
+                expect(headers).toMatchObject({
+                    Authorization: `Bearer ${TOKEN}`,
+                    'X-Api-Key': API_KEY,
+                    'Content-Type': 'application/json',
+                })
+                expect(Object.keys(headers).filter((name) => name.toLowerCase() === 'authorization')).toEqual([
+                    'Authorization',
+                ])
+            }
+
+            await waitForExpect(() => {
+                const messages = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .filter((m: any) => m.value.log_source_id === fn.id)
+                    .map((m: any) => m.value.message as string)
+                expect(messages).toContainEqual(
+                    expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.')
+                )
+                expect(messages).toContainEqual(expect.stringContaining('Response, 200'))
+                const requestLogs = messages.filter((message) => message.startsWith('Request, '))
+                expect(requestLogs).toHaveLength(1)
+                expect(requestLogs[0]).toContain('"secret_headers_input":"secret_headers"')
+                // Log redaction masks values but not header names. The name is what appears if the
+                // template merges the secret headers into `payload.headers` instead of passing the reference.
+                expect(requestLogs[0]).not.toContain('X-Api-Key')
+                expect(JSON.stringify(messages)).not.toContain(TOKEN)
+            }, 5000)
         })
 
         it('should handle fetch failures with retries', async () => {

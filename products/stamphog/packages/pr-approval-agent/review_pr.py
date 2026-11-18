@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -15,10 +16,10 @@ Usage:
     uv run products/stamphog/packages/pr-approval-agent/review_pr.py <pr_number> [--dry-run] [--output-json path]
 
 Runs deterministic gates (deny-list, ownership, tier classification),
-then — if eligible — calls Claude for evidence-bundle review and
-second-pass audit.
+then — if eligible — calls the LLM reviewer for an evidence-bundle review.
 
-Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
+Requires `gh` CLI authenticated and OPENAI_API_KEY in env (or ANTHROPIC_API_KEY
+with STAMPHOG_REVIEWER_ENGINE=claude for the rollback reviewer).
 """
 
 import os
@@ -31,11 +32,13 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from attestations import ReviewedHead, covers, lifted_files, pending_attestations, pending_check_names, pinned_files
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
+    DENY_EXEMPT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     POLICY,
@@ -57,22 +60,28 @@ from gates import (
     t1_risk_subclass,
     test_only,
 )
-from gateway import analytics_extra_properties
+from gateway import CLAUDE_ENGINE, analytics_extra_properties, reviewer_engine
 from github import (
-    TRUSTED_REACTOR_BOTS,
     CommitProvenance,
     PRData,
     check_team_membership,
+    describe_review_evidence,
     fetch_pr,
+    is_in_flight_bot_eyes,
     pr_provenance,
     provenance_evidence,
     write_pr_diff,
 )
-from manifest_risk import manifest_script_changes
-from migration_risk import migration_check_pending, safe_migration_files
-from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
-from reviewer import Reviewer
+from manifest_risk import manifest_script_changes, manifest_script_changes_from_contents
+from policy import Attestation, EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
+from verdict_rule import facts_summary
 from version import STAMPHOG_VERSION
+
+# Gates whose failure a pending attestation can still lift, so the run waits for the check.
+ATTESTATION_LIFTED_GATES = frozenset({"deny-list", "every_file_attested"})
+
+if TYPE_CHECKING:
+    from reviewer import Reviewer
 
 try:
     import posthoganalytics
@@ -143,11 +152,25 @@ def _dim(msg: str) -> str:
 _NON_RETRYABLE_PATTERNS = (
     "Reached maximum number of turns",
     "could not produce valid structured output",
+    # A retry starts with the same spent budget and fails at once.
+    "time budget exhausted",
 )
 
 
 class WorktreeUnavailableError(RuntimeError):
     """The PR head tree required for a stacked review could not be created."""
+
+
+def _llm_usage_properties(reviewer_output: dict | None) -> dict[str, object]:
+    """Token usage the reviewer reported, as event properties, or {} when it reported none.
+
+    Only the OpenAI reviewer reports usage. The Claude reviewer's usage reaches analytics through
+    the gateway's $ai_generation events instead.
+    """
+    usage = (reviewer_output or {}).get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    return {f"stamphog_llm_{name}": value for name, value in usage.items()}
 
 
 def _is_retryable_error(err_msg: str) -> bool:
@@ -166,23 +189,6 @@ def _is_retryable_error(err_msg: str) -> bool:
 BOT_REVIEW_WAIT_BUDGET_SECONDS = 300
 BOT_REVIEW_POLL_SECONDS = 30
 
-# A bot 👀 much older than any real review is a crashed reviewer, not an
-# in-flight one — reactions never expire and a human can't remove another
-# app's reaction, so without this cutoff a wedged bot would make every run
-# WAIT forever. Reactions missing a timestamp count as fresh (fail toward
-# waiting).
-BOT_EYES_MAX_AGE_SECONDS = 45 * 60
-
-
-def _reaction_age_seconds(created_at: str | None) -> float:
-    if not created_at:
-        return 0.0
-    try:
-        created = datetime.fromisoformat(created_at)
-    except ValueError:
-        return 0.0
-    return (datetime.now(UTC) - created).total_seconds()
-
 
 # ── Gate result ──────────────────────────────────────────────────
 
@@ -193,6 +199,14 @@ class GateResult:
     passed: bool
     message: str
     details: dict = field(default_factory=dict)
+
+
+def _describe_deny_category(category: str) -> str:
+    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+    teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
+    if not teams:
+        return category
+    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -210,7 +224,9 @@ class Pipeline:
         verbose: bool = False,
         self_driving: bool = False,
         review_trigger: str = "",
+        admitted_bot: str = "",
         head_checkout: bool = False,
+        checkout: bool = True,
     ) -> None:
         self.pr_number = pr_number
         self.repo = repo
@@ -224,32 +240,49 @@ class Pipeline:
         # only. It reaches the prompt as one line and gates nothing, unlike self_driving above.
         # Empty for a local run, which has no trigger to report.
         self.review_trigger = review_trigger
+        self.admitted_bot = admitted_bot
         # True when REPO_ROOT already holds the PR head (the hosted sandbox clones and checks out
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
         self.head_checkout = head_checkout
+        # False only for the hosted server's gate-only pre-check, which runs on the PR context with no
+        # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
+        # can only miss a deny, never add one, and the sandbox review runs the scan again.
+        self.checkout = checkout
+        # Manifest texts at the merge base and the head, keyed by path, which the server's gate check
+        # reads from GitHub so that it can run the scripts scan without a checkout.
+        self.manifest_contents: dict[str, dict[str, str]] | None = None
+        # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
+        # token. None means a local run, which asks GitHub per team instead.
+        self.author_team_slugs: set[str] | None = None
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
         self.familiarity: AuthorFamiliarity | None = None
+        # Where the familiarity signal came from: "git" (local history), "server" (GitHub facts the
+        # hosted server injected), or "absent". Telemetry only, so a band shift can be traced to
+        # its source.
+        self.familiarity_source = "absent"
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
         self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
+        # Empty until an LLM reviewer starts, so a gate-only verdict names no engine.
+        self.reviewer_engine = ""
         self.final_verdict: str = ""
 
     def run(self) -> str:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
 
-        if self.pr.author_is_bot and not self.self_driving:
+        if self.refuses_bot_author():
             return self._refuse_bot_author()
 
         gate_verdict = self._classify_and_gate()
 
-        if self._only_pending_migration_check():
-            return self._refuse_pending_migration_check()
+        if pending := self._only_pending_attestations():
+            return self._refuse_pending_attestations(pending)
 
         if self.dry_run:
             self.final_verdict = "DRY-RUN"
@@ -265,8 +298,8 @@ class Pipeline:
                 return wait_verdict
             if self._wait_refetched_pr:
                 gate_verdict = self._classify_and_gate()
-                if self._only_pending_migration_check():
-                    return self._refuse_pending_migration_check()
+                if pending := self._only_pending_attestations():
+                    return self._refuse_pending_attestations(pending)
 
         try:
             self._maybe_compute_familiarity()
@@ -282,19 +315,61 @@ class Pipeline:
         self._run_gates()
         return self._gate_verdict()
 
-    def _only_pending_migration_check(self) -> bool:
-        """True when the only thing blocking approval is a pending Migration risk check.
+    def pending_lifting_attestations(self) -> list[Attestation]:
+        """The attestations still running whose lifts cover every deny category, or nothing.
+
+        Empty when no category is denied and no bot file lacks a proof, when a denied category or an
+        unproven bot file has no pending check that may cover it, or when no check is pending. The
+        gate verdict stands in each case.
+        """
+        deny = set(self.classification.get("deny_categories", []))
+        unproven = self.classification.get("unattested_files", [])
+        if not deny and not unproven:
+            return []
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
+        if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
+            return []
+        if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
+            return []
+        return pending
+
+    def _only_pending_attestations(self) -> list[Attestation]:
+        """The pending attestations when they are the only thing blocking approval.
 
         Lets us emit a specific deny reason ("wait for the check, re-label")
-        instead of the generic deny-list one. Other denies (auth, crypto) or
-        gate failures (size, prerequisites) won't clear when the analyzer
-        finishes, so we shouldn't promise a re-label will help.
+        instead of the generic deny-list one. Other gate failures (size, prerequisites)
+        won't clear when the check finishes, so we shouldn't promise a re-label will help.
         """
-        if self.classification.get("deny_categories", []) != ["migrations"]:
+        if any(not r.passed and r.gate not in ATTESTATION_LIFTED_GATES for r in self.gate_results):
+            return []
+        return self.pending_lifting_attestations()
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author.
+
+        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
+        any PR can post the check of every other entry.
+        """
+        if not self.admitted_bot:
+            return POLICY.attestations
+        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
+
+    def refuses_bot_author(self) -> bool:
+        """True when the PR author is a bot that neither carve-out admits.
+
+        `admitted_bot` is the login the hosted server admitted under the policy's `bot_authors`. The
+        login and the author's numeric id are checked against that list again here, so neither a
+        server that admits a bot the policy does not name nor a server reading a cached policy can
+        pass an account the policy has since dropped.
+        """
+        if not self.pr.author_is_bot or self.self_driving:
             return False
-        if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
-            return False
-        return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+        return not (
+            self.admitted_bot
+            and self.pr.author == self.admitted_bot
+            and any(bot.login == self.admitted_bot and bot.id == self.pr.author_id for bot in POLICY.bot_authors)
+        )
 
     def _refuse_bot_author(self) -> str:
         """Hard gate: stamphog never reviews bot-authored PRs.
@@ -320,15 +395,7 @@ class Pipeline:
 
     def _in_flight_bot_reviewers(self) -> list[str]:
         """Allowlisted reviewer bots with a fresh 👀 reaction on the PR."""
-        return sorted(
-            {
-                r["user"]
-                for r in self.pr.pr_reactions
-                if r["emoji"] == "👀"
-                and r["user"].lower() in TRUSTED_REACTOR_BOTS
-                and _reaction_age_seconds(r.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
-            }
-        )
+        return sorted({r["user"] for r in self.pr.pr_reactions if is_in_flight_bot_eyes(r)})
 
     def _handle_in_flight_bot_reviews(self) -> str | None:
         """Wait out the reviewer-bot 👀 race; WAIT if a bot is still reviewing.
@@ -374,20 +441,21 @@ class Pipeline:
         self._capture_review_completed("SKIPPED", "WAIT")
         return self.final_verdict
 
-    def _refuse_pending_migration_check(self) -> str:
+    def _refuse_pending_attestations(self, pending: list[Attestation]) -> str:
+        checks = pending_check_names(pending)
         self.final_verdict = "REFUSED"
         self.reviewer_output = {
             "verdict": "REFUSE",
             "reasoning": (
-                "The `Migration risk` check has not completed for this commit. "
+                f"The {checks} check has not completed for this commit. "
                 "Wait for it to finish (visible in the PR's Checks tab), then "
                 "re-apply the `stamphog` label to retry."
             ),
             "risk": "unknown",
             "issues": [],
         }
-        print(f"\n{_warn('REFUSED')} — Migration risk check pending; re-label after it completes")
-        self._capture_review_completed("DENIED", "PENDING-MIGRATION-CHECK")
+        print(f"\n{_warn('REFUSED')} — {checks} check pending; re-label after it completes")
+        self._capture_review_completed("DENIED", "PENDING-ATTESTATION")
         return self.final_verdict
 
     def _gate_verdict(self) -> str:
@@ -420,17 +488,39 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        lifted = lifted_files(self._attestations, pr.check_runs, file_paths, reviewed)
+        # A proof may name a rename's old path, so the old path is matched like a changed file.
+        pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
+        unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
+        deny = detect_deny_categories(pr.deny_paths, lifted)
+        exception_lifted = bool(POLICY.deny_exceptions) and (
+            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
+        )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
-        risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
-        )
+        if not dep_manifests:
+            risky_manifests = []
+        elif self.checkout:
+            risky_manifests = manifest_script_changes(
+                dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
+            )
+        elif self.manifest_contents is not None:
+            risky_manifests = manifest_script_changes_from_contents(dep_manifests, self.manifest_contents)
+        else:
+            risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        denied_before_exemptions = len(deny)
+        deny = [
+            category
+            for category in deny
+            if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+        ]
+        owner_exempted = len(deny) < denied_before_exemptions
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -442,8 +532,16 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
-        is_test = test_only(categories)
+        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
+        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        allow_only = (
+            is_allow_listed_only(file_paths)
+            and not has_dependency_changes(file_paths)
+            and not dep_manifests
+            and not owner_exempted
+            and not exception_lifted
+        )
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -479,7 +577,11 @@ class Pipeline:
             "categories": categories,
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
-            "safe_migration_files": sorted(safe_migrations),
+            "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
+            "unattested_files": unattested,
+            # The server polls GitHub for these checks after a WAIT, so the list names each one by the
+            # check name and App id that a check run carries.
+            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -488,7 +590,12 @@ class Pipeline:
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
-            "assurance": self._summarize_assurance(),
+            "assurance": {
+                **self._summarize_assurance(),
+                # A bot has no reviewer and no owning team, so the proof of every file is the
+                # independent assurance of its PR.
+                "every_file_proven": bool(self.admitted_bot and pr.deny_paths) and not unattested,
+            },
             # Judgment-layer signal for the reviewer prompt, attached later on
             # the T1-agent path only (see _maybe_compute_familiarity). None here
             # keeps the other paths' prompts byte-identical to before.
@@ -497,14 +604,21 @@ class Pipeline:
             # True swaps the author trust context for task provenance.
             "self_driving": self.self_driving,
             "review_trigger": self.review_trigger,
+            "admitted_bot": self.admitted_bot,
         }
+
+    def _author_on_team(self, team_slug: str) -> bool:
+        if self.author_team_slugs is not None:
+            return team_slug in self.author_team_slugs
+        return check_team_membership(self.repo.split("/")[0], self.pr.author, team_slug)
 
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
-        Derived only from GitHub review metadata (states, head-ness) — never
-        author-controlled text — so the reviewer gets a trustworthy at-a-glance
-        summary of who has actually vouched for the current head.
+        Derived only from GitHub review metadata (states, head-ness) and the
+        hosted server's external review evidence — never author-controlled text —
+        so the reviewer gets a trustworthy at-a-glance summary of who has
+        actually vouched for the current head.
         """
         pr = self.pr
         # Exclude the author's own reviews: an author commenting on or replying
@@ -540,6 +654,9 @@ class Pipeline:
             "head_commented": len(head_commented_users),
             "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
+            # A completed external review of this head counts like a current-head review. Its
+            # published findings are review threads, so unresolved_threads above already holds them.
+            "head_review_evidence": pr.completed_review_evidence(),
         }
 
     def _maybe_compute_familiarity(self) -> None:
@@ -552,6 +669,8 @@ class Pipeline:
         trended per subsystem, not just where the reviewer consumes it.
         """
         self.familiarity = self._compute_familiarity()
+        if self.familiarity is not None:
+            self.familiarity_source = "git"
         if self.classification.get("tier") == "T1-agent":
             self.classification["familiarity"] = self.familiarity
 
@@ -578,7 +697,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT, self.pr.merge_base_sha)
         return self._diff_path
 
     def _run_gates(self) -> None:
@@ -586,6 +705,7 @@ class Pipeline:
         gates = [
             ("prerequisites", self._check_prerequisites),
             ("deny-list", self._check_deny_list),
+            ("every_file_attested", self._check_every_file_attested),
             ("size", self._check_size),
             ("tier", self._check_tier),
         ]
@@ -627,13 +747,32 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        matches = ", ".join(_describe_deny_category(c) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
+            return False, f"matches: {matches} (scripts/hooks changed in {risky_names})"
         if deny:
-            return False, f"matches: {', '.join(deny)}"
+            return False, f"matches: {matches}"
         return True, "no deny categories matched"
+
+    def _check_every_file_attested(self) -> tuple[bool, str]:
+        """An admitted bot's PR may only hold files that a pinned attestation vouched for.
+
+        A human author is trusted for the files no check covers. A bot has no such trust, so a file
+        outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
+        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
+        so content cannot leave a proven path unproven.
+        """
+        if not self.admitted_bot:
+            return True, "not a bot PR"
+        if not self.pr.deny_paths:
+            return False, "the PR changes no file"
+        unattested = self.classification["unattested_files"]
+        if unattested:
+            return False, f"no attestation covers: {', '.join(unattested[:5])}"
+        return True, "every file attested"
 
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
@@ -647,8 +786,7 @@ class Pipeline:
         author = self.pr.author
         author_teams = []
         for team_raw in teams:
-            team_slug = team_raw.split("/")[-1]
-            if check_team_membership(author, team_slug):
+            if self._author_on_team(team_raw.split("/")[-1]):
                 author_teams.append(team_raw)
 
         parts = []
@@ -663,7 +801,7 @@ class Pipeline:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
         elif teams:
             parts.append(f"author {author} is not on any owning team")
-        if ownership["cross_team"]:
+        if ownership.get("cross_team"):
             parts.append("cross-team change")
 
         self.classification["ownership_summary"] = "; ".join(parts)
@@ -672,7 +810,6 @@ class Pipeline:
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
-        max_lines = self.effective_policy.max_lines if self.effective_policy else MAX_LINES
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
         suffix_parts = []
@@ -681,31 +818,57 @@ class Pipeline:
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
-        if lines > max_lines:
-            return (
-                False,
-                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — ceiling is {max_lines}L)",
-            )
         # Mixed PRs get mixed leniency: each file counts against the budget of
-        # the scope governing it (a folder override or the global pool), so a
-        # folder's higher ceiling covers its own files and nothing else.
-        for scope in self._size_scopes():
-            in_scope = set(scope.files)
-            _, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
-            if scope_files > scope.max_files:
-                where = scope.path or "global"
+        # the scope governing it for a given ceiling (a folder override or the
+        # global pool), so a folder's higher ceiling covers its own files and
+        # nothing else. Lines and files partition independently, so a folder
+        # that raises one ceiling keeps the global one for the other. Each
+        # ceiling then has a roof over the PR total, so scope budgets cannot sum
+        # without bound as more folders grant.
+        budgets = self._size_budgets()
+        for scope in budgets.line_scopes:
+            scope_lines, _ = substantive_size(self._files_in(scope))
+            if scope_lines > scope.ceiling:
                 return (
                     False,
-                    f"too large for auto-review ({scope_files}F substantive in {where} — "
-                    f"ceiling is {scope.max_files}F; {lines}L, {files}F total{suffix})",
+                    f"too large for auto-review ({scope_lines}L substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}L; {lines}L, {files}F total{suffix})",
                 )
+        for scope in budgets.file_scopes:
+            _, scope_files = substantive_size(self._files_in(scope))
+            if scope_files > scope.ceiling:
+                return (
+                    False,
+                    f"too large for auto-review ({scope_files}F substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}F; {lines}L, {files}F total{suffix})",
+                )
+        if lines > budgets.line_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.line_roof}L{suffix})",
+            )
+        if files > budgets.file_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.file_roof}F{suffix})",
+            )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
-    def _size_scopes(self) -> tuple[ScopeBudget, ...]:
+    def _files_in(self, scope: ScopeBudget) -> list[dict]:
+        in_scope = set(scope.files)
+        return [f for f in self.pr.files if f["filename"] in in_scope]
+
+    def _size_budgets(self) -> EffectivePolicy:
+        """The PR's resolved size budgets, or global-only ones when resolution did not run."""
         if self.effective_policy is not None:
-            return self.effective_policy.scopes
+            return self.effective_policy
         all_files = tuple(f["filename"] for f in self.pr.files)
-        return (ScopeBudget(path=None, max_files=MAX_FILES, files=all_files),)
+        return EffectivePolicy(
+            file_scopes=(ScopeBudget(path=None, ceiling=MAX_FILES, files=all_files),),
+            line_scopes=(ScopeBudget(path=None, ceiling=MAX_LINES, files=all_files),),
+        )
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -808,7 +971,7 @@ class Pipeline:
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
 
-    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+    def _run_reviewer_with_retries(self, reviewer: "Reviewer", gate_context: dict, diff_path: Path) -> bool:
         """Call the reviewer with backoff; set self.reviewer_output.
 
         Returns True when the reviewer never produced a verdict (an ERROR
@@ -842,8 +1005,9 @@ class Pipeline:
                     print(
                         _warn(
                             "  This is an LLM backend failure (credentials, credit, or outage), "
-                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                            "secret (or local ANTHROPIC_API_KEY)."
+                            "not a verdict on the PR. Check the ai-gateway token and the reviewer "
+                            "model's allowlist (or the local OPENAI_API_KEY, or ANTHROPIC_API_KEY "
+                            "with STAMPHOG_REVIEWER_ENGINE=claude)."
                         )
                     )
                     self.reviewer_output = {
@@ -873,6 +1037,17 @@ class Pipeline:
 
         raise AssertionError("review retry loop exhausted without a verdict")
 
+    def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        self.reviewer_engine = reviewer_engine()
+        # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
+        if self.reviewer_engine == CLAUDE_ENGINE:
+            from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+            return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+        from openai_reviewer import OpenAIReviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        return OpenAIReviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
@@ -885,9 +1060,10 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
+
         try:
             with self._pr_head_worktree() as explore_root:
-                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer = self._new_reviewer(explore_root)
                 reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
         except WorktreeUnavailableError as exc:
             reviewer_unavailable = True
@@ -972,6 +1148,7 @@ class Pipeline:
                 "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
                 "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
                 "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+                "stamphog_familiarity_source": self.familiarity_source,
                 "stamphog_agent_authored": prov.agent_authored if prov else None,
                 "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
                 "stamphog_commit_count": prov.commit_count if prov else None,
@@ -980,9 +1157,14 @@ class Pipeline:
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,
+                # Empty on a local run: only the hosted runtime knows why the review started.
+                "stamphog_review_trigger": self.review_trigger,
                 "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+                "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_reviewer_engine": self.reviewer_engine,
+                **_llm_usage_properties(self.reviewer_output),
             },
         )
 
@@ -1017,16 +1199,17 @@ class Pipeline:
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
         )
+        for completed_review in assurance.get("head_review_evidence") or []:
+            bullets.append(f"{describe_review_evidence(completed_review)}.")
+        if assurance.get("every_file_proven"):
+            bullets.append("A pinned CI check proved every changed file.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:
             bullets.append(f"👍 on the PR from {', '.join(thumbs)}.")
         if self.effective_policy is not None:
-            for scope in self.effective_policy.scopes:
-                if scope.path and scope.files:
-                    bullets.append(
-                        f"{len(scope.files)} of the {len(self.pr.files)} changed files are governed by `{scope.path}`."
-                    )
+            for path, governed in self.effective_policy.governed_file_counts():
+                bullets.append(f"{governed} of the {len(self.pr.files)} changed files are governed by `{path}`.")
         bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
@@ -1064,13 +1247,15 @@ class Pipeline:
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
-                "safe_migration_files": self.classification.get("safe_migration_files", []),
+                "lifted_files": self.classification.get("lifted_files", {}),
+                "attestations": self.classification.get("attestations", {}),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),
                 # Audit trail: records that this review ran with the gates relaxed (see __init__).
                 "self_driving": self.self_driving,
                 # Audit trail: what the reviewer was told about why it was asked.
                 "review_trigger": self.review_trigger,
+                "admitted_bot": self.admitted_bot,
             },
             "provenance": provenance_evidence(self.provenance),
             "gates": [
@@ -1081,8 +1266,12 @@ class Pipeline:
                 "policy_file": ".stamphog/policy.yml",
                 "scopes": (
                     [
-                        {"path": s.path, "max_files": s.max_files, "files": len(s.files)}
-                        for s in self.effective_policy.scopes
+                        {"path": s.path, "key": key, "ceiling": s.ceiling, "files": len(s.files)}
+                        for key, scopes in (
+                            ("max_lines", self.effective_policy.line_scopes),
+                            ("max_files", self.effective_policy.file_scopes),
+                        )
+                        for s in scopes
                     ]
                     if self.effective_policy
                     else []

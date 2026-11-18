@@ -42189,6 +42189,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Filter = void 0;
+exports.firedKeys = firedKeys;
 const jsyaml = __importStar(__nccwpck_require__(4281));
 const picomatch_1 = __importDefault(__nccwpck_require__(4006));
 // Minimatch options used in all matchers
@@ -42202,6 +42203,11 @@ function isNegatedPattern(pattern) {
 }
 function positivePattern(pattern) {
     return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
+}
+// A key gates a job on whether any file matched it, so its answer is `length > 0` and
+// nothing finer. Both the action's outputs and the shadow comparison read it through here.
+function firedKeys(results) {
+    return new Set(Object.keys(results).filter(key => results[key].length > 0));
 }
 class Filter {
     // Creates instance of Filter and load rules from YAML if it's provided
@@ -42285,6 +42291,37 @@ exports.Filter = Filter;
 
 /***/ }),
 
+/***/ 1467:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseGitDiffOutput = parseGitDiffOutput;
+const file_1 = __nccwpck_require__(3765);
+const statusMap = {
+    A: file_1.ChangeStatus.Added,
+    C: file_1.ChangeStatus.Copied,
+    D: file_1.ChangeStatus.Deleted,
+    M: file_1.ChangeStatus.Modified,
+    R: file_1.ChangeStatus.Renamed,
+    U: file_1.ChangeStatus.Unmerged
+};
+function parseGitDiffOutput(output) {
+    const tokens = output.split('\u0000').filter(s => s.length > 0);
+    const files = [];
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        files.push({
+            status: statusMap[tokens[i]],
+            filename: tokens[i + 1]
+        });
+    }
+    return files;
+}
+
+
+/***/ }),
+
 /***/ 1243:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42324,12 +42361,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.HEAD = exports.NULL_SHA = void 0;
+exports.HEAD = exports.NULL_SHA = exports.parseGitDiffOutput = void 0;
 exports.getChangesInLastCommit = getChangesInLastCommit;
 exports.getChanges = getChanges;
 exports.getChangesOnHead = getChangesOnHead;
 exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
-exports.parseGitDiffOutput = parseGitDiffOutput;
 exports.listAllFilesAsAdded = listAllFilesAsAdded;
 exports.getCurrentRef = getCurrentRef;
 exports.getShortName = getShortName;
@@ -42337,19 +42373,22 @@ exports.isGitSha = isGitSha;
 const exec_1 = __nccwpck_require__(5236);
 const core = __importStar(__nccwpck_require__(7484));
 const file_1 = __nccwpck_require__(3765);
+const git_diff_1 = __nccwpck_require__(1467);
+var git_diff_2 = __nccwpck_require__(1467);
+Object.defineProperty(exports, "parseGitDiffOutput", ({ enumerable: true, get: function () { return git_diff_2.parseGitDiffOutput; } }));
 exports.NULL_SHA = '0000000000000000000000000000000000000000';
 exports.HEAD = 'HEAD';
 async function getChangesInLastCommit() {
     core.startGroup(`Change detection in last commit`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChanges(base, head) {
     const baseRef = await ensureRefAvailable(base);
@@ -42359,27 +42398,29 @@ async function getChanges(base, head) {
     let output = '';
     try {
         // Two dots '..' change detection - directly compares two versions
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-            .stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`], {
+            silent: true
+        })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesOnHead() {
     // Get current changes - both staged and unstaged
     core.startGroup(`Change detection on HEAD`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     let baseRef;
@@ -42446,30 +42487,20 @@ async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     core.startGroup(`Change detection ${diffArg}`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
-}
-function parseGitDiffOutput(output) {
-    const tokens = output.split('\u0000').filter(s => s.length > 0);
-    const files = [];
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-        files.push({
-            status: statusMap[tokens[i]],
-            filename: tokens[i + 1]
-        });
-    }
-    return files;
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function listAllFilesAsAdded() {
     core.startGroup('Listing all files tracked by git');
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42568,14 +42599,6 @@ function fixStdOutNullTermination() {
     // Otherwise things like ::set-output wouldn't work.
     core.info('');
 }
-const statusMap = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    U: file_1.ChangeStatus.Unmerged
-};
 
 
 /***/ }),
@@ -42685,6 +42708,7 @@ const fs = __importStar(__nccwpck_require__(9896));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
+const shared_image_policy_1 = __nccwpck_require__(9229);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
 const shadow = __importStar(__nccwpck_require__(5763));
@@ -42700,7 +42724,12 @@ async function run() {
         const ref = core.getInput('ref', { required: false });
         const base = core.getInput('base', { required: false });
         const filtersInput = core.getInput('filters', { required: true });
-        const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
+        let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
+        const policyPath = core.getInput('shared-image-policy', { required: false });
+        if (policyPath) {
+            const policy = (0, shared_image_policy_1.loadPolicy)(getConfigFileContent(policyPath));
+            filtersYaml = (0, shared_image_policy_1.projectLegacyFilters)(policy, filtersYaml);
+        }
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
         const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
         if (!isExportFormat(listFiles)) {
@@ -42708,10 +42737,13 @@ async function run() {
             return;
         }
         const filter = new filter_1.Filter(filtersYaml);
-        const files = await getChangedFiles(token, base, ref, initialFetchDepth);
+        const { files, api } = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
         const results = filter.match(files);
         exportResults(results, listFiles);
+        if (api) {
+            await shadow.report({ filter, apiFiles: files, apiResults: results, ...api });
+        }
     }
     catch (error) {
         core.setFailed(getErrorMessage(error));
@@ -42737,7 +42769,7 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
         if (ref) {
             core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
         }
-        return await git.getChangesOnHead();
+        return { files: await git.getChangesOnHead() };
     }
     switch (github.context.eventName) {
         // To keep backward compatibility, commits in GitHub pull request event
@@ -42754,9 +42786,8 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             }
             const pr = github.context.payload.pull_request;
             if (token) {
-                const apiFiles = await getChangedFilesFromApi(token, pr);
-                await shadow.report(apiFiles, pr);
-                return apiFiles;
+                const { files, apiRows, apiTruncated } = await getChangedFilesFromApi(token, pr);
+                return { files, api: { apiRows, apiTruncated, pr } };
             }
             if (github.context.eventName === 'pull_request_target') {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -42768,10 +42799,10 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
             const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
             const currentRef = await git.getCurrentRef();
-            return await git.getChanges(base || baseSha || defaultBranch, currentRef);
+            return { files: await git.getChanges(base || baseSha || defaultBranch, currentRef) };
         }
     }
-    return getChangedFilesFromGit(base, ref, initialFetchDepth);
+    return { files: await getChangedFilesFromGit(base, ref, initialFetchDepth) };
 }
 async function getChangedFilesFromGit(base, head, initialFetchDepth) {
     var _a;
@@ -42820,13 +42851,17 @@ async function getChangedFilesFromGit(base, head, initialFetchDepth) {
     core.info(`Changes will be detected between ${base} and ${head}`);
     return await git.getChangesSinceMergeBase(base, head, initialFetchDepth);
 }
+// The API truncates at this many rows and says nothing when it does.
+const API_FILE_CAP = 3000;
 // Uses github REST api to get list of files changed in PR
+// Truncation is judged on API rows, not on `files`, which expands a rename into two.
 async function getChangedFilesFromApi(token, pullRequest) {
     core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
     try {
         const client = github.getOctokit(token);
         const per_page = 100;
         const files = [];
+        let apiRows = 0;
         core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
         for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
             owner: github.context.repo.owner,
@@ -42839,7 +42874,8 @@ async function getChangedFilesFromApi(token, pullRequest) {
             }
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
-                core.info(`[${row.status}] ${row.filename}`);
+                apiRows++;
+                core.info(`[${row.status}] ${JSON.stringify(row.filename)}`);
                 // There's no obvious use-case for detection of renames
                 // Therefore we treat it as if rename detection in git diff was turned off.
                 // Rename is replaced by delete of original filename and add of new filename
@@ -42864,7 +42900,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
                 }
             }
         }
-        return files;
+        return { files, apiRows, apiTruncated: apiRows >= API_FILE_CAP };
     }
     finally {
         core.endGroup();
@@ -42872,15 +42908,14 @@ async function getChangedFilesFromApi(token, pullRequest) {
 }
 function exportResults(results, format) {
     core.info('Results:');
-    const changes = [];
+    const fired = (0, filter_1.firedKeys)(results);
     for (const [key, files] of Object.entries(results)) {
-        const value = files.length > 0;
+        const value = fired.has(key);
         core.startGroup(`Filter ${key} = ${value}`);
-        if (files.length > 0) {
-            changes.push(key);
+        if (value) {
             core.info('Matching files:');
             for (const file of files) {
-                core.info(`${file.filename} [${file.status}]`);
+                core.info(`${JSON.stringify(file.filename)} [${file.status}]`);
             }
         }
         else {
@@ -42895,7 +42930,7 @@ function exportResults(results, format) {
         core.endGroup();
     }
     if (results['changes'] === undefined) {
-        const changesJson = JSON.stringify(changes);
+        const changesJson = JSON.stringify([...fired]);
         core.info(`Changes output set to ${changesJson}`);
         core.setOutput('changes', changesJson);
     }
@@ -42976,35 +43011,24 @@ const child_process_1 = __nccwpck_require__(5317);
 const os = __importStar(__nccwpck_require__(857));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
-// Compares the API's changed-file list against the same list derived locally from
-// the pull request's merge commit, and reports disagreement without acting on it.
-// The API result stays authoritative, so a wrong local answer can only produce a
-// log line. Removing the API call later is only safe once this has run quiet
-// across the shapes no offline sample can reach: very large diffs, and ones GitHub
-// has not finished computing a merge ref for.
-//
-// Detecting changes from `base.sha..HEAD` instead reports every commit the branch
-// picked up when the base was merged into it as the pull request's own work, which
-// is wrong by thousands of files on a branch that has taken master in. The merge
-// commit's first parent is the base GitHub actually merged against, so
-// `HEAD^1..HEAD` is the pull request's own changes and matches the API.
+const filter_1 = __nccwpck_require__(9037);
+const git_1 = __nccwpck_require__(1243);
+// Compares the API's changed-file list against the same list derived from the pull
+// request's merge commit, and reports disagreement without acting on it. The API
+// result stays authoritative, so a wrong local answer can only produce a log line.
 const MERGE_REF_FETCH_DEPTH = 2;
 const POSTHOG_HOST = 'https://us.i.posthog.com';
 const EVENT_NAME = 'paths_filter_shadow_compared';
 // A change-detection job is on the critical path of every workflow, so the comparison
-// and the capture that follows it share one wall-clock budget, and give up rather than
-// holding the job to its timeout-minutes. The git-level low-speed settings cover a
-// stalled transfer; the budget covers everything else.
+// and its capture share one wall-clock budget rather than holding the job to its
+// timeout-minutes.
 const BUDGET_MS = 20000;
 const CAPTURE_FLOOR_MS = 500;
 const LIST_CAP = 50;
-// A queue branch carries the cumulative batch diff, so the path list can be far larger
-// than a human pull request's. execFile's 1 MB default would fail those as a diff error,
-// which drops the population the comparison most needs to measure.
+// A queue branch carries the cumulative batch diff, which execFile's 1 MB default would
+// fail as a diff error.
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DETAIL_CAP = 200;
-// The API caps pulls/{n}/files at this many entries and says nothing when it truncates.
-const API_FILE_CAP = 3000;
 class Unavailable extends Error {
     constructor(reason, detail) {
         super(`${reason}: ${detail}`);
@@ -43012,20 +43036,15 @@ class Unavailable extends Error {
         this.detail = detail;
     }
 }
-// Every git call that reads or writes history names the scratch repository. `--depth`
-// and `--filter` rewrite `.git/shallow` and the promisor config of whatever repository
-// they run in, and steps later in the same job read history from the workspace checkout:
-// ci-dagster and ci-e2e-playwright resolve `git merge-base HEAD^2 origin/<base>` after
-// this action returns, and an empty merge base there silently drops their schema cache.
+// `--depth` and `--filter` rewrite `.git/shallow` and the promisor config of whatever
+// repository they run in, so every call names the scratch repository. ci-dagster and
+// ci-e2e-playwright read history from the workspace checkout after this action returns.
 async function git(gitDir, args, signal) {
     return run(['--git-dir', gitDir, ...args], signal);
 }
-// The signal is what makes the wall-clock budget real. `@actions/exec` gives no handle
-// on the child process, so a fetch the budget gave up on keeps running and holds the
-// action's process open until it finishes, past the budget it was supposed to obey.
-//
-// stdout is returned raw. A caller that reads a path list must not trim it, because a
-// tracked path can begin with a space, and that path sorts first in the -z output.
+// execFile rather than `@actions/exec`, which gives no handle on the child process, so a
+// fetch the budget gave up on would hold the action open until it finished. stdout is
+// returned raw because a tracked path can begin with a space.
 async function run(args, signal) {
     return new Promise(resolve => {
         (0, child_process_1.execFile)('git', args, { signal, maxBuffer: MAX_GIT_OUTPUT_BYTES }, (error, stdout, stderr) => {
@@ -43039,6 +43058,9 @@ function firstLine(stderr) {
 function messageOf(error) {
     return error instanceof Error ? error.message : String(error);
 }
+function missing(from, against) {
+    return [...from].filter(key => !against.has(key)).sort();
+}
 async function scratchRepo(signal) {
     const gitDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'paths-filter-shadow.git');
     const init = await run(['init', '--bare', '--quiet', gitDir], signal);
@@ -43047,9 +43069,8 @@ async function scratchRepo(signal) {
     }
     return gitDir;
 }
-// The workspace remote carries no credentials of its own: actions/checkout keeps the
-// token in an http.extraheader the scratch repository does not inherit. A private
-// remote therefore reports unavailable rather than comparing against a partial fetch.
+// actions/checkout keeps the token in an http.extraheader the scratch repository does not
+// inherit, so a private remote reports unavailable rather than comparing a partial fetch.
 function originUrl() {
     const server = process.env.GITHUB_SERVER_URL;
     const repo = process.env.GITHUB_REPOSITORY;
@@ -43058,9 +43079,6 @@ function originUrl() {
     }
     return `${server}/${repo}`;
 }
-// The merge ref is not guaranteed to be present or current: GitHub recomputes it
-// asynchronously after a push. Requiring the second parent to equal the head SHA
-// rejects a stale ref rather than reading it as this pull request's changes.
 async function localChangedFiles(pr, signal) {
     const gitDir = await scratchRepo(signal);
     const fetched = await git(gitDir, [
@@ -43082,22 +43100,21 @@ async function localChangedFiles(pr, signal) {
     if (head.code !== 0) {
         throw new Unavailable('no-second-parent', firstLine(head.err));
     }
+    // GitHub recomputes the merge ref asynchronously after a push, so a ref whose second
+    // parent is not the head SHA describes an earlier push.
     const headSha = head.out.trim();
     if (headSha !== pr.head.sha) {
         throw new Unavailable('stale-merge-ref', `^2=${headSha.slice(0, 8)}, head=${pr.head.sha.slice(0, 8)}`);
     }
-    // --no-renames so a rename arrives as a delete plus an add, which is the shape
-    // the API path builds by hand from `previous_filename`. -z because git quotes a
-    // path holding a newline or a non-ASCII byte in the default format.
-    const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal);
+    // The same flags the action's own git path uses, so the comparison measures what
+    // dropping the API call would select. --no-renames matches the add-plus-delete shape
+    // the API path builds from `previous_filename`.
+    const diff = await git(gitDir, ['diff', '--no-renames', '--name-status', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal);
     if (diff.code !== 0) {
         throw new Unavailable('diff-failed', firstLine(diff.err));
     }
-    return diff.out.split('\0').filter(Boolean);
+    return (0, git_1.parseGitDiffOutput)(diff.out);
 }
-// A queue branch can differ by thousands of paths, which is neither readable in a log
-// line nor worth carrying as an event property. The count answers how far apart the two
-// answers are, and the sample answers what kind of path is involved.
 function difference(from, against) {
     const sample = [];
     let count = 0;
@@ -43112,9 +43129,12 @@ function difference(from, against) {
     }
     return { count, sample };
 }
-function compare(api, local) {
+function compare(input, api, gitFiles) {
+    const local = new Set(gitFiles.map(f => f.filename));
     const onlyInApi = difference(api, local);
     const onlyInGit = difference(local, api);
+    const apiKeys = (0, filter_1.firedKeys)(input.apiResults);
+    const gitKeys = (0, filter_1.firedKeys)(input.filter.match(gitFiles));
     return {
         verdict: onlyInApi.count === 0 && onlyInGit.count === 0 ? 'match' : 'mismatch',
         reason: null,
@@ -43122,7 +43142,9 @@ function compare(api, local) {
         apiCount: api.size,
         gitCount: local.size,
         onlyInApi,
-        onlyInGit
+        onlyInGit,
+        keysLost: missing(apiKeys, gitKeys),
+        keysGained: missing(gitKeys, apiKeys)
     };
 }
 async function budgeted(work, ms) {
@@ -43136,11 +43158,11 @@ async function budgeted(work, ms) {
     });
     return Promise.race([work(controller.signal), expiry]).finally(() => clearTimeout(timer));
 }
-async function compareWithMergeCommit(apiFiles, pr) {
-    const api = new Set(apiFiles.map(f => f.filename));
+async function compareWithMergeCommit(input) {
+    const api = new Set(input.apiFiles.map(f => f.filename));
     try {
-        const gitFiles = await budgeted(async (signal) => localChangedFiles(pr, signal), BUDGET_MS);
-        return compare(api, new Set(gitFiles));
+        const gitFiles = await budgeted(async (signal) => localChangedFiles(input.pr, signal), BUDGET_MS);
+        return compare(input, api, gitFiles);
     }
     catch (error) {
         return {
@@ -43150,15 +43172,16 @@ async function compareWithMergeCommit(apiFiles, pr) {
             apiCount: api.size,
             gitCount: null,
             onlyInApi: { count: 0, sample: [] },
-            onlyInGit: { count: 0, sample: [] }
+            onlyInGit: { count: 0, sample: [] },
+            keysLost: [],
+            keysGained: []
         };
     }
 }
-// Without this the only record of a divergence is a log line in one job of one run,
-// which is unreadable at the volume that makes the comparison worth running.
-async function capture(apiKey, result, pr, durationMs) {
+async function capture(apiKey, input, result, durationMs) {
     var _a;
     const repo = process.env.GITHUB_REPOSITORY || null;
+    const pr = input.pr;
     const properties = {
         repo,
         verdict: result.verdict,
@@ -43170,18 +43193,18 @@ async function capture(apiKey, result, pr, durationMs) {
         only_in_api_count: result.onlyInApi.count,
         only_in_git: result.onlyInGit.sample,
         only_in_git_count: result.onlyInGit.count,
-        // pulls/{n}/files truncates silently, so record both sides of the tell: what the
-        // API returned, and what the pull request payload says it should have been. The
-        // count has to come from the payload, because `api_count` counts a rename twice:
-        // the API path expands each renamed row into an add plus a delete.
-        api_truncated: pr.changed_files >= API_FILE_CAP,
+        selection_changed: result.keysLost.length > 0 || result.keysGained.length > 0,
+        keys_lost: result.keysLost,
+        keys_gained: result.keysGained,
+        // `pr_changed_files` reads stale on a pull request whose base moved, so it is
+        // recorded beside the API's own row count rather than used as the truncation tell.
+        api_rows: input.apiRows,
+        api_truncated: input.apiTruncated,
         pr_changed_files: pr.changed_files,
         pr_number: pr.number,
         head_sha: pr.head.sha,
         head_ref: pr.head.ref,
         base_ref: pr.base.ref,
-        // Queue branches carry the cumulative batch diff and page far more than a human
-        // pull request, so they are the population worth reading separately.
         branch_class: pr.head.ref.startsWith('trunk-merge/') ? 'trunk-merge' : 'pull-request',
         is_fork: ((_a = pr.head.repo) === null || _a === void 0 ? void 0 : _a.full_name) !== repo,
         duration_ms: durationMs,
@@ -43199,7 +43222,6 @@ async function capture(apiKey, result, pr, durationMs) {
             distinct_id: repo || 'paths-filter-shadow',
             properties
         }),
-        // Whatever the comparison did not spend, so the step's ceiling stays the budget.
         signal: AbortSignal.timeout(Math.max(CAPTURE_FLOOR_MS, BUDGET_MS - durationMs))
     });
     if (!res.ok) {
@@ -43212,18 +43234,15 @@ function summarize(result) {
     }
     if (result.verdict === 'mismatch') {
         return (`MISMATCH api=${result.apiCount} git=${result.gitCount} ` +
-            `onlyInApi=${JSON.stringify(result.onlyInApi.sample)} onlyInGit=${JSON.stringify(result.onlyInGit.sample)}`);
+            `onlyInApi=${JSON.stringify(result.onlyInApi.sample)} onlyInGit=${JSON.stringify(result.onlyInGit.sample)} ` +
+            `keysLost=${JSON.stringify(result.keysLost)} keysGained=${JSON.stringify(result.keysGained)}`);
     }
     return `match (${result.apiCount} files)`;
 }
-// Never throws: the filter's real answer is already computed by the time this runs,
-// so nothing here is worth failing a CI job over.
-//
-// The token gates the comparison itself, not just the capture. Every workflow that
-// detects changes runs this action, so a comparison whose result cannot be recorded
-// is a merge-ref fetch on the critical path of a gate job in exchange for a log line
-// nobody reads. Fork pull requests get no secrets, so they take this path too.
-async function report(apiFiles, pr) {
+// Never throws: the filter's real answer is already computed by the time this runs. The
+// token gates the comparison itself, so a run that cannot record its result does not pay
+// for a merge-ref fetch. Fork pull requests get no secrets and take that path too.
+async function report(input) {
     const apiKey = process.env.PATHS_FILTER_SHADOW_POSTHOG_TOKEN;
     if (!apiKey) {
         return;
@@ -43231,12 +43250,12 @@ async function report(apiFiles, pr) {
     try {
         core.startGroup('Shadow: merge-commit change detection');
         const startedAt = Date.now();
-        const result = await compareWithMergeCommit(apiFiles, pr);
+        const result = await compareWithMergeCommit(input);
         const durationMs = Date.now() - startedAt;
-        // core.info even for a mismatch: a warning becomes an annotation on the run summary
-        // and the checks page, which reads as a problem with the pull request.
+        // core.info even for a mismatch, because a warning becomes an annotation on the
+        // checks page and reads as a problem with the pull request.
         core.info(`shadow: ${summarize(result)} in ${durationMs}ms`);
-        await capture(apiKey, result, pr, durationMs).catch(error => {
+        await capture(apiKey, input, result, durationMs).catch(error => {
             core.info(`shadow: capture skipped (${messageOf(error)})`);
         });
     }
@@ -43246,6 +43265,172 @@ async function report(apiFiles, pr) {
     finally {
         core.endGroup();
     }
+}
+
+
+/***/ }),
+
+/***/ 9229:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.loadPolicy = loadPolicy;
+exports.projectLegacyFilters = projectLegacyFilters;
+const yaml = __importStar(__nccwpck_require__(4281));
+const filter_1 = __nccwpck_require__(9037);
+const file_1 = __nccwpck_require__(3765);
+function object(value, location) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${location}: expected a mapping`);
+    }
+    return value;
+}
+function shape(value, required, optional, location) {
+    const missing = required.find(key => !Object.prototype.hasOwnProperty.call(value, key));
+    if (missing !== undefined) {
+        throw new Error(`${location}: missing required field '${missing}'`);
+    }
+    const unknown = Object.keys(value).find(key => !required.includes(key) && !optional.includes(key));
+    if (unknown !== undefined) {
+        throw new Error(`${location}: unknown field '${unknown}'`);
+    }
+}
+function paths(value, location) {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new Error(`${location}: expected a nonempty path list`);
+    }
+    const resolved = value.flat(Infinity);
+    for (const entry of resolved) {
+        if (typeof entry === 'string')
+            continue;
+        const statuses = object(entry, location);
+        for (const pattern of Object.values(statuses)) {
+            if (typeof pattern !== 'string' && !(Array.isArray(pattern) && pattern.every(p => typeof p === 'string'))) {
+                throw new Error(`${location}: expected string or string array`);
+            }
+        }
+    }
+    return resolved;
+}
+function validateChannelPaths(entries, location) {
+    const statuses = new Set([file_1.ChangeStatus.Added, file_1.ChangeStatus.Modified, file_1.ChangeStatus.Deleted]);
+    for (const entry of entries) {
+        if (typeof entry === 'string') {
+            if (!entry.trim())
+                throw new Error(`${location}: empty pattern`);
+            continue;
+        }
+        if (!Object.keys(entry).length)
+            throw new Error(`${location}: empty status mapping`);
+        for (const [qualifier, value] of Object.entries(entry)) {
+            if (qualifier.split('|').some(status => !statuses.has(status.trim().toLowerCase()))) {
+                throw new Error(`${location}: unsupported or empty status qualifier '${qualifier}'`);
+            }
+            const patterns = typeof value === 'string' ? [value] : value;
+            if (!patterns.length || patterns.some(pattern => !pattern.trim())) {
+                throw new Error(`${location}: empty status patterns`);
+            }
+        }
+    }
+    const matcher = new filter_1.Filter(yaml.dump({ channel: entries }));
+    if (!matcher.rules.channel.some(rule => !rule.negated)) {
+        throw new Error(`${location}: channel requires a positive pattern`);
+    }
+}
+function validatedMatcherYaml(filters) {
+    const serialized = yaml.dump(filters);
+    const authored = Object.keys(filters);
+    const represented = Object.keys(new filter_1.Filter(serialized).rules);
+    const missing = authored.find(name => !represented.includes(name));
+    if (missing !== undefined || represented.length !== authored.length) {
+        const name = missing !== null && missing !== void 0 ? missing : represented.find(name => !authored.includes(name));
+        throw new Error(`filters.${name}: not representable by the matcher`);
+    }
+    return serialized;
+}
+function loadPolicy(text) {
+    const root = object(yaml.load(text), 'policy');
+    shape(root, ['version', 'filters', 'images'], [], 'policy');
+    if (root.version !== 1)
+        throw new Error('policy.version: expected 1');
+    const filters = Object.fromEntries(Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)]));
+    validatedMatcherYaml(filters);
+    const images = Object.create(null);
+    for (const [image, value] of Object.entries(object(root.images, 'images'))) {
+        const definition = object(value, `images.${image}`);
+        shape(definition, ['channels'], [], `images.${image}`);
+        const channels = Object.create(null);
+        for (const [name, channelValue] of Object.entries(object(definition.channels, `images.${image}.channels`))) {
+            const location = `images.${image}.channels.${name}`;
+            if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))
+                throw new Error(`${location}: invalid channel key`);
+            const channel = object(channelValue, location);
+            shape(channel, ['repository', 'filter'], ['bootstrapPolicyDigest'], location);
+            if (typeof channel.repository !== 'string' ||
+                channel.repository.length < 2 || channel.repository.length > 256 ||
+                !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(channel.repository))
+                throw new Error(`${location}.repository: invalid ECR repository path`);
+            if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
+                throw new Error(`${location}.filter: unknown filter`);
+            }
+            if (channel.bootstrapPolicyDigest !== undefined &&
+                (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
+                throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`);
+            }
+            validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`);
+            channels[name] = channel;
+        }
+        images[image] = { channels };
+    }
+    return { version: 1, filters, images };
+}
+function projectLegacyFilters(policy, inlineYaml) {
+    const inline = object(yaml.load(inlineYaml), 'legacy filters');
+    const merged = Object.assign(Object.create(null), inline);
+    for (const name of Object.keys(policy.filters)) {
+        if (Object.prototype.hasOwnProperty.call(inline, name) && inline[name] !== null) {
+            throw new Error(`legacy filters.${name}: duplicate policy`);
+        }
+        merged[name] = policy.filters[name];
+    }
+    if (Object.values(merged).some(value => value === null))
+        throw new Error('legacy filters: unresolved policy reference');
+    return validatedMatcherYaml(merged);
 }
 
 

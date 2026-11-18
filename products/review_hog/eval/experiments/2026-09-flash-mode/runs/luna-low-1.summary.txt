@@ -1,0 +1,7 @@
+REPORT idle run_count 1 (row reset by the next run before this summary could be regenerated; numbers below are from luna-low-1.md + luna-low-1.usage.md)
+REVIEW MODEL (from units): gpt-5.6-luna / low (codex, full-access)
+CHUNKS [(1, 8), (2, 8), (3, 4), (4, 2)]
+UNITS 12 review (selection pruned the dense 12 wave to 8? — see the dump: 12 units incl. blind spots) + 4 validation sessions, all completed
+FUNNEL raw 9 -> dedup 9 -> kept 8 (validator dropped 1); no verdict holes
+WALL 840 s (14.0 min): selection 21 s, wave 6m14s, blind-spot 2m45s
+COST (gateway $) review 0.14 + blind-spot 0.06 + validation 0.06 + selection 0.03 + dedup 0.01 ≈ 0.30

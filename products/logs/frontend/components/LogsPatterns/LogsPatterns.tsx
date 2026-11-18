@@ -95,14 +95,16 @@ function PatternExpandedRow({
     return (
         <div className="px-2 py-2 flex flex-col gap-2" data-attr="logs-pattern-expanded">
             <div className="flex items-center justify-between gap-2">
-                <div>{renderPatternTemplate(row.pattern)}</div>
-                {(row.match_regex || row.match_literal) && (
+                <div>
+                    <PatternTemplate pattern={row.pattern} />
+                </div>
+                {(row.match_patterns?.length || row.match_regex || row.match_literal) && (
                     <LemonButton
                         type="secondary"
                         size="xsmall"
                         onClick={() => onViewMatchingLogs(row)}
                         tooltip={
-                            row.match_regex
+                            row.match_patterns?.length || row.match_regex
                                 ? 'Open the Logs view filtered to lines matching this pattern'
                                 : 'Open the Logs view filtered to lines containing this pattern’s literal text (pattern match unavailable)'
                         }
@@ -135,14 +137,13 @@ function PatternExpandedRow({
     )
 }
 
-// Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
-// `<hex>`, …) the runner emits — see _MASKING_INSTRUCTIONS in
-// products/logs/backend/log_patterns.py for the authoritative token vocabulary.
-const PATTERN_TOKEN = String.raw`<\*>|<[a-z][a-z0-9]*>`
+// Token vocabularies: backend/log_patterns.py and nodejs/src/logs/log-pattern-mask.ts.
+const INGESTION_TOKEN = 'N|TIMESTAMP|KLOGTIME|UUID|IP|HOST|HEX|ID|EMAIL|JSON_ARRAY'
+const PATTERN_TOKEN = String.raw`<(?:\*|num|timestamp|klogtime|uuid|ip|version|host|hex|${INGESTION_TOKEN})>|<JSON:(?:<(?:${INGESTION_TOKEN})>|[^<>])*>`
 const PATTERN_TOKEN_SPLIT = new RegExp(`(${PATTERN_TOKEN})`, 'g')
 const PATTERN_TOKEN_MATCH = new RegExp(`^(${PATTERN_TOKEN})$`)
 
-function renderPatternTemplate(pattern: string): JSX.Element {
+export function PatternTemplate({ pattern }: { pattern: string }): JSX.Element {
     return (
         <span className="font-mono text-xs break-all">
             {pattern.split(PATTERN_TOKEN_SPLIT).map((part, i) => (
@@ -224,6 +225,18 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         if (!sampled) {
             return humanFriendlyNumber(estimated)
         }
+        if (patternsResponse.source === 'stored_patterns') {
+            if (estimated === sampleCount) {
+                return humanFriendlyNumber(estimated)
+            }
+            return (
+                <Tooltip
+                    title={`Estimated from ${humanFriendlyNumber(sampleCount)} sampled lines of this JSON pattern`}
+                >
+                    <span>~{humanFriendlyLargeNumber(estimated)}</span>
+                </Tooltip>
+            )
+        }
         return (
             <Tooltip
                 title={`${humanFriendlyNumber(sampleCount)} of the ${humanFriendlyNumber(
@@ -245,7 +258,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Pattern',
             dataIndex: 'pattern',
-            render: (_, row) => renderPatternTemplate(row.pattern),
+            render: (_, row) => <PatternTemplate pattern={row.pattern} />,
         },
         {
             title: 'Trend',
@@ -322,7 +335,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Pattern',
             key: 'pattern',
-            render: (_, entry) => renderPatternTemplate(entry.pattern.pattern),
+            render: (_, entry) => <PatternTemplate pattern={entry.pattern.pattern} />,
         },
         {
             // For "gone" entries the pattern's stats come from the baseline window, so the
@@ -359,19 +372,37 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex-1 min-h-0 overflow-auto" data-attr="logs-patterns">
-            {!compareEnabled && sampled && !patternsResponseLoading && !patternsError && (
-                <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
-                    Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of
-                    the {humanFriendlyLargeNumber(total_count)} matching your filters
-                    {sample_coverage_pct < 100
-                        ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
-                              1
-                          )}% of the window`
-                        : ''}
-                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
-                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
-                </LemonBanner>
-            )}
+            {!compareEnabled &&
+                patternsResponse.source === 'stored_patterns' &&
+                !patternsResponseLoading &&
+                !patternsError && (
+                    <LemonBanner type="info" className="m-2" data-attr="logs-patterns-source-info">
+                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3.{' '}
+                        {sampled
+                            ? 'JSON patterns split by their message field have estimated counts; the rest are exact.'
+                            : 'Counts are exact.'}{' '}
+                        {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
+                        {humanFriendlyLargeNumber(total_count)} matching lines appear in these groups;{' '}
+                        {humanFriendlyLargeNumber(patternsResponse.remainder_count ?? 0)} remain outside them.
+                    </LemonBanner>
+                )}
+            {!compareEnabled &&
+                sampled &&
+                patternsResponse.source !== 'stored_patterns' &&
+                !patternsResponseLoading &&
+                !patternsError && (
+                    <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
+                        Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines
+                        out of the {humanFriendlyLargeNumber(total_count)} matching your filters
+                        {sample_coverage_pct < 100
+                            ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
+                                  1
+                              )}% of the window`
+                            : ''}
+                        . Counts are estimates for the full window — hover a count for the underlying sample figure.
+                        Narrow your filters (a service, a severity, or a shorter time range) to sharpen the sample.
+                    </LemonBanner>
+                )}
             {compareEnabled &&
                 diffResponse &&
                 !diffResponseLoading &&

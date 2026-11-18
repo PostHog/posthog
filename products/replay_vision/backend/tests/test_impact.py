@@ -10,10 +10,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
+from products.replay_vision.backend.impact import affected_observations, compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
+    ObservationVerdict,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
@@ -27,7 +28,7 @@ class _ImpactTestCase(APIBaseTest):
             name=f"impact-{scanner_type}-{ReplayScanner.objects.count()}",
             scanner_type=scanner_type,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def _make_observation(
@@ -63,16 +64,29 @@ class _ImpactTestCase(APIBaseTest):
 
 
 class TestComputeScannerImpact(_ImpactTestCase):
-    def test_monitor_counts_only_verdict_yes(self) -> None:
+    @parameterized.expand(
+        [
+            ("defaults_to_yes", None, "u-yes"),
+            ("yes", ObservationVerdict.YES, "u-yes"),
+            ("no", ObservationVerdict.NO, "u-no"),
+            ("inconclusive", ObservationVerdict.INCONCLUSIVE, "u-inc"),
+        ]
+    )
+    def test_monitor_counts_only_the_requested_verdict(
+        self, _name: str, verdict: ObservationVerdict | None, expected_user: str
+    ) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
-        self._make_observation(scanner, session_id="s-yes", distinct_id="u1", verdict="yes")
-        self._make_observation(scanner, session_id="s-no", distinct_id="u2", verdict="no")
-        self._make_observation(scanner, session_id="s-inc", distinct_id="u3", verdict="inconclusive")
+        self._make_observation(scanner, session_id="s-yes", distinct_id="u-yes", verdict="yes")
+        self._make_observation(scanner, session_id="s-no", distinct_id="u-no", verdict="no")
+        self._make_observation(scanner, session_id="s-inc", distinct_id="u-inc", verdict="inconclusive")
 
-        impact = compute_scanner_impact(scanner)
+        impact = compute_scanner_impact(scanner, verdict=verdict)
 
         assert impact.affected_sessions == 1
         assert impact.affected_users == 1
+        assert list(affected_observations(scanner, 30, verdict=verdict).values_list("distinct_id", flat=True)) == [
+            expected_user
+        ]
 
     def test_classifier_counts_only_sessions_with_the_tag(self) -> None:
         scanner = self._make_scanner(ScannerType.CLASSIFIER)
@@ -98,6 +112,7 @@ class TestComputeScannerImpact(_ImpactTestCase):
     @parameterized.expand(
         [
             ("monitor_rejects_tag", ScannerType.MONITOR, {"tag": "bug"}),
+            ("classifier_rejects_verdict", ScannerType.CLASSIFIER, {"tag": "bug", "verdict": ObservationVerdict.NO}),
             ("classifier_requires_tag", ScannerType.CLASSIFIER, {}),
             ("scorer_requires_bound", ScannerType.SCORER, {}),
             ("summarizer_unsupported", ScannerType.SUMMARIZER, {}),
@@ -240,6 +255,30 @@ class TestImpactEndpoints(_ImpactTestCase):
         assert body["users_in_cohort"] == 1
         assert body["window_days"] == 7
         assert Cohort.objects.filter(pk=body["cohort_id"], is_static=True).exists()
+
+    @parameterized.expand(
+        [
+            ("impact_history", "get", "impact", False, 200),
+            ("cohort_history", "post", "affected_cohort", False, 400),
+            ("impact_current_targeting", "get", "impact", True, 404),
+            ("cohort_current_targeting", "post", "affected_cohort", True, 404),
+        ]
+    )
+    def test_unreadable_experiment_observations_are_not_counted_or_exported(
+        self, _name: str, method: str, action: str, scanner_targets_it: bool, expected_status: int
+    ) -> None:
+        targeting = {"experiment_id": 999_999}
+        scanner = self._make_scanner(ScannerType.MONITOR)
+        observation = self._make_observation(scanner, session_id="s1", distinct_id="u1")
+        ReplayObservation.objects.filter(pk=observation.pk).update(scanner_snapshot={"experiment_targeting": targeting})
+        if scanner_targets_it:
+            ReplayScanner.objects.filter(pk=scanner.pk).update(experiment_targeting=targeting)
+
+        resp = getattr(self.client, method)(f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/{action}/")
+
+        assert resp.status_code == expected_status, resp.json()
+        assert resp.json().get("affected_sessions", 0) == 0
+        assert not Cohort.objects.exists()
 
     def test_affected_cohort_400_when_no_users(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)

@@ -14,3 +14,6 @@ class FireworksAdapter(OpenAICompatibleByokAdapter):
     name = "fireworks"
     BASE_URL = FIREWORKS_BASE_URL
     PROVIDER_DISPLAY_NAME = "Fireworks"
+    # Fireworks returns 412 when it suspends an account for billing. Other OpenAI-compatible
+    # providers can send 412 for unrelated reasons, so only this adapter treats it as exhausted quota.
+    QUOTA_EXHAUSTED_STATUS_CODES = OpenAICompatibleByokAdapter.QUOTA_EXHAUSTED_STATUS_CODES | {412}

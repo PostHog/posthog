@@ -3,17 +3,21 @@ import * as PartialJSON from 'partial-json'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
-    EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_BOOLEAN_GRADED_HOGQL,
+    EVALUATION_NUMERIC_GRADED_HOGQL,
+    EVALUATION_NUMERIC_MEAN_HOGQL,
+    numericEvaluationPassedHogQL,
+    categoricalEvaluationPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
-import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { EvaluationConfig, EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
 import type { SummarizeRequestApi } from './generated/api.schemas'
 import {
     AnthropicDocumentMessage,
@@ -83,6 +87,7 @@ export function sanitizeTraceUrlSearchParams(
     delete sanitizedSearchParams.line
     delete sanitizedSearchParams.tab
     delete sanitizedSearchParams.back_to
+    delete sanitizedSearchParams.back_url
     delete sanitizedSearchParams.msg
 
     if (options.removeSearch) {
@@ -107,34 +112,74 @@ function formatUsage(inputTokens: number, outputTokens?: number | null): string 
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
 
-export function formatLLMUsage(
-    trace_or_event_or_aggregation: LLMTrace | LLMTraceEvent | SpanAggregation
-): string | null {
-    // Handle SpanAggregation
-    if (
-        'totalCost' in trace_or_event_or_aggregation &&
-        'totalLatency' in trace_or_event_or_aggregation &&
-        'hasGenerationChildren' in trace_or_event_or_aggregation
-    ) {
-        const aggregation = trace_or_event_or_aggregation as SpanAggregation
-        return formatUsage(aggregation.inputTokens || 0, aggregation.outputTokens)
+/** Whether an AI content property holds anything to render. An empty container holds nothing. */
+export function hasAiContent(value: unknown): boolean {
+    if (value === null || value === undefined || value === '') {
+        return false
     }
-
-    // Handle LLMTraceEvent
-    if ('properties' in trace_or_event_or_aggregation) {
-        const event = trace_or_event_or_aggregation as LLMTraceEvent
-        if (typeof event.properties.$ai_input_tokens === 'number') {
-            return formatUsage(event.properties.$ai_input_tokens, event.properties.$ai_output_tokens)
-        }
+    if (Array.isArray(value)) {
+        return value.length > 0
     }
-
-    // Handle LLMTrace
-    const trace = trace_or_event_or_aggregation as LLMTrace
-    if (typeof trace.inputTokens === 'number') {
-        return formatUsage(trace.inputTokens, trace.outputTokens)
+    if (typeof value === 'object') {
+        return Object.keys(value).length > 0
     }
+    return true
+}
 
+/**
+ * Picks the AI value to render or pass on: the first that carries content, else the first that is
+ * present at all. Content first, because a generation can send an empty `$ai_output_choices` while
+ * `$ai_output` holds the response, and a nullish check would keep the empty container. Presence as
+ * the fallback, because `useAIData` runs the heavy-property lookup when a side is nullish — a
+ * generation whose output genuinely is empty must render its notice, not fire that query.
+ */
+export function selectAiValue(...values: unknown[]): unknown {
+    return values.find(hasAiContent) ?? values.find((value) => value !== null && value !== undefined)
+}
+
+// Token counts arrive straight off untyped event properties, so a provider that reports one as a
+// string still has to be readable. posthog-ai below 7.3.0 sent them as `{ total, noCache, cacheRead }`.
+// Ingestion normalizes that now, but events captured before it still hold the object shape.
+export function aiTokenCount(value: unknown): number | null {
+    const unwrapped =
+        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
+            ? (value as { total: unknown }).total
+            : value
+    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
+}
+
+// Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
+// the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
+// mean the response ran out of room, so match a normalized set rather than one literal.
+const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
+const BLOCKED_STOP_REASONS = new Set([
+    'prohibited_content',
+    'content_filter',
+    'content_filtered',
+    'safety',
+    'recitation',
+    'blocklist',
+])
+
+/** Maps an `$ai_stop_reason` value to what it means for the user, or null for a normal ending. */
+export function describeStopReason(value: unknown): string | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    // The Vercel AI SDK hyphenates its values, so `content-filter` has to reach the same entry.
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_')
+    if (TRUNCATED_STOP_REASONS.has(normalized)) {
+        return 'The response hit its token limit.'
+    }
+    if (BLOCKED_STOP_REASONS.has(normalized)) {
+        return 'The provider blocked the response.'
+    }
     return null
+}
+
+export function formatLLMUsage(trace: LLMTrace): string | null {
+    return typeof trace.inputTokens === 'number' ? formatUsage(trace.inputTokens, trace.outputTokens) : null
 }
 
 export const LLM_TRACES_PAGE_SIZE = 50
@@ -168,21 +213,6 @@ export function costContextFromProperties(props: Record<string, any>): CostConte
         requestCost: props.$ai_request_cost_usd,
         webSearchCost: props.$ai_web_search_cost_usd,
         totalCost: props.$ai_total_cost_usd,
-    }
-}
-
-export function costContextFromTrace(
-    trace: Pick<LLMTrace, 'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'totalCost'>
-): CostContext | undefined {
-    if (typeof trace.totalCost !== 'number') {
-        return undefined
-    }
-    return {
-        inputCost: trace.inputCost,
-        outputCost: trace.outputCost,
-        requestCost: trace.requestCost,
-        webSearchCost: trace.webSearchCost,
-        totalCost: trace.totalCost,
     }
 }
 
@@ -281,18 +311,6 @@ export function formatErrorRate(errorRate: number): string {
     return `${Math.round(percentage)}%`
 }
 
-export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
-    return 'properties' in item
-}
-
-/**
- * Checks if the item is a trace-level object (LLMTrace) rather than an individual event.
- * This is the inverse of isLLMEvent and provides semantic clarity when checking for traces.
- */
-export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
-    return !isLLMEvent(item)
-}
-
 /**
  * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
  * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
@@ -320,44 +338,6 @@ export function getSummarizationLookupDateRange(
     }
 }
 
-function normalizeSessionId(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null
-}
-
-function sessionIdFromEvents(events?: LLMTraceEvent[] | null): string | null {
-    if (!events || events.length === 0) {
-        return null
-    }
-
-    const uniqueSessionIds = events.reduce((acc, current) => {
-        const candidate = normalizeSessionId(current.properties?.$session_id)
-        if (candidate) {
-            acc.add(candidate)
-        }
-        return acc
-    }, new Set<string>())
-
-    if (uniqueSessionIds.size !== 1) {
-        return null
-    }
-
-    return Array.from(uniqueSessionIds)[0]
-}
-
-export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMTraceEvent[]): string | null {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_trace') {
-            const directSessionId = normalizeSessionId(event.properties?.$session_id)
-
-            return directSessionId ?? sessionIdFromEvents(childEvents)
-        }
-
-        return normalizeSessionId(event.properties?.$session_id)
-    }
-
-    return sessionIdFromEvents(childEvents ?? event.events)
-}
-
 export type LLMEventKind = 'generation' | 'embedding' | 'trace' | 'span'
 
 export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
@@ -371,10 +351,6 @@ export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
         default:
             return 'span'
     }
-}
-
-export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    return isLLMEvent(event) ? getLLMEventKind(event) : 'trace'
 }
 
 // Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
@@ -395,16 +371,15 @@ export function operationStartMs(event: LLMTraceEvent): number {
     return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs(event)
 }
 
-export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMEvent(event)) {
-        return event.properties.$recording_status || null
-    }
-
-    return event.events.find((e) => e.properties.$recording_status !== null)?.properties.$recording_status || null
-}
-
 export function isTextContentItem(item: unknown): item is TextContentItem {
-    return !!item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item
+    return (
+        !!item &&
+        typeof item === 'object' &&
+        'type' in item &&
+        item.type === 'text' &&
+        'text' in item &&
+        isString(item.text)
+    )
 }
 
 export function hasStringContentField(value: unknown): value is StringContentObject {
@@ -791,6 +766,13 @@ export function getGeminiInlineData(input: unknown): { data: string; mime_type: 
         }
     }
 
+    // Gemini Interactions API uses top-level data and mime_type.
+    const d = input as Record<string, unknown>
+    const mimeType = d.mime_type ?? d.mimeType
+    if (typeof d.data === 'string' && typeof mimeType === 'string') {
+        return { data: d.data, mime_type: mimeType }
+    }
+
     return null
 }
 
@@ -799,7 +781,15 @@ export function isGeminiImageMessage(input: unknown): input is GeminiImageMessag
         return false
     }
     const inlineData = getGeminiInlineData(input)
-    return inlineData !== null && inlineData.mime_type.startsWith('image/')
+    if (inlineData) {
+        return inlineData.mime_type.startsWith('image/')
+    }
+    if ('data' in input && typeof input.data === 'string') {
+        return true
+    }
+    const uri = 'uri' in input ? input.uri : null
+    const mimeType = 'mime_type' in input ? input.mime_type : null
+    return typeof uri === 'string' && (typeof mimeType !== 'string' || mimeType.startsWith('image/'))
 }
 
 export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
@@ -942,60 +932,8 @@ export function safeStringify(value: unknown, indent: number = 2): string {
     }
 }
 
-export function removeMilliseconds(timestamp: string): string {
-    return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
 export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
-export function getSessionStartTimestamp(timestamp: string): string {
-    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
-export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMEvent(event)) {
-        const spanName = asString(event.properties.$ai_span_name)
-
-        if (event.event === '$ai_generation') {
-            if (spanName) {
-                return spanName
-            }
-            const title = asString(event.properties.$ai_model) || 'Generation'
-            const provider = asString(event.properties.$ai_provider)
-            return provider ? `${title} (${provider})` : title
-        }
-
-        if (event.event === '$ai_embedding') {
-            if (spanName) {
-                return spanName
-            }
-            const title = asString(event.properties.$ai_model) || 'Embedding'
-            const provider = asString(event.properties.$ai_provider)
-            return provider ? `${title} (${provider})` : title
-        }
-
-        return spanName ?? 'Span'
-    }
-
-    return event.traceName ?? 'Trace'
-}
-
-export function formatModelRowLabel(event: LLMTrace | LLMTraceEvent): string | null {
-    if (!isLLMEvent(event) || event.event !== '$ai_generation') {
-        return null
-    }
-    // if we don't have a span name, we don't want to render the model row as its covered by the event title
-    if (!asString(event.properties.$ai_span_name)) {
-        return null
-    }
-    const model = asString(event.properties.$ai_model)
-    const provider = asString(event.properties.$ai_provider)
-    if (model && provider) {
-        return `${model} (${provider})`
-    }
-    return model || provider || null
 }
 
 /**
@@ -1061,6 +999,13 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    score?: number | string | null,
+    score_min?: number | string | null,
+    score_max?: number | string | null,
+    categories?: string[] | string | null,
+    start_time?: string | null,
+    backfill_id?: string | null,
+    probability?: number | string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1071,7 +1016,7 @@ export function normalizeEvaluationType(value: unknown): EvaluationType | undefi
 }
 
 export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
-    if (value === 'boolean' || value === 'sentiment') {
+    if (value === 'boolean' || value === 'sentiment' || value === 'numeric' || value === 'categorical') {
         return value
     }
     return undefined
@@ -1107,6 +1052,10 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
+    rawCategories?: unknown
+    rawScore?: unknown
+    rawScoreMin?: unknown
+    rawScoreMax?: unknown
 }
 
 export function normalizeEvaluationResultProperties({
@@ -1116,9 +1065,22 @@ export function normalizeEvaluationResultProperties({
     rawResultType,
     rawSentimentLabel,
     rawSentimentScore,
+    rawScore,
+    rawCategories,
+    rawScoreMin,
+    rawScoreMax,
 }: NormalizedEvaluationResultProperties): Pick<
     EvaluationRun,
-    'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
+    | 'evaluation_type'
+    | 'result_type'
+    | 'result'
+    | 'sentiment_label'
+    | 'sentiment_score'
+    | 'applicable'
+    | 'categories'
+    | 'score'
+    | 'score_min'
+    | 'score_max'
 > {
     const evaluationType = normalizeEvaluationType(rawEvaluationType)
     const sentimentLabel =
@@ -1127,8 +1089,22 @@ export function normalizeEvaluationResultProperties({
         normalizeEvaluationOutputType(rawResultType) ??
         (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
 
+    if (resultType === 'categorical') {
+        if (rawCategories == null && isExplicitEvaluationPass(rawApplicable)) {
+            rawCategories = []
+        } else if (typeof rawCategories === 'string') {
+            try {
+                rawCategories = JSON.parse(rawCategories)
+            } catch {
+                rawCategories = null
+            }
+        }
+    }
+
     const result =
         resultType === 'sentiment' ||
+        resultType === 'numeric' ||
+        resultType === 'categorical' ||
         isExplicitEvaluationNotApplicable(rawApplicable) ||
         rawResult === null ||
         rawResult === undefined
@@ -1141,6 +1117,27 @@ export function normalizeEvaluationResultProperties({
         result,
         sentiment_label: sentimentLabel,
         sentiment_score: normalizeOptionalNumber(rawSentimentScore),
+        ...(resultType === 'categorical'
+            ? {
+                  categories:
+                      !isExplicitEvaluationNotApplicable(rawApplicable) &&
+                      Array.isArray(rawCategories) &&
+                      rawCategories.every((value) => typeof value === 'string')
+                          ? rawCategories
+                          : null,
+              }
+            : {}),
+        ...(resultType === 'numeric'
+            ? {
+                  score:
+                      isExplicitEvaluationNotApplicable(rawApplicable) ||
+                      (typeof rawScore !== 'number' && (typeof rawScore !== 'string' || !rawScore.trim()))
+                          ? null
+                          : normalizeOptionalNumber(rawScore),
+                  score_min: normalizeOptionalNumber(rawScoreMin),
+                  score_max: normalizeOptionalNumber(rawScoreMax),
+              }
+            : {}),
         applicable: normalizeEvaluationApplicable(rawApplicable),
     }
 }
@@ -1153,6 +1150,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawResultType: row[10],
         rawSentimentLabel: row[11],
         rawSentimentScore: row[12],
+        rawScore: row[15],
+        rawScoreMin: row[16],
+        rawScoreMax: row[17],
+        rawCategories: row[18],
     })
 
     return {
@@ -1165,7 +1166,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         session_id: row[13] || null,
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
-        reasoning: row[7] || 'No reasoning provided',
+        reasoning: row[7] ?? '',
+        probability: normalizeOptionalNumber(row[21]),
+        start_time: row[19] || null,
+        backfill_id: row[20] || null,
         status: 'completed' as const,
     }
 }
@@ -1174,12 +1178,19 @@ export async function queryEvaluationRuns(params: {
     evaluationId?: string
     traceId?: string
     sessionId?: string
+    backfillId?: string
+    dateRange?: DateRange
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
+    /** Reads the page of runs older than `timestamp`. Runs at exactly `timestamp` are kept unless
+     * their id is in `excludeIds`, so runs that share a timestamp across a page edge are not skipped. */
+    before?: { timestamp: string; excludeIds: string[] }
+    filterHogQL?: string | null
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, dateRange, lookbackDays, before, filterHogQL, forceRefresh } =
+        params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1208,12 +1219,23 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
-            properties.$ai_evaluation_skipped as skipped
+            properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_evaluation_numeric_result as score,
+            properties.$ai_evaluation_numeric_result_min as score_min,
+            properties.$ai_evaluation_numeric_result_max as score_max,
+            properties.$ai_evaluation_categorical_result as categories,
+            properties.$ai_evaluation_start_time as start_time,
+            properties.$ai_evaluation_backfill_id as backfill_id,
+            properties.$ai_evaluation_probability as probability
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
+            ${before ? hogql.raw(hogql`AND timestamp <= toDateTime(${before.timestamp}) AND uuid NOT IN ${before.excludeIds}`) : hogql.raw('')}
+            ${filterHogQL ? hogql.raw(`AND (${filterHogQL})`) : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
@@ -1221,7 +1243,10 @@ export async function queryEvaluationRuns(params: {
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     return (response.results || []).map(mapEvaluationRunRow)
@@ -1230,19 +1255,26 @@ export async function queryEvaluationRuns(params: {
 export interface EvaluationRunsStats {
     total: number
     applicable: number
-    passed: number
+    trueCount: number
+    scoreCount?: number
+    scoreMean?: number | null
+    numericPassCount?: number
+    categoricalCount?: number
+    categoricalPassCount?: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
 // EVALUATION_RUNS_QUERY_LIMIT, so summary stats can't be derived from that list without
-// undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
-// so both surfaces report the same totals.
+// undercounting.
 export async function queryEvaluationRunsStats(params: {
+    evaluation?: EvaluationConfig | null
     evaluationId?: string
     traceId?: string
+    backfillId?: string
+    dateRange?: DateRange
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluation, evaluationId, traceId, backfillId, dateRange, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1255,29 +1287,44 @@ export async function queryEvaluationRunsStats(params: {
     const query = hogql`
         SELECT
             count() as total,
-            countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as applicable,
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as true_count,
+            countIf(${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as score_count,
+            ${hogql.raw(EVALUATION_NUMERIC_MEAN_HOGQL)} as score_mean,
+            countIf(${hogql.raw(evaluation?.output_type === 'numeric' ? numericEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as numeric_pass_count,
+            countIf(${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_count,
+            countIf(${hogql.raw(evaluation?.output_type === 'categorical' ? categoricalEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_pass_count
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     const row = response.results?.[0]
 
     if (!row) {
-        return { total: 0, applicable: 0, passed: 0 }
+        return { total: 0, applicable: 0, trueCount: 0 }
     }
 
     return {
         total: Number(row[0]) || 0,
         applicable: Number(row[1]) || 0,
-        passed: Number(row[2]) || 0,
+        trueCount: Number(row[2]) || 0,
+        scoreCount: Number(row[3]) || 0,
+        scoreMean: Number(row[3]) > 0 ? normalizeOptionalNumber(row[4]) : null,
+        numericPassCount: Number(row[5]) || 0,
+        categoricalCount: Number(row[6]) || 0,
+        categoricalPassCount: Number(row[7]) || 0,
     }
 }

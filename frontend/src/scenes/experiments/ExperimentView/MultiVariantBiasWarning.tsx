@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
+
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -18,15 +21,17 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
     const { experiment, exposures, exposureCriteria } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openDistributionModal } = useActions(modalsLogic)
-    const { reportExperimentBiasWarningShown } = useActions(eventUsageLogic)
 
     const risk = exposures?.bias_risk
 
     useEffect(() => {
         if (risk) {
-            reportExperimentBiasWarningShown(experiment)
+            posthog.capture('experiment bias warning shown', { ...getEventPropertiesForExperiment(experiment) })
         }
-    }, [reportExperimentBiasWarningShown, risk, experiment])
+    }, [risk, experiment])
+    const { reportOpened, reportActedOn } = useHealthFindingReporting(
+        risk ? { code: 'bias_risk_multiple_excluded' } : null
+    )
 
     if (!risk) {
         return null
@@ -36,7 +41,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
         <LemonBanner type="warning" className="mt-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1 min-w-[300px]">
-                    <div className="font-semibold">Setup likely introduced bias</div>
+                    <div className="font-semibold">The uneven split may bias the results</div>
                     <p className="m-0">
                         <strong>{risk.multiple_variant_percentage.toFixed(1)}%</strong> of users were exposed to
                         multiple variants. With your uneven variant split and the current <strong>Exclude</strong>{' '}
@@ -49,6 +54,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                         <Link
                             to="https://posthog.com/docs/experiments/exposures#handling-multiple-exposures"
                             target="_blank"
+                            onClick={() => reportOpened('docs')}
                         >
                             <strong>First seen</strong>
                         </Link>{' '}
@@ -56,18 +62,26 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                     </p>
                 </div>
                 <div className="flex gap-2 items-center flex-shrink-0">
-                    <LemonButton size="small" type="secondary" onClick={() => openDistributionModal()}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => {
+                            reportActedOn('adjust_distribution')
+                            openDistributionModal()
+                        }}
+                    >
                         Adjust distribution
                     </LemonButton>
                     <LemonButton
                         size="small"
                         type="secondary"
-                        onClick={() =>
+                        onClick={() => {
+                            reportActedOn('use_first_seen_variant')
                             openExposureCriteriaModal({
                                 ...exposureCriteria,
                                 multiple_variant_handling: 'first_seen',
                             })
-                        }
+                        }}
                     >
                         Use first seen variant
                     </LemonButton>

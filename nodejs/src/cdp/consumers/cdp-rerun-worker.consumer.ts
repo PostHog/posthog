@@ -114,6 +114,9 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             // Tunable via CDP_RERUN_WORKER_BATCH_SIZE.
             batchMaxSize: this.config.CDP_RERUN_WORKER_BATCH_SIZE,
             pollDelayMs: 1000,
+            pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
+            boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
         })
 
         await this.worker.connect((jobs) => this.handleBatch(jobs))
@@ -128,6 +131,9 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         await this.jobQueues.hog_flow.stopProducer()
         await this.clickhouseClient?.close()
         await this.invocationResultsService.flush()
+        // This consumer overrides stop() without calling super.stop(), so close the conversion-watcher
+        // pool here too rather than relying on the base teardown.
+        await this.invocationResultsService.stop()
     }
 
     override isHealthy(): HealthCheckResult {

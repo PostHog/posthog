@@ -116,8 +116,7 @@ The `stats_config` field is a JSON object with method-specific keys:
 {
   "bayesian": {
     "ci_level": 0.95,
-    "difference_type": "RELATIVE",
-    "prior_type": "RELATIVE"
+    "difference_type": "RELATIVE"
   },
   "frequentist": {
     "alpha": 0.05,
@@ -132,9 +131,6 @@ The `stats_config` field is a JSON object with method-specific keys:
 - **`difference_type`** (string, default: "RELATIVE"): Type of difference calculation
   - `"RELATIVE"`: Percentage change from baseline
   - `"ABSOLUTE"`: Absolute difference from baseline
-- **`prior_type`** (string, default: "RELATIVE"): Type of prior to use
-  - `"RELATIVE"`: Prior relative to baseline
-  - `"ABSOLUTE"`: Absolute prior
 
 ### Frequentist parameters
 

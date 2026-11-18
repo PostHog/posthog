@@ -19,7 +19,7 @@
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
-// The bias is relaxed in exactly two places, both bounded by what one PR can
+// The bias is relaxed in exactly three places, all bounded by what one PR can
 // name in another. The conflict that lanes exist to prevent is semantic rather
 // than textual, because a textual one would force a rebase and a retest: PR A
 // renames a facade function and updates every current caller, PR B adds a new
@@ -73,6 +73,49 @@
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
 //
+//   3. A warehouse source vendor directory (products/warehouse_sources/sources/
+//      <vendor>/, every directory there except the SDK) claims only the vendor
+//      lane, not the warehouse_sources product lane. A vendor imports nothing but
+//      the SDK and third-party packages, and tach, import-linter and a repo
+//      invariant enforce that, so no code outside the vendor can reference its
+//      symbols. That makes the SDK the vendors' only direct import, and narrowing
+//      2 already bounds a cascade at direct importers. The lane is therefore
+//      claimed by the SDK and every other file of the warehouse_sources product,
+//      by the products/ root files that vendor tests collect, by the repo
+//      invariants that walk the vendor tree, and by the Python toolchain domain,
+//      because a lockfile change reaches a vendor's third-party packages
+//      directly. The core modules that the SDK, or a conftest every vendor test
+//      collects, imports directly claim it too, in addition to their own lanes,
+//      and the set is read from those sources.
+//      The generated registries that a new source regenerates (the field
+//      classification audit and the two credential maps) claim only the vendor
+//      lane too, as they already count as vendor files in PR CI. The audit has
+//      no runtime reader. The maps are read by warehouse_sources code and the
+//      integrations SDK, which both claim the vendor lane, and by Django startup,
+//      which the warehouse sources job runs. A new source only adds entries.
+//      Changing an existing entry needs --allow-changed and a data migration,
+//      and the migration claims the product lanes.
+//      The rest of posthog/, common/ and other products do not claim it, because
+//      they reach a vendor only through one of those modules.
+//
+//      This keeps a vendor PR out of the lane that every core PR claims. A vendor
+//      PR queued in that lane is tested on top of the core PRs ahead of it, and
+//      that diff starts the full backend suite for a change no backend test
+//      imports. In its own lane, the queue run holds only vendor changes, and the
+//      warehouse sources job in ci-python.yml narrows it to the changed vendors.
+//
+//      ACCEPTED RISK: two kinds of change can break a vendor, or be broken by
+//      one, without sharing its lane. The first is a posthog/, common/ or other
+//      product change that alters what the SDK returns through a module the SDK
+//      does not import directly, which is the same bound as narrowing 2. The
+//      second is code that
+//      loads every vendor at runtime through the source registry, with no import
+//      edge, such as a product test that checks each vendor's catalog entry.
+//      Either PR can merge in parallel with a vendor PR, and then no queue run
+//      held both. The other PR's own queue run tests every vendor already on
+//      master, so the gap is the new vendor code only. The hourly master run of
+//      the full vendor suite is the net for it.
+//
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
 // and an under-broad match skips tests. They are tuned to over-run and are NOT
@@ -100,6 +143,7 @@
 //         prose-only PRs.
 //         Diagnostics on stderr
 
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -131,6 +175,19 @@ const PYTHON = 'python'
 const JAVASCRIPT = 'javascript'
 const RUST = 'rust'
 
+// The python lanes without the warehouse source vendor lane, for suites that
+// never import a vendor or load the vendor catalog: the side checks of the
+// backend suite, the ClickHouse and hogql parser builds, dagster, and the
+// signals ranking suite. A vendor-only PR runs none of them, so a change to one
+// cannot change how a vendor PR is checked, and no vendor change can fail one.
+const PYTHON_NO_VENDORS = 'python-no-vendors'
+
+// The docker services the suites test against: the compose files and the
+// configuration they mount. Every lane except one, because the warehouse
+// sources job runs without Postgres, ClickHouse, Redis or Kafka, so a vendor
+// PR is checked without any of these files.
+const SERVICE_STACK = 'service-stack'
+
 // The product manifests and the artifacts generated from them. Not a toolchain
 // domain: it names the two lane families that read that data rather than a
 // language, and it exists because `universal` was claiming lanes no reader of
@@ -153,10 +210,13 @@ const SEMGREP = 'semgrep'
 // moved, degrading to every crate when that answer is absent.
 const CARGO_LOCK = 'cargo-lock'
 
-// The nodejs lane on its own, for files whose only reader is the ingestion
-// suite or an image built purely from nodejs/ sources. The rust and proto
-// rules also use it to name that lane without dragging in the frontend.
+// The nodejs lanes on their own, for files whose only readers are the nodejs
+// suites or an image built from nodejs/ sources and native bindings that claim
+// these lanes already. The rust and proto rules also use it to name those lanes
+// without dragging in the frontend.
 const NODE = 'node'
+const FRONTEND_SUITE = 'frontend-suite'
+const JS_LOCKFILE = 'js-lockfile'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
 // builds of the images those suites run inside. Both language families in
@@ -246,23 +306,26 @@ const TRIPWIRE_RULES = [
     // language's suite can be held to that language's lanes. Everything else
     // under .github/ stays universal: the list grows by decision, and a
     // workflow nobody has placed here keeps the old radius.
-    ['.github/workflows/ci-frontend.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook-update-test-timing.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs-container.yml', JAVASCRIPT],
+    ['.github/workflows/ci-frontend.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook-update-test-timing.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-nodejs.yml', NODE],
+    ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
-    ['.github/workflows/ci-backend.yml', PYTHON],
+    ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-shadow-drift.yml', PYTHON],
-    ['.github/workflows/ci-dagster.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-dagster.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-inbox-ranking.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
     // These two gate suites that run only Python: the tools and
     // approval-agent pytest suites, and the ClickHouse multinode migration
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON_NO_VENDORS],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -273,11 +336,12 @@ const TRIPWIRE_RULES = [
     // the cd-*-image rule below.
     ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
     ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
-    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/ci-hoglang.yml', FULLSTACK],
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
-    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources and the replay-anonymizer addon,
+    // and a change to that native binding claims the node lane too (NATIVE_BINDING_CONSUMER_LANES).
     ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
     // The skills build renders templates that import product Python, and the
     // embedded-payload job runs the services/mcp generator that writes into
@@ -308,6 +372,7 @@ const TRIPWIRE_RULES = [
     // request or in the merge queue. See addDeployLane.
     ['.github/workflows/container-images-cd.yml', DEPLOY],
     ['.github/workflows/cd-*-image.yml', DEPLOY],
+    ['.github/workflows/release-toolbar-extension.yml', DEPLOY],
     ['.github/workflows/rust-docker-build.yml', DEPLOY],
     ['.github/workflows/release-cli.yml', DEPLOY],
     ['.github/workflows/publish-hogli.yml', DEPLOY],
@@ -322,10 +387,13 @@ const TRIPWIRE_RULES = [
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
-    // and nodejs workflows alike.
+    // and nodejs workflows alike. The IDOR check reads Django models, which no
+    // vendor has.
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
-    ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    ['.github/scripts/check-idor-model-coverage.py', PYTHON_NO_VENDORS],
+    // ci-backend's events_json leg and its test selection read this list.
+    ['.github/new-events-schema-targets.txt', PYTHON_NO_VENDORS],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -342,7 +410,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
     ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
     ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
-    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
@@ -358,15 +425,15 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
-    // More single-suite workflows, held to the trees their suites read: the AI
-    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    ['.github/workflows/renovate-dashboard-digest.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-sandbox-agent-version.yml', REPO_AUTOMATION],
+    // More single-suite workflows, held to the trees their suites read:
+    // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-ai.yml', PYTHON],
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
-    ['.github/workflows/build-hogql-parser.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/build-hogql-parser.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
     ['.github/workflows/build-hogql-parser-rs.yml', RUST],
     ['.github/workflows/rust-smoke-test-build.yml', RUST],
@@ -382,13 +449,12 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
     ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
     ['.github/workflows/build-hobby-installer.yml', HOBBY],
-    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
     ['.github/workflows/publish-quill-npm.yml', DEPLOY],
     ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
-    ['.github/workflows/clickhouse-udfs.yml', DEPLOY],
     // A scheduled mirror of the upstream Playwright image; no suite runs it.
     ['.github/workflows/ci-playwright-container.yml', DEPLOY],
     // The dev-environment checks: the flox boot check and the sandbox
@@ -408,16 +474,13 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
     ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
     ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
-    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
+    ['.github/scripts/eng-analytics-weekly-digest.test.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
-    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/auto-assign-labels.json', REPO_AUTOMATION],
@@ -439,7 +502,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
     ['.github/scripts/post-django-migration-section.mjs', PYTHON],
     ['.github/scripts/post-coverage-section.mjs', PYTHON],
-    ['.github/scripts/post-eval-section.mjs', PYTHON],
     // CI-report sections and helpers owned by one suite each.
     ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
     ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
@@ -470,7 +532,6 @@ const TRIPWIRE_RULES = [
     ['.github/actions/trunk-quarantine-gate/**', FULLSTACK],
     ['.github/actions/setup-emsdk/**', FULLSTACK],
     ['.github/actions/desktop-build-agent-release/**', DESKTOP],
-    ['.github/actions/desktop-restore-turbo-cache/**', DESKTOP],
     ['.github/actions/setup-python-cached/**', PYTHON],
     // Also used by ci-scripts.yml, which is universal, so the node lane is the
     // only radius left to claim.
@@ -497,6 +558,7 @@ const TRIPWIRE_RULES = [
     // The vendored paths-filter action and its CI (see CI_TOOLING). The
     // .depot/ shadow of the action follows through canonicalPath.
     ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/actions/shared-image-releases/**', CI_TOOLING],
     ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
     // Feed turbo-discover's backend product selection, so they take the
     // python lanes the same way the snob selector does.
@@ -529,8 +591,9 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    ['.oxlintrc.json', JAVASCRIPT],
-    ['.oxfmtrc*', JAVASCRIPT],
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
+    ['.oxlintrc.json', FRONTEND_SUITE],
+    ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
     // its ignore file is a JS toolchain setting like the two above.
     ['.prettierignore', JAVASCRIPT],
@@ -551,9 +614,6 @@ const TRIPWIRE_RULES = [
     ['manage.py', PYTHON],
     ['pytest_boot_gc.py', PYTHON],
     ['dagster_cloud.yaml', PYTHON],
-    // Serves the Django app in the production image, so the module paths it
-    // names are the ones a Python change can rename out from under it.
-    ['unit.json.tpl', PYTHON],
 
     // The pnpm workspace's lockfile and manifests. A resolution change here can
     // red the python lanes, which install the root package and drive pytest
@@ -563,8 +623,8 @@ const TRIPWIRE_RULES = [
     // PR, and the shape that reaches a python lane is lockfile drift against a
     // workspace package.json, which needs both PRs to edit pnpm-lock.yaml and
     // so surfaces as a textual conflict git forces a rebase for.
-    ['pnpm-lock.yaml', JAVASCRIPT],
-    ['pnpm-workspace.yaml', JAVASCRIPT],
+    ['pnpm-lock.yaml', JS_LOCKFILE],
+    ['pnpm-workspace.yaml', JS_LOCKFILE],
     ['package.json', JAVASCRIPT],
     // The python lockfile and manifests, on the same reasoning. Every section
     // of pyproject.toml configures a python tool, and nothing in the pnpm
@@ -596,11 +656,13 @@ const TRIPWIRE_RULES = [
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
-    ['docker-compose*.yml', UNIVERSAL],
+    ['.depot/workflows/**', UNIVERSAL],
+    ['docker-compose*.yml', SERVICE_STACK],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
-    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources and the
+    // replay-anonymizer addon, whose changes already claim the node lanes, and the
     // playwright and sandbox images host suites that run both language
     // families. Everything else at the root, the unified app image included,
     // backs E2E, hobby, and production, which is the app-image radius; no
@@ -613,12 +675,16 @@ const TRIPWIRE_RULES = [
     ['Dockerfile*', APP_IMAGE],
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
+    // The checked-in python stubs. They sit under packages/, which the
+    // directory rules read as frontend, but every importer is python under
+    // posthog/.
+    ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
-    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // loads at runtime and starred_products.py keys off the `path` values of.
     // So both sides of the fe/py split can hold a reference to what one manifest
     // renames, and both claim their full lane family here.
     //
@@ -638,13 +704,16 @@ const TRIPWIRE_RULES = [
     // suite's tests run on a PR, so an under-selection can only mask conflicts
     // that suite's lanes already serialize: the snob shadow, its verdict, and
     // the testmon fanout list select Django tests, the dagster selector its
-    // own suite, and the playwright pair the E2E specs.
+    // own suite, the warehouse sources selector the vendor tests, and the
+    // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],
     ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/warehouse_sources_vendor_selection.py', PYTHON],
+    ['tools/test_warehouse_sources_vendor_selection.py', PYTHON],
     ['tools/testmon_high_fanout_files.txt', PYTHON],
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],
@@ -653,6 +722,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners-yaml/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at
@@ -671,7 +743,6 @@ const TRIPWIRE_RULES = [
     ['bin/deploy-hobby', HOBBY],
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
-    ['bin/migrate-session-recordings-hobby', HOBBY],
     // Called by the hobby storage-migration scripts above, so it has to share
     // their lane.
     ['bin/migrate-minio-to-seaweedfs', HOBBY],
@@ -689,7 +760,7 @@ const TRIPWIRE_RULES = [
     ['bin/posthog-node', APP_IMAGE],
     ['bin/temporal-django-worker', APP_IMAGE],
     ['bin/granian_metrics.py', APP_IMAGE],
-    ['bin/unit_metrics.py', APP_IMAGE],
+    ['bin/granian_shared_socket.py', APP_IMAGE],
     ['bin/start-backend', APP_IMAGE],
     ['bin/start-frontend', APP_IMAGE],
     // The schema and taxonomy codegen pipeline, which turns
@@ -712,12 +783,11 @@ const TRIPWIRE_RULES = [
     ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
     ['bin/fix-rdkafka-paths', JAVASCRIPT],
     ['bin/create-notebook-node.sh', JAVASCRIPT],
-    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // bin/hoglang backs the HogLang suite, the jest-timing helpers feed
     // report_test_timings, the dockerignore check runs in container-images-ci,
     // and the sandbox scripts are baked into the sandbox image; all of those
     // sit on the fullstack lanes already.
-    ['bin/hog', FULLSTACK],
-    ['bin/hoge', FULLSTACK],
+    ['bin/hoglang', FULLSTACK],
     ['bin/report-jest-timings', FULLSTACK],
     ['bin/render-jest-timings-example', FULLSTACK],
     ['bin/dockerignore-drop-check', FULLSTACK],
@@ -754,6 +824,8 @@ const TRIPWIRE_RULES = [
     ['bin/setup-gateway-e2e', DEV_ENV],
     ['bin/sync-storage', DEV_ENV],
     ['bin/warm-flags-cache', DEV_ENV],
+    // Run by the worktree hooks of local agent apps, never by CI.
+    ['bin/devbox-worktree-hook', DEV_ENV],
     // bin/ appears in the backend, frontend, and E2E path filters alike, and
     // what remains here is read across families: hogli and turbo drive the
     // suites, bin/docker is the image entrypoint, and download-mmdb and the
@@ -778,10 +850,10 @@ const TRIPWIRE_RULES = [
     // files ride along rather than earning a rule of their own.
     ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
-    // docker-compose file, so it defines the services all the suites test
-    // against. The collector config is mounted the same way, from the root.
-    ['docker/**', UNIVERSAL],
-    ['otel-collector-config*.yaml', UNIVERSAL],
+    // docker-compose file, so it defines the services the suites test against.
+    // The collector config is mounted the same way, from the root.
+    ['docker/**', SERVICE_STACK],
+    ['otel-collector-config*.yaml', SERVICE_STACK],
     // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
     // bin/sandbox and hogli, both already tripwires.
     ['devenv/**', UNIVERSAL],
@@ -803,6 +875,7 @@ const COMMON_FULLSTACK = ['fixtures']
 
 // The pr-approval-agent engine's home inside the stamphog product.
 const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+const AGENT_WORKSPACE_DIR = 'packages/agent'
 
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
@@ -835,8 +908,10 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
-    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
-    // so its Hog implementation is not covered by the shared hog suite either.
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
+    // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
     // Another standalone cargo workspace, and nothing in the dev or CI stack
     // builds it: the UDF binary reaches ClickHouse through its image.
@@ -892,6 +967,7 @@ const REPO_CONFIG_DIRS = [
 // .dockerignore and the .env files are deliberately not here. Both are read by
 // something that every suite runs inside, and both are tripwires above.
 const REPO_CONFIG_FILES = [
+    '.coderabbit.yaml',
     '.cursorignore',
     '.cursorrules',
     '.editorconfig',
@@ -929,16 +1005,13 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
-// .depot/ holds Depot-runner shadows of the workflows and composite actions in
-// .github/, kept apples-to-apples with their canonicals by the shadow-drift
-// check, and their statuses are non-blocking. A shadow can only affect what
-// its canonical affects, so it resolves through the canonical's rules: the
-// ci-backend shadow takes the python lanes, and a shadow of something unplaced
-// still lands on the .github/** blanket.
-const DEPOT_MIRROR_PREFIX = '.depot/'
+// .depot/actions/ holds Depot CI's mirrors of the composite actions in .github/actions/,
+// kept in sync by the action-mirrors check, so a mirror resolves through its canonical
+// action's rules. Depot CI's own workflows under .depot/workflows/ carry rules of their own.
+const DEPOT_MIRROR_PREFIX = '.depot/actions/'
 
 function canonicalPath(file) {
-    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/actions/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
 }
 
 // The domain of the first rule matching the file, or null when no rule claims
@@ -1496,6 +1569,107 @@ const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
+// See narrowing 3 at the top of this file. The directory layout and the SDK
+// name match tools/warehouse_sources_vendor_selection.py, which narrows the
+// vendor tests by the same rule.
+const WAREHOUSE_SOURCES_PRODUCT = 'warehouse_sources'
+const WAREHOUSE_SOURCE_PLUGIN_DIR = 'products/warehouse_sources/sources/'
+const WAREHOUSE_SOURCE_SDK_DIR = 'sdk'
+const WAREHOUSE_SOURCE_VENDORS = 'py:warehouse-source-vendors'
+const REPO_INVARIANTS_DIR = 'posthog/test/repo_invariants/'
+
+// Without the product, the lane would name a target that no other PR can
+// claim, so the vendor files fall through to the ordinary rules.
+function hasWarehouseSourceVendorLane(context) {
+    return context.products.includes(WAREHOUSE_SOURCES_PRODUCT)
+}
+
+function isWarehouseSourceVendorFile(file, context) {
+    if (context.warehouseSourceRegistryFiles?.has(file)) {
+        return true
+    }
+    if (!file.startsWith(WAREHOUSE_SOURCE_PLUGIN_DIR)) {
+        return false
+    }
+    // A file directly in the plugin directory (its conftest.py, __init__.py)
+    // is collected by every vendor's tests, so it is not inside one vendor.
+    const segments = file.slice(WAREHOUSE_SOURCE_PLUGIN_DIR.length).split('/')
+    return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
+}
+
+// The generated registries that a new source, or a changed source field,
+// regenerates: the field classification audit and the two credential maps. PR
+// CI already treats them as vendor files, so the set is read from
+// VENDOR_REGISTRY_FILES in the selector rather than kept twice. Without the
+// selector the set is empty, and the files keep the product lanes, which is
+// the safe direction.
+const WAREHOUSE_SOURCE_SELECTOR = 'tools/warehouse_sources_vendor_selection.py'
+const WAREHOUSE_SOURCE_REGISTRY_BLOCK = /^VENDOR_REGISTRY_FILES = frozenset\(\s*\{([^}]*)\}/m
+
+function loadWarehouseSourceRegistryFiles(repoRoot) {
+    const selector = path.join(repoRoot, WAREHOUSE_SOURCE_SELECTOR)
+    if (!fs.existsSync(selector)) {
+        return new Set()
+    }
+    const block = fs.readFileSync(selector, 'utf8').match(WAREHOUSE_SOURCE_REGISTRY_BLOCK)
+    return new Set(block ? [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [])
+}
+
+// The core modules that the SDK, or a conftest every vendor test collects,
+// imports directly. A change to one of them can change what every vendor gets
+// from the SDK or its test setup, so it claims the vendor lane as well as its
+// own. The set is read from those sources, so a new import is covered without
+// a list to keep in sync. warehouse_sources modules are left out because every
+// file of the product already claims the lane. A name in `from package import
+// name` can itself be a module, as in `from posthog.test import
+// authentication_checks`, so each name is resolved as a submodule too.
+const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\s+(\([^)]*\)|[^\n#]*)|import\s+([\w.]+))/gm
+const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog', 'common', 'ee', 'products']
+const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = [
+    'conftest.py',
+    'products/conftest.py',
+    `${WAREHOUSE_SOURCE_PLUGIN_DIR}conftest.py`,
+]
+
+function loadWarehouseSourceSdkImports(repoRoot) {
+    const imports = new Set()
+    const sdkDir = path.join(WAREHOUSE_SOURCE_PLUGIN_DIR, WAREHOUSE_SOURCE_SDK_DIR)
+    const sdkSources = fs.existsSync(path.join(repoRoot, sdkDir))
+        ? fs.readdirSync(path.join(repoRoot, sdkDir), { recursive: true }).map((file) => path.join(sdkDir, file))
+        : []
+    const sources = [...sdkSources, ...WAREHOUSE_SOURCE_VENDOR_CONFTESTS].filter(
+        (file) => file.endsWith('.py') && fs.existsSync(path.join(repoRoot, file))
+    )
+    for (const source of sources) {
+        const text = fs.readFileSync(path.join(repoRoot, source), 'utf8')
+        for (const match of text.matchAll(WAREHOUSE_SOURCE_SDK_IMPORT)) {
+            const module = match[1] || match[3]
+            if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.includes(module.split('.')[0])) {
+                continue
+            }
+            if (module.startsWith(`products.${WAREHOUSE_SOURCES_PRODUCT}.`)) {
+                continue
+            }
+            const base = module.split('.').join('/')
+            const names = (match[2] || '')
+                .replace(/[()]/g, '')
+                .split(',')
+                .map((name) => name.trim().split(/\s+/)[0])
+                .filter((name) => /^\w+$/.test(name))
+            const candidates = [`${base}.py`, `${base}/__init__.py`]
+            for (const name of names) {
+                candidates.push(`${base}/${name}.py`, `${base}/${name}/__init__.py`)
+            }
+            for (const candidate of candidates) {
+                if (fs.existsSync(path.join(repoRoot, candidate))) {
+                    imports.add(candidate)
+                }
+            }
+        }
+    }
+    return imports
+}
+
 // Internal sentinel for a file whose crate radius only the determinator's
 // answer can state, because the path names no crate directory to seed from
 // (rust/Cargo.lock). Consumed by the determinator resolution at the end of
@@ -1503,11 +1677,20 @@ const rustCrate = (crate) => `rust:crate:${crate}`
 const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the two binding packages
-// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer, @posthog/ai-research-v4-native) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
-// dependent fails there rather than silently going unclaimed here.
-const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
+// dependent fails there rather than silently going unclaimed here. The
+// image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
+// addon too, built from the crate rather than installed from the package.
+// A binding change claims every node lane.
+const NODE_INGESTION = 'node:ingestion'
+const NODE_SUB_LANES = [
+    ['node:recording-rasterizer', 'nodejs/src/session-replay/recording-rasterizer'],
+    ['node:cdp', 'nodejs/src/cdp'],
+]
+const NODE_LANES = [NODE_INGESTION, ...NODE_SUB_LANES.map(([lane]) => lane)]
+const NATIVE_BINDING_CONSUMER_LANES = NODE_LANES
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -1530,7 +1713,6 @@ function allKnownTargets(context) {
     const targets = new Set([
         'py:core',
         'fe:core',
-        'node:ingestion',
         'agents',
         'deploy',
         'hobby',
@@ -1539,9 +1721,15 @@ function allKnownTargets(context) {
         'ownership',
         'ci-tooling',
     ])
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
+    }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
     }
     for (const service of services) {
         targets.add(`svc:${service}`)
@@ -1577,12 +1765,41 @@ function addPythonLanes(targets, context) {
     for (const product of context.products) {
         targets.add(pyProduct(product))
     }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
+    }
     // pyproject.toml roots products, but Python also lives under tools/, and the
     // pr-approval-agent engine holds a lane of its own through .stamphog.
     for (const tool of TOOLS_INDEPENDENT) {
         targets.add(`tools:${tool}`)
     }
     targets.add('tools:pr-approval-agent')
+    return true
+}
+
+// See PYTHON_NO_VENDORS.
+function addPythonNoVendorLanes(targets, context) {
+    const lanes = new Set()
+    addPythonLanes(lanes, context)
+    lanes.delete(WAREHOUSE_SOURCE_VENDORS)
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
+    return true
+}
+
+// See SERVICE_STACK. Built from allKnownTargets, so a lane added later is
+// claimed here too, and fails to universal when that set cannot be built.
+function addServiceStackLanes(targets, context) {
+    const lanes = allKnownTargets(context)
+    if (!lanes) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (lane !== WAREHOUSE_SOURCE_VENDORS) {
+            targets.add(lane)
+        }
+    }
     return true
 }
 
@@ -1596,7 +1813,9 @@ function addJavaScriptLanes(targets, context) {
     }
     // The pnpm workspace spans frontend, nodejs, services, tools, and products,
     // and ci-cli.yml builds the CLI from services/mcp sources.
-    targets.add('node:ingestion')
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
     for (const service of context.services) {
         targets.add(`svc:${service}`)
     }
@@ -1659,8 +1878,42 @@ function addCargoLockLanes(targets, context) {
     return true
 }
 
+function addFrontendSuiteLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (!lane.startsWith('node:')) {
+            targets.add(lane)
+        }
+    }
+    return true
+}
+
 function addNodeLanes(targets) {
-    targets.add('node:ingestion')
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
+    return true
+}
+
+function addJsLockfileLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    const reached = context.jsLockfileNodeLanes ? context.jsLockfileNodeLanes() : null
+    if (reached) {
+        for (const lane of NODE_LANES) {
+            if (!reached.has(lane)) {
+                lanes.delete(lane)
+            }
+        }
+    }
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
     return true
 }
 
@@ -1754,8 +2007,8 @@ function addAppImageLanes(targets, context) {
 // The nodejs half takes the node domain rather than the javascript one because
 // the stubs land only in nodejs/src/common/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
-// the stubs are checked into posthog/, which is py:core, and py:core covers
-// every product lane by construction.
+// posthog/personhog_client imports the stubs, that is py:core, and py:core
+// covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.
@@ -1806,7 +2059,11 @@ function addProtoLanes(targets, context, file) {
 
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
+    [PYTHON_NO_VENDORS, addPythonNoVendorLanes],
+    [SERVICE_STACK, addServiceStackLanes],
     [JAVASCRIPT, addJavaScriptLanes],
+    [FRONTEND_SUITE, addFrontendSuiteLanes],
+    [JS_LOCKFILE, addJsLockfileLanes],
     [RUST, addRustLanes],
     [CARGO_LOCK, addCargoLockLanes],
     [NODE, addNodeLanes],
@@ -1830,7 +2087,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 
@@ -1961,8 +2218,31 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
-        if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
+        if (isWarehouseSourceVendorFile(file, context) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
+            continue
+        }
+        // No `continue`: the module keeps the lanes its own directory gives it.
+        if (context.warehouseSourceSdkImports?.has(file) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
+        }
+
+        for (const lane of nodeLanesForWorkspaceFile(file, context)) {
+            targets.add(lane)
+        }
+
+        if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
+            // Several repo invariants walk the vendor tree, and the warehouse
+            // sources job in ci-python.yml runs them on every vendor change.
+            if (file.startsWith(REPO_INVARIANTS_DIR) && hasWarehouseSourceVendorLane(context)) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
+            continue
+        }
+        // The desktop app bundles the agent workspace and the desktop-* workflows test it,
+        // so it shares the desktop lanes. Without the product it takes the frontend lanes.
+        if (file.startsWith(`${AGENT_WORKSPACE_DIR}/`) && addDesktopLanes(targets, context)) {
             continue
         }
         if (top === 'frontend' || (top === 'ee' && segments[1] === 'frontend') || top === 'packages') {
@@ -1976,7 +2256,9 @@ function computeTargets(changedFiles, context) {
             continue
         }
         if (top === 'nodejs') {
-            targets.add('node:ingestion')
+            for (const lane of nodeLanesForSource(file, context)) {
+                targets.add(lane)
+            }
             continue
         }
         if (top === 'services' && segments.length > 1) {
@@ -2061,6 +2343,12 @@ function computeTargets(changedFiles, context) {
         if (top === 'products' && segments.length === 2) {
             allPyProducts()
             allFeProducts()
+            // The *_baseline.txt files are ledgers of imports between products,
+            // which the product lint keeps. A vendor can import no product, so it
+            // can neither add a line to them nor be failed by one.
+            if (hasWarehouseSourceVendorLane(context) && !file.endsWith('_baseline.txt')) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
             continue
         }
         if (top === 'products' && segments.length > 2) {
@@ -2086,6 +2374,11 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
+                // The SDK and the product code it imports are what every vendor
+                // runs on, so they share the vendor lane as well as their own.
+                if (product === WAREHOUSE_SOURCES_PRODUCT) {
+                    targets.add(WAREHOUSE_SOURCE_VENDORS)
+                }
                 if (isBackend && deletedFiles.has(file)) {
                     // The tach map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are
@@ -2313,13 +2606,576 @@ function parseRustAffectedCrates(raw, rustInventory) {
     return crates
 }
 
+const NODE_SOURCE_ROOT = 'nodejs/src'
+const NODE_TESTS_ROOT = 'nodejs/tests'
+const NODE_IMPORT_ROOTS = [NODE_SOURCE_ROOT, NODE_TESTS_ROOT]
+const NODE_IMPORTER = 'nodejs'
+const ROOT_IMPORTER = '.'
+const NODE_SPECIFIER = String.raw`([^'"\s\x60$]+)`
+const NODE_IMPORT_PATTERNS = [
+    new RegExp(String.raw`\bfrom\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\brequire\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\bjest\.(?:mock|requireActual)\(\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+]
+const NODE_RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.json', '.d.ts', '/index.ts', '/index.tsx', '/index.js']
+const NODE_SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/
+const NODE_BUILTINS = new Set(require('module').builtinModules)
+const NODE_WORKSPACE_FALLBACK_DIRS = ['common/hogvm', 'common/replay-headless', 'common/replay-shared']
+
+function nodeSubLaneOf(file) {
+    const match = NODE_SUB_LANES.find(([, dir]) => file.startsWith(`${dir}/`))
+    return match ? match[0] : null
+}
+
+function isNodeEntryPoint(file) {
+    if (!file.startsWith(`${NODE_SOURCE_ROOT}/`)) {
+        return true
+    }
+    const rest = file.slice(NODE_SOURCE_ROOT.length + 1)
+    return !rest.includes('/') || rest.startsWith('servers/')
+}
+
+function nodeOwnerLane(file) {
+    return nodeSubLaneOf(file) || (isNodeEntryPoint(file) ? null : NODE_INGESTION)
+}
+
+function nodeImportSpecifiers(text) {
+    const specifiers = []
+    for (const pattern of NODE_IMPORT_PATTERNS) {
+        for (const match of text.matchAll(pattern)) {
+            specifiers.push(match[1])
+        }
+    }
+    return specifiers
+}
+
+function nodeImportBase(fromFile, specifier) {
+    if (specifier.startsWith('~/tests/')) {
+        return `${NODE_TESTS_ROOT}/${specifier.slice('~/tests/'.length)}`
+    }
+    if (specifier.startsWith('~/')) {
+        return `${NODE_SOURCE_ROOT}/${specifier.slice(2)}`
+    }
+    if (specifier.startsWith('.')) {
+        return path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier))
+    }
+    return undefined
+}
+
+function resolveNodeImport(repoRoot, fromFile, specifier) {
+    const base = nodeImportBase(fromFile, specifier)
+    if (base === undefined) {
+        return undefined
+    }
+    const stems = base.endsWith('.js') ? [base, base.slice(0, -3)] : [base]
+    for (const stem of stems) {
+        for (const suffix of NODE_RESOLVE_SUFFIXES) {
+            const candidate = `${stem}${suffix}`
+            const absolute = path.join(repoRoot, candidate)
+            if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) {
+                return candidate
+            }
+        }
+    }
+    return null
+}
+
+function nodePackageName(specifier) {
+    if (specifier.startsWith('node:') || NODE_BUILTINS.has(specifier.split('/')[0])) {
+        return null
+    }
+    const segments = specifier.split('/')
+    return specifier.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]
+}
+
+function listFilesUnder(repoRoot, relativeDir) {
+    const files = []
+    const walk = (dir) => {
+        for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+            const child = `${dir}/${entry.name}`
+            if (entry.isDirectory()) {
+                if (entry.name !== 'node_modules') {
+                    walk(child)
+                }
+            } else if (NODE_SOURCE_EXTENSIONS.test(entry.name)) {
+                files.push(child)
+            }
+        }
+    }
+    walk(relativeDir)
+    return files
+}
+
+function readNodeImports(repoRoot) {
+    const edges = new Map()
+    const roots = NODE_IMPORT_ROOTS.filter((dir) => fs.existsSync(path.join(repoRoot, dir)))
+    for (const file of roots.flatMap((dir) => listFilesUnder(repoRoot, dir))) {
+        const imports = { files: [], packages: new Set() }
+        for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
+            const resolved = resolveNodeImport(repoRoot, file, specifier)
+            if (resolved === undefined) {
+                const name = nodePackageName(specifier)
+                if (name) {
+                    imports.packages.add(name)
+                }
+                continue
+            }
+            if (resolved === null) {
+                const subLane = nodeSubLaneOf(file)
+                if (subLane && nodeSubLaneOf(nodeImportBase(file, specifier)) === subLane) {
+                    continue
+                }
+                console.error(`Could not resolve ${specifier} from ${file}; every nodejs file claims every node lane`)
+                return null
+            }
+            imports.files.push(resolved)
+        }
+        edges.set(file, imports)
+    }
+    return edges
+}
+
+function loadNodeLaneMap(repoRoot) {
+    if (!fs.existsSync(path.join(repoRoot, NODE_SOURCE_ROOT))) {
+        return null
+    }
+    let edges
+    try {
+        edges = readNodeImports(repoRoot)
+    } catch (error) {
+        console.error(`Could not map the nodejs imports (${error.message}); every nodejs file claims every node lane`)
+        return null
+    }
+    if (!edges) {
+        return null
+    }
+    const fileLanes = new Map()
+    const packageLanes = new Map()
+    const claim = (map, key, lane) => {
+        if (!map.has(key)) {
+            map.set(key, new Set())
+        }
+        map.get(key).add(lane)
+    }
+    for (const lane of NODE_LANES) {
+        const queue = [...edges.keys()].filter((file) => nodeOwnerLane(file) === lane)
+        const seen = new Set()
+        while (queue.length > 0) {
+            const file = queue.pop()
+            if (seen.has(file)) {
+                continue
+            }
+            seen.add(file)
+            claim(fileLanes, file, lane)
+            const imports = edges.get(file)
+            if (!imports) {
+                continue
+            }
+            for (const name of imports.packages) {
+                claim(packageLanes, name, lane)
+            }
+            queue.push(...imports.files)
+        }
+    }
+    for (const [file, imports] of edges) {
+        if (nodeOwnerLane(file) === null) {
+            for (const name of imports.packages) {
+                for (const lane of NODE_LANES) {
+                    claim(packageLanes, name, lane)
+                }
+            }
+        }
+    }
+    return { fileLanes, packageLanes }
+}
+
+function nodeLanesForSource(file, context) {
+    const map = context.nodeLaneMap
+    const deleted = context.deletedFiles && context.deletedFiles.has(file)
+    if (!map || !file.startsWith(`${NODE_SOURCE_ROOT}/`) || file.endsWith('.d.ts') || deleted) {
+        return NODE_LANES
+    }
+    const owner = nodeOwnerLane(file)
+    if (owner === null) {
+        return NODE_LANES
+    }
+    const lanes = map.fileLanes.get(file)
+    return lanes ? [...lanes] : [owner]
+}
+
+function nodeLanesForPackage(name, context) {
+    const lanes = context.nodeLaneMap && context.nodeLaneMap.packageLanes.get(name)
+    return lanes ? [...lanes] : NODE_LANES
+}
+
+function unquoteYamlKey(key) {
+    return key.replace(/^(['"])(.*)\1$/, '$2')
+}
+
+function parsePnpmLockfile(text) {
+    const sections = new Map()
+    let section = null
+    let entry = null
+    for (const line of text.split('\n')) {
+        if (!line.trim()) {
+            continue
+        }
+        const top = line.match(/^([^\s#][^:]*):\s*(.*)$/)
+        if (top) {
+            section = { scalar: top[2], entries: new Map() }
+            sections.set(top[1], section)
+            entry = null
+            continue
+        }
+        if (!section) {
+            return null
+        }
+        const key = line.match(/^ {2}('[^']*'|"[^"]*"|[^\s'"].*?):(?:\s+(.*))?$/)
+        if (key) {
+            entry = { lines: key[2] ? [key[2].trim()] : [] }
+            section.entries.set(unquoteYamlKey(key[1]), entry)
+            continue
+        }
+        if (entry) {
+            entry.lines.push(line)
+        } else {
+            section.entries.set(line, { lines: [] })
+        }
+    }
+    return sections
+}
+
+function importerDependencies(entry) {
+    const dependencies = []
+    let current = null
+    for (const line of entry.lines) {
+        const dependency = line.match(/^ {6}(\S.*?):\s*$/)
+        if (dependency) {
+            current = { name: unquoteYamlKey(dependency[1]), lines: [line] }
+            continue
+        }
+        if (current && /^ {8}/.test(line)) {
+            current.lines.push(line)
+            const version = line.match(/^ {8}version:\s*(.+)$/)
+            if (version) {
+                dependencies.push({ ...current, version: unquoteYamlKey(version[1].trim()) })
+                current = null
+            }
+        }
+    }
+    return dependencies
+}
+
+function snapshotDependencies(entry) {
+    const dependencies = []
+    let group = null
+    for (const line of entry.lines) {
+        const header = line.match(/^ {4}(\S+):\s*$/)
+        if (header) {
+            group = header[1]
+            continue
+        }
+        const dependency = line.match(/^ {6}(\S.*?):\s*(.+)$/)
+        if (dependency && (group === 'dependencies' || group === 'optionalDependencies')) {
+            dependencies.push({ name: unquoteYamlKey(dependency[1]), version: unquoteYamlKey(dependency[2].trim()) })
+        }
+    }
+    return dependencies
+}
+
+function snapshotKey(name, version) {
+    const atIndex = version.indexOf('@', 1)
+    const parenIndex = version.indexOf('(')
+    const isAlias = atIndex > 0 && (parenIndex === -1 || atIndex < parenIndex)
+    return isAlias ? version : `${name}@${version}`
+}
+
+function linkTarget(importer, version) {
+    return path.posix.normalize(path.posix.join(importer, version.slice('link:'.length)))
+}
+
+const PNPM_LOCK_RESOLUTION_SECTIONS = new Set(['importers', 'packages', 'snapshots', 'catalogs'])
+
+class LockfileWalkError extends Error {}
+
+function dependencyFingerprint(lockfile, dependency, fromImporter, isWorkspaceMember) {
+    const importers = lockfile.get('importers')
+    const snapshots = lockfile.get('snapshots')
+    const packages = lockfile.get('packages')
+    const parts = [dependency.lines.join('\n')]
+    const pendingImporters = []
+    const pendingSnapshots = []
+    if (dependency.version.startsWith('link:')) {
+        pendingImporters.push(linkTarget(fromImporter, dependency.version))
+    } else {
+        pendingSnapshots.push(snapshotKey(dependency.name, dependency.version))
+    }
+    const seenImporters = new Set()
+    const seenSnapshots = new Set()
+    while (pendingImporters.length > 0 || pendingSnapshots.length > 0) {
+        if (pendingImporters.length > 0) {
+            const importer = pendingImporters.pop()
+            if (seenImporters.has(importer)) {
+                continue
+            }
+            seenImporters.add(importer)
+            const entry = importers.entries.get(importer)
+            if (!entry) {
+                if (!isWorkspaceMember(importer)) {
+                    throw new LockfileWalkError(`the lockfile links ${importer}, which no workspace glob names`)
+                }
+                parts.push(`importer:${importer}:`)
+                continue
+            }
+            parts.push(`importer:${importer}:${entry.lines.join('\n')}`)
+            for (const next of importerDependencies(entry)) {
+                if (next.version.startsWith('link:')) {
+                    pendingImporters.push(linkTarget(importer, next.version))
+                } else {
+                    pendingSnapshots.push(snapshotKey(next.name, next.version))
+                }
+            }
+            continue
+        }
+        const key = pendingSnapshots.pop()
+        if (seenSnapshots.has(key)) {
+            continue
+        }
+        seenSnapshots.add(key)
+        const snapshot = snapshots.entries.get(key)
+        const packageKey = key.includes('(', 1) ? key.slice(0, key.indexOf('(', 1)) : key
+        const packageEntry = packages.entries.get(packageKey)
+        if (!snapshot || !packageEntry) {
+            throw new LockfileWalkError(`the lockfile has no entry for ${key}`)
+        }
+        parts.push(`snapshot:${key}:${snapshot.lines.join('\n')}\n${packageEntry.lines.join('\n')}`)
+        for (const next of snapshotDependencies(snapshot)) {
+            if (!next.version.startsWith('link:')) {
+                pendingSnapshots.push(snapshotKey(next.name, next.version))
+            }
+        }
+    }
+    return parts.sort().join('\n\n')
+}
+
+function nodeDependencyFingerprints(lockfile, isWorkspaceMember) {
+    const importers = lockfile.get('importers')
+    if (!importers || !lockfile.get('snapshots') || !lockfile.get('packages')) {
+        throw new LockfileWalkError('the lockfile has no importers, packages or snapshots section')
+    }
+    const entry = importers.entries.get(NODE_IMPORTER)
+    if (!entry) {
+        throw new LockfileWalkError(`the lockfile has no importer ${NODE_IMPORTER}`)
+    }
+    const fingerprints = { node: new Map(), root: new Map() }
+    for (const dependency of importerDependencies(entry)) {
+        fingerprints.node.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, NODE_IMPORTER, isWorkspaceMember)
+        )
+    }
+    const root = importers.entries.get(ROOT_IMPORTER)
+    for (const dependency of root ? importerDependencies(root) : []) {
+        fingerprints.root.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, ROOT_IMPORTER, isWorkspaceMember)
+        )
+    }
+    return fingerprints
+}
+
+function changedDependencies(base, head) {
+    return [...new Set([...base.keys(), ...head.keys()])].filter((name) => base.get(name) !== head.get(name))
+}
+
+function nonResolutionSections(lockfile) {
+    return JSON.stringify(
+        [...lockfile.entries()]
+            .filter(([name]) => !PNPM_LOCK_RESOLUTION_SECTIONS.has(name))
+            .map(([name, section]) => [
+                name,
+                section.scalar,
+                [...section.entries.entries()].map(([key, entry]) => [key, entry.lines]),
+            ])
+    )
+}
+
+function workspaceWithoutCatalogs(text) {
+    const kept = []
+    let inCatalog = false
+    for (const line of text.split('\n')) {
+        if (/^\S/.test(line)) {
+            inCatalog = /^catalogs?:/.test(line)
+        }
+        if (!inCatalog && line.trim() && !line.trim().startsWith('#')) {
+            kept.push(line.trimEnd())
+        }
+    }
+    return kept.join('\n')
+}
+
+function workspaceMembership(workspace) {
+    const matcher = compileWorkspaceMatcher(parseWorkspacePackageGlobs(workspace))
+    return (importer) => Boolean(matcher) && matcher(`${importer}/package.json`)
+}
+
+function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWorkspace, nodeLaneMap }) {
+    if (baseLockfile == null || headLockfile == null || baseWorkspace == null || headWorkspace == null) {
+        return null
+    }
+    const allLanes = new Set(NODE_LANES)
+    if (workspaceWithoutCatalogs(baseWorkspace) !== workspaceWithoutCatalogs(headWorkspace)) {
+        return allLanes
+    }
+    const base = parsePnpmLockfile(baseLockfile)
+    const head = parsePnpmLockfile(headLockfile)
+    if (!base || !head) {
+        return null
+    }
+    if (nonResolutionSections(base) !== nonResolutionSections(head)) {
+        return allLanes
+    }
+    let baseFingerprints
+    let headFingerprints
+    try {
+        baseFingerprints = nodeDependencyFingerprints(base, workspaceMembership(baseWorkspace))
+        headFingerprints = nodeDependencyFingerprints(head, workspaceMembership(headWorkspace))
+    } catch (error) {
+        if (error instanceof LockfileWalkError) {
+            console.error(`${error.message}; a JS lockfile change claims every node lane`)
+            return null
+        }
+        throw error
+    }
+    const changed = [
+        ...changedDependencies(baseFingerprints.node, headFingerprints.node),
+        ...changedDependencies(baseFingerprints.root, headFingerprints.root).filter(
+            (name) => !baseFingerprints.node.has(name) && !headFingerprints.node.has(name)
+        ),
+    ]
+    return new Set(changed.flatMap((name) => nodeLanesForPackage(name, { nodeLaneMap })))
+}
+
+function nodeWorkspaceDependencies(headLockfile) {
+    const lockfile = headLockfile && parsePnpmLockfile(headLockfile)
+    const importers = lockfile && lockfile.get('importers')
+    const entry = importers && importers.entries.get(NODE_IMPORTER)
+    if (!entry) {
+        return null
+    }
+    const dirs = new Map()
+    for (const dependency of importerDependencies(entry)) {
+        if (!dependency.version.startsWith('link:')) {
+            continue
+        }
+        const pending = [linkTarget(NODE_IMPORTER, dependency.version)]
+        while (pending.length > 0) {
+            const dir = pending.pop()
+            if (!dirs.has(dir)) {
+                dirs.set(dir, new Set())
+            }
+            if (dirs.get(dir).has(dependency.name)) {
+                continue
+            }
+            dirs.get(dir).add(dependency.name)
+            const linked = importers.entries.get(dir)
+            for (const next of linked ? importerDependencies(linked) : []) {
+                if (next.version.startsWith('link:')) {
+                    pending.push(linkTarget(dir, next.version))
+                }
+            }
+        }
+    }
+    return dirs
+}
+
+function nodeLanesForWorkspaceFile(file, context) {
+    const dirs = context.nodeWorkspaceDependencies
+    if (!dirs) {
+        return NODE_WORKSPACE_FALLBACK_DIRS.some((dir) => file.startsWith(`${dir}/`)) ? NODE_LANES : []
+    }
+    const lanes = new Set()
+    for (const [dir, dependencies] of dirs) {
+        if (file.startsWith(`${dir}/`)) {
+            for (const name of dependencies) {
+                for (const lane of nodeLanesForPackage(name, context)) {
+                    lanes.add(lane)
+                }
+            }
+        }
+    }
+    return [...lanes]
+}
+
+const LANE_MERGE_BASE_ENV = 'LANE_MERGE_BASE'
+
+function readOptional(file) {
+    try {
+        return fs.readFileSync(file, 'utf8')
+    } catch (error) {
+        console.error(`Could not read ${file} (${error.message}); a JS lockfile change claims every node lane`)
+        return null
+    }
+}
+
+function readAtRevision(repoRoot, revision, file) {
+    try {
+        return execFileSync('git', ['show', `${revision}:${file}`], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        })
+    } catch (error) {
+        console.error(
+            `Could not read ${file} at ${revision} (${error.message}); a JS lockfile change claims every node lane`
+        )
+        return null
+    }
+}
+
+function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
+    let answer
+    return () => {
+        if (answer !== undefined) {
+            return answer
+        }
+        const mergeBase = process.env[LANE_MERGE_BASE_ENV] || ''
+        if (!/^[0-9a-f]{40}$/.test(mergeBase)) {
+            console.error(`${LANE_MERGE_BASE_ENV} is not a commit id; a JS lockfile change claims every node lane`)
+            answer = null
+            return answer
+        }
+        answer = jsLockfileNodeLanes({
+            baseLockfile: readAtRevision(repoRoot, mergeBase, 'pnpm-lock.yaml'),
+            baseWorkspace: readAtRevision(repoRoot, mergeBase, 'pnpm-workspace.yaml'),
+            headLockfile,
+            headWorkspace: readOptional(path.join(repoRoot, 'pnpm-workspace.yaml')),
+            nodeLaneMap,
+        })
+        return answer
+    }
+}
+
+// The change list carries deleted paths too; the tree no longer does.
+function findDeletedFiles(changedFiles) {
+    return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
+    const nodeLaneMap = loadNodeLaneMap(repoRoot)
+    const headLockfile = readOptional(path.join(repoRoot, 'pnpm-lock.yaml'))
     return {
         products,
+        nodeLaneMap,
+        nodeWorkspaceDependencies: nodeWorkspaceDependencies(headLockfile),
+        jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
@@ -2328,6 +3184,8 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
+        warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
+        warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
         tachGraph,
     }
@@ -2335,15 +3193,22 @@ function buildContext(repoRoot) {
 
 module.exports = {
     computeTargets,
+    jsLockfileNodeLanes,
+    loadNodeLaneMap,
+    NODE_LANES,
+    NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
     compileContractMatcher,
     compileWorkspaceMatcher,
+    findDeletedFiles,
     globToRegExp,
     isProductDirectory,
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
@@ -2372,8 +3237,11 @@ module.exports = {
 
 if (require.main === module) {
     let result
+    let context = null
+    let changedFiles = []
+    let deletedFiles = null
     try {
-        const changedFiles = fs
+        changedFiles = fs
             .readFileSync(0, 'utf8')
             .split('\n')
             .map((line) => line.trim())
@@ -2382,9 +3250,12 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            // The change list carries deleted paths too; the tree no longer does.
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
+            context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
+            result = computeTargets(changedFiles, {
+                ...context,
+                deletedFiles,
+            })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a
@@ -2396,4 +3267,16 @@ if (require.main === module) {
         console.error(`Computed ${result.length} target(s): ${JSON.stringify(result)}`)
     }
     process.stdout.write(JSON.stringify(result))
+    if (process.env.LANE_TELEMETRY_FILE) {
+        try {
+            const { summarizeLane } = require('./trunk-lane-telemetry')
+            context = context || buildContext(REPO_ROOT)
+            fs.writeFileSync(
+                process.env.LANE_TELEMETRY_FILE,
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
+            )
+        } catch (error) {
+            console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
+        }
+    }
 }

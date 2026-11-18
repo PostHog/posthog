@@ -22,7 +22,7 @@ function loadMermaid(): Promise<MermaidApi> {
 // Module-scoped so mermaid.initialize runs at most once per theme change across the whole page,
 // not once per <MermaidDiagram> instance.
 let initializedTheme: boolean | null = null
-let diagramCounter = 0
+let renderCounter = 0
 
 export interface MermaidDiagramProps {
     code: string
@@ -49,11 +49,7 @@ function withNaturalWidth(svgMarkup: string): string {
 export function MermaidDiagram({ code, className, naturalWidth = false }: MermaidDiagramProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
-    const [diagramId] = useState(() => {
-        diagramCounter += 1
-        const safe = reactId.replace(/[^a-zA-Z0-9_-]/g, '')
-        return `mermaid-${safe}-${diagramCounter}`
-    })
+    const [diagramIdPrefix] = useState(() => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`)
 
     const [svg, setSvg] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -61,6 +57,9 @@ export function MermaidDiagram({ code, className, naturalWidth = false }: Mermai
 
     useEffect(() => {
         let cancelled = false
+        // Code can change before an earlier render settles; each call needs its own Mermaid DOM id.
+        renderCounter += 1
+        const diagramId = `${diagramIdPrefix}-${renderCounter}`
         setLoading(true)
         setError(null)
 
@@ -101,7 +100,7 @@ export function MermaidDiagram({ code, className, naturalWidth = false }: Mermai
         return () => {
             cancelled = true
         }
-    }, [code, isDarkModeOn, diagramId, naturalWidth])
+    }, [code, isDarkModeOn, diagramIdPrefix, naturalWidth])
 
     if (error) {
         return (

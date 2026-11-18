@@ -39,6 +39,13 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
             "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
+    creation_method: zod
+        .enum(['new', 'pin', 'duplicate'])
+        .describe('\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate')
+        .optional()
+        .describe(
+            'How the PostHog app created the playlist, for product analytics. Not stored.\n\n\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate'
+        ),
 })
 
 export const sessionRecordingPlaylistsUpdateBodyNameMax = 400
@@ -71,6 +78,13 @@ export const SessionRecordingPlaylistsUpdateBody = /* @__PURE__ */ zod.object({
             "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
+    creation_method: zod
+        .enum(['new', 'pin', 'duplicate'])
+        .describe('\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate')
+        .optional()
+        .describe(
+            'How the PostHog app created the playlist, for product analytics. Not stored.\n\n\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate'
+        ),
 })
 
 export const sessionRecordingPlaylistsPartialUpdateBodyNameMax = 400
@@ -103,6 +117,13 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
             "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
+    creation_method: zod
+        .enum(['new', 'pin', 'duplicate'])
+        .describe('\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate')
+        .optional()
+        .describe(
+            'How the PostHog app created the playlist, for product analytics. Not stored.\n\n\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate'
+        ),
 })
 
 export const sessionRecordingPlaylistsRecordingsCreateBodyNameMax = 400
@@ -135,6 +156,13 @@ export const SessionRecordingPlaylistsRecordingsCreateBody = /* @__PURE__ */ zod
             "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
         ),
     _create_in_folder: zod.string().optional(),
+    creation_method: zod
+        .enum(['new', 'pin', 'duplicate'])
+        .describe('\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate')
+        .optional()
+        .describe(
+            'How the PostHog app created the playlist, for product analytics. Not stored.\n\n\* `new` - new\n\* `pin` - pin\n\* `duplicate` - duplicate'
+        ),
 })
 
 export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({

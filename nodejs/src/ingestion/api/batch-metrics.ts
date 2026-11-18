@@ -68,11 +68,11 @@ export function batchAccepted(events: number): AcceptedBatch {
     return { events, acceptedAt: Date.now() }
 }
 
-/** The batch's side effects are durably done and it was acked to the consumer. */
-export function batchProcessed(batch: AcceptedBatch): void {
+/** The batch's side effects are durably done and it was acked to the consumer, with `processed` of its events finished. */
+export function batchProcessed(acceptedAt: number, processed: number): void {
     batchesProcessed.inc()
-    messagesProcessed.inc(batch.events)
-    batchProcessingDuration.observe(Date.now() - batch.acceptedAt)
+    messagesProcessed.inc(processed)
+    batchProcessingDuration.observe(Date.now() - acceptedAt)
 }
 
 export function batchFailed(): void {

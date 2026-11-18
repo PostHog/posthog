@@ -37,8 +37,16 @@ Establish the timeline yourself from raw run data:
 
 ```bash
 # Pass/fail history for the workflow on the branch under suspicion (master shown):
-gh run list --repo PostHog/posthog --workflow=ci-backend.yml --branch master \
+gh run list --repo PostHog/posthog --workflow=ci-frontend.yml --branch master \
   --status completed --limit 60 --json conclusion,headSha,createdAt,databaseId
+# Backend CI's scheduled runs on master:
+depot ci workflow list --repo PostHog/posthog --name 'Backend CI on Depot' --trigger schedule -n 60 --output json
+```
+
+Read a backend job's log from Depot:
+
+```bash
+depot ci logs <run-id> --workflow <workflow-id> --job <job-key>
 ```
 
 The run-level conclusion is not enough — a red run may be failing on a _different_ job/test. Confirm it is the **same test** each time by reading the failing shard's log; and for green runs, confirm the test actually **ran and passed** in that shard (it may have been sharded elsewhere, not fixed):
@@ -52,6 +60,7 @@ Read the timeline before you classify:
 
 - **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
 - **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
+- **Every rerun fails on one runner, yet `master` passes the same code** → an **environment-dependent race**, not a regression: kernel clock granularity, filesystem, runner speed. Retrying on the same runner cannot help, so "failed 3/3 attempts" says nothing about whether the PR caused it. A merge-queue failure hands you the control for free: the `trunk-merge/**` test PR's body names the master SHA it is based on, so read master's run at that SHA (`gh api repos/PostHog/posthog/commits/<sha>/check-runs`) and confirm the same test ran and passed there.
 - **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. `products/engineering_analytics/skills/investigating-ci-failures/` has the boundary query if the failure reached master.
 
 If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
@@ -72,15 +81,25 @@ hogli ci:insights search "<test name or error>"    # cross-run history — corro
 
 ### Corroborate with Trunk Flaky Tests
 
-CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog), which tracks per-test failure history across `master` and PR runs.
-On a PR, the `trunk-io` bot's "Trunk Test Analytics" comment links that PR's slice (`https://app.trunk.io/posthog-inc/flaky-tests/pr/<number>?repo=PostHog/posthog`).
+CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests/collections), which tracks per-test failure history across `master` and PR runs.
+It keeps one test collection per suite: backend-core `AA6dvTdI`, backend-product `C0LrorjW`, backend-temporal `smyQjxZ3`, frontend-jest `OZ6hVJ5z`, storybook `P3SjL3vy`, e2e-playwright `kF88Gx2u`, nodejs `ugvRjGsw`, rust `TewkWR1w`, mcp `Nt38b1Ej`.
+A collection's page is `https://app.trunk.io/posthog-inc/flaky-tests/collections/<shortId>`, and a test's page is `…/collections/<shortId>/tests/<id>`.
+A PR's page in Trunk is `https://app.trunk.io/posthog-inc/pull/<number>?repo=dcf9eb51-cf4b-4bdc-8bc1-a2040fdbe8f4`.
+The Trunk browser extension also links to it from the GitHub PR view.
 
 The `trunk` MCP server in `.mcp.json` queries it (tools are marked experimental by Trunk):
 
-- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID.
+- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID. Add `testCollectionShortId` (one of the short IDs above) to search one collection, or leave it out to search all of them.
 - `fix-flaky-test` (`repoName`, `testCaseId`) → failure history, first-seen commit, git blame, and Trunk's root-cause investigation; `createNewInvestigation: true` triggers a fresh analysis (takes up to a minute).
 
 Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org token to the server entry.
+
+AI investigations are not enabled for this repo, so `fix-flaky-test` returns history or nothing, never a root cause.
+A bare collection test link still identifies the test: its last segment is the test's ID, which `GET /v2/tests/{testId}` accepts.
+
+Trunk attributes each test to a team through CODEOWNERS, which cannot express the `owners.yaml` map.
+`.github/scripts/trunk-codeowners.sh` projects the map into a generated CODEOWNERS before each upload (`hogli owners:codeowners` builds the same file locally), so a test's owner in Trunk should match `hogli owners:who`.
+Where it does not, the projection dropped a spelling two teams would both claim.
 
 Like `ci:insights`, this is corroboration and history, not the classification authority — flaky-vs-deterministic and the rate still come from the run data above.
 
@@ -143,20 +162,23 @@ Two cost notes for the loop:
   Inside a loop, build once, then iterate with `pnpm --filter=@posthog/frontend exec jest ...`, which skips the rebuild.
 
 **If nothing reproduces after the full ladder**, the flake is CI-environment-specific.
-Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
+Before settling for that, ask what the runner has that your machine lacks: Linux mtimes from a coarse clock where macOS gives nanoseconds, a case-sensitive filesystem, a different timezone, `/tmp` on a different filesystem.
+Often you can force the CI condition instead of waiting for it — `os.utime` the files into the ordering the coarse clock produced, run under `TZ=UTC` — and then validate empirically after all.
+Otherwise proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
 
 ## 4. Root-cause the flake
 
 Match the symptom to a cause class; never patch the symptom.
 
-| Symptom                                                | Likely cause class                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------ |
-| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request   |
-| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering |
-| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `freeze_time` / fake timers       |
-| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic      |
-| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit      |
-| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout     |
+| Symptom                                                | Likely cause class                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------- |
+| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request     |
+| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering   |
+| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `time_machine.travel` / fake timers |
+| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic        |
+| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit        |
+| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout       |
+| Every attempt fails on one runner, passes on another   | Clock-granularity race: cutoff read from an earlier write      |
 
 ### When the cause isn't obvious, bisect
 
@@ -192,7 +214,8 @@ PostHog-specific patterns:
 ### Backend (pytest)
 
 - **DB state leakage**: shared rows across tests without isolation — check fixture scope and whether the test needs `@pytest.mark.django_db(transaction=True)`.
-- **Real time**: use `freeze_time`; never assert on `now()`-derived values.
+- **Real time**: use `time_machine.travel(..., tick=False)`; never assert on `now()`-derived values.
+- **Timestamp-derived cutoffs**: pinning or filtering "as of" the previous write's recorded time — stamp the times explicitly instead (`/writing-tests`, "Two writes in a row are not ordered in time").
 - **ClickHouse eventual consistency**: a query may not see just-inserted data — flush explicitly in the test setup rather than sleeping.
 
 ## 5. Decide the outcome — fixing is one of three

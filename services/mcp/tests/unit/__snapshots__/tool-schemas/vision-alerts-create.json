@@ -1,0 +1,151 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "check_interval_minutes": {
+            "description": "Metric alerts only: evaluation cadence in minutes, at least 15.",
+            "minimum": 15,
+            "type": "number"
+        },
+        "cooldown_minutes": {
+            "description": "Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "datapoints_to_alarm": {
+            "description": "Metric alerts only: how many periods must breach to fire (N in N-of-M).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "direction": {
+            "description": "Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n* `above` - At or above\n* `below` - At or below",
+            "enum": ["above", "below"],
+            "type": "string"
+        },
+        "enabled": {
+            "default": true,
+            "description": "Whether the alert is active. Disabling a metric alert resets its state to not_firing.",
+            "type": "boolean"
+        },
+        "evaluation_periods": {
+            "description": "Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "kind": {
+            "description": "'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.\n\n* `metric` - Metric\n* `match` - Match",
+            "enum": ["metric", "match"],
+            "type": "string"
+        },
+        "metric": {
+            "description": "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n* `count` - Count matching observations\n* `avg_score` - Average score",
+            "enum": ["count", "avg_score"],
+            "type": "string"
+        },
+        "name": {
+            "default": "Untitled alert",
+            "description": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Scanner whose observations this alert watches. Immutable after creation.",
+            "type": "string"
+        },
+        "schedule_restriction": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "blocked_windows": {
+                            "description": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+                            "items": {
+                                "properties": {
+                                    "end": {
+                                        "description": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+                                        "type": "string"
+                                    },
+                                    "start": {
+                                        "description": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["start", "end"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["blocked_windows"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours."
+        },
+        "selection": {
+            "description": "Which observations count. Empty matches every observation of the scanner.",
+            "properties": {
+                "max_score": {
+                    "description": "Maximum scorer score (inclusive).",
+                    "type": "number"
+                },
+                "min_score": {
+                    "description": "Minimum scorer score (inclusive).",
+                    "type": "number"
+                },
+                "tags": {
+                    "description": "Classifier tags to match; an observation matches when it carries any of them.",
+                    "items": {
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                },
+                "verdict": {
+                    "description": "Monitor verdicts to match, e.g. ['yes'].",
+                    "items": {
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "maxItems": 10,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "snooze_until": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze."
+        },
+        "threshold": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts."
+        },
+        "window_days": {
+            "description": "Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].",
+            "type": "number"
+        }
+    },
+    "required": ["scanner_id", "kind"],
+    "type": "object"
+}

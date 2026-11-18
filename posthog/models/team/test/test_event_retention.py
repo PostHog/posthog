@@ -1,11 +1,20 @@
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+from django.utils import timezone
+
 from parameterized import parameterized
 
+from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.organization import Organization, ProductFeature
-from posthog.models.team.event_retention import parse_events_feature_to_months, reconcile_organization_events_retention
+from posthog.models.team.event_retention import (
+    events_retention_months_for_team,
+    parse_events_feature_to_months,
+    reconcile_organization_events_retention,
+)
 from posthog.models.team.team import Team
 
 
@@ -42,7 +51,10 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
     def test_updates_all_mismatched_teams(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        Team.objects.filter(pk__in=[self.team.pk, other_team.pk]).update(event_retention_months=84)
+        previous_updated_at = timezone.now() - timedelta(days=1)
+        Team.objects.filter(pk__in=[self.team.pk, other_team.pk]).update(
+            event_retention_months=84, updated_at=previous_updated_at
+        )
         self._set_retention_feature(1, "year")
 
         assert reconcile_organization_events_retention(self.organization) == 2
@@ -51,6 +63,8 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
         other_team.refresh_from_db()
         assert self.team.event_retention_months == 12
         assert other_team.event_retention_months == 12
+        assert self.team.updated_at > previous_updated_at
+        assert other_team.updated_at > previous_updated_at
 
     def test_no_write_when_already_aligned(self) -> None:
         self._set_retention_feature(7, "years")
@@ -67,3 +81,27 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == 12
+
+
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+class TestEventsRetentionMonthsForTeam(BaseTest):
+    @parameterized.expand(
+        [
+            ("plan_period_only", 24, None, 24),
+            ("shorter_set_period", 24, 12, 12),
+            ("set_period_longer_than_a_downgraded_plan", 24, 36, 24),
+            ("set_period_on_a_plan_past_the_standard_default", 84, 36, 36),
+        ]
+    )
+    def test_takes_the_shorter_of_the_plan_and_the_set_window(
+        self, _name: str, plan_months: int, set_months: int | None, expected: int
+    ) -> None:
+        self.team.event_retention_months = plan_months
+        self.team.save()
+        if set_months is not None:
+            TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
+
+        with self.assertNumQueries(1):
+            assert events_retention_months_for_team(self.team, self.team.id) == expected
+        with self.assertNumQueries(0):
+            assert events_retention_months_for_team(self.team, self.team.id) == expected

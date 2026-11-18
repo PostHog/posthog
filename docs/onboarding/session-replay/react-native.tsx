@@ -21,14 +21,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Expo',
                                 code: dedent`
-                                    npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin
+                                    npx expo install posthog-react-native@4 expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin@2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
+                                    yarn add posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
 
                                     # for iOS
                                     cd ios && pod install
@@ -38,7 +38,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
+                                    npm i -s posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
 
                                     # for iOS
                                     cd ios && pod install
@@ -109,6 +109,22 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
 
                                                         // Whether images are masked. Default is true.
                                                         maskAllImages: true,
+
+                                                        // Experimental screenshot settings (Android only, requires @posthog/react-native-plugin).
+                                                        // We recommend these values to balance performance and image quality.
+                                                        // Lower resolution and RGB_565 reduce capture time and memory use.
+
+                                                        // Scale each screenshot dimension from 0.1 to 1.0. Default is 1.0.
+                                                        // A scale of 0.5 captures one quarter of the pixels, with less image detail.
+                                                        screenshotScale: 0.5,
+
+                                                        // RGB_565 uses two bytes per pixel instead of four, with lower color precision
+                                                        // and no transparency. Transparent window regions appear black. Default is ARGB_8888.
+                                                        screenshotColorMode: "RGB_565",
+
+                                                        // WebP compression quality from 0 to 100. Default is 30.
+                                                        // Lower quality reduces payload size at the cost of image detail.
+                                                        screenshotCompressionQuality: 30,
 
                                                         // Capture logs automatically. Default is true.
                                                         // Android only (Native Logcat only)

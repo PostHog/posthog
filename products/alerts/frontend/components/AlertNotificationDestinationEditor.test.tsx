@@ -25,6 +25,9 @@ jest.mock('@posthog/lemon-ui', () => ({
     LemonSelect: () => <select />,
     LemonSkeleton: () => <div>Loading integrations</div>,
     LemonTag: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+    Tooltip: ({ children, title }: { children: ReactNode; title: string }) => (
+        <span data-tooltip={title}>{children}</span>
+    ),
 }))
 
 jest.mock('lib/integrations/SlackIntegrationHelpers', () => ({
@@ -122,5 +125,38 @@ describe('AlertNotificationDestinationEditor', () => {
 
         expect(onAdd).toHaveBeenCalledTimes(1)
         expect(onWizardKeyDown).not.toHaveBeenCalled()
+    })
+
+    it('explains how to save a pending destination', () => {
+        render(
+            <AlertNotificationDestinationEditor
+                destinations={{
+                    showExisting: false,
+                    existingLoading: false,
+                    existing: [],
+                    pending: [{ key: 'webhook-0', title: 'Webhook', onRemove: jest.fn() }],
+                }}
+                notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
+                slack={{
+                    notificationType: 'slack',
+                    integrationsLoading: false,
+                    integrationsFailed: false,
+                    onRetryIntegrations: jest.fn(),
+                    integrations: [],
+                    channelValue: null,
+                    onChannelValueChange: jest.fn(),
+                }}
+                url={{
+                    input: { placeholder: 'https://example.com/webhook' },
+                    value: '',
+                    onChange: jest.fn(),
+                }}
+                add={{ onClick: jest.fn() }}
+            />
+        )
+
+        expect(screen.getByText('Pending').closest('[data-tooltip]')?.getAttribute('data-tooltip')).toBe(
+            'Save this alert to add this destination.'
+        )
     })
 })

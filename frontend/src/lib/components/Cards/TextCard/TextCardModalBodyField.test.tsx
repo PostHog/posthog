@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { render, screen, waitFor } from '@testing-library/react'
 
-jest.mock('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown', () => ({
+jest.mock('lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown', () => ({
     LemonTextAreaMarkdown: (): JSX.Element => <div data-attr="text-card-edit-area">legacy</div>,
 }))
 

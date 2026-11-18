@@ -19,7 +19,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 
-util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+util.can_enable_actor_on_events = True
 
 
 class TestModelCache(TestCase):
@@ -75,15 +75,24 @@ class TestTeam(BaseTest):
         self.assertEqual(team.autocapture_web_vitals_allowed_metrics, None)
         self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
-    def test_create_team_with_test_account_filters(self):
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+    @parameterized.expand(
+        [
+            ("plain_domain", "person@posthog.com", "@posthog.com"),
+            ("hyphenated_domain", "person@my-company.com", "@my-company.com"),
+        ]
+    )
+    def test_create_team_with_test_account_filters(self, _name, signup_email, expected_domain_value):
+        user = User.objects.create(email=signup_email)
+        organization = Organization.objects.create()
+        organization.members.set([user])
+        team = Team.objects.create_with_data(initiating_user=user, organization=organization)
 
         # An internal/test users cohort should be created
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
 
         self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
 
-        # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
+        # Cohort should have $internal_or_test_user filter AND email domain filter (neither domain is generic)
         self.assertEqual(
             test_users_cohort.filters,
             {
@@ -107,8 +116,8 @@ class TestTeam(BaseTest):
                                 {
                                     "key": "email",
                                     "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
+                                    "value": expected_domain_value,
+                                    "operator": "ends_with",
                                 }
                             ],
                         },
@@ -166,8 +175,13 @@ class TestTeam(BaseTest):
         assert team.primary_dashboard is not None
         self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
 
-        # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
+        # Ensure insights are created and linked (9 insight tiles + 5 text tiles + 3 button tiles)
+        tiles = DashboardTile.objects.filter(dashboard=team.primary_dashboard)
+        self.assertEqual(tiles.count(), 17)
+        self.assertEqual(
+            {tile.group_key for tile in tiles if tile.group_key},
+            set(team.primary_dashboard.customization["groups"]),
+        )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -339,4 +353,4 @@ class TestTeam(BaseTest):
         ).select_related("button_tile")
         assert button_tiles.count() == 3
         urls = {tile.button_tile.url for tile in button_tiles if tile.button_tile is not None}
-        assert urls == {"/replay/home", "/web", "/activity/explore"}
+        assert urls == {"/replay/home", "/web", "/activity/events"}

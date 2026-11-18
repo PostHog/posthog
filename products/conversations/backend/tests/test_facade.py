@@ -1,8 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,11 +18,17 @@ from posthog.models.comment import Comment
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
+    SupportSenderIdentityUnavailable,
+    SupportSlackSender,
+    get_public_human_replies,
     list_account_ticket_messages,
     list_account_tickets,
+    list_resolved_ticket_revisions,
     post_support_message,
+    resolve_support_slack_sender,
     trigger_immediate_channel_summary,
 )
+from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
 
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
@@ -52,6 +62,43 @@ class TestPostSupportMessage(BaseTest):
         assert kwargs["text"] == "hello team"
         assert kwargs["username"] == "SupportBot"
         assert kwargs["icon_url"] == "https://example.com/icon.png"
+
+    @patch(CLIENT)
+    def test_sender_overrides_the_bot_identity(self, mock_get_client: MagicMock):
+        self.team.conversations_settings = {
+            "slack_bot_display_name": "SupportBot",
+            "slack_bot_icon_url": "https://example.com/bot.png",
+        }
+        self.team.save()
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "111.222"}
+        mock_get_client.return_value = client
+
+        post_support_message(
+            self.team.pk,
+            "C1",
+            "hello team",
+            sender=SupportSlackSender(name="Ada", icon_url="https://example.com/ada.png"),
+        )
+
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["username"] == "Ada"
+        assert kwargs["icon_url"] == "https://example.com/ada.png"
+
+    @patch(CLIENT)
+    def test_sender_without_avatar_keeps_the_name_only(self, mock_get_client: MagicMock):
+        self.team.conversations_settings = {"slack_bot_icon_url": "https://example.com/bot.png"}
+        self.team.save()
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "111.222"}
+        mock_get_client.return_value = client
+
+        post_support_message(self.team.pk, "C1", "hi", sender=SupportSlackSender(name="Ada", icon_url=""))
+
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["username"] == "Ada"
+        # The bot icon would contradict the name, so it is not applied.
+        assert "icon_url" not in kwargs
 
     @parameterized.expand(
         [
@@ -90,6 +137,59 @@ class TestPostSupportMessage(BaseTest):
             post_support_message(self.team.pk, "C1", "hi")
         assert ctx.exception.code == expected_code
         assert ctx.exception.retry_after == expected_retry_after
+
+
+class TestResolveSupportSlackSender(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _client_returning(self, data: dict) -> MagicMock:
+        client = MagicMock()
+        client.users_lookupByEmail.return_value.data = data
+        return client
+
+    @patch(CLIENT)
+    def test_resolves_workspace_member_by_email(self, mock_get_client: MagicMock):
+        mock_get_client.return_value = self._client_returning(
+            {"ok": True, "user": {"profile": {"display_name": "Ada", "image_72": "https://example.com/ada.png"}}}
+        )
+
+        sender = resolve_support_slack_sender(self.team.pk, "ada@example.com")
+
+        assert sender == SupportSlackSender(name="Ada", icon_url="https://example.com/ada.png")
+
+    @patch(CLIENT)
+    def test_returns_none_when_no_slack_user_has_the_email(self, mock_get_client: MagicMock):
+        mock_get_client.return_value = self._client_returning({"ok": False, "error": "users_not_found"})
+
+        assert resolve_support_slack_sender(self.team.pk, "nobody@example.com") is None
+
+    @patch(CLIENT)
+    def test_refuses_when_the_install_cannot_post_a_custom_identity(self, mock_get_client: MagicMock):
+        # Slack would reject every such post, so fail before resolving a profile we can't use.
+        self.team.conversations_settings = {"slack_scopes": ["chat:write", "users:read.email"]}
+        self.team.save()
+        client = self._client_returning({"ok": True, "user": {"profile": {"display_name": "Ada"}}})
+        mock_get_client.return_value = client
+
+        with self.assertRaises(SupportSenderIdentityUnavailable):
+            resolve_support_slack_sender(self.team.pk, "ada@example.com")
+        client.users_lookupByEmail.assert_not_called()
+
+    @patch(CLIENT)
+    def test_allows_an_install_whose_scopes_were_never_recorded(self, mock_get_client: MagicMock):
+        # Predates scope recording, and the scope has been requested for longer than that — so an
+        # empty list is "unknown", not "missing", and refusing would block a working install.
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        mock_get_client.return_value = self._client_returning(
+            {"ok": True, "user": {"profile": {"display_name": "Ada"}}}
+        )
+
+        assert resolve_support_slack_sender(self.team.pk, "ada@example.com") == SupportSlackSender(
+            name="Ada", icon_url=""
+        )
 
 
 class TestListAccountTickets(BaseTest):
@@ -218,6 +318,13 @@ class TestListAccountTickets(BaseTest):
                 "teams@example.com",
             ),
             (
+                # GitHub gives no per-comment email, so the address stays the ticket requester's.
+                "github",
+                {"author_type": "customer", "from_github": True, "github_login": "github-responder"},
+                "github-responder",
+                "starter@example.com",
+            ),
+            (
                 "email",
                 {"author_type": "customer", "email_from_name": "Email responder", "email_from": "email@example.com"},
                 "Email responder",
@@ -228,9 +335,9 @@ class TestListAccountTickets(BaseTest):
     def test_returns_channel_specific_inbound_sender(
         self,
         _name: str,
-        item_context: dict[str, str],
+        item_context: dict[str, Any],
         expected_name: str,
-        expected_email: str,
+        expected_email: str | None,
     ) -> None:
         ticket = self._create_ticket(
             team=self.team,
@@ -328,3 +435,247 @@ class TestTriggerImmediateChannelSummary(BaseTest):
             account_id=ACCOUNT_ID, cadence="daily", period_start=PERIOD_START.date()
         )
         assert client.start_workflow.call_args.args[1].slack_channel_id == "C123"
+
+
+LOOKBACK = timedelta(days=7)
+
+
+class TestResolvedTicketEvidence(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save(update_fields=["conversations_enabled"])
+        self.since = timezone.now() - LOOKBACK
+
+    def _ticket(self, *, team: Team | None = None, status: str = Status.RESOLVED, number: int = 1) -> Ticket:
+        team = team or self.team
+        return Ticket.objects.create(
+            team=team,
+            ticket_number=number,
+            widget_session_id=f"s{number}-{team.id}",
+            distinct_id=f"d{number}-{team.id}",
+            status=status,
+        )
+
+    def _comment(
+        self,
+        ticket: Ticket,
+        *,
+        author_type: str,
+        content: str,
+        is_private: bool | None = False,
+        deleted: bool = False,
+        extra_context: dict[str, str] | None = None,
+    ) -> Comment:
+        item_context: dict = {"author_type": author_type}
+        if is_private is not None:
+            item_context["is_private"] = is_private
+        if extra_context:
+            item_context.update(extra_context)
+        return Comment.objects.create(
+            team=ticket.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=content,
+            deleted=deleted,
+            item_context=item_context,
+        )
+
+    def _revisions(
+        self,
+        *,
+        team: Team | None = None,
+        limit: int = 10,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ):
+        return list_resolved_ticket_revisions(
+            (team or self.team).id,
+            since=self.since,
+            limit=limit,
+            offset=offset,
+            ticket_id=ticket_id,
+        )
+
+    def test_returns_only_public_human_reply_text(self) -> None:
+        ticket = self._ticket()
+        self._comment(
+            ticket,
+            author_type="customer",
+            content="Customer asked about the rate limit",
+            extra_context={"author_name": "Ada", "author_email": "ada@example.com"},
+        )
+        human = self._comment(
+            ticket,
+            author_type="support",
+            content="The rate limit is 1000 events per hour",
+            extra_context={"author_name": "Support agent", "author_email": "agent@example.com"},
+        )
+        self._comment(ticket, author_type="support", content="Private diagnosis", is_private=True)
+        self._comment(ticket, author_type="AI", content="AI suggested a reply")
+        self._comment(ticket, author_type="team", content="Team analytics author type")
+
+        revisions = self._revisions()
+        replies = get_public_human_replies(self.team.id, ticket.id)
+
+        assert [revision.ticket_id for revision in revisions] == [ticket.id]
+        assert revisions[0].resolution_comment_id == human.id
+        assert revisions[0].revision_at == human.created_at
+        assert replies is not None
+        assert replies.replies == ("The rate limit is 1000 events per hour",)
+
+    @parameterized.expand(
+        [
+            ("customer", "customer", False, False, "Customer said this"),
+            ("ai", "AI", False, False, "AI drafted this"),
+            ("team", "team", False, False, "Team analytics type"),
+            ("private_support", "support", True, False, "Internal note"),
+            ("deleted_support", "support", False, True, "Retracted reply"),
+            ("empty_content", "support", False, False, ""),
+            ("whitespace_only", "support", False, False, "   "),
+        ]
+    )
+    def test_collect_skips_tickets_without_a_public_human_reply(
+        self,
+        _name: str,
+        author_type: str,
+        is_private: bool,
+        deleted: bool,
+        content: str,
+    ) -> None:
+        ticket = self._ticket()
+        self._comment(
+            ticket,
+            author_type=author_type,
+            content=content,
+            is_private=is_private,
+            deleted=deleted,
+        )
+
+        assert self._revisions() == []
+        assert get_public_human_replies(self.team.id, ticket.id) is None
+
+    @parameterized.expand(
+        [
+            ("support", "support", False),
+            ("human", "human", False),
+            ("missing_is_private_key", "support", None),
+        ]
+    )
+    def test_collect_includes_public_human_author_types(
+        self,
+        _name: str,
+        author_type: str,
+        is_private: bool | None,
+    ) -> None:
+        ticket = self._ticket()
+        comment = self._comment(ticket, author_type=author_type, content="Reusable answer", is_private=is_private)
+
+        revisions = self._revisions()
+        replies = get_public_human_replies(self.team.id, ticket.id)
+
+        assert [revision.resolution_comment_id for revision in revisions] == [comment.id]
+        assert replies is not None
+        assert replies.replies == ("Reusable answer",)
+
+    def test_revision_follows_the_latest_public_human_comment(self) -> None:
+        ticket = self._ticket()
+        first = self._comment(ticket, author_type="support", content="First answer")
+        later = self._comment(ticket, author_type="human", content="Follow-up answer")
+        self._comment(ticket, author_type="AI", content="Later AI note")
+        self._comment(ticket, author_type="support", content="Deleted later", deleted=True)
+        now = timezone.now()
+        Comment.objects.filter(pk=first.id).update(created_at=now - timedelta(minutes=2))
+        Comment.objects.filter(pk=later.id).update(created_at=now - timedelta(minutes=1))
+
+        revisions = self._revisions()
+        replies = get_public_human_replies(self.team.id, ticket.id)
+        pinned = get_public_human_replies(self.team.id, ticket.id, resolution_comment_id=first.id)
+
+        assert [revision.resolution_comment_id for revision in revisions] == [later.id]
+        assert replies is not None
+        assert replies.replies == ("First answer", "Follow-up answer")
+        assert pinned is not None
+        assert pinned.replies == ("First answer",)
+        assert get_public_human_replies(self.team.id, ticket.id, resolution_comment_id=uuid4()) is None
+
+    def test_open_ticket_is_not_collected(self) -> None:
+        ticket = self._ticket(status=Status.OPEN)
+        self._comment(ticket, author_type="support", content="Still working on it")
+
+        assert self._revisions() == []
+        replies = get_public_human_replies(self.team.id, ticket.id)
+        assert replies is not None
+        assert replies.replies == ("Still working on it",)
+
+    def test_conversations_disabled_returns_nothing(self) -> None:
+        ticket = self._ticket()
+        self._comment(ticket, author_type="support", content="Reusable answer")
+        self.team.conversations_enabled = False
+        self.team.save(update_fields=["conversations_enabled"])
+
+        assert self._revisions() == []
+        assert get_public_human_replies(self.team.id, ticket.id) is None
+
+    def test_does_not_return_other_teams_tickets(self) -> None:
+        other = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        other.conversations_enabled = True
+        other.save(update_fields=["conversations_enabled"])
+        other_ticket = self._ticket(team=other, number=1)
+        self._comment(other_ticket, author_type="support", content="Other team answer")
+
+        assert self._revisions() == []
+        assert get_public_human_replies(self.team.id, other_ticket.id) is None
+
+    def test_child_environment_reads_comments_stored_on_the_parent(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+            name="Child environment",
+            conversations_enabled=True,
+        )
+        ticket = self._ticket(team=child)
+        comment = self._comment(ticket, author_type="support", content="Answer from the child environment")
+
+        revisions = self._revisions(team=child)
+        replies = get_public_human_replies(child.id, ticket.id)
+
+        assert comment.team_id == self.team.id
+        assert [revision.source_team_id for revision in revisions] == [child.id]
+        assert revisions[0].resolution_comment_id == comment.id
+        assert self._revisions() == []
+        assert replies is not None
+        assert replies.replies == ("Answer from the child environment",)
+
+    def test_lookback_excludes_stale_resolved_tickets(self) -> None:
+        ticket = self._ticket()
+        self._comment(ticket, author_type="support", content="Old answer")
+        stale = timezone.now() - timedelta(days=8)
+        Ticket.objects.filter(pk=ticket.id).update(updated_at=stale, last_message_at=stale)
+
+        assert self._revisions() == []
+
+    def test_pagination_and_ticket_filter_select_before_limiting(self) -> None:
+        older = self._ticket(number=1)
+        middle = self._ticket(number=2)
+        newer = self._ticket(number=3)
+        self._comment(older, author_type="support", content="Older answer")
+        self._comment(middle, author_type="support", content="Middle answer")
+        self._comment(newer, author_type="support", content="Newer answer")
+        Ticket.objects.filter(pk=older.id).update(
+            updated_at=timezone.now() - timedelta(days=8),
+            last_message_at=timezone.now() - timedelta(days=8),
+        )
+        Ticket.objects.filter(pk=middle.id).update(updated_at=timezone.now() - timedelta(hours=2))
+        Ticket.objects.filter(pk=newer.id).update(updated_at=timezone.now() - timedelta(hours=1))
+
+        revisions = self._revisions(limit=1)
+        second_page = self._revisions(limit=1, offset=1)
+        targeted = self._revisions(limit=1, ticket_id=older.id)
+
+        assert [revision.ticket_id for revision in revisions] == [newer.id]
+        assert [revision.ticket_id for revision in second_page] == [middle.id]
+        assert [revision.ticket_id for revision in targeted] == [older.id]
+        assert revisions[0].display_label == "ticket #3"
+        assert revisions[0].deep_link == f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/3"

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -18,7 +18,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'
@@ -96,7 +96,13 @@ export const EndpointsTable = (): JSX.Element => {
                                 </LemonTag>
                             </>
                         }
-                        description={record.description}
+                        description={
+                            record.description ? (
+                                <Tooltip title={record.description}>
+                                    <span className="line-clamp-1 max-w-[30rem] break-all">{record.description}</span>
+                                </Tooltip>
+                            ) : undefined
+                        }
                     />
                 )
             },

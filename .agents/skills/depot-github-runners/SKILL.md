@@ -7,7 +7,8 @@ description: >
   macOS runners, troubleshooting GitHub Actions runner issues, configuring egress filtering,
   using Depot Cache with GitHub Actions, or running Dagger/Dependabot on Depot runners.
   Also use when the user mentions depot-ubuntu, depot-windows, depot-macos runner labels,
-  or asks about faster/cheaper GitHub Actions runners.
+  or asks about faster/cheaper GitHub Actions runners, `depot jobs`, job analytics, or CPU and memory metrics. Not for Depot CI, the separate engine
+  that reads .depot/workflows/ — that is the depot-ci skill.
 ---
 
 # Depot GitHub Actions Runners
@@ -15,6 +16,18 @@ description: >
 Depot provides managed, ephemeral, single-tenant GitHub Actions runners. Drop-in replacement for GitHub-hosted runners — change the `runs-on` label and everything else stays the same.
 
 **Requirement:** Repository must be owned by a GitHub organization (not a personal account).
+
+<!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
+
+## Depot runners are not Depot CI
+
+Depot runners keep GitHub Actions as the engine, so the workflow lives in `.github/workflows/` and the checks still come from the `github-actions` app.
+Depot CI is a different product. It reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from one of [three Depot apps](../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check).
+Use the `depot-ci` skill for that one.
+
+Its [references/posthog-check-run-semantics.md](../depot-ci/references/posthog-check-run-semantics.md) compares what each engine reports for a skipped, empty-matrix or `continue-on-error` job, and how GitHub and the Trunk merge queue score those conclusions.
+
+<!-- End PostHog-local section. -->
 
 ## Setup
 
@@ -38,16 +51,18 @@ For commands that support it, pass `--org <org-id>` to target the org where the 
 
 Use a single label. Format: `depot-{os}-{version}[-{arch}][-{size}]`
 
-### Ubuntu (Intel x86 — AMD EPYC)
+### Ubuntu (x86, AMD)
 
-| Label                   | CPUs | RAM    | Disk   | $/min  |
-| ----------------------- | ---- | ------ | ------ | ------ |
-| `depot-ubuntu-24.04`    | 2    | 8 GB   | 100 GB | $0.004 |
-| `depot-ubuntu-24.04-4`  | 4    | 16 GB  | 130 GB | $0.008 |
-| `depot-ubuntu-24.04-8`  | 8    | 32 GB  | 150 GB | $0.016 |
-| `depot-ubuntu-24.04-16` | 16   | 64 GB  | 180 GB | $0.032 |
-| `depot-ubuntu-24.04-32` | 32   | 128 GB | 200 GB | $0.064 |
-| `depot-ubuntu-24.04-64` | 64   | 256 GB | 250 GB | $0.128 |
+| Label                   | CPUs | RAM    | Disk   | $/min  | Minutes multiplier |
+| ----------------------- | ---- | ------ | ------ | ------ | ------------------ |
+| `depot-ubuntu-24.04`    | 2    | 8 GB   | 100 GB | $0.006 | 1x                 |
+| `depot-ubuntu-24.04-4`  | 4    | 16 GB  | 130 GB | $0.012 | 2x                 |
+| `depot-ubuntu-24.04-8`  | 8    | 32 GB  | 150 GB | $0.024 | 4x                 |
+| `depot-ubuntu-24.04-16` | 16   | 64 GB  | 180 GB | $0.048 | 8x                 |
+| `depot-ubuntu-24.04-32` | 32   | 128 GB | 200 GB | $0.096 | 16x                |
+| `depot-ubuntu-24.04-64` | 64   | 256 GB | 250 GB | $0.192 | 32x                |
+
+The minutes multiplier is the billing driver: billed minutes = elapsed minutes × multiplier, so larger runners consume your included minutes faster.
 
 Ubuntu 22.04 also available: `depot-ubuntu-22.04`, `depot-ubuntu-22.04-4`, etc.
 
@@ -58,27 +73,28 @@ Same sizes and pricing as Intel. Add `-arm` suffix:
 
 ### Windows Server
 
-| Label                                | CPUs | RAM       | $/min         |
-| ------------------------------------ | ---- | --------- | ------------- |
-| `depot-windows-2025`                 | 2    | 8 GB      | $0.008        |
-| `depot-windows-2025-4`               | 4    | 16 GB     | $0.016        |
-| `depot-windows-2025-8` through `-64` | 8–64 | 32–256 GB | $0.032–$0.256 |
+| Label                                | CPUs | RAM       | $/min         | Minutes multiplier |
+| ------------------------------------ | ---- | --------- | ------------- | ------------------ |
+| `depot-windows-2025`                 | 2    | 8 GB      | $0.008        | 2x                 |
+| `depot-windows-2025-4`               | 4    | 16 GB     | $0.016        | 4x                 |
+| `depot-windows-2025-8` through `-64` | 8–64 | 32–256 GB | $0.032–$0.256 | 8x–64x             |
 
 Windows Server 2022 also available: `depot-windows-2022`, etc.
-**Windows limitation:** No Hyper-V. Docker does not work on Windows runners.
+**Windows limitation:** No Hyper-V (AWS EC2 limitation), so Docker workloads that require it are unlikely to work.
 
-### macOS (Apple M2)
+### macOS (Apple M2 on macOS 14/15, M4 on macOS 26)
 
-| Label                                   | CPUs | RAM   | $/min |
-| --------------------------------------- | ---- | ----- | ----- |
-| `depot-macos-15` / `depot-macos-latest` | 8    | 24 GB | $0.08 |
-| `depot-macos-14`                        | 8    | 24 GB | $0.08 |
+| Label                                   | CPUs | RAM   | Disk   | $/min |
+| --------------------------------------- | ---- | ----- | ------ | ----- |
+| `depot-macos-26` / `depot-macos-latest` | 8    | 24 GB | 400 GB | $0.08 |
+| `depot-macos-15`                        | 8    | 24 GB | 400 GB | $0.08 |
+| `depot-macos-14`                        | 8    | 24 GB | 400 GB | $0.08 |
 
-macOS is NOT fully elastic — fixed pool with FIFO queuing. Startup plan+ only.
+macOS is NOT fully elastic — fixed pool with FIFO queuing.
 
 ### Aliases
 
-`depot-ubuntu-latest` → Ubuntu 24.04, `depot-windows-latest` → Windows 2025, `depot-macos-latest` → macOS 15
+`depot-ubuntu-latest` → Ubuntu 24.04, `depot-windows-latest` → Windows 2025, `depot-macos-latest` → macOS 26
 
 ## Migration Example
 
@@ -111,32 +127,35 @@ Actions using the GitHub Actions cache API automatically use **Depot Cache** —
 
 **Pre-configured build tool caches** (zero config on Depot runners):
 
-| Tool      | What's pre-configured                                          |
-| --------- | -------------------------------------------------------------- |
-| Turborepo | `TURBO_API` env var set — just run `turbo build`               |
-| Bazel     | `~/.bazelrc` pre-populated — just run `bazel build //...`      |
-| sccache   | `SCCACHE_WEBDAV_ENDPOINT` set — use `RUSTC_WRAPPER: 'sccache'` |
-| Maven     | `settings.xml` pre-populated (cache id `depot-cache`)          |
-| Pants     | `pants.toml` pre-configured — just run `pants package ::`      |
-| moonrepo  | Env vars set — just run `moon run build`                       |
+| Tool      | What's pre-configured                                                     |
+| --------- | ------------------------------------------------------------------------- |
+| Turborepo | `TURBO_API` env var set — just run `turbo build`                          |
+| Bazel     | `~/.bazelrc` pre-populated — just run `bazel build //...`                 |
+| sccache   | `SCCACHE_WEBDAV_ENDPOINT` set — use `RUSTC_WRAPPER: 'sccache'`            |
+| Maven     | `settings.xml` pre-populated (cache id `depot-cache`)                     |
+| Pants     | `pants.toml` pre-configured — just run `pants package ::`                 |
+| moonrepo  | Env vars set — just run `moon run build`                                  |
+| Xcode 26+ | Compilation caching uses Depot Cache automatically on Depot macOS runners |
 
 Cache behavior: repository-scoped, no branch isolation, encrypted, up to 1000 MiB/s throughput, configurable retention (7/14/30 days).
 
 To disable auto-cache: org settings → turn off "Allow Actions jobs to automatically connect to Depot Cache."
+
+For Xcode, the runner sets `XCODE_XCCONFIG_FILE` only when the job does not supply its own configuration file. Set `DEPOT_XCODE_CACHE_ENABLED: '0'` to opt out for a job or workflow. Add `depot/xcode-compilation-cache-summary@v1` after the build to report cache statistics. Xcode compilation caching is not supported on local workstations. See https://depot.dev/docs/cache/integrations/xcode for build settings and troubleshooting.
 
 ## Dagger Integration
 
 **Deprecated:** Dagger Engine support on Depot GitHub Actions Runners is being deprecated and will be removed in a future update. Don't recommend this integration for new workflows.
 
 ```yaml
-runs-on: depot-ubuntu-latest,dagger=0.15.1
+runs-on: depot-ubuntu-latest,dagger=0.18.4
 ```
 
 Launches a dedicated Dagger Engine VM with persistent NVMe cache. Dagger CLI pre-installed. Additional $0.04/min.
 
 ## Egress Filtering (Linux Only)
 
-Configure in org settings → GitHub Actions Runners → Egress Rules. Set default rule to Allow or Deny, then add specific allow/deny rules for IPs, CIDRs, or hostnames. Not supported on macOS or Windows. Incompatible with Tailscale.
+Configure in org settings → GitHub Actions Runners → Egress Rules. Set default rule to Allow or Deny, then add specific allow/deny rules for IPs, CIDRs, or hostnames. Deny rules take precedence over Allow rules. Loopback traffic (127.0.0.1, ::1) is always allowed, and Depot auto-allowlists depot.dev domains, GitHub Actions service IPs, and AWS service IPs. Hostnames in rules are resolved and pinned in `/etc/hosts`. Container builds with `depot build` work with egress filtering enabled — Depot adds BuildKit machine IPs to the allowlist as they're allocated. Not supported on macOS or Windows. Incompatible with Tailscale.
 
 ## Access Private Endpoints with Tailscale
 
@@ -154,6 +173,8 @@ Setup:
 2. Create a Tailscale OAuth client with `Keys > Auth Keys` write scope and choose that tag.
 3. In Depot org settings, open Tailscale settings and connect using the OAuth client ID/secret.
 4. Add ACLs allowing `tag:depot-runner` to access target hosts/subnets.
+
+Optionally grant `Devices > Core` write scope so Depot can remove leftover offline nodes after machines stop abruptly. The scope permits listing and removing devices across the whole tailnet. Depot removes only offline, ephemeral nodes with the Depot tag and no running Depot machine. Without the scope, Tailscale removes ephemeral nodes later. To add the scope, create a new OAuth client with both scopes and reconnect Depot.
 
 ACL examples:
 
@@ -192,6 +213,27 @@ Enable "Dependabot on self-hosted runners" in GitHub org settings. Jobs auto-run
 
 **Important:** OIDC is not supported for Dependabot. Use `token:` input with a `DEPOT_TOKEN` secret instead.
 
+## Inspect Jobs and Resource Usage
+
+Use `depot jobs` for GitHub Actions jobs on Depot. Depot CI jobs use `depot ci` commands instead.
+
+```bash
+depot jobs --repo owner/repo --conclusion failure --output json
+depot jobs <github-job-id> --repo owner/repo --output json
+depot jobs metrics <github-job-id> --repo owner/repo --output json
+depot jobs analytics --repo owner/repo --job test --output json
+```
+
+All four forms accept `--org`, `--token`, and `--output` with `auto`, `table`, or `json`. Piped output defaults to JSON without prompting for login. Inspecting one job or its metrics requires exactly one `--repo`.
+
+Listings support repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label`, plus `--query`. Status values are `queued`, `waiting`, `running`, and `finished`; conclusions are `success`, `failure`, `cancelled`, `skipped`, and `neutral`. Analytics filters are `--repo`, `--workflow`, `--workflow-path`, `--job`, and `--runner-label`.
+
+Listings and analytics return one page at a time. Use `--page-size` (1–250, default 50) and the returned `nextPageToken` with `--page-token`; keep filters and time ranges unchanged. Both default to the last 30 days. Supply `--start` and `--end` together as RFC 3339 timestamps for a positive range of at most 90 days.
+
+Per-job metrics include CPU and memory samples, statistics, and availability. JSON utilization is a fraction from 0 to 1; tables show percentages. Missing measurements remain absent, not zero. Execution windows are limited to seven days and 5,000 returned samples; statistics use all observed samples before downsampling. Aggregate analytics can lag completed jobs by 15 minutes. Step timings are unavailable.
+
+Job inspection and `depot jobs metrics` also report observed out-of-memory (OOM) kernel kills. No observed events does not rule out OOM; events can arrive after completion. At most 100 events are returned, with truncation indicated in JSON.
+
 ## SSH Debugging
 
 ```yaml
@@ -203,11 +245,12 @@ steps:
 
 ## Troubleshooting
 
-| Error                                        | Fix                                                                                                 |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| "No space left on device"                    | OS uses ~70 GB disk; upgrade to larger runner or clean disk in workflow                             |
-| "Lost communication with server"             | Check status.depot.dev; check org usage caps                                                        |
-| "Operation was canceled"                     | Manual cancel, concurrency cancel-in-progress, or OOM — check memory in dashboard                   |
-| "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL" | Dependabot doesn't support OIDC — use `DEPOT_TOKEN` secret                                          |
-| Workflows not starting                       | Verify single runner label; check runner group allows the repo; verify Depot GitHub App permissions |
-| Stuck workflows                              | Force cancel via GitHub API: `POST /repos/{owner}/{repo}/actions/runs/{id}/force-cancel`            |
+| Error                                                                    | Fix                                                                                                                                  |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| "No space left on device"                                                | OS uses ~70 GB disk; upgrade to larger runner or clean disk in workflow                                                              |
+| "Failed to open the device 'kvm'" / "Could not access KVM kernel module" | Runners don't provide `/dev/kvm`; move KVM/QEMU/Android-emulator jobs to Depot CI, where nested virtualization is enabled by default |
+| "Lost communication with server"                                         | Check status.depot.dev; check org usage caps                                                                                         |
+| "Operation was canceled"                                                 | Manual cancel, concurrency cancel-in-progress, or OOM — check memory in dashboard                                                    |
+| "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL"                             | Dependabot doesn't support OIDC — use `DEPOT_TOKEN` secret                                                                           |
+| Workflows not starting                                                   | Verify single runner label; check runner group allows the repo; verify Depot GitHub App permissions                                  |
+| Stuck workflows                                                          | Force cancel via GitHub API: `POST /repos/{owner}/{repo}/actions/runs/{id}/force-cancel`                                             |

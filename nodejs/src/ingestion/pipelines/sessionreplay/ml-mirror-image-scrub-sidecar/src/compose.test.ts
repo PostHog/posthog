@@ -41,19 +41,15 @@ describe('compose', () => {
     }> {
         // Flush to every edge of the box on purpose: a resize kernel reaching outward from the box
         // boundary has to find content there, or the fixture cannot show the leak it exists to catch.
-        const strokes = []
+        //
+        // The strokes are written straight into 3-channel raw pixels, which is the layout Src declares,
+        // because image-input.ts blocks the SVG loader for the whole process.
+        const data = Buffer.alloc(W * H * 3, 0xff)
         for (let y = box.top; y < box.top + box.height; y += 24) {
-            strokes.push(`<rect x="${box.left}" y="${y}" width="${box.width}" height="5" fill="#000000"/>`)
+            for (let row = y; row < Math.min(y + 5, H); row++) {
+                data.fill(0, (row * W + box.left) * 3, (row * W + box.left + box.width) * 3)
+            }
         }
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-            <rect width="${W}" height="${H}" fill="#ffffff"/>${strokes.join('')}</svg>`
-        // flatten to 3 channels exactly as decodeSrc does: Src is declared 3-channel, and an SVG
-        // renders with alpha, so skipping it hands compose a buffer it reads misaligned.
-        const { data, info } = await sharp(Buffer.from(svg))
-            .flatten({ background: '#fff' })
-            .raw()
-            .toBuffer({ resolveWithObject: true })
-        expect(info.channels).toBe(3)
         return { data, W, H, format: 'png', inputPixels: W * H }
     }
 

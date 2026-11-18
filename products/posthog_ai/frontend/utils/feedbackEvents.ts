@@ -46,6 +46,33 @@ export function captureTurnFeedbackText(
     })
 }
 
+/** Feedback typed as a `/good`, `/bad`, or `/feedback` command. A rating without text is valid, and so is text without a rating. */
+export function captureCommandFeedback(
+    sessionId: string,
+    traceId: string | null,
+    rating: 'good' | 'bad' | null,
+    run: RunRef,
+    feedbackText?: string
+): void {
+    if (rating) {
+        posthog.capture('$ai_metric', {
+            $ai_metric_name: 'feedback',
+            $ai_metric_value: rating,
+            feedback_trigger_type: 'slash_command',
+            turn_index: null,
+            ...feedbackContext(sessionId, traceId, run),
+        })
+    }
+    if (feedbackText) {
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedbackText,
+            feedback_trigger_type: 'slash_command',
+            turn_index: null,
+            ...feedbackContext(sessionId, traceId, run),
+        })
+    }
+}
+
 export type FeedbackPromptRating = 'bad' | 'okay' | 'good' | 'dismissed' | 'implicit_dismiss'
 export type FeedbackPromptTrigger = 'message_interval' | 'random_sample' | 'manual' | 'cancel'
 

@@ -1,4 +1,7 @@
 function trimRight (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -12,6 +15,9 @@ function trimRight (str, char) {
     return str.slice(0, end)
 }
 function trimLeft (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -25,6 +31,9 @@ function trimLeft (str, char) {
     return str.slice(start)
 }
 function trim (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -44,7 +53,7 @@ function trim (str, char) {
     }
     return str.slice(start, end)
 }
-function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
+function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function positionCaseInsensitive (str, elem) { if (typeof str === 'string') { return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1 } else { return 0 } }
 function position (str, elem) { if (typeof str === 'string') { return str.indexOf(String(elem)) + 1 } else { return 0 } }
@@ -112,6 +121,8 @@ print(splitByString(" ", "hello world and more", 1));
 print(splitByString(" ", "hello world and more", 2));
 print(splitByString(" ", "hello world and more", 10));
 print(like("banana", "N"));
+print(like("baax", "b%x"));
+print(like("b%x", "b%x"));
 print(like("banana", "n"));
 print(like("banana", "naan"));
 print(ilike("banana", "N"));

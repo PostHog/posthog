@@ -1,23 +1,25 @@
-import ipaddress
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import (
+    _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
+    _POSTHOG_OWNED_BUCKET_SETTING_NAMES,
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestReconstructOrderedColumns(SimpleTestCase):
@@ -44,12 +46,38 @@ class TestReconstructOrderedColumns(SimpleTestCase):
         assert dict(result) == columns
 
 
+class TestHogqlTypeNameForClickhouseType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A mapped type resolves to its HogQL field class.
+            ("string", "String", "StringDatabaseField"),
+            ("nullable_wrapper_stripped", "Nullable(Int64)", "IntegerDatabaseField"),
+            # Types added to close the gap that blocked saving views.
+            ("variant", "Variant(String, Int64)", "UnknownDatabaseField"),
+            ("json", "JSON", "StringJSONDatabaseField"),
+            ("dynamic", "Dynamic", "UnknownDatabaseField"),
+            ("enum16", "Enum16('a' = 1)", "StringDatabaseField"),
+            ("wide_int", "Int128", "IntegerDatabaseField"),
+            ("ipv6", "IPv6", "StringDatabaseField"),
+            # An unmapped type must fall back instead of raising KeyError.
+            ("unmapped", "SomeFutureType", "UnknownDatabaseField"),
+        ]
+    )
+    def test_resolves_clickhouse_type(self, _name: str, clickhouse_type: str, expected: str) -> None:
+        assert hogql_type_name_for_clickhouse_type(clickhouse_type) == expected
+
+
 @override_settings(
     DATAWAREHOUSE_BUCKET_DOMAIN="warehouse-files.posthog.example",
     DATAWAREHOUSE_BUCKET="ph-warehouse",
     BUCKET_PATH="ph-warehouse",
     OBJECT_STORAGE_BUCKET="ph-objects",
     SESSION_RECORDING_V2_S3_BUCKET="ph-replay",
+    CLICKHOUSE_BACKUPS_BUCKET="ph-ch-backups",
+    IDENTITY_MATCHING_S3_BUCKET="ph-identity-matching",
+    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET="ph-web-analytics",
+    QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET="ph-query-log-archive",
+    BATCH_EXPORT_INTERNAL_STAGING_BUCKET="ph-batch-export-staging",
 )
 class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     @parameterized.expand(
@@ -68,6 +96,19 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
             # Buckets other than the warehouse one are just as reachable from the ClickHouse node.
             ("object_storage_bucket", "https://s3.us-east-1.amazonaws.com/ph-objects/exports/x.csv"),
             ("session_replay_bucket", "https://ph-replay.s3.eu-central-1.amazonaws.com/x.json"),
+            # These four are also read or written by ClickHouse's own s3()/BACKUP...S3() with no
+            # explicit credentials - the same shape that made the original vulnerability exploitable.
+            ("clickhouse_backups_bucket", "https://s3.us-east-1.amazonaws.com/ph-ch-backups/db/table/full-x/"),
+            ("identity_matching_bucket", "https://ph-identity-matching.s3.us-east-1.amazonaws.com/x.parquet"),
+            ("web_analytics_bucket", "https://ph-web-analytics.s3.us-east-1.amazonaws.com/team_1/data.native"),
+            ("query_log_archive_bucket", "https://ph-query-log-archive.s3.amazonaws.com/day=2026-01-01/data.parquet"),
+            # ClickHouse writes every team's staged batch-export data here with no explicit
+            # credentials whenever the deployment is cloud (internal_stage.py's own docstring:
+            # "we omit credentials and ClickHouse uses the default credential provider chain").
+            (
+                "batch_export_staging_bucket",
+                "https://ph-batch-export-staging.s3.us-east-1.amazonaws.com/some-run/export_0.arrow",
+            ),
         ]
     )
     def test_rejects_urls_that_address_posthog_storage(self, _name: str, url_pattern: str) -> None:
@@ -75,6 +116,31 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
 
         assert not is_valid
         assert "internal storage" in error_message
+
+    @override_settings(BUCKET_URL="s3://ph-modeling-storage")
+    def test_rejects_a_bucket_url_that_diverges_from_datawarehouse_bucket(self) -> None:
+        # BUCKET_URL is configured independently of DATAWAREHOUSE_BUCKET/BUCKET_PATH (see
+        # s3_proxy.warehouse_bucket_host) and is the actual storage root every warehouse-pipeline
+        # write path uses, so a deployment where it names a different bucket must still be blocked.
+        is_valid, error_message = validate_warehouse_table_url_pattern(
+            "https://ph-modeling-storage.s3.us-east-1.amazonaws.com/team_1_model_x/modeling/y"
+        )
+
+        assert not is_valid
+        assert "internal storage" in error_message
+
+    @parameterized.expand(
+        [
+            ("bracketed_hostname", "https://[bucket.example.com]/data.csv"),
+            ("unclosed_bracket", "https://[::1/data.csv"),
+            ("unopened_bracket", "https://bucket.example.com]/data.csv"),
+        ]
+    )
+    def test_rejects_a_url_that_urlparse_cannot_parse(self, _name: str, url_pattern: str) -> None:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert error_message == "URL pattern is not a valid URL."
 
     @parameterized.expand(
         [
@@ -103,7 +169,7 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     def test_allows_a_customers_own_bucket(self, _name: str, url_pattern: str) -> None:
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
 
@@ -116,6 +182,12 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
                 "https://s3.us-east-1.amazonaws.com/ph-warehouse%2Ffile_uploads/team_2/x.csv",
             ),
             ("path_style_encoded_char_in_bucket_position", "https://s3.us-east-1.amazonaws.com/acme%2dexports/x.csv"),
+            # Decoding this reveals an owned bucket ("ph-warehouse") that the undecoded string
+            # doesn't match, so this must be rejected on the encoding alone, not on a bucket lookup.
+            (
+                "encoded_first_character_of_an_owned_bucket",
+                "https://s3.us-east-1.amazonaws.com/%70h-warehouse/x.parquet",
+            ),
         ]
     )
     def test_rejects_percent_encoding_in_the_bucket_position(self, _name: str, url_pattern: str) -> None:
@@ -148,7 +220,7 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         # dot must not be caught by the same check.
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern(
                 "https://s3.us-east-1.amazonaws.com/acme-exports/reports/q1.2026/data.csv"
@@ -191,14 +263,39 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         # than one supplied as a literal.
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch(
-                "posthog.security.url_validation.resolve_host_ips",
-                return_value={ipaddress.ip_address("10.0.0.5")},
-            ),
+            mock_anti_ssrf_dns_lookup(resolves_to=["10.0.0.5"]),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern("https://internal-alias.example/x.csv")
 
         assert not is_valid, error_message
+
+
+class TestBucketSettingsAreAllTriaged(SimpleTestCase):
+    def test_every_bucket_setting_is_either_owned_or_excluded_with_a_reason(self) -> None:
+        # A setting a future PR adds without following the "*_BUCKET" suffix (like BUCKET_PATH
+        # today) won't be caught here - it has to be added to _POSTHOG_OWNED_BUCKET_SETTING_NAMES
+        # by hand. What this catches is the drift that made the original check incomplete: a new
+        # "*_BUCKET" setting landing without anyone deciding whether the node role can read it.
+        existing_bucket_settings = {name for name in dir(settings) if name.isupper() and name.endswith("_BUCKET")}
+        triaged = set(_POSTHOG_OWNED_BUCKET_SETTING_NAMES) | set(_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE)
+
+        untriaged = existing_bucket_settings - triaged
+        assert not untriaged, (
+            f"{sorted(untriaged)} aren't triaged in products/warehouse_sources/backend/models/util.py. "
+            "Add each to _POSTHOG_OWNED_BUCKET_SETTING_NAMES if the ClickHouse node role can read it, "
+            "or to _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE with a reason if it can't."
+        )
+
+    def test_owned_and_excluded_lists_do_not_overlap(self) -> None:
+        overlap = set(_POSTHOG_OWNED_BUCKET_SETTING_NAMES) & set(_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE)
+        assert not overlap, f"{sorted(overlap)} listed as both node-role-readable and not"
+
+    def test_every_exclusion_has_a_non_empty_reason(self) -> None:
+        # The setting-is-triaged test above only checks _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE's
+        # keys, so an empty or whitespace-only reason would still count as "triaged" there - this is
+        # what actually enforces that every exclusion documents the access-path check it stands on.
+        blank = {name for name, reason in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE.items() if not reason.strip()}
+        assert not blank, f"{sorted(blank)} are excluded with no reason given"
 
 
 class TestGetViewOrTableByName(BaseTest):

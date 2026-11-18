@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.authentication import BillingServiceAuthentication
 from ee.models import License
@@ -121,6 +122,29 @@ class TestVercelProxyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"error": "Invalid invoice data"}
+
+    @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
+    def test_proxy_returns_vercel_204_without_body(self, mock_forward, mock_license):
+        mock_license.return_value = self.license
+
+        vercel_response = req.Response()
+        vercel_response.status_code = status.HTTP_204_NO_CONTENT
+        vercel_response._content = b""
+        mock_forward.return_value = vercel_response
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {
+                "path": "/billing/invoices/inv_123/actions",
+                "method": "POST",
+                "body": {"action": "refund", "reason": "Duplicate charge", "total": "10.00"},
+            },
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.headers.get("Content-Length", "0") == "0"
 
     def test_proxy_rejects_missing_token(self, mock_license):
         mock_license.return_value = self.license
@@ -367,6 +391,7 @@ class TestBillingServiceAuthentication(BaseTest):
 
         return jwt.encode(payload, secret, algorithm="HS256")
 
+    @covers_authentication(BillingServiceAuthentication)
     def test_valid_token_authenticates(self, mock_license):
         mock_license.return_value = self.license
 

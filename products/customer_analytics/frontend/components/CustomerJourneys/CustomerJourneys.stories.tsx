@@ -1,10 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
-import { emptyJourneysList, JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
+import {
+    emptyJourneysList,
+    JOURNEY_FEATURE_FLAGS,
+} from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 
 const meta: Meta = {
     component: App,

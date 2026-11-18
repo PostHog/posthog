@@ -70,6 +70,8 @@ def inline_cohort_query(
     is_static: bool,
     version: Optional[int],
     context: HogQLContext,
+    *,
+    read_flag_calls_from_union: bool = True,
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
@@ -95,7 +97,13 @@ def inline_cohort_query(
 
         context.team = Team.objects.get(id=context.team_id)
 
-    return HogQLCohortQuery(cohort=cohort, team=context.team).get_query()
+    query = HogQLCohortQuery(cohort=cohort, team=context.team).get_query()
+    if not read_flag_calls_from_union:
+        return query
+    # Deferred: the transform imports the resolver, which imports this module.
+    from posthog.hogql.transforms.flag_calls_union import read_flag_calls_in_inline_cohort  # noqa: PLC0415
+
+    return read_flag_calls_in_inline_cohort(query, context)
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:

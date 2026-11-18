@@ -9,6 +9,7 @@
         "allowJs": true,
         "checkJs": false,
         "noEmit": true,
+        "allowImportingTsExtensions": true,
         "isolatedModules": true,
         "allowSyntheticDefaultImports": true,
         "forceConsistentCasingInFileNames": true,

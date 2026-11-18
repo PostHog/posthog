@@ -6,13 +6,15 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
+
 import { CustomPropertiesConfig } from './CustomPropertiesConfig'
+import { DefaultPinnedAccountProperties } from './DefaultPinnedAccountProperties'
 import { RelationshipsConfig } from './RelationshipsConfig'
 
 const NO_ACCOUNT_GROUP = -1
@@ -58,6 +60,8 @@ export function CustomerAnalyticsAccountConfig(): JSX.Element {
                 className="max-w-160"
                 options={options}
             />
+            <LemonDivider />
+            <DefaultPinnedAccountProperties />
             <LemonDivider />
             <CustomPropertiesConfig />
             <LemonDivider />

@@ -1,6 +1,6 @@
 import { UserRole } from '~/types'
 
-import { FALLBACK_PROMPTS, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
+import { FALLBACK_PROMPTS, formatDerivedToastPrompt, getSurfacePrompts, stripDisplayQuotes } from './prompts'
 
 describe('prompts', () => {
     describe('getSurfacePrompts', () => {
@@ -49,6 +49,12 @@ describe('prompts', () => {
 
         it('trims surrounding whitespace before quoting', () => {
             expect(formatDerivedToastPrompt('  foo  ')).toBe('"foo"')
+        })
+    })
+
+    describe('stripDisplayQuotes', () => {
+        it('sends the task without display quotes', () => {
+            expect(stripDisplayQuotes(' "Disable beta-banner flag" ')).toBe('Disable beta-banner flag')
         })
     })
 })

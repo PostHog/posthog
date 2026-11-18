@@ -5,6 +5,11 @@ pub(crate) enum FrameWriteOutcome {
     Insert,
     Changed,
     Unchanged,
+    // An unchanged snapshot persisted as a created_at-only UPDATE, one statement
+    // for every part of the raw frame, instead of a full per-part upsert.
+    Refreshed,
+    // An unchanged snapshot that needed no freshness refresh, so no query ran.
+    Skipped,
     Error,
 }
 
@@ -14,7 +19,16 @@ impl FrameWriteOutcome {
             Self::Insert => "insert",
             Self::Changed => "changed",
             Self::Unchanged => "unchanged",
+            Self::Refreshed => "refreshed",
+            Self::Skipped => "skipped",
             Self::Error => "error",
+        }
+    }
+
+    const fn mutation(self) -> PostgresMutation {
+        match self {
+            Self::Refreshed => PostgresMutation::Update,
+            _ => PostgresMutation::Upsert,
         }
     }
 }
@@ -93,7 +107,7 @@ pub(crate) fn record_frame_write(outcome: FrameWriteOutcome, rows_affected: u64)
     record_rows_affected(
         "stack_frame",
         "frame_snapshot",
-        PostgresMutation::Upsert,
+        outcome.mutation(),
         rows_affected,
     );
 }
@@ -155,9 +169,15 @@ mod tests {
                 FrameWriteOutcome::Insert,
                 FrameWriteOutcome::Changed,
                 FrameWriteOutcome::Unchanged,
+                FrameWriteOutcome::Refreshed,
+                FrameWriteOutcome::Skipped,
                 FrameWriteOutcome::Error,
             ] {
-                record_frame_write(outcome, u64::from(outcome != FrameWriteOutcome::Error));
+                let rows_affected = u64::from(!matches!(
+                    outcome,
+                    FrameWriteOutcome::Skipped | FrameWriteOutcome::Error
+                ));
+                record_frame_write(outcome, rows_affected);
             }
 
             for purpose in [
@@ -200,8 +220,8 @@ mod tests {
             .filter(|(key, _, _, _)| key.key().name() == POSTGRES_ROWS_AFFECTED)
             .collect::<Vec<_>>();
 
-        assert_eq!(attempts.len(), 19);
-        assert_eq!(rows.len(), 6);
+        assert_eq!(attempts.len(), 21);
+        assert_eq!(rows.len(), 7);
 
         let allowed_label_keys = HashSet::from(["table", "purpose", "outcome"]);
         let allowed_tables = HashSet::from(["stack_frame", "symbol_set"]);
@@ -217,6 +237,7 @@ mod tests {
             "insert",
             "changed",
             "unchanged",
+            "refreshed",
             "written",
             "skipped",
             "error",

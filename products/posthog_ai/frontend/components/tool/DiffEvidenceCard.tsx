@@ -5,7 +5,8 @@ import { Button } from '@posthog/quill-primitives'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { DiffEditor, DiffStats } from './EditDiffRenderer'
+import { DiffStats } from './DiffStats'
+import { LazyDiffEditor } from './LazyDiffEditor'
 import { getDiffStats } from './toolDiffContent'
 
 /** Collapsed body cap — roughly a dozen diff lines, per the permission-card evidence design. Must stay in sync with the `max-h-60` class below. */
@@ -46,7 +47,12 @@ export function DiffEvidenceCard({ label, oldText, newText, path }: DiffEvidence
                 <DiffStats added={added} removed={removed} />
             </div>
             <div className={cn('min-w-0', collapsed && 'relative max-h-60 overflow-hidden')}>
-                <DiffEditor diff={{ type: 'diff', oldText, newText }} path={path} sideBySide hideUnchanged={false} />
+                <LazyDiffEditor
+                    diff={{ type: 'diff', oldText, newText }}
+                    path={path}
+                    sideBySide
+                    hideUnchanged={false}
+                />
                 {collapsed && (
                     <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface-primary to-transparent pointer-events-none" />
                 )}

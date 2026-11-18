@@ -1,9 +1,15 @@
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { BillingProductV2Type } from '~/types'
+
 import {
+    billingErrorGuidance,
     buildSpendTrackingProperties,
+    createGaugeItems,
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
 } from './billing-utils'
+import { BillingGaugeItemKind } from './types'
 
 describe('getUsageTypeOptions', () => {
     it('includes informational Desktop component metrics in Usage but not Spend', () => {
@@ -43,5 +49,39 @@ describe('getUsageTypeOptions', () => {
             ])
         ).toEqual(['event_count_in_period'])
         expect(filterSpendUsageTypes(['sandbox_compute_cpu_millicore_seconds_in_period'])).toEqual([])
+    })
+})
+
+describe('billingErrorGuidance', () => {
+    it('says what the page can do, in its own words, for the codes it knows', () => {
+        expect(billingErrorGuidance({ code: 'usage_query_timeout', detail: 'api text' })).toMatch(/took too long/)
+        expect(billingErrorGuidance({ code: 'usage_breakdown_too_large', detail: 'api text' })).toMatch(
+            /too large to show/
+        )
+    })
+
+    it('never tells a person to ask for pages, which is advice for an API caller', () => {
+        for (const code of ['usage_query_timeout', 'usage_breakdown_too_large']) {
+            expect(billingErrorGuidance({ code, detail: 'Ask for it a page at a time' })).not.toMatch(/page at a time/)
+        }
+    })
+
+    it('falls back to billing text for a code it does not know', () => {
+        expect(billingErrorGuidance({ code: 'something_new', detail: 'billing said this' })).toBe('billing said this')
+    })
+})
+
+describe('createGaugeItems', () => {
+    const productAnalytics = billingJson.products.find((p) => p.type === 'product_analytics') as BillingProductV2Type
+
+    it.each([
+        ['draws the billing limit marker for a product that allows a limit', undefined, true],
+        ['draws no billing limit marker for a product without billing limits', true, false],
+    ])('%s', (_name, noBillingLimit, expectMarker) => {
+        const product: BillingProductV2Type = { ...productAnalytics, no_billing_limit: noBillingLimit }
+
+        const kinds = createGaugeItems(product, { billingLimitAsUsage: 1000000 }).map((item) => item.type)
+
+        expect(kinds.includes(BillingGaugeItemKind.BillingLimit)).toBe(expectMarker)
     })
 })

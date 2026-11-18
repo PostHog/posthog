@@ -14,7 +14,7 @@ import {
 it.each([
   [
     "claude",
-    { adapter: "codex", mode: "auto", model: "gpt-5.5", reasoning: "high" },
+    { adapter: "codex", mode: "auto", model: "gpt-6-sol", reasoning: "high" },
   ],
   [
     "codex",

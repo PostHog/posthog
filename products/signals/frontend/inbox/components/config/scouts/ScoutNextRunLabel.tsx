@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { TZLabel, subscribeToTicker } from 'lib/components/TZLabel'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
@@ -16,13 +18,29 @@ import { nextRunAt } from '../../../utils/scoutGroups'
  */
 export function ScoutNextRunLabel({ config }: { config: SignalScoutConfig }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const now = new Date()
-    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now)
+    const { isVisible } = usePageVisibility()
+    const [, refresh] = useState(0)
+    const now = Date.now()
+    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date(now))
+    const dueAt = next?.getTime() ?? null
+    const isDue = dueAt !== null && dueAt <= now
+
+    // Surfaces that don't poll never re-render this, so it flips itself to "Due now".
+    useEffect(() => {
+        if (dueAt === null || isDue || !isVisible) {
+            return
+        }
+        return subscribeToTicker(() => {
+            if (dueAt <= Date.now()) {
+                refresh((count) => count + 1)
+            }
+        })
+    }, [dueAt, isDue, isVisible])
 
     if (!next) {
         return <span className="text-muted">—</span>
     }
-    if (next.getTime() <= now.getTime()) {
+    if (isDue) {
         return (
             <Tooltip title="Past its scheduled time. The scheduler picks it up on its next pass, usually within half an hour.">
                 <span>Due now</span>

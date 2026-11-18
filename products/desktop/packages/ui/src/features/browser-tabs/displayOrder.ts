@@ -1,4 +1,30 @@
 import type { TabsSnapshot } from "@posthog/shared";
+import {
+  groupForTab,
+  type TileGroup,
+  tabIdsIn,
+} from "@posthog/ui/features/tab-tiling/tileTree";
+
+export function collapseSplits(
+  displayIds: string[],
+  groups: readonly TileGroup[],
+): { ids: string[]; groupByAnchor: Map<string, TileGroup> } {
+  const groupByAnchor = new Map<string, TileGroup>();
+  const hidden = new Set<string>();
+  const ids: string[] = [];
+  for (const id of displayIds) {
+    if (hidden.has(id)) continue;
+    const group = groupForTab(groups, id);
+    if (group) {
+      groupByAnchor.set(id, group);
+      for (const member of tabIdsIn(group.root)) {
+        if (member !== id) hidden.add(member);
+      }
+    }
+    ids.push(id);
+  }
+  return { ids, groupByAnchor };
+}
 
 /** A window's tab ids in stored order (by position), pin-agnostic. */
 export function storedOrderIds(
@@ -69,6 +95,20 @@ export function reorderWithinGroup(
   return storedIds.map((id) =>
     pinned.has(id) === srcPinned ? group[gi++] : id,
   );
+}
+
+export function keepGroupTogether(
+  storedIds: string[],
+  groups: readonly TileGroup[],
+  anchorId: string,
+): string[] {
+  const group = groupForTab(groups, anchorId);
+  if (!group) return storedIds;
+  const members = tabIdsIn(group.root).filter((id) => id !== anchorId);
+  const rest = storedIds.filter((id) => !members.includes(id));
+  const at = rest.indexOf(anchorId);
+  if (at === -1) return storedIds;
+  return [...rest.slice(0, at + 1), ...members, ...rest.slice(at + 1)];
 }
 
 /**

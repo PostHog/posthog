@@ -1,15 +1,18 @@
 import { BellIcon } from "@phosphor-icons/react";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from "@posthog/quill";
+import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { ReportDetail } from "@posthog/ui/features/inbox/components/ReportDetail";
+import { OpenSidebarButton } from "@posthog/ui/features/sidebar/components/OpenSidebarButton";
 import { TaskDetail } from "@posthog/ui/features/task-detail/components/TaskDetail";
 import { useResolvedTask } from "@posthog/ui/features/tasks/useResolvedTask";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
@@ -36,6 +39,9 @@ export function ActivityDetailPane() {
               Pick something from the feed to read it here.
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <OpenSidebarButton />
+          </EmptyContent>
         </Empty>
       </div>
     );
@@ -53,6 +59,7 @@ export function ActivityDetailPane() {
           backTo="/activity"
           backLabel="Back to activity"
           statusRedirect={false}
+          headerTrailingAction={<ActivityDetailCloseButton />}
         />
       </div>
     );

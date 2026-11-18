@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "UUID of the macro, as returned by conversations-macros-list.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

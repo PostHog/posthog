@@ -20,7 +20,7 @@ export function PendingPromptRecovery(): null {
 
 async function recoverNewestPendingPrompt(): Promise<void> {
   await pendingTaskPromptStoreApi.whenHydrated();
-  const orphans = pendingTaskPromptStoreApi.getAllNewestFirst();
+  const orphans = pendingTaskPromptStoreApi.getRecoverableNewestFirst();
   const [newest] = orphans;
   if (!newest) {
     return;

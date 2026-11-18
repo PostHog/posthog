@@ -59,6 +59,37 @@ describe('PostgresCohortMembershipRepository', () => {
         expect(result).toEqual([])
     })
 
+    it.each([
+        ['in the cohort', 101, undefined, { inCohort: true, caughtUp: null }],
+        ['out of the cohort', 102, undefined, { inCohort: false, caughtUp: null }],
+        ['without a row in the cohort', 105, undefined, null],
+        ['in the cohort only for another team', 103, undefined, null],
+        ['whose row is at the asked version', 102, '2026-10-20 10:00:00.000000', { inCohort: false, caughtUp: true }],
+        [
+            'whose row is older than the asked version',
+            102,
+            '2026-10-20 10:00:00.000001',
+            { inCohort: false, caughtUp: false },
+        ],
+        ['whose row has no version stamp', 101, '2026-10-20 10:00:00.000000', { inCohort: true, caughtUp: null }],
+    ])('reads one cohort membership for a person %s', async (_name, cohortId, sinceVersion, expected) => {
+        const teamId = 2
+        const personUuid = new UUIDT().toString()
+        await insertCohortMemberships(postgres, [
+            { team_id: teamId, cohort_id: 101, person_id: personUuid, in_cohort: true },
+            {
+                team_id: teamId,
+                cohort_id: 102,
+                person_id: personUuid,
+                in_cohort: false,
+                version: '2026-10-20 10:00:00.000000',
+            },
+            { team_id: teamId + 1, cohort_id: 103, person_id: personUuid, in_cohort: true },
+        ])
+
+        expect(await repository.getCohortMembership(teamId, personUuid, cohortId, sinceVersion)).toEqual(expected)
+    })
+
     it('rejects with a retriable timeout error when the lookup hangs', async () => {
         jest.useFakeTimers()
         try {

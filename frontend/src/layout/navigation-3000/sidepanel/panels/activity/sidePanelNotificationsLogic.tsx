@@ -21,8 +21,8 @@ import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
 import { toParams } from 'lib/utils/url'
@@ -81,6 +81,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: stri
     error_tracking: (id) => urls.errorTrackingIssue(id),
     customer_analytics: null,
     ticket: (id) => urls.supportTicketDetail(id),
+    replay_observation: (id) => urls.replayVisionObservation(id),
 }
 
 export interface NotificationGroup {
@@ -167,6 +168,7 @@ export interface sidePanelNotificationsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentOrganization: OrganizationType | null // organizationLogic
     currentProjectId: number | null // projectLogic
+    sceneHasRendered: boolean // sceneRenderedLogic
     sceneSidePanelContext: SidePanelSceneContext // sidePanelContextLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
@@ -208,6 +210,9 @@ export interface sidePanelNotificationsLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    sceneRendered: () => {
+        value: true
+    } // sceneRenderedLogic
     loadCurrentTeamSuccess: (
         currentTeam: TeamPublicType | null,
         payload?: any
@@ -277,6 +282,9 @@ export interface sidePanelNotificationsLogicActions {
             onlyUnread: any
         }
     }
+    loadInitialNotifications: () => {
+        value: true
+    }
     loadMoreArchived: () => {
         value: true
     }
@@ -317,6 +325,9 @@ export interface sidePanelNotificationsLogicActions {
         groupKey: string
     }
     navigateToNotification: (notification: InAppNotification) => {
+        notification: InAppNotification
+    }
+    notificationClicked: (notification: InAppNotification) => {
         notification: InAppNotification
     }
     notificationReceived: (notification: InAppNotification) => {
@@ -433,11 +444,21 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             ['currentTeam', 'currentTeamId'],
             organizationLogic,
             ['currentOrganization'],
+            sceneRenderedLogic,
+            ['sceneHasRendered'],
         ],
-        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
+        actions: [
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+            sceneRenderedLogic,
+            ['sceneRendered'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
+        loadInitialNotifications: true,
         incrementErrorCount: true,
         clearErrorCount: true,
         markAllAsRead: true,
@@ -472,6 +493,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         loadMoreArchivedSuccess: (count: number) => ({ count }),
         loadArchivedGroupChildren: (group: NotificationGroup) => ({ group }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
+        notificationClicked: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -662,10 +684,15 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             null as ChangesResponse | null,
             {
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
+                    // With real-time notifications, the panel and the unread badge read the in-app list instead.
+                    if (values.realTimeNotificationsEnabled) {
+                        return values.importantChanges
+                    }
                     await breakpoint(1)
 
                     try {
                         const [response] = await Promise.all([
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             api.get<ChangesResponse>(
                                 `api/projects/${values.currentProjectId}/my_notifications?` +
                                     toParams({ unread: onlyUnread })
@@ -711,6 +738,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
                         bookmark: latestNotification.created_at.toISOString(),
                     })
@@ -765,6 +793,32 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         }
 
         return {
+            // Notifications show in a badge and a side panel, not in the scene, so the scene's requests go first.
+            sceneRendered: () => {
+                if (values.realTimeNotificationsEnabled) {
+                    actions.loadInitialNotifications()
+                }
+            },
+            loadInitialNotifications: async () => {
+                try {
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: NOTIFICATION_PAGE_SIZE,
+                    })
+                    actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
+                } catch {
+                    // Swallow
+                }
+                try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    const countResp = await api.get<{ count: number }>(
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(countResp.count)
+                } catch {
+                    // Swallow
+                }
+                actions.initialLoadDone()
+            },
             togglePolling: ({ pageIsVisible }) => {
                 if (values.realTimeNotificationsEnabled) {
                     return
@@ -941,6 +995,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 cache.disposables.dispose('sseConnection')
                 cache.nextStopReason = null
             },
+            notificationClicked: ({ notification }) => {
+                posthog.capture('notification clicked', {
+                    notification_type: notification.notification_type,
+                    resource_type: notification.resource_type,
+                    was_unread: !notification.read,
+                    // How stale a notification is by the time anyone acts on it
+                    age_seconds: dayjs().diff(dayjs(notification.created_at), 'second'),
+                    has_navigation_target: !!values.sourcePathForNotification(notification),
+                    is_other_project: notification.team_id !== null && notification.team_id !== values.currentTeamId,
+                })
+            },
             navigateToNotification: ({ notification }) => {
                 const path = values.sourcePathForNotification(notification)
                 if (!path) {
@@ -1002,8 +1067,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             refreshInAppUnreadCount: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
                     actions.setInAppUnreadCount(countResp.count)
                 } catch {
@@ -1201,7 +1267,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         email: changelogNotification.email || 'joe@posthog.com',
                                         name: changelogNotification.name || 'Joe',
                                         isSystem: true,
-                                        description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
+                                        description: null,
+                                        markdownDescription: changelogNotification.markdown,
                                         created_at: changelogNotification.notificationDate,
                                         unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
                                     }) as HumanizedActivityLogItem
@@ -1302,25 +1369,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            void (async () => {
-                try {
-                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
-                        limit: NOTIFICATION_PAGE_SIZE,
-                    })
-                    actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
-                } catch {
-                    // Swallow
-                }
-                try {
-                    const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                    )
-                    actions.setInAppUnreadCount(countResp.count)
-                } catch {
-                    // Swallow
-                }
-                actions.initialLoadDone()
-            })()
+            if (values.sceneHasRendered) {
+                actions.loadInitialNotifications()
+            }
 
             if (values.currentTeam?.live_events_token) {
                 actions.startSSE()

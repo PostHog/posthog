@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -8,8 +9,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
     CustomPropertyDefinitionApi,
@@ -44,7 +48,10 @@ function bindsAView(source: CustomPropertySourceApi): boolean {
 // binding, or when the caller can't view what it reads.
 function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
     if (bindsAView(source)) {
-        return source.saved_query ? urls.sqlEditor({ view_id: source.saved_query }) : null
+        // The view's page is keyed by its data modeling node; `lookup` lets it resolve from the saved query id.
+        return source.saved_query
+            ? combineUrl(urls.nodeDetail(source.saved_query, 'materialization'), { lookup: 'saved_query' }).url
+            : null
     }
     if (!source.external_data_source || !source.external_data_schema) {
         return null
@@ -69,10 +76,20 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
     } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, setRunsSearch, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
-    const restrictionReason = useRestrictedArea({
+    const memberRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Member,
+    })
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const editorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
+    const restrictionReason = memberRestrictionReason ?? editorRestrictionReason
+    const deleteRestrictionReason = adminRestrictionReason ?? editorRestrictionReason
 
     const labels = LABELS_BY_TARGET[targetType]
     const profileDefinitions = definitions.filter((definition) => definition.target_type === targetType)
@@ -176,20 +193,20 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         .filter(Boolean)
                         .join(' — ') || undefined
                 return (
-                    <Tooltip title={tooltipTitle}>
-                        <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-2">
+                        <Tooltip title={tooltipTitle}>
                             <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
-                            {status.level === 'synced' && definition.source.last_synced_at && (
-                                <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
-                            )}
-                        </span>
-                    </Tooltip>
+                        </Tooltip>
+                        {status.level === 'synced' && definition.source.last_synced_at && (
+                            <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
+                        )}
+                    </span>
                 )
             },
         },
         {
             title: 'Next sync',
-            tooltip: "When the table's warehouse sync is next due. Approximate — it drifts if the schedule was paused.",
+            tooltip: "When the table's or view's next sync is due. Approximate — it drifts if the schedule was paused.",
             render: (_, definition) =>
                 definition.source?.next_sync_at ? (
                     <TZLabel time={definition.source.next_sync_at} className="text-secondary" />
@@ -213,6 +230,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconRefresh />}
                             tooltip="Sync now — re-runs the warehouse sync for this table"
+                            data-attr="sync-warehouse-profile-property"
                             onClick={() => source && triggerSync({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -220,6 +238,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         <LemonButton
                             size="small"
                             tooltip="Backfill — reads the whole table to fill in historical rows"
+                            data-attr="backfill-warehouse-profile-property"
                             onClick={() => source && triggerBackfill({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -230,6 +249,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconPencil />}
                             tooltip="Edit"
+                            data-attr="edit-warehouse-profile-property"
                             onClick={() => openEditModal(definition)}
                             disabledReason={restrictionReason}
                         />
@@ -238,8 +258,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             status="danger"
                             icon={<IconTrash />}
                             tooltip="Delete"
+                            data-attr="delete-warehouse-profile-property"
                             onClick={() => confirmDelete(definition)}
-                            disabledReason={restrictionReason}
+                            disabledReason={deleteRestrictionReason}
                         />
                     </div>
                 )
@@ -256,6 +277,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     // Lock the target: this page only manages one target, so the modal shouldn't offer
                     // the "Attach to" switch.
                     onClick={() => openCreateModal(targetType as CustomPropertyTargetType, true)}
+                    data-attr="add-warehouse-profile-property"
                     disabledReason={restrictionReason}
                 >
                     Add {labels.entity} property
@@ -279,6 +301,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                                 loading={runsLoadingBySourceId[definition.source.id] ?? false}
                                 loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
                                 targetType={targetType}
+                                logSourceId={definition.source.external_data_schema ?? definition.source.saved_query}
                                 searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
                                 entryCount={runsCountBySourceId[definition.source.id] ?? 0}
                                 currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}

@@ -24,12 +24,19 @@ pytestmark = [
 ]
 
 DUMMY_CONFIG = {
-    "S3": {
+    "AwsS3": {
         "bucket_name": "my-production-s3-bucket",
         "region": "us-east-1",
         "prefix": "posthog-events/",
         "aws_access_key_id": "abc123",
         "aws_secret_access_key": "secret",
+        "invalid_key": "invalid_value",
+        "max_file_size_mb": "100",
+    },
+    "S3Compatible": {
+        "bucket_name": "my-production-s3-bucket",
+        "region": "us-east-1",
+        "prefix": "posthog-events/",
         "invalid_key": "invalid_value",
         "use_virtual_style_addressing": "true",
         "max_file_size_mb": "100",
@@ -149,7 +156,7 @@ def _assert_schedule(
 def test_update_batch_export_schedules_for_single_batch_export(team, timezone, paused, temporal):
     """Test the update_batch_export_schedules command updates the schedule for a batch export."""
 
-    batch_export = _create_batch_export(team, "S3", timezone)
+    batch_export = _create_batch_export(team, "AwsS3", timezone)
 
     # Manually update the schedule so we can check that the command updates it
     _update_schedule(temporal, batch_export, dt.timedelta(hours=6))
@@ -169,8 +176,8 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destinat
     """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given destination type."""
 
     timezone = "UTC"
-    batch_export_s3_1 = _create_batch_export(team, "S3", timezone)
-    batch_export_s3_2 = _create_batch_export(team, "S3", timezone)
+    batch_export_s3_1 = _create_batch_export(team, "AwsS3", timezone)
+    batch_export_s3_2 = _create_batch_export(team, "AwsS3", timezone)
     batch_export_snowflake = _create_batch_export(team, "Snowflake", timezone)
 
     # Manually update the schedule so we can check that the command updates it
@@ -180,7 +187,7 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destinat
 
     call_command(
         "update_batch_export_schedules",
-        f"--destination-type=S3",
+        f"--destination-type=AwsS3",
     )
 
     # check that the S3 batch exports were updated
@@ -195,9 +202,9 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_team(tea
     """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given team."""
 
     timezone = "US/Pacific"
-    batch_export_1 = _create_batch_export(team, "S3", timezone)
-    batch_export_2 = _create_batch_export(team, "S3", timezone)
-    batch_export_team_2 = _create_batch_export(team_2, "S3", timezone)
+    batch_export_1 = _create_batch_export(team, "AwsS3", timezone)
+    batch_export_2 = _create_batch_export(team, "AwsS3", timezone)
+    batch_export_team_2 = _create_batch_export(team_2, "AwsS3", timezone)
 
     # Manually update the schedule so we can check that the command updates it
     _update_schedule(temporal, batch_export_1, dt.timedelta(hours=6))
@@ -238,7 +245,7 @@ def test_update_batch_export_schedules_raises_error_if_no_batch_exports_found(te
     with pytest.raises(CommandError):
         call_command(
             "update_batch_export_schedules",
-            f"--destination-type=S3",
+            f"--destination-type=AwsS3",
         )
 
     # check that the Snowflake batch export was not updated
@@ -277,7 +284,7 @@ def test_sync_batch_export_coerces_postgres_config_types(team, temporal, has_sel
 
 def test_sync_batch_export_coerces_s3_config_types(team, temporal):
     """S3 boolean and int config values stored as strings are coerced."""
-    batch_export = _create_batch_export(team, "S3", "UTC")
+    batch_export = _create_batch_export(team, "S3Compatible", "UTC")
     workflow_args = _get_workflow_args(temporal, batch_export)
 
     assert workflow_args["use_virtual_style_addressing"] is True

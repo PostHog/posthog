@@ -1,7 +1,10 @@
+import { Gauge } from 'prom-client'
+
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultOk } from '~/types'
 
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
+import { overflowRedirectCacheSize, overflowRedirectRateLimiterBuckets } from './metrics'
 import { OverflowEventGroup } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
 import { eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
@@ -19,7 +22,7 @@ const createGroup = (
     eventCount: number = 1,
     firstTimestamp: number = Date.now()
 ): OverflowEventGroup => ({
-    key: { token, distinctId },
+    key: `${token}:${distinctId}`,
     headersPerEvent: Array.from({ length: eventCount }, () =>
         createTestEventHeaders({ token, distinct_id: distinctId })
     ),
@@ -34,6 +37,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
+            localCacheMaxSize: 50_000,
             strategies: [{ ...eventRateStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
@@ -69,7 +73,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             await service.handleEventBatch(batch)
 
-            expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
+            expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', ['token1:user1'])
         })
 
         it('checks Redis for keys not in local cache', async () => {
@@ -77,7 +81,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             await service.handleEventBatch(batch)
 
-            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
+            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', ['token1:user1'])
         })
 
         it('returns keys that are already flagged in Redis', async () => {
@@ -159,9 +163,9 @@ describe('MainLaneOverflowRedirect', () => {
 
             expect(mockRepository.batchCheck).toHaveBeenCalledTimes(1)
             expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [
-                { token: 'token1', distinctId: 'user1' },
-                { token: 'token1', distinctId: 'user2' },
-                { token: 'token2', distinctId: 'user1' },
+                'token1:user1',
+                'token1:user2',
+                'token2:user1',
             ])
         })
     })
@@ -232,7 +236,7 @@ describe('MainLaneOverflowRedirect', () => {
             distinctId: string,
             eventNames: (string | undefined)[]
         ): OverflowEventGroup => ({
-            key: { token, distinctId },
+            key: `${token}:${distinctId}`,
             headersPerEvent: eventNames.map((event) =>
                 createTestEventHeaders({ token, distinct_id: distinctId, event })
             ),
@@ -263,6 +267,39 @@ describe('MainLaneOverflowRedirect', () => {
                 expect(result.size).toBe(0)
             }
         )
+    })
+
+    describe('memory', () => {
+        const gaugeValue = async (gauge: Gauge, labels: Record<string, string> = {}) => {
+            const { values } = await gauge.get()
+            return values.find((v) => Object.entries(labels).every(([k, l]) => v.labels[k] === l))?.value
+        }
+
+        // lru-cache keeps the `performance` object it found at import, which fake timers do not replace.
+        const importTimePerformance = performance
+
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2025-01-01T01:00:00'))
+            jest.spyOn(importTimePerformance, 'now').mockImplementation(() => Date.now())
+            service = createService()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            jest.useRealTimers()
+        })
+
+        it('drops expired cache entries and refilled buckets of keys that are not seen again', async () => {
+            await service.handleEventBatch([createGroup('token1', 'user1', 5)])
+
+            jest.advanceTimersByTime(61_000)
+            await service.handleEventBatch([createGroup('token1', 'user2', 1)])
+
+            expect(await gaugeValue(overflowRedirectCacheSize)).toBe(1)
+            expect(
+                await gaugeValue(overflowRedirectRateLimiterBuckets, { type: 'events', strategy: 'event_rate' })
+            ).toBe(1)
+        })
     })
 
     describe('healthCheck', () => {

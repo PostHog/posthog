@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB17",
+    "cluster": 3,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321 would coerce a nonempty string to true, but its production producer stamphog/backend/temporal/activities.py:451 explicitly computes bool(output.get('inbox_review')). logic/reviewer.py:101 defaults the field to False and 119-137 constructs an explicit context dictionary, nests PR data under pr, and serializes the real boolean through json.dumps. activities.py:468-474 writes this generated context after cloning and then invokes the engine; _write_context at 1123-1125 uses that exact invocation JSON. The Action CLI at review_pr.py:973-985 has no self-driving option and leaves the flag false.",
+            "refutation": "I first traced every production builder/caller for a string or numeric flag rather than reasoning from arbitrary dict inputs. The only hosted call normalizes to a native bool before serialization; PR-controlled fields cannot replace the top-level field because the context is explicitly constructed, not merged from the PR. No current supported producer sends 'false', a number, or another malformed type. A strict identity comparison would be defensive hardening for a hypothetical future caller, but it does not fix a reachable coercion defect in this source."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321 does coerce truthy values, but the hosted producer /tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:434-451 explicitly passes bool(output.get('inbox_review')); /tmp/frozen-75215/products/stamphog/backend/logic/reviewer.py:101,119-137 defaults to False and JSON-serializes that boolean. The trusted context is written after cloning and shipping the engine at activities.py:468-474. No shipping caller that supplies the claimed string or numeric flag is established.",
+            "refutation": "I looked for a guard at the context producer and tests exercising the real boundary. The explicit bool conversion in activities.py:451 guarantees a JSON boolean, and /tmp/frozen-75215/products/stamphog/backend/tests/test_integration.py:1412-1413 asserts the decoded hosted flag is True. /tmp/frozen-75215/tools/pr-approval-agent/test_review_local.py:282-315 covers omitted-flag refusal and actual-True bot/draft review. A hand-crafted local context with a string can change behavior, but malformed trusted input is not a proved reachable shipping defect; strict identity checking would be defensive hardening."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The hosted producer explicitly computes self_driving_review=bool(output.get('inbox_review')) at products/stamphog/backend/temporal/activities.py:448-451. build_reviewer_invocation declares a bool default and JSON-serializes that exact field (logic/reviewer.py:101,131-137). The server writes its context after cloning at activities.py:466-474,1123-1131, and review_local reads that JSON at tools/pr-approval-agent/review_local.py:396-398. Consequently production supplies a JSON boolean, not the hypothesized string 'false' or another malformed type.",
+            "refutation": "I searched every producer of self_driving_review and traced the on-disk context hand-off to test whether an arbitrary truthy value can reach line 321. The only hosted call normalizes the value to an actual bool before serialization, and the Action does not set the flag (review_pr.py:984). Repository content does not supply this trusted context. A manually fabricated local context can contain a string, but that is not a demonstrated production trigger. Strict identity comparison would duplicate the producer's type guarantee and does not address separate provenance correctness issues, so this malformed-type finding is false."
+        }
+    ]
+}

@@ -21,6 +21,8 @@ use crate::types::{
     RouterFreezeAck,
 };
 
+pub mod migration;
+
 /// One handoff a rebalance has decided to create. `old_owner` is `None`
 /// for a fresh assignment (no prior owner), which skips the drain.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,6 +294,8 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
+            config_epoch: 0,
             new_owner_address: None,
         }
     }

@@ -168,6 +168,27 @@ impl StampPolicyDivergence {
     }
 }
 
+/// A cohort membership resolved for condition analysis, and whether it can be stated as fact.
+///
+/// The dynamic path scores a behavioral or lifecycle leaf as a non-match whatever the cohort's
+/// member list holds, so the matcher refuses to trust a non-match on such a cohort. Condition
+/// analysis keeps the same distinction, so its explanation never asserts a membership that
+/// nothing resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CohortMembership {
+    Member,
+    NonMember,
+    /// Resolved as a non-member, on a cohort whose behavioral or lifecycle leaf the dynamic path
+    /// cannot evaluate.
+    UnverifiedNonMember,
+}
+
+impl CohortMembership {
+    pub fn is_member(self) -> bool {
+        matches!(self, Self::Member)
+    }
+}
+
 impl Cohort {
     /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
     /// Missing or malformed `condition_type` (e.g. a hypercache entry written before this
@@ -222,29 +243,29 @@ impl Cohort {
 
 pub type CohortId = i32;
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CohortPropertyType {
+    /// `property` is a legacy alias for `AND` that the cohort UI emitted for inner groups.
+    #[serde(alias = "property")]
     AND,
     OR,
+    /// A group type this evaluator cannot evaluate, such as `XOR`. Membership in the
+    /// group is unknown, so a parent group decides without it when it can. This differs
+    /// from `CohortValuesItem::Unsupported`, which is a leaf that never matches.
+    #[serde(other)]
+    Unsupported,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CohortProperty {
-    pub properties: InnerCohortProperty,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct InnerCohortProperty {
-    #[serde(rename = "type")]
-    pub prop_type: CohortPropertyType,
-    pub values: Vec<CohortValuesItem>,
+    pub properties: CohortValues,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
-    pub prop_type: String,
+    pub prop_type: CohortPropertyType,
     pub values: Vec<CohortValuesItem>,
 }
 
@@ -280,6 +301,10 @@ pub struct CohortValues {
 /// `Cohort::filters`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing Filter would add a heap allocation for every leaf on each cohort parse"
+)]
 pub enum CohortValuesItem {
     Filter(PropertyFilter),
     Group(CohortValues),

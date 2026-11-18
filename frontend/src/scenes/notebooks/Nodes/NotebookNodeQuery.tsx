@@ -1,11 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,19 +16,24 @@ import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ComputationTimeWithRefresh } from '~/queries/nodes/InsightViz/ComputationTimeWithRefresh'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
-    isSavedInsightNode,
     isActorsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
+
+import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
+import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
@@ -103,6 +109,11 @@ const Component = ({
         : {
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
+    const dataframeInsightProps: InsightLogicProps =
+        query.kind === NodeKind.SavedInsightNode
+            ? insightLogicProps
+            : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
+    dataframeInsightProps.retainResponseOnUnmount = !isShared
     const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
@@ -158,7 +169,6 @@ const Component = ({
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -233,6 +243,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
+            context={{ insightProps: dataframeInsightProps }}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({
@@ -251,18 +262,80 @@ const Component = ({
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 {isInsightViz ? (
-                    <div className="flex flex-1 flex-col overflow-hidden">{queryComponent}</div>
+                    <div className="flex flex-1 flex-col overflow-hidden">
+                        <NotebookInsightRefresh
+                            insightProps={dataframeInsightProps}
+                            notebookShortId={notebookLogic.props.shortId}
+                            nodeId={nodeId}
+                        />
+                        <div className="flex min-h-0 flex-1 flex-col">{queryComponent}</div>
+                    </div>
                 ) : (
                     <ScrollableShadows direction="vertical" className="flex-1">
                         {queryComponent}
                     </ScrollableShadows>
                 )}
+                {isInsightViz ? (
+                    <NotebookInsightDataframe
+                        insightProps={dataframeInsightProps}
+                        attributes={attributes}
+                        updateAttributes={updateAttributes}
+                    />
+                ) : null}
             </BindLogic>
         </div>
     )
 }
 
-type NotebookNodeQueryAttributes = {
+function NotebookInsightRefresh({
+    insightProps,
+    notebookShortId,
+    nodeId,
+}: {
+    insightProps: InsightLogicProps
+    notebookShortId: string
+    nodeId: string
+}): JSX.Element | null {
+    const { insightQuery, insightDataLoading, insightDataError, insightDataRaw } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const refreshRequested = useRef(false)
+
+    useEffect(() => {
+        if (refreshRequested.current && !insightDataLoading) {
+            refreshRequested.current = false
+            posthog.capture('notebook insight refresh completed', {
+                notebook_id: notebookShortId,
+                node_id: nodeId,
+                success: !insightDataError,
+            })
+        }
+    }, [insightDataLoading, insightDataError, insightDataRaw, notebookShortId, nodeId])
+
+    if (!insightQuery?.kind) {
+        return null
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps), query: insightQuery }}>
+                <div className="px-3 py-2 border-b">
+                    <ComputationTimeWithRefresh
+                        onRefresh={() => {
+                            refreshRequested.current = true
+                            posthog.capture('notebook insight refresh started', {
+                                notebook_id: notebookShortId,
+                                node_id: nodeId,
+                            })
+                        }}
+                    />
+                </div>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+type NotebookNodeQueryAttributes = InsightDataframeAttributes & {
     query: QuerySchema
     id?: InsightShortId
     view?: string
@@ -460,6 +533,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,
@@ -475,6 +549,13 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         outputTab: {
             default: OutputTab.Results,
         },
+        nodeId: {},
+        returnVariable: {},
+        dataframeSource: {},
+        dataframeQuery: {},
+        runId: {},
+        result: {},
+        runStatus: {},
     },
     href: (attributes) => {
         const query = getResolvedNotebookQuery(attributes)

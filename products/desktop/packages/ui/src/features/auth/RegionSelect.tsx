@@ -6,25 +6,27 @@ import {
   SelectValue,
   Text,
 } from "@posthog/quill";
-import { type CloudRegion, REGION_LABELS } from "@posthog/shared";
+import { type CloudRegion, describeRegion } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { getSelectableRegions } from "./selectableRegions";
 
 interface RegionSelectProps {
   region: CloudRegion;
   onRegionChange: (region: CloudRegion) => void;
   disabled?: boolean;
-  /** Host decides whether the local "dev" region is offered (e.g. dev builds). */
+  /** Host decides whether development regions are offered. */
   includeDevRegion?: boolean;
+  /** Custom needs a host that can hold the target, so it is a separate flag. */
+  includeCustomRegion?: boolean;
 }
 
-const CLOUD_REGIONS: CloudRegion[] = ["us", "eu"];
-
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
-  const { flag, label } = REGION_LABELS[region];
+  const { flag, hint, label } = describeRegion(region);
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
-      <span>{label}</span>
+      <span className="shrink-0 font-medium">{label}</span>
+      <span className="truncate text-(--gray-10) text-xs">{hint}</span>
     </span>
   );
 }
@@ -34,10 +36,9 @@ export function RegionSelect({
   onRegionChange,
   disabled = false,
   includeDevRegion = false,
+  includeCustomRegion = false,
 }: RegionSelectProps) {
-  const offered: CloudRegion[] = includeDevRegion
-    ? [...CLOUD_REGIONS, "dev"]
-    : CLOUD_REGIONS;
+  const offered = getSelectableRegions(includeDevRegion, includeCustomRegion);
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -51,7 +52,7 @@ export function RegionSelect({
         }
         items={offered.map((candidate) => ({
           value: candidate,
-          label: REGION_LABELS[candidate].label,
+          label: `${describeRegion(candidate).label} - ${describeRegion(candidate).hint}`,
         }))}
       >
         {/* Fixed width so switching regions never reflows the row beneath the button. */}
@@ -59,7 +60,7 @@ export function RegionSelect({
           size="sm"
           disabled={disabled}
           aria-label="Data region"
-          className="w-[176px]"
+          className="w-[280px]"
         >
           <SelectValue>
             <RegionOptionLabel region={region} />

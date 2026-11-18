@@ -3,20 +3,22 @@ from posthog.conftest import django_db_setup
 
 __all__ = ["django_db_setup"]
 
-from collections.abc import Iterator
-from datetime import datetime
-from uuid import UUID
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 
 import pytest
-from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
+from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
 from unittest.mock import patch
 
 from django.conf import settings
 
+import psycopg2
+import psycopg2.extensions
 from clickhouse_driver import Client
 from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
 
 # Import the shared Dagster PostgreSQL fixtures so they apply to all tests
 # in this directory. Direct import (rather than pytest_plugins) is required
@@ -25,15 +27,21 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
-from posthog.persons_db import persons_db_connection
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 
-def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
-    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp) into flag_evaluations."""
-    client.execute(
-        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
-        rows,
-    )
+def insert_flag_evaluations(rows: list[tuple], client: Client) -> None:
+    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp[, inserted_at]) into flag_evaluations.
+
+    Six-element rows pin inserted_at, for tests whose deletion requests carry a created_at in the
+    past: the sweep predicate only covers rows ingested before their request was created, and the
+    column's DEFAULT stamps insert time, which would put the row out of every backdated request's
+    scope.
+    """
+    columns = "team_id, distinct_id, person_id, uuid, timestamp"
+    if rows and len(rows[0]) == 6:
+        columns += ", inserted_at"
+    client.execute(f"INSERT INTO writable_flag_evaluations ({columns}) VALUES", rows)
 
 
 def refresh_person_from_persons_db(person) -> None:
@@ -88,22 +96,45 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     )
 
 
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+@contextmanager
+def isolated_clickhouse_cluster(client_settings: Mapping[str, str] | None = None) -> Iterator[ClickhouseCluster]:
     """
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
-    # Setup reset stays unconditional (Kafka-engine arrivals don't advance the
-    # dirty counter, so a late row would leak into the next test); teardown can
-    # skip when nothing checked out a ClickHouse client.
-    reset_clickhouse_database()
+    # The reset is unconditional because Kafka-engine arrivals do not advance the
+    # dirty counter, so a late row would leak into the next test. There is no
+    # teardown reset: the next test that uses this fixture resets on setup, and
+    # reset_clickhouse_after_module covers the tests that run after the module.
+    truncate_or_reset_clickhouse_database()
+    with patch.object(
+        ClickhouseCluster,
+        "_ClickhouseCluster__get_cluster_hosts",
+        _patched_get_cluster_hosts,
+    ):
+        yield get_cluster(client_settings=client_settings)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def reset_clickhouse_after_module() -> Iterator[None]:
+    yield
+    reset_clickhouse_database_if_dirty()
+
+
+@pytest.fixture
+def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+    with isolated_clickhouse_cluster() as clickhouse_cluster:
+        yield clickhouse_cluster
+
+
+@pytest.fixture
+def persons_database() -> Iterator[psycopg2.extensions.connection]:
+    """A writer connection to the test persons DB with the cleanup queue emptied."""
+    conn = psycopg2.connect(persons_db_url(writer=True))
     try:
-        with patch.object(
-            ClickhouseCluster,
-            "_ClickhouseCluster__get_cluster_hosts",
-            _patched_get_cluster_hosts,
-        ):
-            yield get_cluster()
+        with conn.cursor() as cursor:
+            cursor.execute(f"TRUNCATE {PG_CLEANUP_QUEUE_TABLE}")
+        conn.commit()
+        yield conn
     finally:
-        reset_clickhouse_database_if_dirty()
+        conn.close()

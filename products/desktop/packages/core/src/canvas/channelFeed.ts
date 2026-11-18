@@ -1,5 +1,9 @@
-import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import type {
+  TaskRunEnvironment,
+  TaskRunStatus,
+} from "@posthog/shared/domain-types";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { runStatusForDisplay } from "../tasks/taskStatusPresentation";
 
 const PERMANENT_CHANNEL_FEED_FAILURES = new Set([401, 403, 404]);
 
@@ -14,10 +18,22 @@ export function shouldPollChannelFeed(error: unknown): boolean {
 export function taskFeedRunStatus({
   status,
   environment,
+  runMode,
+  isGenerating,
 }: {
   status: TaskRunStatus | null | undefined;
-  environment: string | null | undefined;
+  environment: TaskRunEnvironment | null | undefined;
+  runMode?: "interactive" | "background" | null;
+  isGenerating?: boolean;
 }): TaskRunStatus | null {
-  if (!status) return null;
-  return environment === "cloud" || isTerminalStatus(status) ? status : null;
+  const displayStatus = runStatusForDisplay({
+    status,
+    environment,
+    runMode,
+    isGenerating,
+  });
+  if (!displayStatus) return null;
+  return environment === "cloud" || isTerminalStatus(displayStatus)
+    ? displayStatus
+    : null;
 }

@@ -32,6 +32,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../frontend/src/queries/schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../frontend/src/queries/schema/schema-general'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
 import { llmAnalyticsSummarizationBatchCheckCreate, llmAnalyticsSummarizationCreate } from './generated/api'
@@ -126,6 +127,7 @@ export interface aiObservabilitySessionDataLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
@@ -250,6 +252,7 @@ export interface aiObservabilitySessionDataLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => LLMTrace[]
         sessionTurns: (traces: LLMTrace[], fullTraces: Record<string, LLMTrace>) => SessionTurn[]
@@ -568,6 +571,8 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     const data = await llmAnalyticsSummarizationCreate(String(teamId), {
                         mode: 'minimal',
                         force_refresh: forceRefresh,
+                        // The session list shows only the title, so a bounded input is enough.
+                        compact_context: true,
                         trace_id: traceId,
                         ...getSummarizationLookupDateRange(trace?.createdAt),
                     })

@@ -1,10 +1,11 @@
 import { setRootContainer } from "@posthog/di/container";
+import type { Adapter } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ANALYTICS_TRACKER, track } from "@posthog/ui/shell/analytics";
 import {
   initializePostHog,
   posthogAnalyticsTracker,
-  registerCodexSubscription,
+  registerAdapterSubscription,
 } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import posthog from "posthog-js/dist/module.full.no-external";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,57 +69,51 @@ describe("subscription analytics evidence", () => {
     vi.unstubAllGlobals();
   });
 
-  it("registers the subscription state as SDK super properties", () => {
-    registerCodexSubscription({ access: "own-subscription", connected: true });
+  it.each<Adapter>(["codex", "claude"])(
+    "registers the %s subscription state as SDK super properties",
+    (adapter) => {
+      registerAdapterSubscription(adapter, {
+        access: "own-subscription",
+        connected: true,
+      });
 
-    expect(posthog.get_property("codex_model_access" as never)).toBe(
-      "own-subscription",
-    );
-    expect(posthog.get_property("codex_subscription_connected" as never)).toBe(
-      true,
-    );
-  });
+      expect(posthog.get_property(`${adapter}_model_access` as never)).toBe(
+        "own-subscription",
+      );
+      expect(
+        posthog.get_property(`${adapter}_subscription_connected` as never),
+      ).toBe(true);
+    },
+  );
 
-  it("sends a session's run event with the subscription state attached", async () => {
-    const { enqueued } = tapRequestQueue();
-    registerCodexSubscription({ access: "own-subscription", connected: true });
+  it.each<[Adapter, "own-subscription" | "posthog-gateway", boolean]>([
+    ["codex", "own-subscription", true],
+    ["codex", "posthog-gateway", false],
+    ["claude", "own-subscription", true],
+    ["claude", "posthog-gateway", false],
+  ])(
+    "sends a %s run event billed to %s",
+    async (adapter, access, connected) => {
+      const { enqueued } = tapRequestQueue();
+      registerAdapterSubscription(adapter, { access, connected });
 
-    track(ANALYTICS_EVENTS.TASK_RUN, {
-      task_id: "task-evidence-1",
-      execution_type: "local",
-    });
-    await Promise.resolve();
+      track(ANALYTICS_EVENTS.TASK_RUN, {
+        task_id: `task-evidence-${adapter}-${access}`,
+        execution_type: "local",
+      });
+      await Promise.resolve();
 
-    const events = captureEventsOnWire(enqueued);
-    const runEvents = events.filter(
-      (e) => e.event === ANALYTICS_EVENTS.TASK_RUN,
-    );
-    expect(runEvents).toHaveLength(1);
-    expect(runEvents[0]?.properties.codex_model_access).toBe(
-      "own-subscription",
-    );
-    expect(runEvents[0]?.properties.codex_subscription_connected).toBe(true);
-    expect(runEvents[0]?.properties.task_id).toBe("task-evidence-1");
-  });
-
-  it("gateway runs are tracked too, with their own billing value", async () => {
-    const { enqueued } = tapRequestQueue();
-    registerCodexSubscription({
-      access: "posthog-gateway",
-      connected: false,
-    });
-
-    track(ANALYTICS_EVENTS.TASK_RUN, {
-      task_id: "task-evidence-gw",
-      execution_type: "local",
-    });
-    await Promise.resolve();
-
-    const events = captureEventsOnWire(enqueued);
-    const runEvents = events.filter(
-      (e) => e.event === ANALYTICS_EVENTS.TASK_RUN,
-    );
-    expect(runEvents).toHaveLength(1);
-    expect(runEvents[0]?.properties.codex_model_access).toBe("posthog-gateway");
-  });
+      const runEvents = captureEventsOnWire(enqueued).filter(
+        (e) => e.event === ANALYTICS_EVENTS.TASK_RUN,
+      );
+      expect(runEvents).toHaveLength(1);
+      expect(runEvents[0]?.properties[`${adapter}_model_access`]).toBe(access);
+      expect(
+        runEvents[0]?.properties[`${adapter}_subscription_connected`],
+      ).toBe(connected);
+      expect(runEvents[0]?.properties.task_id).toBe(
+        `task-evidence-${adapter}-${access}`,
+      );
+    },
+  );
 });

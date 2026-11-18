@@ -30,7 +30,7 @@ export interface PropertyUpdates {
  * state: the ops as the event stated them. Interpretation of the event
  * (denylist, force semantics) happens here; what the ops mean given
  * current state is each store's concern. The Postgres store refines them
- * against its snapshot; the personhog store ships them for the leader to
+ * against its snapshot; the personhog store writes them for the leader to
  * resolve authoritatively.
  */
 export interface EventOps {
@@ -242,7 +242,7 @@ export function refineEventOps(
  * Returns null when composition would lose information: a later
  * set_once over a key already in the pair state needs "present resolves
  * one way, absent another with a different value", which no lane
- * combination expresses. The caller then cuts a segment, shipping the
+ * combination expresses. The caller then cuts a segment, writing the
  * accumulated ops as their own leader call so authoritative refinement
  * happens between the two.
  */

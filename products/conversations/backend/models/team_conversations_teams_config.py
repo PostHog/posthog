@@ -1,12 +1,7 @@
-import logging
-
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamConversationsTeamsConfig(models.Model):
@@ -35,6 +30,3 @@ class TeamConversationsTeamsConfig(models.Model):
                 name="unique_teams_tenant_id",
             ),
         ]
-
-
-register_team_extension_signal(TeamConversationsTeamsConfig, logger=logger)

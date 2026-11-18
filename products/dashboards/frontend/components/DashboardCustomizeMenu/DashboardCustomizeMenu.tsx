@@ -2,26 +2,24 @@ import { useActions, useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import type { DashboardTileSpacing } from '~/types'
+import type { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    getTileSpacingChoices,
     DashboardGridCompaction,
     type DashboardGridCompaction as DashboardGridCompactionType,
+    TILE_GROUP_DISPLAY_LABELS,
 } from '../../dashboardCustomization'
 import { DashboardTileMovementPreview } from './DashboardTileMovementPreview'
 
-const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
-    { value: 'tight', label: DASHBOARD_TILE_SPACING_LABELS.tight },
-    { value: 'condensed', label: DASHBOARD_TILE_SPACING_LABELS.condensed },
-    { value: 'standard', label: DASHBOARD_TILE_SPACING_LABELS.standard },
-    { value: 'relaxed', label: DASHBOARD_TILE_SPACING_LABELS.relaxed },
-    { value: 'wide', label: DASHBOARD_TILE_SPACING_LABELS.wide },
+const TILE_GROUP_DISPLAY_OPTIONS: { value: TileGroupDisplay; label: string }[] = [
+    { value: 'sections', label: TILE_GROUP_DISPLAY_LABELS.sections },
+    { value: 'tabs', label: TILE_GROUP_DISPLAY_LABELS.tabs },
 ]
 
 const GRID_COMPACTION_OPTIONS: {
@@ -35,19 +33,11 @@ const GRID_COMPACTION_OPTIONS: {
                 <span className="text-xs font-medium">
                     {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}
                 </span>
-                <LemonTag type="success">Recommended</LemonTag>
-                <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
-            </span>
-        ),
-    },
-    {
-        value: DashboardGridCompaction.Horizontal,
-        label: (
-            <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">
-                    {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Horizontal]}
+                {/* Lemon tags read --success, which quill redefines as a pale fill inside its popovers */}
+                <span data-not-quill className="contents">
+                    <LemonTag type="success">Recommended</LemonTag>
                 </span>
-                <DashboardTileMovementPreview mode={DashboardGridCompaction.Horizontal} />
+                <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
         ),
     },
@@ -65,56 +55,70 @@ const GRID_COMPACTION_OPTIONS: {
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
-    const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } =
+    const {
+        dashboard,
+        canEditDashboard,
+        currentLayoutSize,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
+    const layoutAvailable = currentLayoutSize !== 'xs'
+    const { changeDashboardGridCompaction, changeDashboardTileSpacing, changeTileGroupDisplay } =
         useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
-
-    if (!dashboard || !canEditDashboard || !dashboardCustomizationEnabled) {
+    if (!dashboard || !canEditDashboard) {
         return null
     }
 
     const tileSpacing = dashboard.customization?.tile_spacing ?? 'standard'
     const layoutCompaction = dashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical
-    const setTileSpacing = (value: DashboardTileSpacing): void => {
-        if (value === tileSpacing) {
-            return
-        }
-        setDashboardTileSpacing(value)
-        saveDashboardTileSpacing(value)
-    }
-
-    const setGridCompaction = (value: DashboardGridCompactionType): void => {
-        if (value === layoutCompaction) {
-            return
-        }
-        changeDashboardGridCompaction(value)
-    }
-
     return (
-        <div className="space-y-2 p-2">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className={layoutAvailable ? 'space-y-2 p-2' : 'w-[min(20rem,calc(100vw-2rem))] space-y-2 p-2'}>
+            <div className={layoutAvailable ? 'flex flex-wrap items-center gap-x-3 gap-y-1' : 'flex flex-col gap-2'}>
                 <span className="text-xs text-muted whitespace-nowrap">Tile density</span>
                 <LemonRadio<DashboardTileSpacing>
                     value={tileSpacing}
-                    onChange={setTileSpacing}
-                    options={TILE_SPACING_OPTIONS}
+                    onChange={changeDashboardTileSpacing}
+                    options={getTileSpacingChoices(tileSpacing).map((value) => ({
+                        value,
+                        label: DASHBOARD_TILE_SPACING_LABELS[value],
+                    }))}
                     orientation="horizontal"
-                    className="flex-1 flex-wrap gap-x-3 gap-y-1"
+                    className={layoutAvailable ? 'flex-1 flex-wrap gap-x-3 gap-y-1' : 'flex-wrap gap-x-3 gap-y-1'}
                     aria-label="Tile density"
                 />
             </div>
-            <div className="flex gap-x-3 border-t pt-2">
-                <span className="pt-3 text-xs text-muted whitespace-nowrap">When you move a tile</span>
-                <LemonRadio<DashboardGridCompactionType>
-                    value={layoutCompaction}
-                    onChange={setGridCompaction}
-                    options={GRID_COMPACTION_OPTIONS}
-                    radioPosition="top"
-                    className="flex-1"
-                    aria-label="How moving a tile rearranges other tiles"
-                />
-            </div>
+            {layoutAvailable ? (
+                <div className="flex gap-x-3 border-t pt-2">
+                    <span className="pt-3 text-xs text-muted whitespace-nowrap">When you move a tile</span>
+                    <LemonRadio<DashboardGridCompactionType>
+                        value={layoutCompaction}
+                        onChange={changeDashboardGridCompaction}
+                        options={GRID_COMPACTION_OPTIONS.map((option) => ({
+                            ...option,
+                            disabledReason: dashboardGridCompactionSaving ? 'Saving your last change' : undefined,
+                        }))}
+                        radioPosition="top"
+                        className="flex-1"
+                        aria-label="How moving a tile rearranges other tiles"
+                    />
+                </div>
+            ) : (
+                <p className="border-t pt-2 text-xs text-muted">Use a larger screen to move or resize tiles.</p>
+            )}
+            {tileGroupSections.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
+                    <span className="text-xs text-muted whitespace-nowrap">Show groups as</span>
+                    <LemonRadio<TileGroupDisplay>
+                        value={tileGroupDisplay}
+                        onChange={changeTileGroupDisplay}
+                        options={TILE_GROUP_DISPLAY_OPTIONS}
+                        orientation="horizontal"
+                        className="flex-1 flex-wrap gap-x-3 gap-y-1"
+                        aria-label="Show groups as"
+                    />
+                </div>
+            )}
         </div>
     )
 }

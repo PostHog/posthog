@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockRepositoryRepository } from "../../db/repositories/repository-repository.mock";
 import { createMockWorkspaceRepository } from "../../db/repositories/workspace-repository.mock";
 import { createMockWorktreeRepository } from "../../db/repositories/worktree-repository.mock";
@@ -35,7 +35,7 @@ const mockGitQueries = vi.hoisted(() => ({
 
 vi.mock("@posthog/git/queries", () => mockGitQueries);
 
-import { ShellService } from "./shell";
+import { OUTPUT_FLUSH_MS, ShellService } from "./shell";
 
 function createMockPtyProcess() {
   return {
@@ -77,6 +77,80 @@ function createService(overrides?: {
   );
   return { service, processTracking };
 }
+
+describe("ShellService output coalescing", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function createServiceWithPty() {
+    let onData: ((data: string) => void) | undefined;
+    let onExit: ((event: { exitCode: number }) => void) | undefined;
+    const ptyProcess = {
+      ...createMockPtyProcess(),
+      onData: vi.fn((handler: (data: string) => void) => {
+        onData = handler;
+        return { dispose: vi.fn() };
+      }),
+      onExit: vi.fn((handler: (event: { exitCode: number }) => void) => {
+        onExit = handler;
+        return { dispose: vi.fn() };
+      }),
+    };
+    mockPty.spawn.mockReturnValue(ptyProcess);
+    const { service } = createService();
+    return {
+      service,
+      emitData: (data: string) => onData?.(data),
+      emitExit: (exitCode: number) => onExit?.({ exitCode }),
+    };
+  }
+
+  it("joins the reads that arrive inside one flush window into one data event", async () => {
+    const { service, emitData } = createServiceWithPty();
+    const dataHandler = vi.fn();
+    service.on(ShellEvent.Data, dataHandler);
+    await service.create("session-1");
+
+    emitData("one ");
+    emitData("two ");
+    emitData("three");
+    expect(dataHandler).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(OUTPUT_FLUSH_MS);
+    expect(dataHandler).toHaveBeenCalledTimes(1);
+    expect(dataHandler).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      data: "one two three",
+    });
+  });
+
+  it.each(["pty exit", "explicit destroy"] as const)(
+    "delivers held output before the exit event on %s",
+    async (teardown) => {
+      const { service, emitData, emitExit } = createServiceWithPty();
+      const order: string[] = [];
+      service.on(ShellEvent.Data, ({ data }) => order.push(`data:${data}`));
+      service.on(ShellEvent.Exit, ({ exitCode }) =>
+        order.push(`exit:${exitCode}`),
+      );
+      await service.create("session-1");
+
+      emitData("last words");
+      if (teardown === "pty exit") emitExit(0);
+      else service.destroy("session-1");
+
+      expect(order).toEqual([
+        "data:last words",
+        teardown === "pty exit" ? "exit:0" : "exit:130",
+      ]);
+    },
+  );
+});
 
 describe("ShellService.destroy", () => {
   it("emits an exit event for explicit teardown", async () => {

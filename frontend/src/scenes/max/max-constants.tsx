@@ -22,6 +22,7 @@ import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { insightsModel } from '~/models/insightsModel'
 import {
     AgentMode,
     AssistantTool,
@@ -29,7 +30,7 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { RecordingUniversalFilters } from '~/types'
+import { InsightShortId, RecordingUniversalFilters } from '~/types'
 
 export interface EnhancedToolCall extends AssistantToolCall {
     status: TaskExecutionStatus
@@ -41,6 +42,24 @@ export interface EnhancedToolCall extends AssistantToolCall {
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
+}
+
+/**
+ * Longest message the server accepts. Mirrors `MAX_MESSAGE_CONTENT_LENGTH` in ee/api/conversation.py;
+ * keep the two in sync. Anything longer comes back as a 400 on the `content` field.
+ */
+export const MAX_MESSAGE_LENGTH = 40000
+
+/** Shown when a message is over `MAX_MESSAGE_LENGTH`, both before sending and if the server rejects it. */
+export const MESSAGE_TOO_LONG = `Your message is too long. Shorten it to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters or fewer.`
+
+/**
+ * Counts the way the server's `CharField` does: it trims whitespace, then measures Unicode code
+ * points (Python `len`), not UTF-16 units. Emoji are one code point each but two UTF-16 units, so
+ * `String.length` would reject messages the server accepts.
+ */
+export function messageLength(content: string): number {
+    return Array.from(content.trim()).length
 }
 
 /** Static tool definition for display purposes. */
@@ -64,6 +83,7 @@ export interface ToolDefinition<N extends string = string> {
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | ReplayVisionScanWidgetDef | null]
+    onResult?: (result: any) => void
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -86,7 +106,7 @@ export interface ToolDefinition<N extends string = string> {
 }
 
 /** Active instance of a tool. */
-export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
+export interface ToolRegistration extends Partial<Pick<ToolDefinition, 'name' | 'description'>> {
     /** A unique identifier for the tool */
     identifier: keyof typeof TOOL_DEFINITIONS
     /**
@@ -574,7 +594,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         modes: [AgentMode.ProductAnalytics],
+        onResult: (result) => {
+            if (result?.saved_insight?.short_id) {
+                insightsModel.actions.insightSaved(result.saved_insight.short_id as InsightShortId)
+            }
+        },
         displayFormatter: (toolCall, { registeredToolMap }) => {
+            if (toolCall.args?.insight_id) {
+                return toolCall.status === 'completed' ? 'Updated insight' : 'Updating insight...'
+            }
             const isEditing = registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
@@ -612,34 +640,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return ['Filtered recordings', widgetDef]
             }
             return ['Filtering recordings...', widgetDef]
-        },
-    },
-    analyze_user_interviews: {
-        name: 'Analyze user interviews',
-        description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed user interviews'
-            }
-            return 'Analyzing user interviews...'
-        },
-    },
-    create_user_interview_topic: {
-        name: 'Set up user interviews',
-        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created interview topic'
-            }
-            return 'Setting up interview topic...'
         },
     },
     create_hog_function_filters: {
@@ -740,7 +740,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Found issues'
+                const issues = toolCall.result?.ui_payload?.search_error_tracking_issues?.issues
+                if (!Array.isArray(issues)) {
+                    return 'Searched issues'
+                }
+                return issues.length > 0 ? 'Found issues' : 'No issues found'
             }
             return 'Searching issues...'
         },
@@ -771,16 +775,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
-    summarize_replay_vision_summaries: {
-        name: 'Summarize session summaries',
-        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+    compare_replay_vision_variants: {
+        name: 'Compare experiment variants',
+        description: 'Compare experiment variants: what an experiment scanner found in each variant',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Summarized session summaries'
+                return 'Compared experiment variants'
             }
-            return 'Summarizing session summaries...'
+            return 'Comparing experiment variants...'
         },
     },
     draft_replay_vision_scanner_prompt: {
@@ -817,6 +821,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Starting scans...'
             }
             return ['Scanned recordings', replayVisionScanWidgetDef(toolCall)]
+        },
+    },
+    get_replay_vision_scan_results: {
+        name: 'Read scan results',
+        description: 'Read scan results for each recording in a Replay Vision scan, failures included',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read the scan results'
+            }
+            return 'Reading the scan results...'
         },
     },
     retry_replay_vision_observation: {
@@ -867,18 +883,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Updating the scanner...'
         },
     },
-    create_replay_vision_action: {
-        name: 'Summarize a scanner',
-        description: 'Summarize a scanner on a recurring schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Set up the summary'
-            }
-            return 'Setting up the summary...'
-        },
-    },
     list_replay_vision_scanners: {
         name: 'List scanners',
         description: 'List scanners in this project, with their ids, status and sampling',
@@ -927,6 +931,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Rate a result...'
         },
     },
+    get_replay_vision_observation_stats: {
+        name: 'Count observations',
+        description: "Count observations: a scanner's exact total and its breakdown by status and result",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Counted observations'
+            }
+            return 'Counting observations...'
+        },
+    },
     analyze_replay_vision_impact: {
         name: 'Measure impact',
         description: "Measure impact: how many sessions and people a scanner's findings affected",
@@ -937,66 +953,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Measure impact'
             }
             return 'Measure impact...'
-        },
-    },
-    suggest_replay_vision_tags: {
-        name: 'Suggest categories',
-        description: 'Suggest categories for a classifier, grounded in what it has seen',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggest categories'
-            }
-            return 'Suggest categories...'
-        },
-    },
-    read_replay_vision_actions: {
-        name: 'Read summaries',
-        description: 'Read summaries and alerts, and the reports they have produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Read summaries'
-            }
-            return 'Read summaries...'
-        },
-    },
-    update_replay_vision_action: {
-        name: 'Update a summary',
-        description: 'Update a summary: pause it, resume it, rename it, or change its cadence',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Update a summary'
-            }
-            return 'Update a summary...'
-        },
-    },
-    delete_replay_vision_action: {
-        name: 'Delete a summary',
-        description: 'Delete a summary and every report it has produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Delete a summary'
-            }
-            return 'Delete a summary...'
-        },
-    },
-    run_replay_vision_action: {
-        name: 'Run a summary now',
-        description: 'Run a summary now instead of waiting for its schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Run a summary now'
-            }
-            return 'Run a summary now...'
         },
     },
     create_survey: {
@@ -1601,19 +1557,12 @@ export const MODE_DEFINITIONS: Record<
             Scene.AIObservabilityUsers,
         ]),
     },
-    [AgentMode.UserInterview]: {
-        name: 'User interviews',
-        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
-        icon: iconForType('user_interview'),
-        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
-        flag: 'USER_INTERVIEWS',
-    },
     [AgentMode.CustomerAnalytics]: {
         name: 'Customer analytics',
         description:
             'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
         icon: iconForType('cohort'),
-        scenes: new Set([Scene.CustomerAnalytics]),
+        scenes: new Set([Scene.CustomerAnalytics, Scene.CustomerAnalyticsAccount]),
         flag: 'CUSTOMER_ANALYTICS_CSP',
     },
 }

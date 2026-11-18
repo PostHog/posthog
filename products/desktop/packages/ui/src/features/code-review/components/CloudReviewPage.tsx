@@ -2,7 +2,7 @@ import { buildToolCallFallbacks } from "@posthog/core/code-review/buildToolCallF
 import { buildGithubFileUrl } from "@posthog/core/code-review/reviewItemKeys";
 import { extractCloudFileDiff } from "@posthog/core/task-detail/cloudToolChanges";
 import type { Task } from "@posthog/shared/domain-types";
-import { Flex, Spinner, Text } from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useMemo } from "react";
 import { useDiffViewerStore } from "../../code-editor/diffViewerStore";
 import { usePrDetails } from "../../git-interaction/usePrDetails";
@@ -125,19 +125,7 @@ export function CloudReviewPage({ task }: CloudReviewPageProps) {
 
   if (!prUrl && !effectiveBranch && reviewFiles.length === 0) {
     if (isRunActive) {
-      return (
-        <Flex
-          align="center"
-          justify="center"
-          height="100%"
-          className="text-gray-10"
-        >
-          <Flex direction="column" align="center" gap="2">
-            <Spinner size="2" />
-            <Text className="text-sm">Waiting for changes...</Text>
-          </Flex>
-        </Flex>
-      );
+      return <LoadingState label="Waiting for changes..." />;
     }
     return null;
   }

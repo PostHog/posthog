@@ -5,7 +5,7 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { tasksLogic } from '../../logics/tasksLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
@@ -18,7 +18,7 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
-    runtime: RuntimeEnumApi.Acp,
+    runtime: TaskRuntimeEnumApi.Acp,
     repository: 'test/repo',
     github_integration: null,
     signal_report: null,
@@ -43,6 +43,8 @@ const createMockRun = (id: string, status: TaskRunStatus): TaskRun => ({
     log_url: null,
     error_message: null,
     output: null,
+    task_summary: null,
+    task_tags: [],
     state: {},
     artifacts: [],
     created_at: '2024-01-01T00:00:00Z',
@@ -92,9 +94,6 @@ describe('taskDetailSceneLogic', () => {
         // mounts the common logics, so clear before init or flags enabled in one test leak into
         // the next.
         window.localStorage.clear()
-        // streamViaProxyEnabled is now purely flag-driven, so preflight no longer affects it. The
-        // default test fixture has is_debug: true; pin it to false to keep the app context minimal
-        // and unsurprising for these tests.
         window.POSTHOG_APP_CONTEXT = { preflight: { is_debug: false } } as unknown as typeof window.POSTHOG_APP_CONTEXT
         initKeaTests()
         global.fetch = createFetchMock()
@@ -197,6 +196,64 @@ describe('taskDetailSceneLogic', () => {
     })
 
     describe('progressive selected run loading', () => {
+        it('selects a successor before the refreshed list arrives and isolates historical selection', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            const other = taskDetailSceneLogic({ taskId: 'task-other' })
+            logic.mount()
+            other.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const previous = createMockRun('run-previous', TaskRunStatus.COMPLETED)
+            logic.actions.loadTaskRunsSuccess([previous])
+            const run = {
+                ...createMockRun('run-successor', TaskRunStatus.QUEUED),
+                runtime_adapter: null,
+                reasoning_effort: null,
+                artifacts: [],
+            }
+
+            logic.actions.continueWithRun({ run, streamKey: previous.id, draft: 'A newer draft' })
+            expect(logic.values.selectedRun).toEqual(run)
+            expect(logic.values.isRunPending).toBe(false)
+            expect(other.values.runContinuation).toBe(null)
+            expect(other.values.selectedRunId).toBe(null)
+
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadTaskRunsSuccess([previous])
+            expect(logic.values.selectedRunId).toBe(run.id)
+            expect(logic.values.selectedRun).toEqual(run)
+            logic.actions.setSelectedRunId(previous.id, 'task-123')
+            expect(logic.values.runContinuation).toBe(null)
+            expect(logic.values.selectedRun).toEqual(previous)
+            logic.unmount()
+            other.unmount()
+        })
+
+        it('treats a queued successor as the latest run while the list still holds the failed predecessor', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const previous = createMockRun('run-previous', TaskRunStatus.FAILED)
+            logic.actions.loadTaskRunsSuccess([previous])
+            expect(logic.values.latestRun).toEqual(previous)
+
+            const successor = {
+                ...createMockRun('run-successor', TaskRunStatus.QUEUED),
+                runtime_adapter: null,
+                reasoning_effort: null,
+                artifacts: [],
+            }
+            logic.actions.continueWithRun({ run: successor, streamKey: previous.id, draft: '' })
+            expect(logic.values.latestRun).toEqual(successor)
+
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadTaskRunsFailure('Could not load task runs', new ApiError('nope', 500))
+            expect(logic.values.latestRun).toEqual(successor)
+
+            logic.actions.loadTaskRunsSuccess([successor, previous])
+            expect(logic.values.latestRun).toEqual(successor)
+            logic.unmount()
+        })
+
         it('uses runs from the list without refetching selected run detail', async () => {
             const logic = taskDetailSceneLogic({ taskId: 'task-123' })
             logic.mount()
@@ -232,6 +289,59 @@ describe('taskDetailSceneLogic', () => {
             ).toBe(true)
 
             logic.unmount()
+        })
+    })
+
+    describe('loader unmount', () => {
+        it.each([
+            ['list', false],
+            ['list', true],
+            ['selected run', false],
+            ['selected run', true],
+        ] as const)('ignores a %s response after unmount (failure: %s)', async (loader, fails) => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSelectedRunId('run-456', 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+
+            let finishRequest!: (response: Response) => void
+            const response = new Promise<Response>((resolve) => {
+                finishRequest = resolve
+            })
+            global.fetch = jest.fn(() => response) as typeof fetch
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic).clearHistory()
+
+            await expectLogic(logic, () => {
+                if (loader === 'list') {
+                    logic.actions.loadTaskRuns()
+                } else {
+                    logic.actions.loadSelectedTaskRun()
+                }
+                logic.unmount()
+                finishRequest(
+                    fails
+                        ? new Response(JSON.stringify({ detail: 'Request failed' }), {
+                              status: 500,
+                              headers: { 'Content-Type': 'application/json' },
+                          })
+                        : createJsonResponse(
+                              loader === 'list'
+                                  ? { results: [createMockRun('run-456', TaskRunStatus.COMPLETED)] }
+                                  : createMockRun('run-456', TaskRunStatus.COMPLETED)
+                          )
+                )
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'loadTaskRunsSuccess',
+                    'loadTaskRunsFailure',
+                    'loadSelectedTaskRunSuccess',
+                    'loadSelectedTaskRunFailure',
+                ])
+
+            expect(consoleError).not.toHaveBeenCalled()
         })
     })
 

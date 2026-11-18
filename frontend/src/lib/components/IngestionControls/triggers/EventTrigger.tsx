@@ -39,6 +39,8 @@ export function EventTriggerSelect({
                         [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
                     }}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    // Chooses which live events to act on rather than saving a query.
+                    includeHiddenEvents
                 />
             }
         >

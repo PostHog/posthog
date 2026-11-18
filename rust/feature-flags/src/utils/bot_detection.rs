@@ -3,6 +3,7 @@
 //! covers the case where an upstream proxy (e.g. CloudFront) rewrites the
 //! User-Agent and only the source IP is usable.
 
+use crate::utils::cidr::{normalize, parse_cidr};
 use aho_corasick::{AhoCorasick, MatchKind};
 use std::net::IpAddr;
 use std::sync::LazyLock;
@@ -374,68 +375,6 @@ fn build_ranges(cidrs: &[(String, BotCategory)]) -> BotIpRanges {
     }
 }
 
-struct ParsedCidr {
-    start: u128,
-    end: u128,
-    is_v4: bool,
-}
-
-fn parse_cidr(cidr: &str) -> Option<ParsedCidr> {
-    let (addr_str, prefix_str) = cidr.split_once('/')?;
-    let prefix: u8 = prefix_str.parse().ok()?;
-    let addr: IpAddr = addr_str.parse().ok()?;
-    match addr {
-        IpAddr::V4(v4) => {
-            if prefix > 32 {
-                return None;
-            }
-            let base = u32::from(v4);
-            let mask = if prefix == 0 {
-                0
-            } else {
-                !0u32 << (32 - prefix)
-            };
-            let start = base & mask;
-            let end = start | !mask;
-            Some(ParsedCidr {
-                start: u128::from(start),
-                end: u128::from(end),
-                is_v4: true,
-            })
-        }
-        IpAddr::V6(v6) => {
-            if prefix > 128 {
-                return None;
-            }
-            let base = u128::from(v6);
-            let mask = if prefix == 0 {
-                0
-            } else {
-                !0u128 << (128 - prefix)
-            };
-            let start = base & mask;
-            let end = start | !mask;
-            Some(ParsedCidr {
-                start,
-                end,
-                is_v4: false,
-            })
-        }
-    }
-}
-
-/// Collapse IPv4-mapped IPv6 (`::ffff:1.2.3.4`) to IPv4 so reverse proxies
-/// that hand us mapped form still hit the v4 ranges.
-fn normalize(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6
-            .to_ipv4_mapped()
-            .map(IpAddr::V4)
-            .unwrap_or(IpAddr::V6(v6)),
-        v4 => v4,
-    }
-}
-
 /// Returns the matched bot category if `ip` falls inside any published bot
 /// range. Hot path is one `partition_point` over a few dozen sorted entries.
 pub fn classify_ip(ip: IpAddr) -> Option<BotCategory> {
@@ -766,31 +705,6 @@ mod tests {
         fn arbitrary_ipv6_outside_bot_ranges_is_none() {
             let ip: IpAddr = "2606:4700:4700::1111".parse().unwrap(); // Cloudflare DNS.
             assert_eq!(classify_ip(ip), None);
-        }
-
-        #[rstest]
-        #[case("0.0.0.0/0", 0u32, u32::MAX)]
-        #[case("10.0.0.0/8", 10u32 << 24, (10u32 << 24) | 0x00_FF_FF_FF)]
-        #[case("192.168.1.0/24", (192u32 << 24) | (168 << 16) | (1 << 8), (192u32 << 24) | (168 << 16) | (1 << 8) | 0xFF)]
-        #[case("203.0.113.42/32", (203u32 << 24) | (113 << 8) | 42, (203u32 << 24) | (113 << 8) | 42)]
-        fn parse_cidr_v4_boundaries(
-            #[case] cidr: &str,
-            #[case] expected_start: u32,
-            #[case] expected_end: u32,
-        ) {
-            let p = parse_cidr(cidr).unwrap();
-            assert!(p.is_v4);
-            assert_eq!(p.start, u128::from(expected_start));
-            assert_eq!(p.end, u128::from(expected_end));
-        }
-
-        #[rstest]
-        #[case("not-an-ip/24")]
-        #[case("10.0.0.0/33")]
-        #[case("::/129")]
-        #[case("missing-prefix")]
-        fn parse_cidr_rejects_malformed(#[case] cidr: &str) {
-            assert!(parse_cidr(cidr).is_none());
         }
 
         #[test]

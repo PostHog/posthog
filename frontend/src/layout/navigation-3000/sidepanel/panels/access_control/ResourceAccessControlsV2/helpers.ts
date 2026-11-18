@@ -61,8 +61,8 @@ export interface AccessSummaryTag {
 /** Builds the "Access" column tags for a role/member entry, excluding resources whose
  * product isn't rolled out to the current user even if a stale access level exists for it.
  *
- * `filteredResources` are the tools selected in the Tool filter. If the set is not empty, the row
- * shows tags for those tools only, and no project tag. Each tag then answers the question the
+ * `filteredResources` are the products selected in the Product filter. If the set is not empty, the row
+ * shows tags for those products only, and no project tag. Each tag then answers the question the
  * filter asked. */
 export function getAccessSummaryTags(
     entry: AccessControlSettingsEntry,

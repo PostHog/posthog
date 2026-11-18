@@ -1,6 +1,13 @@
 import pytest
+from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
+
+
+@pytest.fixture(autouse=True)
+def _use_default_wizard_registry():
+    with patch("posthoganalytics.get_feature_flag_payload", return_value=None):
+        yield
 
 
 @pytest.fixture(autouse=True)

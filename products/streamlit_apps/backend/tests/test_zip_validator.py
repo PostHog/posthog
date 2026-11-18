@@ -1,7 +1,7 @@
 import zipfile
 from io import BytesIO
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from products.streamlit_apps.backend.logic.zip_validator import MAX_ZIP_SIZE, validate_zip
 
@@ -15,7 +15,7 @@ def _make_zip(files: dict[str, str]) -> BytesIO:
     return buf
 
 
-class TestValidateZip(BaseTest):
+class TestValidateZip(SimpleTestCase):
     def test_valid_zip_with_app_py(self):
         zf = _make_zip({"app.py": "import streamlit as st"})
         result = validate_zip(zf)

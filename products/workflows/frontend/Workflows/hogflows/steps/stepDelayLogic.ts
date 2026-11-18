@@ -2,9 +2,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
+import { isDuration, parseDuration, splitPartialDuration } from './durations'
 
-const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
-const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
 const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (second|minute|hour|day)s?\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait for a specified duration.'
 const UNCONFIGURED_UNTIL_DESCRIPTION = 'Wait until a date on the person or event.'
@@ -84,30 +83,30 @@ export function parseDelayExpression(expression: string): DelayProperty | null {
 
 /** Undefined for direction 'on', so "wait for the date itself" saves no offset at all. */
 export function buildDelayOffset({ duration, direction }: DelayOffset): string | undefined {
-    if (direction === 'on' || !DURATION_REGEX.test(duration) || !Number.isFinite(parseFloat(duration))) {
+    if (direction === 'on' || !isDuration(duration)) {
         return undefined
     }
     return `${direction === 'before' ? '-' : ''}${duration}`
 }
 
 export function parseDelayOffset(offset: string | undefined): DelayOffset {
-    const parts = offset?.match(OFFSET_REGEX)
-    if (!parts) {
+    const parsed = offset ? parseDuration(offset) : null
+    if (!parsed) {
         // A day is the offset almost every reminder uses, so it is the amount to start from once
         // someone switches off 'on'.
         return { duration: '1d', direction: 'on' }
     }
-    return { duration: `${parts[2]}${parts[3]}`, direction: parts[1] === '-' ? 'before' : 'after' }
+    return { duration: `${parsed.amountText}${parsed.unit}`, direction: parsed.negative ? 'before' : 'after' }
 }
 
 /** "2 days" for '2d'. Null when there is no number to read, e.g. a cleared duration input. */
 export function getDurationText(duration: string): string | null {
-    const parts = duration.match(DURATION_REGEX)
-    const number = parseFloat(parts?.[1] ?? '')
+    const { amountText, unit } = splitPartialDuration(duration)
+    const number = parseFloat(amountText)
     if (!Number.isFinite(number)) {
         return null
     }
-    const unitLabel = UNIT_LABELS[parts?.[2] ?? 'm'] ?? 'minute'
+    const unitLabel = UNIT_LABELS[unit] ?? 'minute'
     return `${number} ${unitLabel}${number !== 1 ? 's' : ''}`
 }
 
@@ -181,26 +180,38 @@ export interface stepDelayLogicActions {
                   }[]
               }
             | {
+                  conditions: {
+                      filters: {
+                          actions?: any[] | undefined
+                          events?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
+                      }
+                      name?: string | undefined
+                  }[]
+              }
+            | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
               }
             | {
-                  conditions: {
-                      filters: {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                      name?: string | undefined
-                  }[]
-                  delay_duration?: string | undefined
-              }
-            | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -218,9 +229,11 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -263,6 +276,33 @@ export interface stepDelayLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   inputs: Record<
@@ -329,11 +369,15 @@ export interface stepDelayLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -416,22 +460,6 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
@@ -459,9 +487,37 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
+                  template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
     ) => {
         actionId: string
@@ -473,27 +529,40 @@ export interface stepDelayLogicActions {
                   }[]
               }
             | {
+                  conditions: {
+                      filters: {
+                          actions?: any[] | undefined
+                          events?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
+                      }
+                      name?: string | undefined
+                  }[]
+              }
+            | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
               }
             | {
-                  conditions: {
-                      filters: {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                      name?: string | undefined
-                  }[]
-                  delay_duration?: string | undefined
-              }
-            | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   filters: {
@@ -508,11 +577,17 @@ export interface stepDelayLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   condition: {
@@ -555,6 +630,28 @@ export interface stepDelayLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   filters: {
@@ -637,11 +734,15 @@ export interface stepDelayLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -719,22 +820,6 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
@@ -751,9 +836,37 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
+                  template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
     } // workflowLogic
     setDelayMode: (

@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB20",
+    "cluster": 39,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504 invokes global find_task_run without team_id, then rejects the single returned row at 505-506. webhooks.py:68-75 filters only branch/repository/wizard state before first(); TaskRun has a plain nonunique branch field (models.py:1077-1081) and default newest-first ordering (1144-1146). Public task/run serializers expose branch (serializers.py:472-479,1690-1696), so two teams can have runs in the same repository with the same branch. When no URL row matches, a newer team-B run wins even if team A has a valid matching non-internal signal run. The helper returns None rather than considering team A's row, and stamphog/tasks/tasks.py:191-200 denies the webhook carve-out, silently skipping the otherwise eligible review.",
+            "refutation": "I first checked repository scoping, task-run uniqueness, and implicit tenant scoping. The repository filter does prevent cross-repository collisions, but cannot distinguish teams using the same repository. TaskRun is a plain models.Model (models.py:1063), its URL/branch are not globally unique, and the facade's team check happens after selection with no fallback. The URL leg also selects globally at webhooks.py:41-56; the branch leg is reached both for absent URLs and URLs not yet recorded. The post-check prevents data disclosure but does not prevent this false-negative omission. Removing the collision or producing a new qualifying match is a workaround, so should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504-506 calls the global find_task_run and only then checks team_id. Its branch fallback at /tmp/frozen-75215/products/tasks/backend/webhooks.py:64-78 filters repository and branch but not team before first(); TaskRun's ordering is newest first at /tmp/frozen-75215/products/tasks/backend/models.py:1144-1146. With a valid older signal-linked run in team A and a newer same-repository/branch run in team B, the lookup for A returns None despite A's matching run. The Stamphog caller at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:191-200 then skips the re-review. Branch collisions are permitted: TaskRun.branch is not unique (models.py:1081), and the update API accepts branch directly (presentation/serializers.py:167-179; presentation/views/api.py:1082-1087).",
+            "refutation": "I checked team isolation, repository uniqueness, and fallback tests. The post-selection team guard correctly prevents cross-team attribution but never retries for the correct team's row. Stamphog's unique installation/repository config at /tmp/frozen-75215/products/stamphog/backend/models.py:58-70 constrains configs, not TaskRuns in other teams; /tmp/frozen-75215/products/tasks/backend/tests/test_webhooks.py:830-842 explicitly supports shared task integrations across teams. Tests at1273-1284 prove fallback is intended even when the webhook has a PR URL but no stored URL matches; rejection tests at1286-1311 contain only one candidate and miss this collision. Repository and fork guards do not distinguish same-repository runs across teams, leaving a narrow missed-review defect."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "find_task_run searches matching URLs globally and returns first at products/tasks/backend/webhooks.py:41-59; when no URL row matches, its branch+repository fallback also has no team predicate before first() at 64-78. TaskRun is a plain model with newest-first ordering and no branch uniqueness (models.py:1063,1081,1144-1174). find_signal_implementation_run only checks run.team_id after that selection at facade/api.py:504-506, so a newer foreign-team task with the same repository and branch shadows the correct team's run. Stamphog passes both the PR URL and head ref and treats None as no carve-out at tasks/tasks.py:191-200; no valid PR-URL match is required for the fallback to be used.",
+            "refutation": "I checked whether the native-head/repository checks, implicit scoping, or unique branch ownership rule prevented this case. The native-head check at stamphog/tasks.py:176-178 excludes forks but cannot distinguish two tasks referencing the same native branch. Branch is caller-writable (tasks/backend/presentation/serializers.py:173-174), TaskRun has no scoped manager, and repository is not unique across projects/tasks. Manual Inbox signal tasks can legitimately supply the eligible non-internal run (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96). The post-selection check prevents cross-team access but turns collisions into missed reviews; existing wrong-team tests only cover rejection, not concurrent valid and foreign candidates (tests/test_webhooks.py:1286-1311)."
+        }
+    ]
+}

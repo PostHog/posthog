@@ -13,10 +13,12 @@ import {
     IconServer,
 } from '@posthog/icons'
 
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LinkProps } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -236,13 +238,36 @@ export function DefinitionHeader({
     const description =
         definition.description || getCoreFilterDefinition(definition.name, taxonomicGroupType)?.description
 
+    // The notice renders outside LemonTableLink. Inside the link's description, the notice's docs link would nest
+    // in the row's anchor, and a string description would stop rendering as markdown.
     return (
-        <LemonTableLink
-            to={to}
-            description={description}
-            title={
-                <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon type={taxonomicGroupType} />
-            }
-        />
+        <>
+            <LemonTableLink
+                to={to}
+                description={description}
+                title={
+                    <>
+                        <PropertyKeyInfo
+                            value={definition.name ?? ''}
+                            disablePopover
+                            disableIcon
+                            type={taxonomicGroupType}
+                        />
+                        {'scheduled_deletion_at' in definition && definition.scheduled_deletion_at && (
+                            <Tooltip title="Ingestion of this event was stopped. Open the event to see when the definition is deleted, or to cancel the delete.">
+                                <LemonTag type="danger" size="small">
+                                    Deletion scheduled
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </>
+                }
+            />
+            <FlagCalledMoveNotice
+                name={definition.name}
+                groupType={taxonomicGroupType}
+                className="text-xs text-tertiary max-w-[30rem] pb-1"
+            />
+        </>
     )
 }

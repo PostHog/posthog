@@ -23,8 +23,8 @@ func CheckUpgradeRequirements() (*UpgradeCheck, error) {
 
 	check.NeedsPostgresMigration = checkPostgres12InCompose()
 
-	check.StorageMigrationStatus = ReadEnvValue("SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS")
-	check.NeedsStorageMigration = check.StorageMigrationStatus == ""
+	check.StorageMigrationStatus = ReadEnvValue("OBJECT_STORAGE_MINIO_REMOVED")
+	check.NeedsStorageMigration = LegacyObjectStorageVolume() != ""
 
 	return check, nil
 }
@@ -114,5 +114,30 @@ func RestorePostgres15(backupFile string) error {
 }
 
 func SetStorageMigrationStatus(status string) error {
-	return AppendToEnv("SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS", status)
+	return AppendToEnv("OBJECT_STORAGE_MINIO_REMOVED", status)
+}
+
+// This installer starts the new compose file directly, so it never runs bin/upgrade-hobby
+// and cannot show that script's prompt. The preflight check carries the warning instead,
+// which is why the text lives here rather than in the shell script.
+func GetObjectStorageWarning() string {
+	volume := LegacyObjectStorageVolume()
+	if volume == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(`OBJECT STORAGE: MinIO is removed
+
+MinIO stopped publishing Docker images, so PostHog now runs SeaweedFS on the
+objectstorage service. SeaweedFS starts on a new volume and cannot read the MinIO format.
+
+Your objects stay on disk in volume %s, but the stack stops reading them.
+Until you copy them across, exports, uploaded media, error tracking symbol sets and any
+session recordings still in MinIO are unavailable. Postgres and ClickHouse are untouched.
+
+After the upgrade, copy them across with:
+
+  ./posthog/bin/migrate-storage-hobby
+
+Details: https://github.com/PostHog/posthog/blob/master/docs/internal/hobby-minio-removal.md`, volume)
 }

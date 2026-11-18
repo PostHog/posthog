@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB9",
+    "cluster": null,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1140-1146 reads an enabled config, then makes the GitHub request at 1159 before opening its creation transaction at 1183-1186. It never reloads enabled before creating a QUEUED row at 1223-1229. The disable handler in presentation/views.py:236-250 saves enabled=False and supersedes only already-existing nonterminal review rows. If disable completes during the GitHub call, that sweep cannot see the not-yet-created initial run; the task then creates it from the stale object. temporal/activities.py:653-675,700-745 checks superseded status/current head/engine gates before approval, but not enabled. An unchanged passing PR can therefore receive a fresh approval after disable completed.",
+            "refutation": "I first checked whether the disable sweep or PR-row transaction already serializes this case. The sweep explicitly aims to stop in-flight approvals (views.py:242-245), but no run exists when it executes in this ordering. _upsert_pull_request at tasks.py:319-353 updates only the PR and reads config attributes; it neither locks nor rechecks the config. A SUPERSEDED guard cannot reject a row created after the sweep. The network call supplies a concrete reachable interleaving, so this is a real failure of the repository-disable control rather than a speculative race."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1140-1146 reads enabled=True before get_pr at :1159; its transaction and ReviewRun creation occur later at :1185-1229 without reloading the config. An administrator can complete presentation/views.py:236-250 during the fetch: save disabled, supersede all currently existing active runs, return. The subsequently created run was absent from that sweep and remains QUEUED. temporal/activities.py:97-106 loads even disabled configs; post_verdict only checks head/supersession at :666-713 and can post APPROVE at :745, so a fresh review can be delivered after repository disabling has completed.",
+            "refutation": "First checked the disable sweep and final writer-pinned guards. The sweep is real and tests/test_api.py:149-169 proves it cancels an already-created REVIEWING row, but it cannot cancel a future row created from the pre-fetch enabled object. The worker's writer pin avoids stale replicas but not this concurrent interleaving, and the PR-row lock acquired by _upsert_pull_request is a different row from the config update. The final status query at activities.py:700-704 sees the new row as active because no disable sweep ever touched it. No enabled check later in the workflow closes the gap."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "stamphog/backend/tasks/tasks.py:1140-1146 reads enabled=True before get_pr at 1159, then creates the review inside a later transaction at 1183-1186,1223-1229 without rereading or locking that config. The production disable API saves enabled=False and supersedes only runs already present (presentation/views.py:225-250). If disable completes during the GitHub fetch, its sweep sees no new run; the task subsequently creates and starts one using the stale config object. temporal/activities.py:97-106 loads the config without an enabled filter; the sandbox guard at 379-395 checks supersession only, and final posting can approve at 741-745.",
+            "refutation": "I first checked the disable handler's cancellation safeguard and whether the worker's writer-pinned lookup closed the race. The sweep correctly cancels existing runs, but the new run does not exist until after it finishes; a writer pin guarantees freshness only at the earlier read. The later workflow reloads the disabled config but has no enabled check, and its fresh supersession test at activities.py:700-704 remains false because the sweep already ran. This produces a reachable approval after repository-level disabling despite the intended cancellation behavior, not merely unnecessary computation."
+        }
+    ]
+}

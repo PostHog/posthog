@@ -73,7 +73,7 @@ export function CopyExperimentToProjectModal({
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 eligible_for_experiment: true,
             }
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
             const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
             setTargetFeatureFlags(data)
         } finally {

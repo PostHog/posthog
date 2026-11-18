@@ -1,26 +1,25 @@
 import './CodeSnippet.scss'
 
 import clsx from 'clsx'
-import { toHtml } from 'hast-util-to-html'
-import dart from 'highlight.js/lib/languages/dart'
-import elixir from 'highlight.js/lib/languages/elixir'
-import groovy from 'highlight.js/lib/languages/groovy'
-import http from 'highlight.js/lib/languages/http'
-import { useValues } from 'kea'
-import { common, createLowlight } from 'lowlight'
-import React, { useMemo, useState } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { themeLogic } from 'lib/logic/themeLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { retryImport } from 'lib/utils/retryImport'
 
-import terraform from './terraformLanguage'
+import { PlainCodeLine } from './PlainCodeLine'
 
-// `common` already registers most of our languages (including rust, c, and cpp) — only add the missing ones.
-const lowlight = createLowlight(common)
-lowlight.register({ dart, elixir, groovy, http, terraform })
+// highlight.js grammars are large, and markdown renders code snippets on pages that every
+// logged-in user loads. Show the plain text first and add the highlighting when it arrives.
+// Highlighting is cosmetic, so when the chunk cannot load (for example, a stale chunk after a
+// deploy) the plain text stays, and no error boundary or page reload runs.
+const HighlightedCodeLine = lazy(() =>
+    retryImport(() => import('./HighlightedCodeLine'))
+        .then((m) => ({ default: m.HighlightedCodeLine }))
+        .catch(() => ({ default: PlainCodeLine }))
+)
 
 export enum Language {
     Text = 'text',
@@ -58,18 +57,23 @@ export enum Language {
 export const getLanguage = (lang: string): Language => {
     switch (lang) {
         case 'bash':
+        case 'sh':
+        case 'shell':
             return Language.Bash
         case 'csharp':
             return Language.CSharp
         case 'javascript':
+        case 'js':
         case 'jsx':
             return Language.JavaScript
         case 'typescript':
+        case 'ts':
         case 'tsx':
             return Language.TypeScript
         case 'java':
             return Language.Java
         case 'ruby':
+        case 'rb':
             return Language.Ruby
         case 'objectivec':
             return Language.ObjectiveC
@@ -80,6 +84,7 @@ export const getLanguage = (lang: string): Language => {
         case 'php':
             return Language.PHP
         case 'python':
+        case 'py':
             return Language.Python
         case 'dart':
             return Language.Dart
@@ -88,6 +93,7 @@ export const getLanguage = (lang: string): Language => {
         case 'json':
             return Language.JSON
         case 'yaml':
+        case 'yml':
             return Language.YAML
         case 'html':
             return Language.HTML
@@ -220,21 +226,13 @@ export function CodeLine({
     wrapLines: boolean
     language: Language
 }): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    const highlighted = useMemo(
-        () => (lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text)),
-        [language, text]
-    )
-    const style = wrapLines ? ({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const) : {}
+    const wrapClassName = wrapLines ? 'whitespace-pre-wrap wrap-anywhere' : undefined
 
     return (
         <pre className="m-0">
-            <code
-                className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
-                style={style}
-                dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
-            />
+            <Suspense fallback={<PlainCodeLine text={text} className={wrapClassName} />}>
+                <HighlightedCodeLine text={text} language={language} className={wrapClassName} />
+            </Suspense>
         </pre>
     )
 }

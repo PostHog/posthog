@@ -23,9 +23,11 @@ import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEdi
 import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
+import { LogsAlertGroupByField } from './LogsAlertGroupByField'
+import { GROUPING_NEEDS_ABOVE } from './logsAlertGrouping'
 
 const WINDOW_OPTIONS = [
     { value: 5, label: '5 minutes' },
@@ -171,8 +173,12 @@ export function LogsAlertTrigger(): JSX.Element {
                         value={alertForm.thresholdOperator}
                         onChange={(value) => setAlertFormValue('thresholdOperator', value)}
                         options={[
-                            { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
+                            { value: LogsAlertConfigurationThresholdOperatorEnumApi.Above, label: 'above' },
+                            {
+                                value: LogsAlertConfigurationThresholdOperatorEnumApi.Below,
+                                label: 'below',
+                                disabledReason: alertForm.groupBy === 'none' ? undefined : GROUPING_NEEDS_ABOVE,
+                            },
                         ]}
                         size="small"
                     />
@@ -194,6 +200,7 @@ export function LogsAlertTrigger(): JSX.Element {
                     />
                 </AlertDefinitionRow>
             </div>
+            <LogsAlertGroupByField />
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
                 <LemonField.Pure
                     label={
@@ -245,7 +252,18 @@ export function LogsAlertTrigger(): JSX.Element {
                 </LemonField.Pure>
                 <LemonField.Pure
                     label="Notification cooldown"
-                    help="After firing, wait this long before sending another notification. Set to 0 to notify on every check."
+                    help={
+                        <div className="flex flex-col gap-1">
+                            <span>Set to 0 for no minimum.</span>
+                            <span>The alert notifies once when it starts firing, and once when it resolves.</span>
+                            <span>It does not re-notify unless it resolves and then fires again.</span>
+                            <span>
+                                Cooldown sets the minimum time between notifications. No notifications are sent during
+                                cooldown.
+                            </span>
+                            <span>Cooldown does not apply to PagerDuty incidents.</span>
+                        </div>
+                    }
                 >
                     <div className="flex items-center gap-2">
                         <LemonInput

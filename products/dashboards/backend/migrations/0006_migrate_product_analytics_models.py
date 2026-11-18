@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("dashboards", "0005_enforce_dashboardtile_team_id_not_null"),
-        ("product_analytics", "0001_migrate_product_analytics_models"),
     ]
 
     operations = [

@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { SupportTicketApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -11,13 +12,15 @@ import { SupportTicketApi } from 'products/customer_analytics/frontend/generated
 import { accountSupportTicketsLogic, NOT_LOADED } from './accountSupportTicketsLogic'
 import { AccountsEvents } from './constants'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 // Matches the Relationships tab, the other client-side-paginated account tab.
 const PAGE_SIZE = 10
 
 function SupportTicketsEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>

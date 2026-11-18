@@ -21,6 +21,9 @@ export interface LemonRadioProps<T extends React.Key> {
     orientation?: 'vertical' | 'horizontal'
     /** Accessible name for the radio group, announced by screen readers. */
     'aria-label'?: string
+    /** Native radio group name. Pass the same name to several `LemonRadio`s to make them one keyboard group. */
+    name?: string
+    'data-attr'?: string
 }
 
 /** Single choice radio. */
@@ -32,13 +35,17 @@ export function LemonRadio<T extends React.Key>({
     radioPosition,
     orientation = 'vertical',
     'aria-label': ariaLabel,
+    'data-attr': dataAttr,
+    name,
 }: LemonRadioProps<T>): JSX.Element {
     // A shared name makes the inputs one native radio group, so arrow keys move between them.
-    const groupName = useId()
+    const generatedName = useId()
+    const groupName = name ?? generatedName
     return (
         <div
             role="radiogroup"
             aria-label={ariaLabel}
+            data-attr={dataAttr}
             className={clsx(
                 'flex font-medium',
                 orientation === 'vertical' ? 'flex-col gap-2' : 'flex-row gap-4',

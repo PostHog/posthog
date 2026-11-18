@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -44,7 +44,7 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
             ("defaults_to_last_hour", {}, 0),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_sparkline(self, _name, query_params, expected_count):
         buckets = self._sparkline(query_params)
         self.assertEqual(sum(bucket["count"] for bucket in buckets), expected_count)

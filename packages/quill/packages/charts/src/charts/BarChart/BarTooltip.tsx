@@ -5,6 +5,7 @@ import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
 import type { Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import {
     type BarLayout,
     findVisibleStackedSegment,
@@ -36,6 +37,7 @@ export function BarTooltip<Meta>({
     tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
+    const captureTooltip = useTooltipCapture<Meta>()
     const { hitArea = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
@@ -53,6 +55,7 @@ export function BarTooltip<Meta>({
         if (!narrowed) {
             return null
         }
+        captureTooltip(narrowed)
         return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...defaultTooltipConfig} />}</>
     }
     return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...defaultTooltipConfig} />}</>
@@ -76,7 +79,7 @@ function narrowSeriesByCursor<Meta>(
         return ctx
     }
     const seriesList = ctx.seriesData.map((entry) => entry.series)
-    const { hits } = resolveBarsAtCursor({
+    const { hits, strictHit } = resolveBarsAtCursor({
         series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
@@ -90,6 +93,8 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
+    // Same rects as click routing, so the tooltip and a click classify a position identically.
+    const inTrackArea = layout === 'grouped' ? strictHit == null : undefined
     let visibleKey: string | null = null
     let visibleDataIndex: number | null = null
     if (isStackedLayout(layout)) {
@@ -129,7 +134,7 @@ function narrowSeriesByCursor<Meta>(
             const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
             return { ...entry, value }
         })
-        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey }
+        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey, inTrackArea }
     }
-    return { ...ctx, seriesData: filtered, hoveredSeriesKey }
+    return { ...ctx, seriesData: filtered, hoveredSeriesKey, inTrackArea }
 }

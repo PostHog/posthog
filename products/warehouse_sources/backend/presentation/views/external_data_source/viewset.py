@@ -1,0 +1,344 @@
+"""External data source view set."""
+
+from __future__ import annotations
+
+from typing import Any, cast
+
+from django.db.models import Prefetch
+from django.utils.crypto import salted_hmac
+
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from opentelemetry import trace
+from rest_framework import filters, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.hogql.database.database import Database
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
+from posthog.models.utils import strict_fetch
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission, is_service_auth
+from posthog.rate_limit import (
+    CustomSourceAIBuilderBurstThrottle,
+    CustomSourceAIBuilderDailyThrottle,
+    CustomSourceAIBuilderSustainedThrottle,
+)
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+
+from . import connection_options, credential_store, helpers, oauth_accounts, source_setup
+from .change_data_capture import ExternalDataSourceCDCMixin
+from .connection_options import ExternalDataSourceConnectionOptionsMixin
+from .credential_store import ExternalDataSourceCredentialStoreMixin
+from .job_runs import ExternalDataSourceJobRunsMixin
+from .migration_apply import ExternalDataSourceMigrationApplyMixin
+from .oauth_accounts import ExternalDataSourceOAuthAccountsMixin
+from .schema_operations import ExternalDataSourceSchemaOperationsMixin
+from .source_setup import ExternalDataSourceSetupMixin
+from .webhook_setup import ExternalDataSourceWebhookSetupMixin
+
+
+class ExternalDataSourceExistsSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the project has any accessible external data sources.")
+
+
+class ExternalDataSourceSyncStateSerializer(serializers.Serializer):
+    fingerprint = serializers.CharField(
+        help_text=(
+            "Opaque digest of the sync state the sources list shows: each source's status and last "
+            "completed run, and each table's status, sync toggle, error, last sync and row count. "
+            "It changes when that state changes. Compare it with an earlier value; do not parse it."
+        )
+    )
+
+
+class ExternalDataSourceReadQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return source health only: id, created_at, source_type, prefix, description, access_method, status, "
+            "latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, "
+            "latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
+        ),
+    )
+    include_schemas = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Include the `schemas` (tables) of each source. Set to false to get source-level fields only.",
+    )
+
+
+@extend_schema_view(
+    revenue_analytics_config=extend_schema(
+        request=connection_options.ExternalDataSourceRevenueAnalyticsConfigSerializer,
+        responses={200: source_setup.ExternalDataSourceSerializers},
+    ),
+    list=extend_schema(parameters=[ExternalDataSourceReadQuerySerializer]),
+    retrieve=extend_schema(parameters=[ExternalDataSourceReadQuerySerializer]),
+)
+@extend_schema(extensions={"x-product": "warehouse_sources"})
+class ExternalDataSourceViewSet(
+    ExternalDataSourceMigrationApplyMixin,
+    ExternalDataSourceSetupMixin,
+    ExternalDataSourceSchemaOperationsMixin,
+    ExternalDataSourceCredentialStoreMixin,
+    ExternalDataSourceOAuthAccountsMixin,
+    ExternalDataSourceJobRunsMixin,
+    ExternalDataSourceConnectionOptionsMixin,
+    ExternalDataSourceWebhookSetupMixin,
+    ExternalDataSourceCDCMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
+):
+    """
+    Create, Read, Update and Delete External data Sources.
+    """
+
+    scope_object = "external_data_source"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reload",
+        "refresh_schemas",
+        "add_table",
+        "bulk_update_schemas",
+        "database_schema",
+        "incremental_field_recommendations",
+        "setup",
+        "apply_migration_item",
+        "store_credentials",
+        "source_prefix",
+        "revenue_analytics_config",
+        "destinations",
+        "create_webhook",
+        "update_webhook_inputs",
+        "delete_webhook",
+        "check_cdc_prerequisites",
+        "check_cdc_prerequisites_for_source",
+        "enable_cdc",
+        "disable_cdc",
+        "repair_cdc",
+        "resume_cdc",
+        "update_cdc_settings",
+        # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
+        # list them (info disclosure); also gated behind admin in dangerously_get_permissions.
+        "oauth_accounts",
+        # Same disclosure concern as `oauth_accounts`, plus it makes an outbound call with
+        # credentials taken from the request body.
+        "credential_accounts",
+        # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
+        # side-effecting action, so it needs write scope, not read.
+        "preview_resource",
+        # Fetches a caller-supplied docs URL and calls the (paid) LLM gateway — side-effecting.
+        "draft_custom_manifest",
+    ]
+    scope_object_read_actions = [
+        "exists",
+        "sync_state",
+        "list",
+        "retrieve",
+        "jobs",
+        "wizard",
+        "connect_link",
+        "stored_credentials",
+        "webhook_info",
+        "cdc_status",
+        "direct_connection_options",
+    ]
+    queryset = ExternalDataSource.objects.all()
+    serializer_class = source_setup.ExternalDataSourceSerializers
+    filter_backends = [filters.SearchFilter]
+    # `source_id` is an opaque internal connection UUID — useless to search by. Callers
+    # (the in-app sources list, the MCP tool) narrow by what they can actually see: the
+    # source type ("Stripe", "Postgres") and the HogQL table prefix.
+    search_fields = ["source_type", "prefix"]
+    ordering = "-created_at"
+
+    @extend_schema(responses=ExternalDataSourceExistsSerializer)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def exists(self, request: Request, **kwargs: object) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        return Response(ExternalDataSourceExistsSerializer({"exists": queryset.exists()}).data)
+
+    @extend_schema(responses=ExternalDataSourceSyncStateSerializer)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def sync_state(self, request: Request, **kwargs: object) -> Response:
+        """Return a fingerprint of the sync state the sources list shows.
+
+        A client that polls the list can compare fingerprints and refetch the list only when it changed.
+        """
+        sources = self.get_queryset().select_related(None).prefetch_related(None)
+        if not is_service_auth(request):
+            sources = self.user_access_control.filter_queryset_by_access_level(sources)
+        source_rows = list(
+            sources.values_list("id", "status", "prefix", "description", "latest_completed_run_at").order_by("id")
+        )
+        schema_rows = list(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id__in=[row[0] for row in source_rows])
+            .exclude(deleted=True)
+            .values_list(
+                "id",
+                "source_id",
+                "name",
+                "label",
+                "status",
+                "should_sync",
+                "sync_type",
+                "latest_error",
+                "last_synced_at",
+                "table_id",
+                "table__row_count",
+                "table__deleted",
+            )
+            .order_by("id")
+        )
+        # Keyed: the rows hold unredacted errors, so a plain hash would let a caller test guesses of a redacted secret.
+        fingerprint = salted_hmac("warehouse_sources.sync_state", repr((source_rows, schema_rows))).hexdigest()
+        return Response(ExternalDataSourceSyncStateSerializer({"fingerprint": fingerprint}).data)
+
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSource):
+            if obj.is_system_managed:
+                raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
+
+    def dangerously_get_permissions(self):
+        if self.action == "connections":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                TeamMemberAccessPermission(),
+            ]
+        # The account picker enumerates every account/site the connected provider exposes, so require
+        # manage access even though it's a GET — a read-only member shouldn't discover unrelated
+        # accounts (info disclosure). Other actions fall back to the viewset defaults.
+        if self.action in ("oauth_accounts", "credential_accounts"):
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                oauth_accounts.AccountPickerManagementPermission(),
+            ]
+        raise NotImplementedError()
+
+    def get_throttles(self):
+        # The AI manifest builder fans out to several Opus calls per request and isn't billed to the
+        # customer, so cap it per team: a burst guard against double-submits/retries, an hourly window
+        # for an intense setup session, and a daily backstop against scripted abuse.
+        if self.action == "draft_custom_manifest":
+            return [
+                CustomSourceAIBuilderBurstThrottle(),
+                CustomSourceAIBuilderSustainedThrottle(),
+                CustomSourceAIBuilderDailyThrottle(),
+            ]
+        return super().get_throttles()
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Tag the request span with the two things that drive source-list load cost — source count and
+        # total serialized schema count — so the historically-slow list endpoint is diagnosable in
+        # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
+        # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
+        # because finalize_response also runs for error responses (no `results`) and other actions.
+        if self.action == "list" and isinstance(response.data, dict):
+            results = response.data.get("results")
+            if isinstance(results, list):
+                span = trace.get_current_span()
+                span.set_attribute("data_warehouse.sources.count", len(results))
+                span.set_attribute(
+                    "data_warehouse.sources.schemas.count",
+                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                )
+        return response
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "create":
+            return source_setup.ExternalDataSourceCreateSerializer
+        if self.action == "database_schema":
+            return credential_store.DatabaseSchemaRequestSerializer
+        return source_setup.ExternalDataSourceSerializers
+
+    def _read_query(self) -> dict[str, bool]:
+        """The `compact` and `include_schemas` options of list and retrieve. Other actions use the defaults."""
+        cached: dict[str, bool] | None = getattr(self, "_read_query_cache", None)
+        if cached is not None:
+            return cached
+        if getattr(self, "action", None) in ("list", "retrieve") and not getattr(self, "swagger_fake_view", False):
+            query = ExternalDataSourceReadQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
+            cached = {
+                "compact": bool(query.validated_data["compact"]),
+                "include_schemas": bool(query.validated_data["include_schemas"]),
+            }
+        else:
+            cached = {"compact": False, "include_schemas": True}
+        self._read_query_cache = cached
+        return cached
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        read_query = self._read_query()
+        context[source_setup.COMPACT_CONTEXT_KEY] = read_query["compact"]
+        context[source_setup.INCLUDE_SCHEMAS_CONTEXT_KEY] = read_query["include_schemas"]
+        # Building the full HogQL Database and serializing per-schema table columns is expensive
+        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
+        # never does (it only reads name/row_count). Gate both to single-source reads.
+        include_columns = self.action != "list" and not read_query["compact"] and read_query["include_schemas"]
+        context["include_columns"] = include_columns
+        # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
+        context["schemas_list_only"] = self.action == "list"
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+
+        return context
+
+    def safely_get_queryset(self, queryset):
+        queryset = queryset.exclude(deleted=True)
+        canonical_source = helpers._canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
+        queryset = helpers._hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
+
+        # `table__credential` holds EncryptedTextField key material. The list never reads it (trimmed
+        # schema shape, include_columns=False), so joining it across every schema — tens of thousands on
+        # large sources — is pure waste there and is dropped. Every other action serializes columns
+        # (include_columns=True), and building them reads `table.credential.access_key` per schema
+        # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
+        schema_select = ["table__external_data_source"]
+        if self.action != "list":
+            schema_select.append("table__credential")
+        if self._read_query()["compact"]:
+            # The compact form reads stored schema columns only, never the table.
+            schema_select = []
+        schemas_queryset = ExternalDataSchema.objects.filter(team_id=self.team_id).exclude(deleted=True)
+        if schema_select:
+            schemas_queryset = schemas_queryset.select_related(*schema_select)
+
+        queryset = (
+            queryset
+            # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
+            # serialization. select_related folds them into the main query instead of firing one
+            # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
+            # list load (up to one query, and a get_or_create write, per source).
+            .select_related("created_by", "revenue_analytics_config")
+            .annotate(latest_completed_run_at=ExternalDataJob.latest_completed_job_subquery(self.team_id, "created_at"))
+            .prefetch_related(
+                # The one place schemas are read during serialization. `active_schemas` used to be a
+                # second prefetch over the same rows — it's now derived in Python from this one (see
+                # `_active_schemas`), so the schema table is scanned once.
+                Prefetch("schemas", queryset=schemas_queryset.order_by("name")),
+            )
+            .order_by(self.ordering)
+        )
+        return strict_fetch(queryset) if self.action == "list" else queryset

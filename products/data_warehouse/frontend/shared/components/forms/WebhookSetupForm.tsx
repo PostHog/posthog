@@ -9,7 +9,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -28,7 +29,7 @@ export interface WebhookCreateResult {
 
 interface WebhookSetupFormProps {
     sourceName: string
-    sourceConfig?: SourceConfig | null
+    sourceConfig?: SourceConfigResponseApi | null
     webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean
@@ -114,10 +115,6 @@ export function WebhookSetupForm({
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
                 </LemonButton>
-                <p className="text-sm text-muted mb-0">
-                    This step is optional. Your source is already connected, so you can continue without a webhook and
-                    set one up later in the source settings.
-                </p>
             </WebhookSetupCard>
         )
     }
@@ -158,10 +155,11 @@ export function WebhookSetupForm({
 
         return (
             <WebhookSetupCard>
-                <h3 className="text-lg font-semibold">Almost done — finish setting up your {sourceName} webhook</h3>
-                <LemonBanner type="success">
-                    Webhook created in {sourceName}. We just need a couple more details from your {sourceName} dashboard
-                    to start receiving events.
+                <h3 className="text-lg font-semibold">Finish setting up your {sourceName} webhook</h3>
+                <LemonBanner type="warning">
+                    The webhook is created in {sourceName}, but it can't accept events yet. Copy the details below from
+                    your {sourceName} dashboard and save them. Until then, tables that use webhook sync get no webhook
+                    updates.
                 </LemonBanner>
                 {sourceConfig?.webhookSetupCaption && (
                     <LemonMarkdown className="text-sm">{sourceConfig.webhookSetupCaption}</LemonMarkdown>
@@ -181,18 +179,45 @@ export function WebhookSetupForm({
         )
     }
 
+    // A failed request returns no URL, so even a manual-only source needs the error and a retry.
+    const webhookUrlMissing = !webhookResult?.webhook_url
+
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            {(!manualOnly || !!autoCreationBlockedReason) && (
+            {(!manualOnly || !!autoCreationBlockedReason || webhookUrlMissing) && (
                 <LemonBanner type="warning">
-                    {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
+                    <div className="flex flex-col gap-1">
+                        <span>
+                            {(webhookUrlMissing && webhookResult?.error) ||
+                                autoCreationBlockedReason ||
+                                webhookResult?.error ||
+                                'Could not create the webhook automatically.'}
+                        </span>
+                        <span>
+                            {webhookUrlMissing
+                                ? 'Tables that use webhook sync get no webhook updates until the webhook is set up.'
+                                : `Tables that use webhook sync get no webhook updates until you add the webhook in ${sourceName} by hand, using the steps below.`}
+                        </span>
+                    </div>
                 </LemonBanner>
+            )}
+            {(!manualOnly || webhookUrlMissing) && (
+                <div className="flex flex-col items-start gap-2">
+                    <p className="m-0">
+                        {manualOnly
+                            ? 'PostHog could not generate the webhook URL. Try again to get one.'
+                            : 'Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.'}
+                    </p>
+                    <LemonButton type="secondary" onClick={onCreateWebhook}>
+                        Try again
+                    </LemonButton>
+                </div>
             )}
             <p>
                 {manualOnly
                     ? `Copy the URL below and register it as a webhook endpoint in your ${sourceName} app settings.`
-                    : `You'll need to manually configure the webhook in your ${sourceName} account. Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
+                    : `Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
             </p>
             {webhookResult?.webhook_url && <WebhookUrlDisplay url={webhookResult.webhook_url} />}
             {sourceConfig?.webhookSetupCaption && (

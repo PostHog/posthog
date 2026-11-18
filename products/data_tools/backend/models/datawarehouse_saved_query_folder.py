@@ -8,7 +8,7 @@ class DataWarehouseSavedQueryFolder(CreatedMetaFields, UUIDTModel, UpdatedMetaFi
         max_length=128,
         help_text="Display name for the folder used to organize saved queries in the SQL editor sidebar.",
     )
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         constraints = [

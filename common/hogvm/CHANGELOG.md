@@ -1,5 +1,63 @@
 # HogQL bytecode changelog
 
+## 2026-10-29 - 1.0.73
+
+Added `ed25519Verify` to the standard library. No bytecode operations changed.
+
+```bash
+ed25519Verify(message, signature, publicKey, encoding)  # true when signature is a valid Ed25519 signature of message
+```
+
+`signature` and `publicKey` are both `hex` (the default) or both `base64`. A key or signature with the wrong
+length or an undecodable value returns `false` instead of throwing, so a webhook check can reject it. Any other
+`encoding` throws.
+
+## 2026-10-15 - 1.0.72
+
+Added `sha256HmacBase64Key` to the standard library. No bytecode operations changed.
+
+```bash
+sha256HmacBase64Key(key, data, encoding)  # HMAC-SHA256 of data, key is base64, encoding defaults to 'hex'
+```
+
+The function decodes the key from base64 and uses the raw bytes as the HMAC key. Svix-style webhook
+secrets (`whsec_...`) are random bytes, so `sha256HmacChain` cannot verify them: it uses the UTF-8
+bytes of a string key. The key is accepted with or without base64 padding. `encoding` is one of
+`hex`, `base64`, `base64url`, or `binary`.
+
+## 2026-09-28 - 1.0.71
+
+`range` checks the requested length against the memory limit before it builds the array, as the
+Python VM does. A range past the limit fails with the `Memory limit ... exceeded` error. No bytecode
+operations changed.
+
+## 2026-09-07 - 1.0.70
+
+Eleven standard library functions accept the trailing arguments that HogQL accepts. No bytecode
+operations changed.
+
+Version 1.0.69 started to enforce a `maxArgs` limit that no dispatch path had ever checked. Several
+limits were below the HogQL signature for the same name, so a call that runs in an insight failed in
+Hog:
+
+```bash
+round(19.99, 2)          # and floor
+now('UTC')               # and toString, toStartOfDay, toStartOfWeek, dateTrunc
+position('abc', 'b', 1)  # and positionCaseInsensitive
+arraySort(arr, x)        # and arrayReverseSort
+```
+
+Each of these runs again. The trailing argument is accepted and ignored, which is what the VM did
+before 1.0.69.
+
+`range` keeps its limit of two arguments. HogQL takes a step argument, and neither VM implements one.
+
+`JSONHas` also accepts a single argument with no path components, matching HogQL and the existing
+implementation.
+
+See [Hog function argument counts](../../../docs/internal/hog-function-arities.md) for the remaining
+differences from HogQL.
+
 ## 2026-08-27 - 1.0.69
 
 The VM checks the argument count of a standard library function before it calls it. No bytecode

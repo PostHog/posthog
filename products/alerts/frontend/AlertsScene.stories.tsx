@@ -123,6 +123,7 @@ const logAlerts = [
             },
         ],
         destination_types: ['slack'],
+        platform_owned: false,
         first_enabled_at: '2026-07-10T15:00:00Z',
         created_at: '2026-07-10T14:45:00Z',
         created_by: createdBy,
@@ -156,6 +157,7 @@ const logAlerts = [
             },
         ],
         destination_types: [],
+        platform_owned: false,
         first_enabled_at: '2026-07-12T10:00:00Z',
         created_at: '2026-07-12T09:45:00Z',
         created_by: createdBy,
@@ -177,6 +179,9 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/alerts/': toPaginatedResponse(alerts),
+                // The scene's setup gate counts both alert kinds over the project-scoped
+                // API, so every story has to say whether the project has any alerts at all.
+                '/api/projects/:team_id/alerts/': toPaginatedResponse(alerts),
             },
         }),
     ],
@@ -188,11 +193,18 @@ type Story = StoryObj<{}>
 
 export const InsightAlerts: Story = {}
 
+// A project that alerts on logs but not on insights: the setup gate is satisfied, and
+// the insights tab shows its own empty state.
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/logs/alerts/': [
+                    200,
+                    { count: logAlerts.length, next: null, previous: null, results: logAlerts },
+                ],
             },
         }),
     ],

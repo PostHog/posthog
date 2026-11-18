@@ -13,14 +13,18 @@ and only then runs the actual query tool.
 
 from __future__ import annotations
 
+import re
+import json
 from collections.abc import Iterable
-from typing import Any
+from decimal import Decimal, InvalidOperation
+from typing import Any, TypedDict
 
 from pydantic import BaseModel
 
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
-from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -28,6 +32,7 @@ from products.posthog_ai.eval_harness.scorers import (
     JudgedScorer,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.posthog_ai.evals.cli_mcp.scorers import assistant_text, is_catalog_sql, tool_output_text
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
@@ -315,7 +320,7 @@ Material aspects (must align in spirit, not necessarily byte-for-byte):
 5. **Formulas** (``trendsFilter.formulaNodes``): must be semantically equivalent. ``A/B`` and ``B/A * 100`` are NOT equivalent — direction matters. ``A/B`` and ``A/B`` is fine even if one writes ``A / B``.
 6. **Date range**: relative windows (``-14d``, ``-30d``, ``-1y``) are acceptable when equivalent to the expected window. Absolute dates must match the same month/year. Default ``-30d`` is acceptable when the prompt has no time component.
 7. **Interval**: ``day`` / ``week`` / ``month`` / ``hour`` — must match the prompt's implied granularity. ``day`` is the default and acceptable when not specified.
-8. **Display type** (``trendsFilter.display``): only material when the prompt clearly calls for a specific display, OR when the expected sets a non-default like ``BoldNumber`` (single-value answer) or ``ActionsBar`` (categorical comparison) and that nature is intrinsic to the prompt. ``ActionsLineGraph`` is the default — do not penalize the actual for omitting it.
+8. **Display type** (``trendsFilter.display``): only material when the prompt clearly calls for a specific display, OR when the expected sets a non-default like ``BoldNumber`` (single-value answer) or ``ActionsBarValue`` (totals per category) and that nature is intrinsic to the prompt. ``ActionsLineGraph`` is the default — do not penalize the actual for omitting it.
 
 Ignore (do NOT penalize, even when the expected sets them):
 - ``filterTestAccounts``, ``samplingFactor``, ``showLegend``, ``showValuesOnSeries``, ``smoothingIntervals``, ``compareFilter``, ``kind`` defaults, presence/absence of optional containers when their effective content matches.
@@ -693,3 +698,376 @@ class SchemaDiscoveryOrder(Scorer):
             if call.name == query_tool:
                 return call.position
         return None
+
+
+DEFAULT_TRENDS_DISPLAY = "ActionsLineGraph"
+DEFAULT_FUNNEL_VIZ = "steps"
+
+TYPED_QUERY_TOOLS = frozenset(
+    {
+        "query-trends",
+        "query-funnel",
+        "query-retention",
+        "query-paths",
+        "query-stickiness",
+        "query-lifecycle",
+        "query-web-stats",
+        "query-web-overview",
+    }
+)
+SERIES_QUERY_TOOLS = frozenset({QUERY_TRENDS_TOOL_NAME, QUERY_FUNNEL_TOOL_NAME})
+
+_QUERY_TOOL_BY_KIND = {
+    "TrendsQuery": QUERY_TRENDS_TOOL_NAME,
+    "FunnelsQuery": QUERY_FUNNEL_TOOL_NAME,
+    "RetentionQuery": QUERY_RETENTION_TOOL_NAME,
+    "PathsQuery": "query-paths",
+    "StickinessQuery": "query-stickiness",
+    "LifecycleQuery": "query-lifecycle",
+    "WebStatsTableQuery": "query-web-stats",
+    "WebOverviewQuery": "query-web-overview",
+    "HogQLQuery": "execute-sql",
+}
+
+_ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
+    QUERY_TRENDS_TOOL_NAME: AssistantTrendsQuery,
+    QUERY_FUNNEL_TOOL_NAME: AssistantFunnelsQuery,
+    QUERY_RETENTION_TOOL_NAME: AssistantRetentionQuery,
+}
+
+
+class InsightShapeSpec(TypedDict, total=False):
+    """The keys ``InsightShape`` reads from ``expected["insight_shape"]``."""
+
+    tool: str | list[str]
+    display: str | list[str]
+    compare: bool
+    funnel_viz: str | list[str]
+    breakdown: str | None
+    events: list[str | int]
+    event_sequence: list[str | int]
+    math: list[str]
+    formula: bool
+    filter_test_accounts: bool
+    filtered_on: list[str]
+
+
+class InsightShape(Scorer):
+    """Binary: did the agent's answer query have the expected skeleton?
+
+    When the agent saved an insight, the most recent saved query is the answer query, and
+    it is checked as the query tool for its kind, such as ``query-trends`` or ``execute-sql``.
+    Otherwise the most recent successful typed query is the answer query. A later SQL call is
+    ignored because the desktop agent can rerun a typed query as SQL to render it.
+    When no typed query ran, the most recent non-discovery SQL call is the answer.
+
+    Reads ``expected["insight_shape"]`` and checks only the keys it sets:
+
+    - ``tool``: accepted names for the chosen query tool.
+    - ``display``: accepted ``trendsFilter.display`` values; an omitted display counts as
+      the tool default (``ActionsLineGraph``).
+    - ``compare``: whether a trends query compares with the previous period.
+    - ``funnel_viz``: accepted ``funnelsFilter.funnelVizType`` values; omitted counts as ``steps``.
+    - ``breakdown``: the breakdown property name, or ``None`` to require no breakdown.
+    - ``events``: the multiset of series events, in any order.
+    - ``event_sequence``: the series events in order (funnel steps).
+    - ``math``: math types that must each appear on at least one series; an omitted
+      math counts as ``total``.
+    - ``formula``: whether a trends query combines its series with a formula.
+    - ``filter_test_accounts``: whether the query excludes internal and test accounts.
+    - ``filtered_on``: property keys of which at least one must appear in a query or series filter.
+
+    The keys after ``tool`` describe a series query, so they are checked only when
+    the chosen tool is ``query-trends`` or ``query-funnel``. Property filters and date
+    ranges are left to the schema-alignment judges.
+    """
+
+    def _name(self) -> str:
+        return "insight_shape"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        shape = expected.get("insight_shape") if isinstance(expected, dict) else None
+        if not isinstance(shape, dict) or not shape:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        parser = parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        calls = parser.get_tool_calls()
+        saved = [answer for answer in map(_saved_query, calls) if answer]
+        successful = [
+            call
+            for call in calls
+            if not call.is_error
+            and (call.name in TYPED_QUERY_TOOLS or call.name == "execute-sql")
+            and not is_schema_discovery_call(call)
+        ]
+        if saved:
+            tool_name, raw_query = saved[-1]
+        elif successful:
+            typed = [call for call in successful if call.name in TYPED_QUERY_TOOLS]
+            answer = typed[-1] if typed else successful[-1]
+            tool_name, raw_query = answer.name, answer.input if isinstance(answer.input, dict) else {}
+        else:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Agent never ran an insight tool"})
+
+        query = _query_of(tool_name, raw_query)
+        actual: dict[str, Any] = {
+            "tool": tool_name,
+            "display": _actual_display(query, tool_name),
+            "compare": _actual_compare(query, tool_name),
+            "funnel_viz": _actual_funnel_viz(query, tool_name),
+            "breakdown": _actual_breakdown(query),
+            "event_sequence": _actual_events(query),
+            "math": _actual_math(query),
+            "formula": _actual_formula(query, tool_name),
+            "filter_test_accounts": query.get("filterTestAccounts") is True,
+            "filtered_on": sorted(_filtered_properties(query)),
+        }
+        actual["events"] = sorted(actual["event_sequence"], key=str)
+        checked = shape if tool_name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
+        mismatches = {
+            key: actual.get(key)
+            for key, expected_value in checked.items()
+            if not _shape_field_matches(key, expected_value, actual)
+        }
+        return Score(
+            name=self._name(),
+            score=0.0 if mismatches else 1.0,
+            metadata={"actual": actual, "expected": shape, "mismatches": mismatches},
+        )
+
+
+def _saved_query(call: ToolCall) -> tuple[str, dict[str, Any]] | None:
+    if call.is_error or call.name not in ("insight-create", "insight-update") or not isinstance(call.input, dict):
+        return None
+    query = call.input.get("query")
+    if isinstance(query, dict) and query.get("kind") in ("InsightVizNode", "DataVisualizationNode"):
+        query = query.get("source")
+    if not isinstance(query, dict):
+        return None
+    kind = str(query.get("kind"))
+    return _QUERY_TOOL_BY_KIND.get(kind, kind), query
+
+
+def _query_of(tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:
+    schema = _ANSWER_TOOL_SCHEMAS.get(tool_name)
+    if schema is None:
+        return raw
+    cleaned = {k: v for k, v in raw.items() if k in schema.model_fields}
+    try:
+        return schema.model_validate(cleaned).model_dump(mode="json", exclude_none=True)
+    except Exception:
+        return raw
+
+
+def _shape_field_matches(key: str, expected_value: Any, actual: dict[str, Any]) -> bool:
+    if key in ("tool", "display", "funnel_viz"):
+        accepted = expected_value if isinstance(expected_value, list | tuple | set) else [expected_value]
+        return actual[key] in {str(item) for item in accepted}
+    if key in ("compare", "breakdown", "formula", "filter_test_accounts"):
+        return actual[key] == expected_value
+    if key == "filtered_on":
+        return isinstance(expected_value, list) and bool(set(expected_value) & set(actual["filtered_on"]))
+    if key == "math":
+        return isinstance(expected_value, list) and set(expected_value) <= set(actual["math"])
+    if key == "events":
+        return isinstance(expected_value, list) and sorted(expected_value, key=str) == actual["events"]
+    if key == "event_sequence":
+        return isinstance(expected_value, list) and expected_value == actual["event_sequence"]
+    return False
+
+
+def _actual_display(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
+        return None
+    trends_filter = query.get("trendsFilter")
+    display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
+    return display if isinstance(display, str) and display else DEFAULT_TRENDS_DISPLAY
+
+
+def _actual_compare(query: dict[str, Any], tool_name: str) -> bool | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
+        return None
+    compare_filter = query.get("compareFilter")
+    return isinstance(compare_filter, dict) and compare_filter.get("compare") is True
+
+
+def _actual_funnel_viz(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_FUNNEL_TOOL_NAME:
+        return None
+    funnels_filter = query.get("funnelsFilter")
+    viz = funnels_filter.get("funnelVizType") if isinstance(funnels_filter, dict) else None
+    return str(viz) if viz else DEFAULT_FUNNEL_VIZ
+
+
+def _actual_breakdown(query: dict[str, Any]) -> str | None:
+    breakdown_filter = query.get("breakdownFilter")
+    if not isinstance(breakdown_filter, dict):
+        return None
+    breakdowns = breakdown_filter.get("breakdowns")
+    if isinstance(breakdowns, list) and breakdowns:
+        first = breakdowns[0]
+        prop = first.get("property") if isinstance(first, dict) else first
+        return str(prop) if prop else None
+    breakdown = breakdown_filter.get("breakdown")
+    if isinstance(breakdown, list):
+        return str(breakdown[0]) if breakdown else None
+    return str(breakdown) if breakdown else None
+
+
+def _series_nodes(query: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for node in query.get("series") or []:
+        if not isinstance(node, dict):
+            continue
+        inner = node.get("nodes") if node.get("kind") == "GroupNode" else [node]
+        nodes.extend(entry for entry in inner or [] if isinstance(entry, dict))
+    return nodes
+
+
+def _actual_math(query: dict[str, Any]) -> list[str]:
+    # A GroupNode's own math applies to the whole group; the engine ignores the math of its inner nodes.
+    series = [node for node in query.get("series") or [] if isinstance(node, dict)]
+    return sorted({str(node.get("math") or "total") for node in series})
+
+
+def _filtered_properties(query: dict[str, Any]) -> set[str]:
+    """Property keys used in the query's own filters or in any series filter."""
+    keys: set[str] = set()
+
+    def collect(filters: Any) -> None:
+        if isinstance(filters, dict):
+            if isinstance(filters.get("key"), str):
+                keys.add(filters["key"])
+            collect(filters.get("values"))
+        elif isinstance(filters, list):
+            for item in filters:
+                collect(item)
+
+    collect(query.get("properties"))
+    for node in query.get("series") or []:
+        if isinstance(node, dict):
+            collect(node.get("properties"))
+    for node in _series_nodes(query):
+        collect(node.get("properties"))
+    return keys
+
+
+def _actual_formula(query: dict[str, Any], tool_name: str) -> bool | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
+        return None
+    trends_filter = query.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return False
+    # The assistant schema uses ``formulaNodes``; saved TrendsFilter queries can carry the older keys.
+    return any(trends_filter.get(key) for key in ("formulaNodes", "formulas", "formula"))
+
+
+def _actual_events(query: dict[str, Any]) -> list[str | float | None]:
+    events: list[str | float | None] = []
+    for entry in _series_nodes(query):
+        if "event" in entry:
+            events.append(entry.get("event"))
+        elif entry.get("kind") == "ActionsNode":
+            events.append(entry.get("id"))
+    return events
+
+
+# Text that holds digits but no reported values: links (URL encoding such as ``%20``), ISO dates and
+# times, clock times, and "Oct 12" style dates.
+_NON_VALUE_RES = (
+    re.compile(r"https?://\S+"),
+    re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+)?(?:Z|[+-]\d{2}:?\d{2})?"),
+    re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b"),
+    re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b", re.IGNORECASE),
+)
+# A minus sign counts only at the start of a value, so the range "6-16" reads as 6 and 16, not 6 and -16.
+_VALUE_RE = re.compile(r"(?<![\w.])[-\u2212]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\w])")
+
+
+def reported_values(text: str, ignore: frozenset[str] = frozenset(), *, skip_years: bool = True) -> set[str]:
+    """Data values in ``text``, normalized so ``1,234``, ``1234`` and ``1234.0`` compare equal.
+
+    Single-digit integers and years written without a thousands separator are dropped, because they
+    also appear as window sizes, step numbers, and dates, so they cannot show where a value came from.
+    An answer whose only values are of this kind gets no score rather than a wrong one. Result tables
+    pass ``skip_years=False``, because a year-like value there is a data cell.
+    """
+    for pattern in _NON_VALUE_RES:
+        text = pattern.sub(" ", text)
+    values: set[str] = set()
+    for raw in _VALUE_RE.findall(text):
+        try:
+            number = Decimal(raw.replace(",", "").replace("\u2212", "-"))
+        except InvalidOperation:
+            continue
+        if number == number.to_integral_value() and (
+            abs(number) < 10 or (skip_years and "," not in raw and 1900 <= number <= 2100)
+        ):
+            continue
+        value = format(number.normalize(), "f")
+        if value not in ignore:
+            values.add(value)
+    return values
+
+
+def _result_text(call: ToolCall) -> str:
+    """The result rows of a query tool call, without the query, notes, and examples the tool adds around them."""
+    text = tool_output_text(call.output)
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        payload = None
+    if isinstance(payload, dict) and "results" in payload:
+        return json.dumps(payload["results"])
+    rows = [line for line in text.splitlines() if "|" in line]
+    return "\n".join(rows) if rows else text
+
+
+class AnswerFromTypedQuery(Scorer):
+    """Binary: does the answer report data from a typed query result rather than from SQL?
+
+    ``expected = {"answer_from_typed_query": {}}``
+
+    Compares the values in the agent's messages with the values each tool returned. The case
+    passes when the answer reports at least one value from a successful typed query result. A
+    SQL query that checks a typed result is allowed, and the answer can mention its values too.
+    The case fails when the reported values come only from analytics SQL results, or when
+    analytics SQL ran and no typed query did. ``system.*`` catalog lookups are not analytics SQL.
+    ``None`` when the answer has no value traceable to either source, or the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "answer_from_typed_query"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not isinstance(expected, dict) or not isinstance(expected.get(self._name()), dict):
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+        parser = parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        calls = [call for call in parser.get_tool_calls() if not call.is_error]
+        typed_calls = [call for call in calls if call.name in TYPED_QUERY_TOOLS]
+        sql_calls = [call for call in calls if call.name == "execute-sql" and not is_catalog_sql(call)]
+        if not typed_calls:
+            if sql_calls:
+                return Score(name=self._name(), score=0.0, metadata={"reason": "Only analytics SQL ran"})
+            return Score(name=self._name(), score=None, metadata={"reason": "No query ran"})
+
+        ignore = frozenset(reported_values(user_prompt(output)))
+        answer = reported_values(assistant_text(output), ignore)
+        typed = set().union(*(reported_values(_result_text(call), skip_years=False) for call in typed_calls))
+        sql = set().union(*(reported_values(_result_text(call), skip_years=False) for call in sql_calls))
+        sql_only = sql - typed
+        typed_hits = sorted(answer & typed)
+        sql_hits = sorted(answer & sql_only)
+        metadata = {"typed_values_reported": typed_hits, "sql_only_values_reported": sql_hits}
+        if typed_hits:
+            return Score(name=self._name(), score=1.0, metadata=metadata)
+        if sql_hits:
+            return Score(name=self._name(), score=0.0, metadata=metadata)
+        return Score(
+            name=self._name(), score=None, metadata={**metadata, "reason": "No reported value matches a query result"}
+        )

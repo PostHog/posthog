@@ -25,7 +25,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
 from products.pulse.backend.models import BriefConfig, ProductBrief
@@ -39,10 +39,8 @@ logger = structlog.get_logger(__name__)
 def _validate_anchor_access(*, anchors: dict, team_id: int, user_access_control: UserAccessControl) -> None:
     dashboard_ids = set(anchors.get("dashboards") or [])
     if dashboard_ids:
-        accessible_dashboard_ids = set(
-            user_access_control.filter_queryset_by_access_level(
-                Dashboard.objects.filter(team_id=team_id, deleted=False, id__in=dashboard_ids)
-            ).values_list("id", flat=True)
+        accessible_dashboard_ids = dashboards_api.viewable_dashboard_ids(
+            team_id=team_id, dashboard_ids=dashboard_ids, user_access_control=user_access_control
         )
         if accessible_dashboard_ids != dashboard_ids:
             raise ValidationError("One or more anchored dashboards are unavailable.")
@@ -277,7 +275,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             BriefConfig.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
         # Lists hide soft-deleted configs; detail routes keep them reachable so a
         # PATCH {"deleted": false} can restore one.
@@ -328,7 +326,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             ProductBrief.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by", "config")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     def get_throttles(self) -> list[BaseThrottle]:

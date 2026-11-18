@@ -46,7 +46,7 @@ class TestQueryKindEndpoint(APIBaseTest):
     def test_reserved_query_routes_are_not_treated_as_query_kind(self, _name: str, url_template: str) -> None:
         response = self.client.post(
             url_template.format(team_id=self.team.pk),
-            {"query": {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7}}},
+            {"query": {"kind": "HogQLQuery", "query": "select 1"}},
             format="json",
         )
 

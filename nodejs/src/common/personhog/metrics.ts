@@ -63,11 +63,26 @@ export const personhogTerminalErrorsTotal = new Counter({
     labelNames: ['method', 'client', 'error_type'] as const,
 })
 
+export const personhogHandledVerdictsTotal = new Counter({
+    name: 'personhog_handled_verdicts_total',
+    help: 'PersonHog answers the caller resolves on its own path (a person merged away is written to its survivor); not failures',
+    labelNames: ['method', 'client', 'verdict'] as const,
+})
+
 export function grpcErrorType(error: unknown): string {
     if (error instanceof ConnectError) {
         return Code[error.code] ?? 'unknown'
     }
     return 'non_grpc'
+}
+
+/** A bounded metric label: gRPC faults carry their status code, everything else its class name. */
+export function errorClassLabel(error: unknown): string {
+    if (error instanceof ConnectError) {
+        return grpcErrorType(error)
+    }
+    const name = error instanceof Error ? error.constructor?.name : undefined
+    return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
 }
 
 export const personhogLatencySeconds = new Histogram({
@@ -92,7 +107,7 @@ export async function timedGrpc<T>(clientLabel: string, method: string, fn: () =
     try {
         return await fn()
     } catch (error) {
-        personhogErrorsTotal.inc({ method, client: clientLabel, error_type: grpcErrorType(error) })
+        personhogErrorsTotal.inc({ method, client: clientLabel, error_type: errorClassLabel(error) })
         throw error
     } finally {
         end()

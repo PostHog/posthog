@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA17",
+    "cluster": 36,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1159,1170 fetches the current head for an initial receiver job; 1202-1221 only applies the same-head dedupe in that path. If a push to B has occurred before that fetch but its synchronize job is delayed, the receiver creates/reviews B. The synchronize path at 1035-1065 accepts an equal payload clock (stale check uses > at 1048), unconditionally supersedes prior nonterminal runs, and creates a new B run. Its delivery-id guard cannot match the receiver's delivery_id=None at 1227. Once the first workflow has entered sandbox.execute at temporal/activities.py:466-474, the later supersession does not cancel that running sandbox; the second distinct run starts another workflow through tasks.py:1068-1073. This duplicates a full review for the same head and discards/delays the first result.",
+            "refutation": "I first checked whether the PR row lock, stale-clock check, delivery id, or supersession guards collapse the two triggers. The lock serializes them but still permits two sequential rows; equal timestamps pass, and only the webhook has a delivery id. The sandbox/pre-post superseded guards (activities.py:383-389,416-429,700-713) do prevent stale publication and can avoid spending on a first run still queued, so the claim does not establish an unsafe approval race. They cannot undo a sandbox already running when the later duplicate arrives. The retained issue is concrete duplicate expensive work and review delay for the normal receiver-plus-synchronize ordering, with narrow timing impact, hence should_fix. Any fix must preserve legitimate same-head base-retarget or explicit re-review behavior."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "For a synchronize delivery of head B with the same updated_at snapshot already fetched by the receiver, /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1010-1027,1045-1053 accepts equal clocks. The receiver's :1202-1221 dedupe is not present in the webhook transaction: :1054-1065 supersedes the active receiver run and creates a new run for that same head. If the first run has already entered activities.py:466-474, the delayed webhook starts a second sandbox while the first finishes uselessly. The two workflow IDs derive from different ReviewRun IDs, so delivery dedupe cannot merge them. This is a concrete two-entry-point duplication, independent of repeated identical receiver saves.",
+            "refutation": "First checked whether row locking, delivery dedupe or stale-payload rejection suppresses the second creation. _upsert_pull_request serializes transactions but equal clocks intentionally pass; the receiver has delivery_id=None (:1227), so webhook delivery recovery at :1000-1008 cannot find it. The feared approval/comment correctness race is substantially refuted: activities.py:387-429 avoids provisioning superseded work, :700-713 rechecks status before posting, and :751-798 conditionally finalizes and dismisses orphan approvals; tests/test_integration.py:815 onward exercises late supersession. Same-head re-review is deliberately required for reopen/base/context changes, so a blanket same-head uniqueness constraint would be wrong. The surviving synchronize overlap is avoidable duplicate work, a minor issue (consider), not a proved unsafe approval."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "The initial receiver task fetches the current GitHub head and deduplicates against it at products/stamphog/backend/tasks/tasks.py:1159,1202-1221, then creates a run with delivery_id=None at 1223-1229. The synchronize path only deduplicates the delivery ID (994-1008), permits equal snapshot timestamps (1010-1014), and unconditionally supersedes active runs and creates another at 1054-1064. If an initial delivery or refire fetches head B before the delayed synchronize delivery for B, that delivery cannot match the receiver's null delivery ID and replaces its same-head run. Once the first run has passed temporal/activities.py:421-429 and created its sandbox at 466, this does duplicate review work; a completed first run also does not prevent the second run. Non-internal manual Inbox implementations are a real source of receiver and webhook triggers (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96).",
+            "refutation": "I checked timestamp ordering, locking, delivery-ID deduplication, and final posting guards. An older synchronize snapshot is correctly rejected, but equal timestamps explicitly proceed. The parent row lock serializes the two creations; it does not make the webhook inspect the existing head. Supersession guards prevent the first run from publishing after it observes cancellation (activities.py:666-672,700-713), so an unsafe-approval race is not needed to retain the claim. The proven defect is duplicate sandbox review/cancellation for one synchronize head. Any fix must still permit explicit same-head base-retarget re-review (tasks.py:832-835), rather than universally suppressing all same-head events."
+        }
+    ]
+}

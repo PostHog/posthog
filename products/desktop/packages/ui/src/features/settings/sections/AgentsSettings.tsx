@@ -1,5 +1,5 @@
-import { ConfigureAgentsSection } from "@posthog/ui/features/inbox/components/ConfigureAgentsSection";
+import { AgentsView } from "@posthog/ui/features/agents/components/AgentsView";
 
 export function AgentsSettings() {
-  return <ConfigureAgentsSection />;
+  return <AgentsView />;
 }

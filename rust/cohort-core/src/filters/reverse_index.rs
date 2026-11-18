@@ -1,7 +1,6 @@
 //! Per-team reverse indices, dedup set, and eligibility classification.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use chrono_tz::{Tz, UTC};
 use metrics::counter;
@@ -15,15 +14,44 @@ use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::fingerprint::CatalogFingerprint;
+use crate::hogvm::analysis::{analyze_condition_within, AnalysisBudget, GlobalsPlan, Projection};
+use crate::hogvm::ConditionProgram;
 use crate::leaf_state::key::LeafStateKey;
 use crate::leaf_state::select::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
 use crate::leaf_state::variant::StateVariant;
 use crate::metrics::{
-    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_CONDITION_PROJECTION,
+    FILTER_CATALOG_SKIPPED_LEAVES,
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash};
+
+/// The behavioral conditions one globals dict has to serve, and the plan that builds it. One plan
+/// per set because one dict is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BehavioralCandidates {
+    /// Sorted, so the evaluation order is deterministic.
+    pub conditions: Vec<[u8; 16]>,
+    pub plan: GlobalsPlan,
+}
+
+impl BehavioralCandidates {
+    /// Derives the plan from the conditions, so the pair cannot drift: a condition added to the
+    /// list without its roots claimed would read a root the dict omits, and the VM raises
+    /// `VmError::UnknownGlobal` on an absent root.
+    fn new(conditions: Vec<[u8; 16]>, plan_of: impl Fn(&[u8; 16]) -> GlobalsPlan) -> Self {
+        let plan = conditions.iter().map(plan_of).collect();
+        Self { conditions, plan }
+    }
+
+    fn empty() -> Self {
+        Self {
+            conditions: Vec::new(),
+            plan: GlobalsPlan::NONE,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
@@ -43,15 +71,17 @@ pub struct TeamFilters {
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
     /// `conditionHash → [CohortId]` for the Stage 2 walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
-    /// `conditionHash → bytecode`. One entry per conditionHash.
-    pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
+    /// `conditionHash → loaded program`. One entry per conditionHash.
+    pub by_condition_to_program: HashMap<[u8; 16], ConditionProgram>,
     pub unique_condition_hashes: HashSet<[u8; 16]>,
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
-    /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
-    pub behavioral_conditions: HashSet<[u8; 16]>,
-    /// Event name → the behavioral conditionHashes whose bytecode roots at `event == <name>`; the
+    /// Every conditionHash whose leaves are behavioral, for the ungated fan-out. Disjoint from the
+    /// person-property conditions, and sorted, so neither the shared analysis budget nor the
+    /// fan-out depends on hash order.
+    pub behavioral: BehavioralCandidates,
+    /// Event name → the behavioral conditions whose bytecode roots at `event == <name>`; the
     /// fan-out gate evaluates only the incoming event's bucket.
-    pub behavioral_by_event_name: HashMap<String, Vec<[u8; 16]>>,
+    pub behavioral_by_event_name: HashMap<String, BehavioralCandidates>,
     pub person_property_conditions: HashSet<[u8; 16]>,
     /// `person_property_conditions` sorted — the stable order the person record's catalog fingerprint
     /// is computed over.
@@ -85,10 +115,10 @@ impl Default for TeamFilters {
         Self {
             by_condition_to_lsk: HashMap::new(),
             by_condition_to_cohorts: HashMap::new(),
-            by_condition_to_bytecode: HashMap::new(),
+            by_condition_to_program: HashMap::new(),
             unique_condition_hashes: HashSet::new(),
             by_lsk: HashMap::new(),
-            behavioral_conditions: HashSet::new(),
+            behavioral: BehavioralCandidates::empty(),
             behavioral_by_event_name: HashMap::new(),
             person_property_conditions: HashSet::new(),
             person_conditions_ordered: Vec::new(),
@@ -120,7 +150,7 @@ impl TeamFilters {
 pub struct TeamFiltersBuilder {
     by_condition_to_lsk: HashMap<[u8; 16], HashSet<LeafStateKey>>,
     by_condition_to_cohorts: HashMap<[u8; 16], HashSet<CohortId>>,
-    by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
+    by_condition_to_program: HashMap<[u8; 16], ConditionProgram>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse.
@@ -135,7 +165,7 @@ impl LeafSink for TeamFiltersBuilder {
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
-        bytecode: &Arc<Vec<Value>>,
+        bytecode: &[Value],
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -145,9 +175,12 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_default()
             .insert(cohort_id);
-        self.by_condition_to_bytecode
+        self.by_condition_to_program
             .entry(condition_hash)
-            .or_insert_with(|| Arc::clone(bytecode));
+            .or_insert_with(|| {
+                ConditionProgram::from_stored(bytecode)
+                    .expect("the leaf classifier validated the program header")
+            });
         self.unique_condition_hashes.insert(condition_hash);
 
         let flags = self.flags.entry(cohort_id).or_default();
@@ -160,7 +193,11 @@ impl LeafSink for TeamFiltersBuilder {
 
     fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
         counter!(FILTER_CATALOG_SKIPPED_LEAVES, "reason" => reason.as_str()).increment(1);
-        self.flags.entry(cohort_id).or_default().has_dropped_leaf = true;
+        let flags = self.flags.entry(cohort_id).or_default();
+        flags.has_dropped_leaf = true;
+        if reason == LeafDropReason::MalformedBytecode {
+            flags.malformed_leaf_count += 1;
+        }
     }
 }
 
@@ -195,7 +232,33 @@ impl TeamFiltersBuilder {
     /// Freeze into an immutable [`TeamFilters`]. When `cascade_enabled`, resolvable cycle-free
     /// ref-bearing cohorts become [`CohortEligibility::Stage2ComposableRef`] and join the composable
     /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
+    ///
+    /// Analyzes the behavioral conditions under a whole catalog budget of its own. A caller freezing
+    /// several teams shares one through [`Self::freeze_within`] instead.
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
+        self.freeze_within(timezone, cascade_enabled, &mut catalog_analysis_budget())
+    }
+
+    /// [`Self::freeze_with`], analyzing against a budget the caller owns. One budget across every
+    /// team of a catalog bounds the build as a whole rather than each team of it. It is spent in
+    /// call order, so a caller that wants the same plans on every replica freezes its teams in a
+    /// fixed order.
+    pub fn freeze_within(
+        self,
+        timezone: Tz,
+        cascade_enabled: bool,
+        budget: &mut AnalysisBudget,
+    ) -> TeamFilters {
+        // Aggregate corrupt leaves per cohort so one large filter tree cannot flood each refresh.
+        for (cohort_id, flags) in &self.flags {
+            if flags.malformed_leaf_count > 0 {
+                warn!(
+                    cohort_id = cohort_id.0,
+                    malformed_leaves = flags.malformed_leaf_count,
+                    "cohort has bytecode the HogVM cannot load; excluding the cohort",
+                );
+            }
+        }
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut behavioral_by_event_name: HashMap<String, HashSet<[u8; 16]>> = HashMap::new();
@@ -289,12 +352,24 @@ impl TeamFiltersBuilder {
         person_conditions_ordered.sort_unstable();
         let catalog_fingerprint = CatalogFingerprint::of_sorted(&person_conditions_ordered);
 
+        let mut behavioral_conditions: Vec<[u8; 16]> = behavioral_conditions.into_iter().collect();
+        behavioral_conditions.sort_unstable();
+        let plans = condition_plans(
+            &self.by_condition_to_program,
+            &behavioral_conditions,
+            budget,
+        );
+        // One leaf populates both maps, so a miss is unreachable. `FULL` is the answer that would
+        // be slow rather than wrong if that ever stopped holding.
+        let plan_of = |hash: &[u8; 16]| plans.get(hash).copied().unwrap_or(GlobalsPlan::FULL);
+        let behavioral = BehavioralCandidates::new(behavioral_conditions, plan_of);
+
         let behavioral_by_event_name = behavioral_by_event_name
             .into_iter()
             .map(|(name, hashes)| {
-                let mut hashes: Vec<[u8; 16]> = hashes.into_iter().collect();
-                hashes.sort_unstable();
-                (name, hashes)
+                let mut conditions: Vec<[u8; 16]> = hashes.into_iter().collect();
+                conditions.sort_unstable();
+                (name, BehavioralCandidates::new(conditions, plan_of))
             })
             .collect();
         let mut behavioral_shape_hashes = self.behavioral_shape_hashes;
@@ -305,10 +380,10 @@ impl TeamFiltersBuilder {
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
-            by_condition_to_bytecode: self.by_condition_to_bytecode,
+            by_condition_to_program: self.by_condition_to_program,
             unique_condition_hashes: self.unique_condition_hashes,
             by_lsk,
-            behavioral_conditions,
+            behavioral,
             behavioral_by_event_name,
             person_property_conditions,
             person_conditions_ordered,
@@ -339,6 +414,50 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
             }
         }
     }
+}
+
+/// How many worst-case conditions one catalog analysis may cost, as one budget every condition of
+/// every team shares.
+///
+/// A constant rather than a function of the catalog. A budget of `conditions × ceiling` is the
+/// per-condition ceiling over again, and nothing caps the conditions a catalog carries, so the
+/// build would have no bound of its own. The unit is the worst program the analyzer accepts, and
+/// this many of them keep a build's analysis to a few seconds. A realistic condition spends one
+/// step per instruction and copies nothing, so this many step ceilings cover far more conditions
+/// than any catalog holds. Past the budget a condition takes [`GlobalsPlan::FULL`], which
+/// evaluates the same and only parses roots it did not need.
+const CATALOG_WORST_CASE_CONDITIONS: usize = 8;
+
+/// The budget one catalog build analyzes under. See [`CATALOG_WORST_CASE_CONDITIONS`].
+pub(crate) fn catalog_analysis_budget() -> AnalysisBudget {
+    AnalysisBudget::for_conditions(CATALOG_WORST_CASE_CONDITIONS)
+}
+
+/// Walked in order against the caller's [`AnalysisBudget`], so a catalog classifies the same way
+/// whatever order its rows arrived in. A condition the spent budget refuses takes
+/// [`GlobalsPlan::FULL`] under the budget's own reason, which the counter reports.
+fn condition_plans(
+    programs_by_hash: &HashMap<[u8; 16], ConditionProgram>,
+    sorted_hashes: &[[u8; 16]],
+    budget: &mut AnalysisBudget,
+) -> HashMap<[u8; 16], GlobalsPlan> {
+    sorted_hashes
+        .iter()
+        .map(|hash| {
+            let Some(program) = programs_by_hash.get(hash) else {
+                counter!(FILTER_CATALOG_CONDITION_PROJECTION, "outcome" => "missing_bytecode")
+                    .increment(1);
+                return (*hash, GlobalsPlan::FULL);
+            };
+            let projection = analyze_condition_within(program.tokens(), budget).projection;
+            let outcome = match &projection {
+                Projection::Reads(_) => "reads",
+                Projection::FullColumns(reason) => reason.as_str(),
+            };
+            counter!(FILTER_CATALOG_CONDITION_PROJECTION, "outcome" => outcome).increment(1);
+            (*hash, GlobalsPlan::of(&projection))
+        })
+        .collect()
 }
 
 fn collect_leaf_meta(
@@ -424,6 +543,7 @@ mod tests {
     use serde_json::json;
 
     use crate::eligibility::ExcludedReason;
+    use crate::hogvm::analysis::GlobalRoot;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -441,6 +561,18 @@ mod tests {
         let mut bc = behavioral_bytecode().as_array().unwrap().clone();
         bc.push(json!(OP_RETURN));
         bc
+    }
+
+    fn behavioral_leaf(event_name: &str, condition_hash: &str, bytecode: Value) -> Value {
+        json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": event_name,
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": condition_hash,
+            "bytecode": bytecode,
+        })
     }
 
     /// A `performed_event` leaf on `$pageview` with a tunable window.
@@ -568,19 +700,67 @@ mod tests {
 
     #[test]
     fn identical_leaves_dedupe_to_single_entries() {
-        let mut builder = TeamFiltersBuilder::default();
-        let filters = wrap(vec![
-            behavioral_performed_event(7),
-            behavioral_performed_event(7),
-        ]);
-        builder
-            .add_cohort(CohortId(1), TeamId(7), &filters)
-            .unwrap();
-        let frozen = builder.freeze(UTC);
+        for (leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
 
-        assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 1);
-        assert_eq!(frozen.by_condition_to_cohorts[&HASH], vec![CohortId(1)]);
-        assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_lsk[&hash].len(), 1);
+            assert_eq!(
+                frozen.by_condition_to_cohorts[&hash],
+                vec![CohortId(1), CohortId(2)]
+            );
+            assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+            for tree in frozen.cohorts.values() {
+                let FilterNode::Group { children, .. } = &tree.root else {
+                    panic!("expected a group");
+                };
+                assert_eq!(children.len(), 2);
+            }
+        }
+    }
+
+    /// Decoding is the cost this catalog pays once, so a repeat occurrence must reuse the decoded
+    /// tokens rather than produce an equal copy of them. With `Program`'s fields private, slice
+    /// identity is the only public probe.
+    #[test]
+    fn a_repeated_condition_hash_reuses_the_first_decoded_program() {
+        for (leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            let first_program = builder.by_condition_to_program[&hash].clone();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            let retained = frozen.by_condition_to_program[&hash]
+                .program()
+                .body_tokens();
+            // Two empty slices can compare pointer-equal, so prove the comparison has something to
+            // bite on.
+            assert!(!retained.is_empty());
+            assert!(std::ptr::eq(
+                first_program.program().body_tokens(),
+                retained,
+            ));
+        }
     }
 
     #[test]
@@ -608,11 +788,11 @@ mod tests {
             vec![CohortId(1), CohortId(2)]
         );
         assert_eq!(frozen.unique_condition_hashes.len(), 1);
-        assert_eq!(frozen.by_condition_to_bytecode.len(), 1);
+        assert_eq!(frozen.by_condition_to_program.len(), 1);
     }
 
     #[test]
-    fn bytecode_is_captured_under_its_condition_hash() {
+    fn the_loaded_program_is_captured_under_its_condition_hash() {
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -623,11 +803,62 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze(UTC);
 
-        let bytecode = frozen
-            .by_condition_to_bytecode
+        let program = frozen
+            .by_condition_to_program
             .get(&HASH)
-            .expect("bytecode captured under the conditionHash");
-        assert_eq!(bytecode.as_ref(), &behavioral_bytecode_loaded());
+            .expect("the program is captured under the conditionHash");
+        assert_eq!(program.tokens(), &behavioral_bytecode_loaded());
+    }
+
+    #[test]
+    fn a_leaf_with_unloadable_bytecode_excludes_its_cohort_and_indexes_nothing() {
+        // The cohort keeps a healthy person leaf, so the exclusion is the malformed leaf's doing,
+        // not an empty tree. Nothing about the dropped leaf reaches any index: a hash left behind in
+        // one of them would be evaluated, swept, or fingerprinted for a cohort that never emits.
+        let mut malformed = person_leaf();
+        malformed["bytecode"] = json!(["not-a-header", 1, 29]);
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), malformed]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+        );
+        assert!(!frozen.by_condition_to_program.contains_key(&PERSON_HASH));
+        assert!(!frozen.by_condition_to_lsk.contains_key(&PERSON_HASH));
+        assert!(!frozen
+            .by_lsk
+            .contains_key(&LeafStateKey::for_person_property(&PERSON_HASH)));
+        assert!(!frozen.person_property_conditions.contains(&PERSON_HASH));
+        // The healthy sibling still indexed, so the drop is scoped to the malformed leaf.
+        assert!(frozen.by_condition_to_program.contains_key(&HASH));
+
+        for malformed_first in [true, false] {
+            let mut malformed = person_leaf();
+            malformed["bytecode"] = json!(["not-a-header", 1, 29]);
+            let mut leaves = vec![malformed, person_leaf()];
+            if !malformed_first {
+                leaves.reverse();
+            }
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &wrap(leaves))
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+            assert_eq!(
+                frozen.eligibility[&CohortId(1)],
+                CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+                "a valid duplicate must not mask a malformed leaf",
+            );
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+        }
     }
 
     #[test]
@@ -680,8 +911,9 @@ mod tests {
         assert_eq!(meta.window, None, "daily buckets carry no relative window");
         assert_eq!(meta.window_days, Some(7));
         assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
-        assert!(
-            frozen.behavioral_conditions.contains(&HASH),
+        assert_eq!(
+            frozen.behavioral.conditions,
+            vec![HASH],
             "the multiple leaf's conditionHash is behavioral",
         );
     }
@@ -706,7 +938,7 @@ mod tests {
         assert_eq!(meta.window, None, "compressed carries no relative window");
         assert_eq!(meta.window_days, Some(365), "year = 365 days");
         assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
-        assert!(frozen.behavioral_conditions.contains(&HASH));
+        assert_eq!(frozen.behavioral.conditions, vec![HASH]);
     }
 
     #[test]
@@ -844,8 +1076,8 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert_eq!(
-            frozen.behavioral_conditions,
-            HashSet::from([HASH]),
+            frozen.behavioral.conditions,
+            vec![HASH],
             "the performed_event conditionHash is behavioral",
         );
         assert_eq!(
@@ -853,9 +1085,11 @@ mod tests {
             HashSet::from([PERSON_HASH]),
             "the person conditionHash is person-property",
         );
-        assert!(frozen
-            .behavioral_conditions
-            .is_disjoint(&frozen.person_property_conditions));
+        assert!(!frozen
+            .behavioral
+            .conditions
+            .iter()
+            .any(|hash| frozen.person_property_conditions.contains(hash)));
     }
 
     #[test]
@@ -993,9 +1227,12 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze(UTC);
 
-        assert_eq!(frozen.behavioral_by_event_name["$pageview"], vec![HASH]);
         assert_eq!(
-            frozen.behavioral_by_event_name["purchase"],
+            frozen.behavioral_by_event_name["$pageview"].conditions,
+            vec![HASH]
+        );
+        assert_eq!(
+            frozen.behavioral_by_event_name["purchase"].conditions,
             vec![PURCHASE_HASH],
         );
         assert!(
@@ -1003,15 +1240,131 @@ mod tests {
             "a person leaf is not bucketed by event name",
         );
 
-        let union: HashSet<[u8; 16]> = frozen
+        let mut union: Vec<[u8; 16]> = frozen
             .behavioral_by_event_name
             .values()
-            .flatten()
-            .copied()
+            .flat_map(|bucket| bucket.conditions.iter().copied())
             .collect();
+        union.sort_unstable();
         assert_eq!(
-            union, frozen.behavioral_conditions,
+            union, frozen.behavioral.conditions,
             "the buckets partition exactly the behavioral conditions",
+        );
+    }
+
+    #[test]
+    fn freeze_plans_each_bucket_from_the_bytecode_that_reads_it() {
+        // `pdi.person.properties.plan == "pro"`, the one shape that needs the `pdi` root.
+        let pdi_leaf = behavioral_leaf(
+            "checkout",
+            "pdihash000000001",
+            json!([
+                "_H",
+                1,
+                32,
+                "pro",
+                32,
+                "plan",
+                32,
+                "properties",
+                32,
+                "person",
+                32,
+                "pdi",
+                1,
+                4,
+                11
+            ]),
+        );
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), pdi_leaf.clone()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let checkout = &frozen.behavioral_by_event_name["checkout"].plan;
+        let pageview = &frozen.behavioral_by_event_name["$pageview"].plan;
+        assert!(checkout.reads(GlobalRoot::Pdi));
+        assert!(
+            !pageview.reads(GlobalRoot::Pdi),
+            "an `event ==` bucket does not need `pdi`, so building it there is wasted work",
+        );
+        assert!(pageview.reads(GlobalRoot::Event));
+        assert!(
+            frozen.behavioral.plan.reads(GlobalRoot::Pdi)
+                && frozen.behavioral.plan.reads(GlobalRoot::Event),
+            "the sweep evaluates every condition, so its plan is the union of the buckets'",
+        );
+        assert!(
+            frozen.behavioral.conditions.is_sorted(),
+            "the sweep order and the shared analysis budget both depend on this order",
+        );
+
+        // A `TRY` installs a handler the analysis does not follow, so it cannot narrow the read set.
+        let unanalyzable =
+            behavioral_leaf("signup", "tryhash000000002", json!(["_H", 1, 50, 1, 29]));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), pdi_leaf, unanalyzable]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+        assert_eq!(
+            frozen.behavioral_by_event_name["signup"].plan,
+            GlobalsPlan::FULL,
+            "a condition the analysis cannot narrow has to claim every root",
+        );
+        assert_eq!(frozen.behavioral.plan, GlobalsPlan::FULL);
+    }
+
+    #[test]
+    fn a_spent_budget_widens_every_condition_after_it_to_every_root() {
+        // `HASH` sorts before this hash, so the `$pageview` condition is analyzed first.
+        let purchase = behavioral_leaf(
+            "purchase",
+            "purchasehash0002",
+            json!(["_H", 1, 32, "purchase", 32, "event", 1, 1, 11]),
+        );
+        let cohort = wrap(vec![behavioral_performed_event(7), purchase]);
+        let mut builder = TeamFiltersBuilder::default();
+        builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
+        // STRING, STRING, GET_GLOBAL, EQ, RETURN: exactly what the first condition spends.
+        let mut budget = AnalysisBudget {
+            steps: 5,
+            cells: usize::MAX,
+        };
+        let frozen = builder.freeze_within(UTC, false, &mut budget);
+
+        assert_eq!(
+            budget.steps, 0,
+            "the first condition spent the whole budget"
+        );
+        let pageview = frozen.behavioral_by_event_name["$pageview"].plan;
+        assert!(
+            pageview.reads(GlobalRoot::Event) && !pageview.reads(GlobalRoot::Pdi),
+            "the condition within the budget still narrows",
+        );
+        assert_eq!(
+            frozen.behavioral_by_event_name["purchase"].plan,
+            GlobalsPlan::FULL,
+            "the condition the spent budget refuses takes every root",
+        );
+        assert_eq!(frozen.behavioral.plan, GlobalsPlan::FULL);
+
+        let mut builder = TeamFiltersBuilder::default();
+        builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
+        assert!(
+            !builder.freeze(UTC).behavioral_by_event_name["purchase"]
+                .plan
+                .reads(GlobalRoot::Pdi),
+            "under the catalog budget the same condition narrows, so the budget was what widened it",
         );
     }
 
@@ -1040,7 +1393,7 @@ mod tests {
         let mut expected = [HASH, HASH2];
         expected.sort_unstable();
         assert_eq!(
-            frozen.behavioral_by_event_name["$pageview"],
+            frozen.behavioral_by_event_name["$pageview"].conditions,
             expected.to_vec(),
             "the bucket dedupes the repeated leaf and sorts its two distinct hashes",
         );
@@ -1064,7 +1417,7 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_lsk.len(), 1);
-        assert_eq!(frozen.behavioral_conditions, HashSet::from([HASH]));
+        assert_eq!(frozen.behavioral.conditions, vec![HASH]);
     }
 
     fn cohort_ref() -> Value {

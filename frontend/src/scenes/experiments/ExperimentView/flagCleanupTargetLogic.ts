@@ -78,10 +78,7 @@ export const flagCleanupTargetLogic = kea<flagCleanupTargetLogicType>([
         // Loaded on modal open, not on mount: the modal component mounts with the scene,
         // and most experiment page visits never open it.
         openFinishExperimentModal: () => {
-            if (
-                values.featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] &&
-                values.featureFlags[FEATURE_FLAGS.TASKS]
-            ) {
+            if (values.featureFlags[FEATURE_FLAGS.TASKS]) {
                 actions.loadCleanupTarget()
             }
         },

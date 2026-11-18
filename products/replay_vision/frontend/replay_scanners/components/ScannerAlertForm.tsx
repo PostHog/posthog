@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
@@ -57,7 +58,13 @@ export function ScannerAlertKindPicker(): JSX.Element {
     )
 }
 
-export function ScannerAlertSelectionFields({ scannerType }: { scannerType?: string }): JSX.Element {
+export function ScannerAlertSelectionFields({
+    scannerType,
+    tagOptions,
+}: {
+    scannerType?: string
+    tagOptions?: LemonInputSelectOption[]
+}): JSX.Element {
     return (
         <AlertEditorSection
             title="Which observations count"
@@ -86,8 +93,9 @@ export function ScannerAlertSelectionFields({ scannerType }: { scannerType?: str
                                 allowCustomValues
                                 value={value}
                                 onChange={onChange}
-                                options={[]}
-                                placeholder="Any tag"
+                                options={tagOptions ?? []}
+                                virtualized={(tagOptions?.length ?? 0) > 50}
+                                placeholder={tagOptions?.length ? 'Select tags' : 'Any tag'}
                                 data-attr="vision-alert-tags"
                             />
                         )}

@@ -2,21 +2,14 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ElementsStatsRetrieveQueryParams,
-    InsightsActivityRetrieveParams,
-    InsightsActivityRetrieveQueryParams,
-    InsightsAllActivityRetrieveQueryParams,
-    InsightsCreateBody,
-    InsightsDestroyParams,
-    InsightsListQueryParams,
-    InsightsPartialUpdateBody,
-    InsightsPartialUpdateParams,
-    InsightsRetrieveParams,
-    InsightsRetrieveQueryParams,
-    InsightsTrendingRetrieveQueryParams,
-} from '@/generated/product_analytics/api'
+import * as orvalSchemas from '@/generated/product_analytics/api'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -27,6 +20,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HogQLExpression = z.string()
+
+const AssistantEventsQuery = z
+    .object({
+        kind: z.literal('EventsQuery').default('EventsQuery'),
+        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantDataTableNode = z
+    .object({
+        kind: z.literal('DataTableNode').default('DataTableNode'),
+        source: AssistantEventsQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantBIVisualizationNode = z
+    .object({
+        config: z
+            .record(z.string(), z.unknown())
+            .describe('Complete worksheet configuration, including shelves and filters. Validated by the insight API.'),
+        kind: z.literal('BIVisualizationNode').default('BIVisualizationNode'),
+        source: AssistantBareHogQLQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantPieChartOptions = z.object({
+    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+})
+
+const AssistantVizSpecificOptions = z.object({
+    ActionsPie: AssistantPieChartOptions.optional(),
+})
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -34,6 +68,32 @@ const AssistantInsightVizNode = z.object({
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
+    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
+})
+
+const AssistantDataVisualizationBoxPlotSettings = z.object({
+    excludeOutliers: z.coerce
+        .boolean()
+        .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
+        .optional(),
+    maxColumn: z.string().describe('Numeric column containing the maximum for each box.'),
+    meanColumn: z.string().describe('Numeric column containing the mean for each box.'),
+    medianColumn: z.string().describe('Numeric column containing the median for each box.'),
+    minColumn: z.string().describe('Numeric column containing the minimum for each box.'),
+    p25Column: z.string().describe('Numeric column containing the 25th percentile for each box.'),
+    p75Column: z.string().describe('Numeric column containing the 75th percentile for each box.'),
+    seriesColumn: z
+        .string()
+        .nullable()
+        .describe(
+            'Optional column that groups each X-axis value into separate colored series. Set to `null` for one series.'
+        )
+        .optional(),
+    xAxisColumn: z
+        .string()
+        .nullable()
+        .describe('X-axis category column. Set to `null` for one overall distribution or one box per series.')
+        .optional(),
 })
 
 const AssistantDataVisualizationGoalLine = z.object({
@@ -49,26 +109,30 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z
-        .enum(['auto', 'line', 'bar', 'area'])
+const AssistantDataVisualizationMetricSettings = z.object({
+    showChange: z.coerce.boolean().optional(),
+    summary: z.enum(['total', 'average', 'latest']).optional(),
+})
+
+const PieChartSettings = z.object({
+    showTotal: z.coerce
+        .boolean()
+        .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
+        .optional(),
+    sliceContent: z
+        .enum(['labels', 'values', 'none'])
+        .describe('What to render on each slice. Defaults to values.')
+        .optional(),
+    valueDisplay: z
+        .enum(['absolute', 'percentage'])
         .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+            'Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.'
         )
         .optional(),
-    label: z
-        .string()
-        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
-        .optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
+})
+
+const AssistantDataVisualizationColumnDisplaySettings = z.object({
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
 })
 
 const AssistantDataVisualizationAxisFormatting = z.object({
@@ -77,14 +141,49 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
+            '`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.'
         )
         .optional(),
-    suffix: z
-        .string()
+    suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
+})
+
+const AssistantDataVisualizationColumnSettings = z.object({
+    display: AssistantDataVisualizationColumnDisplaySettings.describe('Display settings for this column.').optional(),
+    formatting: AssistantDataVisualizationAxisFormatting.describe(
+        'Number-formatting settings for the values in this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationColumn = z.object({
+    column: z.string().describe('Name of a column returned by the SQL query.'),
+    settings: AssistantDataVisualizationColumnSettings.describe(
+        'Optional display and number-formatting settings for this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+    excludeFromTotal: z.coerce
+        .boolean()
         .describe(
-            'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
+            "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
         )
+        .optional(),
+    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
+    valueLabels: z
+        .enum(['auto', 'show', 'hide'])
+        .describe(
+            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+        )
+        .optional(),
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
         .optional(),
 })
 
@@ -105,11 +204,22 @@ const AssistantDataVisualizationAxis = z.object({
 })
 
 const AssistantDataVisualizationChartSettings = z.object({
+    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+        'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
+    ).optional(),
     goalLines: z
         .array(AssistantDataVisualizationGoalLine)
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    legendPosition: z
+        .enum(['top', 'bottom', 'left', 'right'])
+        .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
+        .optional(),
+    metric: AssistantDataVisualizationMetricSettings.describe(
+        'Settings for `Metric`. `summary` defaults to `latest`.'
+    ).optional(),
+    pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
     ).optional(),
@@ -118,6 +228,12 @@ const AssistantDataVisualizationChartSettings = z.object({
         .nullable()
         .describe(
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+        )
+        .optional(),
+    showAnnotations: z.coerce
+        .boolean()
+        .describe(
+            'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
@@ -134,7 +250,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
-    xAxis: AssistantDataVisualizationAxis.describe(
+    xAxis: AssistantDataVisualizationColumn.describe(
         'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
@@ -147,18 +263,23 @@ const AssistantDataVisualizationChartSettings = z.object({
 const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsTable',
     'BoldNumber',
+    'Metric',
     'ActionsLineGraph',
     'ActionsBar',
+    'ActionsBarValue',
     'ActionsPie',
+    'ActionsDonut',
+    'ActionsProportionBar',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
     'ScatterPlot',
+    'BoxPlot',
 ])
 
 const AssistantDataVisualizationTableSettings = z.object({
     columns: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationColumn)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
@@ -170,7 +291,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`.'
+        'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -179,14 +300,48 @@ const AssistantDataVisualizationNode = z.object({
     ).optional(),
 })
 
-const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
+const InsightNodeKind = z.enum([
+    'TrendsQuery',
+    'FunnelsQuery',
+    'RetentionQuery',
+    'PathsQuery',
+    'PathsV2Query',
+    'StickinessQuery',
+    'LifecycleQuery',
+    'WebStatsTableQuery',
+    'WebOverviewQuery',
+])
 
-const ElementsStatsRetrieveSchema = ElementsStatsRetrieveQueryParams
+const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
 
-const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, Schemas.ElementStatsResponse> => ({
+const AssistantBareInsightQuery = z
+    .object({
+        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
+    })
+    .catchall(z.unknown())
+
+const InsightQuery = z.union([
+    AssistantDataTableNode,
+    AssistantBIVisualizationNode,
+    AssistantInsightVizNode,
+    AssistantDataVisualizationNode,
+    AssistantBareInsightQuery,
+    AssistantBareHogQLQuery,
+    AssistantEventsQuery,
+])
+
+const ElementsStatsRetrieveSchema = () => {
+    const ElementsStatsRetrieveQueryParams = orvalSchemas.ElementsStatsRetrieveQueryParams()
+    return ElementsStatsRetrieveQueryParams
+}
+
+const elementsStatsRetrieve = (): ToolBase<
+    ReturnType<typeof ElementsStatsRetrieveSchema>,
+    Schemas.ElementStatsResponse
+> => ({
     name: 'elements-stats-retrieve',
-    schema: ElementsStatsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ElementsStatsRetrieveSchema>) => {
+    schema: ElementsStatsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ElementsStatsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ElementStatsResponse>({
             method: 'GET',
@@ -207,25 +362,139 @@ const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, S
     },
 })
 
-const InsightCreateSchema = InsightsCreateBody.omit({
-    derived_name: true,
-    order: true,
-    deleted: true,
-    _create_in_folder: true,
-}).extend({
-    query: InsightQuery,
-    dashboards: InsightsCreateBody.shape['dashboards'].describe(
-        'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-    ),
-    description: InsightsCreateBody.shape['description'].describe(
-        'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
-    ),
+const EventsRetentionDeletionCountSchema = () => {
+    const EventsRetentionDeletionCountQueryParams = orvalSchemas.EventsRetentionDeletionCountQueryParams()
+    return EventsRetentionDeletionCountQueryParams
+}
+
+const eventsRetentionDeletionCount = (): ToolBase<
+    ReturnType<typeof EventsRetentionDeletionCountSchema>,
+    Schemas.EventsDeleted
+> => ({
+    name: 'events-retention-deletion-count',
+    schema: EventsRetentionDeletionCountSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EventsRetentionDeletionCountSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventsDeleted>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/deletion_count/`,
+            query: {
+                retention_months: params.retention_months,
+            },
+        })
+        return result
+    },
 })
 
-const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const EventsRetentionGetSchema = () => z.object({})
+
+const eventsRetentionGet = (): ToolBase<ReturnType<typeof EventsRetentionGetSchema>, Schemas.EventsRetention> => ({
+    name: 'events-retention-get',
+    schema: EventsRetentionGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof EventsRetentionGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventsRetention>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/`,
+        })
+        return result
+    },
+})
+
+const EventsRetentionUpdateSchema = () => {
+    const EventsRetentionUpdateBody = orvalSchemas.EventsRetentionUpdateBody()
+    return EventsRetentionUpdateBody.extend({
+        retention_months: EventsRetentionUpdateBody.shape['retention_months'].describe(
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from events-retention-get. Null removes the project's period, so the project uses the organization's period, or the default period when the organization has none."
+        ),
+    })
+}
+
+const EventsRetentionUpdateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const eventsRetentionUpdatePrepare = (): ToolBase<
+    ReturnType<typeof EventsRetentionUpdateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'events-retention-update-prepare',
+    schema: EventsRetentionUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EventsRetentionUpdateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
+            actionLabel: 'set events retention period',
+            messageTemplate:
+                "About to change how long this project keeps events. If the new period is shorter, events in this project that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const eventsRetentionUpdateExecute = (): ToolBase<
+    typeof EventsRetentionUpdateSchemaExecute,
+    Schemas.EventsRetention
+> => ({
+    name: 'events-retention-update-execute',
+    schema: EventsRetentionUpdateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof EventsRetentionUpdateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof EventsRetentionUpdateSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.retention_months !== undefined) {
+            body['retention_months'] = params.retention_months
+        }
+        const result = await context.api.request<Schemas.EventsRetention>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InsightCreateSchema = () => {
+    const InsightsCreateBody = orvalSchemas.InsightsCreateBody()
+    return InsightsCreateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true }).extend({
+        query: InsightQuery,
+        dashboards: InsightsCreateBody.shape['dashboards'].describe(
+            'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+        ),
+        description: InsightsCreateBody.shape['description'].describe(
+            'Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.'
+        ),
+    })
+}
+
+const insightCreate = (): ToolBase<
+    ReturnType<typeof InsightCreateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Insight>>
+> => ({
     name: 'insight-create',
-    schema: InsightCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightCreateSchema>) => {
+    schema: InsightCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -260,19 +529,25 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. When neither fits because the metric is noisy or seasonal, offer an anomaly detection alert on Trends and SQL insights. If you offer the AI detector, say that each of its checks uses AI credits. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.\n'
+        )
     },
 })
 
-const InsightDeleteSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsDestroyParams.omit({ project_id: true })
-)
+const InsightDeleteSchema = () => {
+    const InsightsDestroyParams = orvalSchemas.InsightsDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsDestroyParams.omit({ project_id: true })
+    )
+}
 
-const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> => ({
+const insightDelete = (): ToolBase<ReturnType<typeof InsightDeleteSchema>, Schemas.Insight> => ({
     name: 'insight-delete',
-    schema: InsightDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightDeleteSchema>) => {
+    schema: InsightDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'PATCH',
@@ -283,30 +558,34 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
     },
 })
 
-const InsightGetSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsRetrieveParams.omit({ project_id: true })
-        .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
-        .extend({
-            filters_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-                ),
-            variables_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-                ),
-        })
-)
+const InsightGetSchema = () => {
+    const InsightsRetrieveParams = orvalSchemas.InsightsRetrieveParams()
+    const InsightsRetrieveQueryParams = orvalSchemas.InsightsRetrieveQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsRetrieveParams.omit({ project_id: true })
+            .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+            .extend({
+                filters_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                    ),
+                variables_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                    ),
+            })
+    )
+}
 
-const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightGet = (): ToolBase<ReturnType<typeof InsightGetSchema>, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
-    schema: InsightGetSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightGetSchema>) => {
+    schema: InsightGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
@@ -330,28 +609,39 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const InsightUpdateSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsPartialUpdateParams.omit({ project_id: true })
-        .extend(
-            InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
-                .shape
-        )
-        .extend({
-            query: InsightQuery.optional(),
-            dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
-                'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-            ),
-            description: InsightsPartialUpdateBody.shape['description'].describe(
-                'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
-            ),
-        })
-)
+const InsightUpdateSchema = () => {
+    const InsightsPartialUpdateBody = orvalSchemas.InsightsPartialUpdateBody()
+    const InsightsPartialUpdateParams = orvalSchemas.InsightsPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                InsightsPartialUpdateBody.omit({
+                    derived_name: true,
+                    order: true,
+                    deleted: true,
+                    _create_in_folder: true,
+                }).shape
+            )
+            .extend({
+                query: InsightQuery.optional(),
+                dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
+                    'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+                ),
+                description: InsightsPartialUpdateBody.shape['description'].describe(
+                    'Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.'
+                ),
+            })
+    )
+}
 
-const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
+const insightUpdate = (): ToolBase<
+    ReturnType<typeof InsightUpdateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Insight>>
+> => ({
     name: 'insight-update',
-    schema: InsightUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightUpdateSchema>) => {
+    schema: InsightUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -388,22 +678,26 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<Wit
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
-            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when the dashboard id you just added was not already on the insight before this call. Offer at most once per dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
+            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when the dashboard id you just added was not already on the insight before this call. Offer at most once per dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 20 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
         )
     },
 })
 
-const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
-    InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
-)
+const InsightsActivityRetrieveSchema = () => {
+    const InsightsActivityRetrieveParams = orvalSchemas.InsightsActivityRetrieveParams()
+    const InsightsActivityRetrieveQueryParams = orvalSchemas.InsightsActivityRetrieveQueryParams()
+    return InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
+        InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
+    )
+}
 
 const insightsActivityRetrieve = (): ToolBase<
-    typeof InsightsActivityRetrieveSchema,
+    ReturnType<typeof InsightsActivityRetrieveSchema>,
     WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-activity-retrieve',
-    schema: InsightsActivityRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsActivityRetrieveSchema>) => {
+    schema: InsightsActivityRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsActivityRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -428,15 +722,18 @@ const insightsActivityRetrieve = (): ToolBase<
     },
 })
 
-const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+const InsightsAllActivityRetrieveSchema = () => {
+    const InsightsAllActivityRetrieveQueryParams = orvalSchemas.InsightsAllActivityRetrieveQueryParams()
+    return InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+}
 
 const insightsAllActivityRetrieve = (): ToolBase<
-    typeof InsightsAllActivityRetrieveSchema,
+    ReturnType<typeof InsightsAllActivityRetrieveSchema>,
     WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-all-activity-retrieve',
-    schema: InsightsAllActivityRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsAllActivityRetrieveSchema>) => {
+    schema: InsightsAllActivityRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsAllActivityRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -461,15 +758,21 @@ const insightsAllActivityRetrieve = (): ToolBase<
     },
 })
 
-const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
-    limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
-})
+const InsightsListSchema = () => {
+    const InsightsListQueryParams = orvalSchemas.InsightsListQueryParams()
+    return InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
+        limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
+    })
+}
 
-const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
+const insightsList = (): ToolBase<
+    ReturnType<typeof InsightsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedInsightList>
+> => ({
     name: 'insights-list',
-    schema: InsightsListSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsListSchema>) => {
+    schema: InsightsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedInsightList>({
             method: 'GET',
@@ -481,6 +784,8 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                 dashboards: params.dashboards,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                display: params.display,
+                exclude_bi: params.exclude_bi,
                 favorited: params.favorited,
                 include_dashboards: params.include_dashboards,
                 insight: params.insight,
@@ -488,6 +793,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                 last_viewed_date_to: params.last_viewed_date_to,
                 limit: params.limit,
                 offset: params.offset,
+                order: params.order,
                 saved: params.saved,
                 search: params.search,
                 short_id: params.short_id,
@@ -529,15 +835,18 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
-const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+const InsightsTrendingRetrieveSchema = () => {
+    const InsightsTrendingRetrieveQueryParams = orvalSchemas.InsightsTrendingRetrieveQueryParams()
+    return InsightsTrendingRetrieveQueryParams.omit({ format: true })
+}
 
 const insightsTrendingRetrieve = (): ToolBase<
-    typeof InsightsTrendingRetrieveSchema,
+    ReturnType<typeof InsightsTrendingRetrieveSchema>,
     WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
 > => ({
     name: 'insights-trending-retrieve',
-    schema: InsightsTrendingRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+    schema: InsightsTrendingRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsTrendingRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTrendingInsightList>({
             method: 'GET',
@@ -584,8 +893,137 @@ const insightsTrendingRetrieve = (): ToolBase<
     },
 })
 
+const OrganizationEventsRetentionDeletionCountSchema = () => {
+    const OrganizationEventsRetentionDeletionCountQueryParams =
+        orvalSchemas.OrganizationEventsRetentionDeletionCountQueryParams()
+    return OrganizationEventsRetentionDeletionCountQueryParams
+}
+
+const organizationEventsRetentionDeletionCount = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionDeletionCountSchema>,
+    Schemas.EventsDeleted
+> => ({
+    name: 'organization-events-retention-deletion-count',
+    schema: OrganizationEventsRetentionDeletionCountSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof OrganizationEventsRetentionDeletionCountSchema>>
+    ) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.EventsDeleted>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/deletion_count/`,
+            query: {
+                retention_months: params.retention_months,
+            },
+        })
+        return result
+    },
+})
+
+const OrganizationEventsRetentionGetSchema = () => z.object({})
+
+const organizationEventsRetentionGet = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionGetSchema>,
+    Schemas.OrganizationEventsRetention
+> => ({
+    name: 'organization-events-retention-get',
+    schema: OrganizationEventsRetentionGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof OrganizationEventsRetentionGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.OrganizationEventsRetention>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/`,
+        })
+        return result
+    },
+})
+
+const OrganizationEventsRetentionUpdateSchema = () => {
+    const OrganizationEventsRetentionUpdateBody = orvalSchemas.OrganizationEventsRetentionUpdateBody()
+    return OrganizationEventsRetentionUpdateBody.extend({
+        retention_months: OrganizationEventsRetentionUpdateBody.shape['retention_months'].describe(
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from organization-events-retention-get. Null removes the organization's period, so projects without their own period use the default period."
+        ),
+    })
+}
+
+const OrganizationEventsRetentionUpdateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const organizationEventsRetentionUpdatePrepare = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionUpdateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'organization-events-retention-update-prepare',
+    schema: OrganizationEventsRetentionUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationEventsRetentionUpdateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
+            actionLabel: 'set organization events retention period',
+            messageTemplate:
+                "About to change how long projects without their own period keep events. If the new period is shorter, events in those projects that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const organizationEventsRetentionUpdateExecute = (): ToolBase<
+    typeof OrganizationEventsRetentionUpdateSchemaExecute,
+    Schemas.OrganizationEventsRetention
+> => ({
+    name: 'organization-events-retention-update-execute',
+    schema: OrganizationEventsRetentionUpdateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof OrganizationEventsRetentionUpdateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof OrganizationEventsRetentionUpdateSchema>>
+        >(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            expectedScope: { orgId: String(__scopeOrgId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const body: Record<string, unknown> = {}
+        if (params.retention_months !== undefined) {
+            body['retention_months'] = params.retention_months
+        }
+        const result = await context.api.request<Schemas.OrganizationEventsRetention>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'elements-stats-retrieve': elementsStatsRetrieve,
+    'events-retention-deletion-count': eventsRetentionDeletionCount,
+    'events-retention-get': eventsRetentionGet,
+    'events-retention-update-prepare': eventsRetentionUpdatePrepare,
+    'events-retention-update-execute': eventsRetentionUpdateExecute,
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
@@ -594,4 +1032,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
     'insights-trending-retrieve': insightsTrendingRetrieve,
+    'organization-events-retention-deletion-count': organizationEventsRetentionDeletionCount,
+    'organization-events-retention-get': organizationEventsRetentionGet,
+    'organization-events-retention-update-prepare': organizationEventsRetentionUpdatePrepare,
+    'organization-events-retention-update-execute': organizationEventsRetentionUpdateExecute,
 }

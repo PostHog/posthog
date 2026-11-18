@@ -1,7 +1,10 @@
 import posthog, { DisplaySurveyType, type Properties } from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { QuillFeedbackSurveyButton } from './QuillFeedbackSurveyButton'
 
 export interface FeedbackSurveyButtonProps {
     surveyId: string
@@ -20,6 +23,7 @@ export function FeedbackSurveyButton({
     'data-attr': dataAttr,
 }: FeedbackSurveyButtonProps): JSX.Element {
     const [surveysLoaded, setSurveysLoaded] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(
         () =>
@@ -30,6 +34,17 @@ export function FeedbackSurveyButton({
             }),
         []
     )
+
+    if (todayRailNav) {
+        return (
+            <QuillFeedbackSurveyButton
+                surveyId={surveyId}
+                properties={properties}
+                data-attr={dataAttr}
+                surveysLoaded={surveysLoaded}
+            />
+        )
+    }
 
     return (
         <LemonButton

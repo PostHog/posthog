@@ -54,7 +54,33 @@ pub fn print_report(
     if read_snap.total > 0 {
         print_stats_row("reads", &read_snap);
     }
+    let merge_snap = collector.merges.snapshot();
+    if merge_snap.total > 0 {
+        print_stats_row("merges", &merge_snap);
+    }
+    let wide_snap = collector.wide_merges.snapshot();
+    if wide_snap.total > 0 {
+        print_stats_row("merges_wide", &wide_snap);
+    }
     println!();
+    let rejected = write_snap.lifecycle_rejections + read_snap.lifecycle_rejections;
+    if rejected > 0 {
+        println!(
+            "  Lifecycle rejections (counted in Total, not Failed): {rejected} writes refused \
+             for a fenced or destroyed person"
+        );
+    }
+    let outcomes = collector.merge_outcomes();
+    if !outcomes.is_empty() {
+        let rendered: Vec<String> = outcomes
+            .iter()
+            .map(|(outcome, count)| format!("{outcome}={count}"))
+            .collect();
+        println!("  Merge outcomes per source: {}", rendered.join(" "));
+    }
+    if rejected > 0 || !outcomes.is_empty() {
+        println!();
+    }
 
     if violations.is_empty() {
         println!("  Consistency violations: 0");

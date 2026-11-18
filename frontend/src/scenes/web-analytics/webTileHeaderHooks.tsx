@@ -9,25 +9,27 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ExportAdapter, copyTableData } from '~/queries/nodes/InsightViz/exportAdapters'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
-import { ExportAdapter, downloadTableDataAsCsv, exportTableData, getExportAdapter } from './webAnalyticsExportUtils'
+import { downloadTableDataAsCsv, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { withoutWebQueryModifiers } from './webQueryModifiers'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.web-analytics-no-active-tab-fallback',
     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export function useWebTileExportAdapter(
-    query: QuerySchema | undefined,
-    insightProps: InsightLogicProps
-): ExportAdapter | null {
-    // This header hook renders before the tile's chart. insightDataLogic (mounted below) connects to
+export function useWebTileInsightData(insightProps: InsightLogicProps): {
+    insightDataRaw: Record<string, any> | null
+    insightDataLoading: boolean
+} {
+    // Callers can render before the tile's chart, which loads lazily. insightDataLogic (mounted below) connects to
     // the shared, key-only dataNodeLogic without forwarding dataNodeCollectionId, so it would build
     // that logic first and bind it to a fallback collection — dropping the tile from the dashboard's
     // "reload all" (only the overview, which isn't an insight viz, kept reloading). Bind the node to
@@ -48,9 +50,15 @@ export function useWebTileExportAdapter(
     )
     useMountedLogic(collectionBoundDataNodeLogic)
 
-    const builtInsightDataLogic = insightDataLogic(insightProps)
-    const { insightDataRaw } = useValues(builtInsightDataLogic)
+    const { insightDataRaw, insightDataLoading } = useValues(insightDataLogic(insightProps))
+    return { insightDataRaw, insightDataLoading }
+}
 
+export function useWebTileExportAdapter(
+    query: QuerySchema | undefined,
+    insightProps: InsightLogicProps
+): ExportAdapter | null {
+    const { insightDataRaw } = useWebTileInsightData(insightProps)
     return useMemo(() => getExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 }
 
@@ -91,7 +99,7 @@ export function useWebTileOverflowMenuItems({
                     if (!adapter) {
                         return
                     }
-                    exportTableData(adapter.toTableData(), ExporterFormat.CSV)
+                    copyTableData(adapter.toTableData(), ExporterFormat.CSV)
                     exportTriggered()
                 },
             },
@@ -102,7 +110,7 @@ export function useWebTileOverflowMenuItems({
                     if (!query) {
                         return
                     }
-                    void copyToClipboard(JSON.stringify(query, null, 2), 'query JSON')
+                    void copyToClipboard(JSON.stringify(withoutWebQueryModifiers(query), null, 2), 'query JSON')
                 },
             },
         ]

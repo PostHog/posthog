@@ -100,6 +100,15 @@ registerActionNodeCategory({
     nodes: [
         {
             type: 'function',
+            name: 'Create task',
+            featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+            description:
+                'Create a Customer analytics task with an optional account, assignee, and due date. All fields support workflow variables.',
+            config: { template_id: 'template-posthog-create-customer-task', inputs: {} },
+            output_variable: { key: 'customer_task', result_path: null, label: 'Task' },
+        },
+        {
+            type: 'function',
             name: 'Create account',
             description: "Create a Customer analytics account for the event's group, if one doesn't exist yet.",
             config: { template_id: 'template-posthog-create-account', inputs: {} },
@@ -155,7 +164,7 @@ registerActionNodeCategory({
         {
             type: 'function',
             name: 'Update account property',
-            description: 'Set custom property values on a Customer analytics account.',
+            description: 'Set or clear custom property values on a Customer analytics account.',
             config: { template_id: 'template-posthog-update-account-property', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null },

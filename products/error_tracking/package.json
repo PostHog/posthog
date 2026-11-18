@@ -5,7 +5,9 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -21,6 +23,7 @@
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",

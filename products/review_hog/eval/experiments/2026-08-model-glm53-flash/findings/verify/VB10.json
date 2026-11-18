@@ -1,0 +1,6 @@
+{
+    "id": "VB10",
+    "real": true,
+    "source": "reused-KA10",
+    "reasoning": "Identical to prior verdict KA10 (is_real=true, high confidence); spot-checked against the frozen tree. process_inbox_pr_review (tasks.py:1109-1245) never loads task_run_id/signal_report_id — it stamps them verbatim into inbox_review (1176-1181, 1228) after only resolving an enabled repo config for the URL's repository (1140-1153) and fetching any open PR (1159-1174). No bot-author, draft, fork, or linkage check. TaskRun.output.pr_url is caller-writable: _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS protects only pr_merged (products/tasks/backend/facade/api.py:1770). Downstream the provenance relaxes bot-author and draft gates and yields a real head-pinned APPROVE, so a task writer can target an unrelated open PR."
+}

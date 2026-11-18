@@ -2,9 +2,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronDown, IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,14 +15,16 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
+import { logsAlertDestinationsLogicProps } from 'products/logs/frontend/components/LogsAlerting/logsAlertDestinations'
 import { LogsAlertEventHistoryContent } from 'products/logs/frontend/components/LogsAlerting/LogsAlertEventHistory'
 import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/LogsAlertForm'
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
-import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAlerting/LogsAlertNotifications'
+import { LogsAlertRegroupConfirmModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
-import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
 import { hasAnyFilter } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import {
@@ -35,6 +38,8 @@ import {
     SNOOZE_DURATIONS,
     logsAlertDetailSceneLogic,
 } from './logsAlertDetailSceneLogic'
+import { openDeleteLogsAlertDialog } from './openDeleteLogsAlertDialog'
+import { QuillLogsAlertDetailActions } from './QuillLogsAlertDetailActions'
 
 export const scene: SceneExport<LogsAlertDetailSceneLogicProps> = {
     component: LogsAlertDetailScene,
@@ -47,7 +52,7 @@ export function LogsAlertDetailScene(): JSX.Element {
     const { setActiveTab } = useActions(logsAlertDetailSceneLogic)
 
     const formLogicProps = { alert: alert ?? ({ id: alertId } as LogsAlertConfigurationApi) }
-    const notifLogicProps = { alertId }
+    const notifLogicProps = logsAlertDestinationsLogicProps(alertId)
     const { isSimulationPanelOpen } = useValues(logsAlertFormLogic(formLogicProps))
     const { closeSimulationPanel } = useActions(logsAlertFormLogic(formLogicProps))
 
@@ -61,13 +66,17 @@ export function LogsAlertDetailScene(): JSX.Element {
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
-            <BindLogic logic={logsAlertNotificationLogic} props={notifLogicProps}>
+            <BindLogic logic={platformAlertDestinationsLogic} props={notifLogicProps}>
                 <SceneContent>
                     <AlertHeader />
                     <div className="flex flex-col gap-4 p-4">
                         {alert && <AlertStatusBand />}
                         {alert && (
-                            <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-8 w-full" showAxis />
+                            <PlatformAlertStateTimeline
+                                timeline={alert.state_timeline}
+                                className="h-8 w-full"
+                                showAxis
+                            />
                         )}
                         <LemonTabs
                             activeKey={activeTab}
@@ -105,6 +114,7 @@ export function LogsAlertDetailScene(): JSX.Element {
                     >
                         <LogsAlertSimulation />
                     </LemonModal>
+                    <LogsAlertRegroupConfirmModal />
                 </SceneContent>
             </BindLogic>
         </BindLogic>
@@ -116,16 +126,21 @@ function primaryDisabledReason({
     alertForm,
     alertFormChanged,
     nameError,
+    maxInstancesError,
     hasPendingNotifications,
 }: {
     isDraft: boolean
     alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
     alertFormChanged: boolean
     nameError: string | undefined
+    maxInstancesError: string | undefined
     hasPendingNotifications: boolean
 }): string | undefined {
     if (nameError) {
         return nameError
+    }
+    if (maxInstancesError) {
+        return maxInstancesError
     }
     if (isDraft) {
         return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -140,9 +155,11 @@ function AlertHeader(): JSX.Element {
     const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, enableAlert } =
         useActions(logsAlertDetailSceneLogic)
 
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors } = useValues(logsAlertFormLogic)
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors, alertFormValidationErrors } =
+        useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
-    const { pendingNotifications } = useValues(logsAlertNotificationLogic)
+    const { pendingDestinations } = useValues(platformAlertDestinationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isEnabled = alert?.enabled ?? true
     const isBroken = alert?.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -158,7 +175,19 @@ function AlertHeader(): JSX.Element {
             onNameChange={(name) => setAlertFormValue('name', name)}
             renameDebounceMs={0}
             actions={
-                alert ? (
+                alert && todayRailNav ? (
+                    <QuillLogsAlertDetailActions
+                        alert={alert}
+                        primaryDisabledReason={primaryDisabledReason({
+                            isDraft,
+                            alertForm,
+                            alertFormChanged,
+                            nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                            maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
+                            hasPendingNotifications: pendingDestinations.length > 0,
+                        })}
+                    />
+                ) : alert ? (
                     <div className="flex items-center gap-2">
                         {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
                             <LogsAlertStateIndicator
@@ -209,7 +238,8 @@ function AlertHeader(): JSX.Element {
                                 alertForm,
                                 alertFormChanged,
                                 nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
-                                hasPendingNotifications: pendingNotifications.length > 0,
+                                maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
+                                hasPendingNotifications: pendingDestinations.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
                         >
@@ -224,21 +254,8 @@ function AlertHeader(): JSX.Element {
                                             'data-attr': 'logs-alert-detail-delete',
                                             label: 'Delete',
                                             status: 'danger' as const,
-                                            onClick: () => {
-                                                LemonDialog.open({
-                                                    title: `Delete "${alert.name}"?`,
-                                                    description:
-                                                        'This alert will be permanently deleted. This action cannot be undone.',
-                                                    primaryButton: {
-                                                        children: 'Delete',
-                                                        type: 'primary',
-                                                        status: 'danger',
-                                                        onClick: deleteAlert,
-                                                        'data-attr': 'logs-alert-delete-confirm',
-                                                    },
-                                                    secondaryButton: { children: 'Cancel' },
-                                                })
-                                            },
+                                            onClick: () =>
+                                                openDeleteLogsAlertDialog({ alertName: alert.name, deleteAlert }),
                                         },
                                     ]}
                                 />
@@ -254,7 +271,7 @@ function AlertHeader(): JSX.Element {
 function AlertStatusBand(): JSX.Element | null {
     const { alert } = useValues(logsAlertDetailSceneLogic)
     const { resetAlert, unsnoozeAlert, enableAlert, setActiveTab } = useActions(logsAlertDetailSceneLogic)
-    const { destinationGroups, existingHogFunctionsLoading } = useValues(logsAlertNotificationLogic)
+    const { destinations, destinationsLoading } = useValues(platformAlertDestinationsLogic)
 
     if (!alert) {
         return null
@@ -310,7 +327,7 @@ function AlertStatusBand(): JSX.Element | null {
         )
     }
 
-    if (alert.enabled && !existingHogFunctionsLoading && destinationGroups.length === 0) {
+    if (alert.enabled && !destinationsLoading && destinations.length === 0) {
         banners.push(
             <LemonBanner
                 key="no-destinations"

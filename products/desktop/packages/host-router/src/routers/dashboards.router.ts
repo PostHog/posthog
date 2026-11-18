@@ -7,14 +7,21 @@ import {
   canvasActionDefinitionSchema,
   canvasActionInvokeInput,
   canvasActionResultSchema,
+  canvasAvailabilitySchema,
   canvasBuildsInput,
+  canvasConnectorCallResultSchema,
+  canvasConnectorCallServiceInput,
   canvasDraftSchema,
   canvasSourceInput,
   canvasSourceSchema,
   canvasStateEntrySchema,
   canvasStateListInput,
   canvasStateSetInput,
+  canvasToolDefinitionSchema,
+  canvasToolInvokeInput,
+  canvasToolResultSchema,
   canvasVersionSchema,
+  canvasViewSchema,
   createDashboardInput,
   dashboardIdInput,
   dashboardRecordSchema,
@@ -22,11 +29,12 @@ import {
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
+  publishProjectInput,
+  publishProjectResultSchema,
   renameDashboardInput,
   reportCanvasErrorInput,
   requestCanvasAgentInput,
   revertCanvasInput,
-  saveContextInput,
   setGenerationTaskInput,
   setPinnedInput,
 } from "@posthog/core/canvas/dashboardSchemas";
@@ -69,6 +77,22 @@ export const dashboardsRouter = router({
     .query(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).get(input.id),
     ),
+  // Why a canvas would not open. Only the dead-end surface asks.
+  availability: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasAvailabilitySchema)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .availability(input.id),
+    ),
+  // Everything needed to open a canvas, in one round trip.
+  view: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasViewSchema)
+    .query(({ ctx, input }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).view(input.id),
+    ),
   // A query despite the POST underneath: home is an idempotent get-or-create,
   // and query semantics give the surface caching and dedupe for free.
   home: publicProcedure
@@ -99,6 +123,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .patchLayout(input),
+    ),
+  publishProject: publicProcedure
+    .input(publishProjectInput)
+    .output(publishProjectResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .publishProject(input),
     ),
   source: publicProcedure
     .input(canvasSourceInput)
@@ -162,14 +194,6 @@ export const dashboardsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).create(input),
     ),
-  saveContext: publicProcedure
-    .input(saveContextInput)
-    .output(dashboardRecordSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .saveContext(input),
-    ),
   setGenerationTask: publicProcedure
     .input(setGenerationTaskInput)
     .output(dashboardRecordSchema)
@@ -224,6 +248,27 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .invokeAction(input),
+    ),
+  listTools: publicProcedure
+    .output(z.array(canvasToolDefinitionSchema))
+    .query(({ ctx }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listTools(),
+    ),
+  invokeTool: publicProcedure
+    .input(canvasToolInvokeInput)
+    .output(canvasToolResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .invokeTool(input),
+    ),
+  callConnector: publicProcedure
+    .input(canvasConnectorCallServiceInput)
+    .output(canvasConnectorCallResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .callConnector(input),
     ),
   rename: publicProcedure
     .input(renameDashboardInput)

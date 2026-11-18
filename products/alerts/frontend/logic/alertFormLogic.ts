@@ -6,14 +6,18 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -22,15 +26,20 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
-import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
+import {
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+    alertsTakeOwnershipCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,
@@ -43,15 +52,17 @@ import {
     isTrendsAlertConfig,
     supportsOngoingInterval,
 } from '../types'
-import { getAlertFormValidationErrors } from './alertFormSchema'
+import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 
-export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
+export { canCheckOngoingInterval, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -66,33 +77,16 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
+    | 'evaluation_delay_intervals'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
-    insight?: QueryBasedInsightModel['id']
-}
-
-export function canCheckOngoingInterval(
-    alert?: AlertType | AlertFormType,
-    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
-): boolean {
-    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
-    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
-    // safe for an absolute/increase check above an upper bound.
-    if (isFunnelsAlertConfig(alert?.config)) {
-        return isTrendsFunnel
-    }
-    const upper = alert?.threshold?.configuration?.bounds?.upper
-    return (
-        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
-        upper != null &&
-        !isNaN(upper)
-    )
+    insight?: InsightModel['id']
 }
 
 const ONGOING_DISABLED_REASON =
@@ -140,9 +134,31 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
     return 'trends'
 }
 
+const EVALUATION_DELAY_UNSUPPORTED_REASON =
+    "This insight doesn't support an evaluation delay. Set it to 0 to save the alert."
+
+export interface EvaluationDelayField {
+    show: boolean
+    unsupportedReason?: string
+}
+
+/** A saved delay stays editable after its insight stops supporting one, because the API
+ * rejects every save of that alert until the delay is 0. */
+export function evaluationDelayField(
+    insightAlertKind: InsightAlertKind,
+    isNonTimeSeriesDisplay: boolean,
+    savedDelay: number
+): EvaluationDelayField {
+    const supported = insightAlertKind === 'trends' && !isNonTimeSeriesDisplay
+    return {
+        show: supported || savedDelay > 0,
+        unsupportedReason: supported ? undefined : EVALUATION_DELAY_UNSUPPORTED_REASON,
+    }
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
@@ -233,7 +249,7 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+function alertToFormType(alert: AlertType, insightId: InsightModel['id']): AlertFormType {
     return {
         ...alert,
         insight: insightId,
@@ -293,6 +309,7 @@ export interface alertFormLogicValues {
     isAlertFormValid: boolean
     showAlertFormErrors: boolean
     simulationDateFrom: string | null
+    simulationRequestId: number
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     thresholdBoundsFormError: string | undefined
@@ -487,6 +504,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
+        // Counts every request and every clear, so a preview that resolves after the
+        // detector settings changed can be told apart from the one the user is waiting on.
+        simulationRequestId: [
+            0,
+            {
+                simulateAlert: (state) => state + 1,
+                clearSimulation: (state) => state + 1,
+            },
+        ],
         alertFormSubmitAttempted: [
             false,
             {
@@ -506,30 +532,49 @@ export const alertFormLogic = kea<alertFormLogicType>([
         simulationResult: [
             null as AlertSimulationResult | null,
             {
-                simulateAlert: async (): Promise<AlertSimulationResult | null> => {
+                simulateAlert: async (_, breakpoint): Promise<AlertSimulationResult | null> => {
                     const detectorConfig = values.alertForm.detector_config
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const requestId = values.simulationRequestId
                     const formConfig = values.alertForm.config
-                    return await api.alerts.simulate({
-                        insight: props.insightId,
-                        detector_config: detectorConfig,
-                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
-                        date_from:
-                            values.simulationDateFrom ??
-                            getDefaultSimulationRange(values.alertForm.calculation_interval),
-                        // SQL insights have no series_index; the config carries the evaluated column
-                        // and read direction so the preview matches what the alert will score.
-                        config: formConfig,
-                    })
+                    let result: AlertSimulationResult
+                    try {
+                        result = (await alertsSimulateCreate(String(ApiConfig.getCurrentProjectId()), {
+                            insight: props.insightId,
+                            detector_config: detectorConfig,
+                            series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                            date_from:
+                                values.simulationDateFrom ??
+                                getDefaultSimulationRange(values.alertForm.calculation_interval),
+                            // SQL insights have no series_index; the config carries the evaluated column
+                            // and read direction so the preview matches what the alert will score.
+                            config: formConfig,
+                            evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
+                            // A saved alert's earlier AI checks are part of what the AI detector reads.
+                            alert: values.alertForm.id ?? null,
+                        })) as AlertSimulationResult
+                    } catch (error) {
+                        if (values.simulationRequestId === requestId) {
+                            throw error
+                        }
+                        // The settings this request ran with are gone, so its failure is not one to report.
+                        breakpoint()
+                        return values.simulationResult
+                    }
+                    // A newer preview owns the loader now: the breakpoint stops this one from settling
+                    // it. After a clear there is nothing to show, because the model never saw the
+                    // current settings.
+                    breakpoint()
+                    return values.simulationRequestId === requestId ? result : values.simulationResult
                 },
                 clearSimulation: () => null,
             },
         ],
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values, actions, cache }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -541,6 +586,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           created_by: null,
                           created_at: '',
                           enabled: true,
+                          evaluation_delay_intervals: 0,
                           config: defaultConfigForInsight(props.insightAlertKind),
                           threshold: {
                               configuration: {
@@ -556,6 +602,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,
@@ -583,6 +630,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    // The snooze control saves on its own, so the form's copy can be stale and would undo it.
+                    snoozed_until: undefined,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -643,18 +692,49 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
                     if (notifLogic.values.pendingNotifications.length > 0) {
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                        await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
                     }
                 }
 
                 const existingAlertId = alert.id
                 const isNewAlert = existingAlertId === undefined
+                // The answer may be for settings the person has since changed, so ask again for the payload.
+                if (
+                    isNewAlert &&
+                    alert.calculation_interval &&
+                    notifLogic.values.pendingNotifications.some(
+                        (notification) => notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    )
+                ) {
+                    await notifLogic.asyncActions.loadNewAlertPagerDutyAvailable({
+                        calculationInterval: alert.calculation_interval,
+                        investigationAgentEnabled: payload.investigation_agent_enabled ?? false,
+                    })
+                    if (!notifLogic.values.newAlertPagerDutyAvailable) {
+                        lemonToast.error(
+                            "PagerDuty isn't available for this alert yet. Remove the PagerDuty destination to save it."
+                        )
+                        throw new Error('PagerDuty is not available for this alert')
+                    }
+                }
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
+                    const cause = ownerUnavailableCause(error)
+                    if (cause && existingAlertId !== undefined && !cache.takeOwnershipAfterSave) {
+                        // The other edits are saved first, with the alert still disabled, so the takeover that
+                        // enables it checks with the saved subscribers. The failure listener resubmits.
+                        cache.takeOwnershipAfterSave = {
+                            id: existingAlertId,
+                            cause,
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            resubmitted: false,
+                        }
+                        throw error
+                    }
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
                     // be formatted with those fields or we end up with "undefined: undefined".
@@ -665,6 +745,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
                         ui_version: 'redesigned',
+                        detector_type: values.alertForm.detector_config?.type ?? null,
                     })
                 }
 
@@ -850,7 +931,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, values, actions, cache }) => {
+        const discardSimulation = (): void => {
+            actions.clearSimulation()
+            getParentLogic()?.actions.clearSimulationAnomalyPoints()
+        }
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -859,6 +944,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 })
             }
             return undefined
+        }
+
+        const updateAlertsPageList = (updatedAlert: AlertType): void => {
+            if (alertsLogic.isMounted()) {
+                alertsLogic.actions.updateAlertInList(updatedAlert)
+            }
         }
 
         return {
@@ -879,16 +970,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
+                try {
+                    const updatedAlert = (await alertsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.alertForm.id,
+                        { snoozed_until: resolvedSnoozeUntil }
+                    )) as unknown as AlertType
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    updateAlertsPageList(updatedAlert)
+                    const snoozedUntilLabel = formatDate(
+                        dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
+                        'MMM D, HH:mm'
+                    )
+                    lemonToast.success(`Alert snoozed until ${snoozedUntilLabel}.`)
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'snooze alert',
+                        alertId: values.alertForm.id,
+                    })
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
@@ -905,6 +1012,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
+                    lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {
@@ -914,6 +1023,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 } finally {
                     actions.setClearSnoozeLoading(false)
                 }
+            },
+            submitAlertFormFailure: () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (!pendingTakeover) {
+                    return
+                }
+                if (pendingTakeover.resubmitted) {
+                    // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                    cache.takeOwnershipAfterSave = undefined
+                    actions.setAlertFormValue('enabled', true)
+                    return
+                }
+                pendingTakeover.resubmitted = true
+                actions.setAlertFormValue('enabled', false)
+                actions.submitAlertForm()
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
@@ -926,6 +1050,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
             },
             submitAlertFormSuccess: async () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (pendingTakeover) {
+                    cache.takeOwnershipAfterSave = undefined
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: pendingTakeover.id,
+                        owner: pendingTakeover.owner,
+                        cause: pendingTakeover.cause,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), pendingTakeover.id)
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            getParentLogic()?.actions.loadAlerts()
+                        }
+                    })
+                }
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
             },
@@ -945,6 +1086,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         : simulationResult.anomaly_count
                     posthog.capture('alert simulation run', {
                         success: true,
+                        evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
                         detector_type: detectorConfig?.type ?? null,
                         ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
                         date_from:
@@ -986,6 +1128,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
+            },
+            setSimulationDateFrom: () => {
+                // A preview is only valid for the range it ran over, whether it has finished or not.
+                discardSimulation()
+            },
+            setAlertFormValue: ({ name }) => {
+                const field = Array.isArray(name) ? name[0] : name
+                // The evaluated series or column, and the detector settings, are inputs to the
+                // preview, so an edit to either leaves nothing the chart can honestly show.
+                if (field === 'config' || field === 'detector_config' || field === 'evaluation_delay_intervals') {
+                    discardSimulation()
+                }
             },
             simulateAlertFailure: ({ error }) => {
                 const detectorConfig = values.alertForm.detector_config

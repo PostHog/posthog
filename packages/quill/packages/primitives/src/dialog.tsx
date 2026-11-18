@@ -1,3 +1,5 @@
+import './dialog.css'
+
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
@@ -5,7 +7,6 @@ import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
-import './dialog.css'
 import { cn } from './lib/utils'
 import { ScrollArea } from './scroll-area'
 
@@ -14,21 +15,29 @@ function Dialog({ ...props }: DialogPrimitive.Root.Props): React.ReactElement {
     return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props): React.ReactElement {
-    return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
-}
+const DialogTrigger = React.forwardRef<HTMLButtonElement, DialogPrimitive.Trigger.Props>(
+    function DialogTrigger(props, ref) {
+        return <DialogPrimitive.Trigger ref={ref} data-slot="dialog-trigger" {...props} />
+    }
+)
 
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props): React.ReactElement {
     return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-function DialogClose({ ...props }: DialogPrimitive.Close.Props): React.ReactElement {
-    return <DialogPrimitive.Close data-slot="dialog-close focus-visible:z-10" {...props} />
-}
+const DialogClose = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Close>, DialogPrimitive.Close.Props>(
+    function DialogClose({ ...props }, ref) {
+        return <DialogPrimitive.Close ref={ref} data-slot="dialog-close focus-visible:z-10" {...props} />
+    }
+)
 
-function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
+const DialogOverlay = React.forwardRef<
+    React.ComponentRef<typeof DialogPrimitive.Backdrop>,
+    DialogPrimitive.Backdrop.Props
+>(function DialogOverlay({ className, ...props }, ref) {
     return (
         <DialogPrimitive.Backdrop
+            ref={ref}
             data-quill
             data-quill-portal="modal-overlay"
             data-slot="dialog-overlay"
@@ -36,33 +45,35 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props):
             {...props}
         />
     )
-}
+})
 
-function DialogContent({
-    className,
-    children,
-    showCloseButton = true,
-    nested = false,
-    size,
-    ...props
-}: DialogPrimitive.Popup.Props & {
-    showCloseButton?: boolean
-    nested?: boolean
-    /**
-     * Width variant. Defaults to the standard ~24rem dialog width
-     * (Quill's existing media-query clamp at ≥640px viewports).
-     *   - `'wide'`: clamps to `min(72rem, calc(100vw - 3rem))` for
-     *     content that needs horizontal breathing room (data tables,
-     *     side-by-side editors, etc.).
-     *   - `'full'`: drops the desktop clamp entirely and grows to
-     *     `calc(100vw - 3rem)`.
-     */
-    size?: 'wide' | 'full'
-}): React.ReactElement {
+const DialogContent = React.forwardRef<
+    React.ComponentRef<typeof DialogPrimitive.Popup>,
+    DialogPrimitive.Popup.Props & {
+        showCloseButton?: boolean
+        nested?: boolean
+        /** Class for the backdrop behind this dialog, for a dialog that needs to dim the page more or less. */
+        overlayClassName?: string
+        /**
+         * Width variant. Defaults to the standard ~24rem dialog width
+         * (Quill's existing media-query clamp at ≥640px viewports).
+         *   - `'wide'`: clamps to `min(72rem, calc(100vw - 3rem))` for
+         *     content that needs horizontal breathing room (data tables,
+         *     side-by-side editors, etc.).
+         *   - `'full'`: drops the desktop clamp entirely and grows to
+         *     `calc(100vw - 3rem)`.
+         */
+        size?: 'wide' | 'full'
+    }
+>(function DialogContent(
+    { className, children, showCloseButton = true, nested = false, size, overlayClassName, ...props },
+    ref
+) {
     return (
         <DialogPortal>
-            <DialogOverlay />
+            <DialogOverlay className={overlayClassName} />
             <DialogPrimitive.Popup
+                ref={ref}
                 data-quill
                 data-quill-portal="modal-content"
                 data-slot="dialog-content"
@@ -83,22 +94,31 @@ function DialogContent({
             </DialogPrimitive.Popup>
         </DialogPortal>
     )
-}
+})
 
-function DialogHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="dialog-header" className={cn('quill-dialog__header flex flex-col gap-1', className)} {...props} />
-}
-
-function DialogFooter({
-    className,
-    showCloseButton = false,
-    children,
-    ...props
-}: React.ComponentProps<'div'> & {
-    showCloseButton?: boolean
-}): React.ReactElement {
+const DialogHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function DialogHeader(
+    { className, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
+            data-slot="dialog-header"
+            className={cn('quill-dialog__header flex flex-col gap-1', className)}
+            {...props}
+        />
+    )
+})
+
+const DialogFooter = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        showCloseButton?: boolean
+    }
+>(function DialogFooter({ className, showCloseButton = false, children, ...props }, ref) {
+    return (
+        <div
+            ref={ref}
             data-slot="dialog-footer"
             className={cn('quill-dialog__footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
             {...props}
@@ -109,23 +129,20 @@ function DialogFooter({
             )}
         </div>
     )
-}
+})
 
-function DialogBody({
-    className,
-    render,
-    children,
-    viewportClassName,
-    ...props
-}: useRender.ComponentProps<'div'> & {
-    /**
-     * Class applied to the inner ScrollArea viewport (`data-slot="scroll-area-viewport"`),
-     * the element that actually scrolls. For example, `viewportClassName="p-0"` drops the
-     * default body padding for full-bleed content. Ignored when a custom `render` is
-     * supplied (set `viewportClassName` on your own `<ScrollArea>` there instead).
-     */
-    viewportClassName?: string
-}): React.ReactElement {
+const DialogBody = React.forwardRef<
+    HTMLDivElement,
+    useRender.ComponentProps<'div'> & {
+        /**
+         * Class applied to the inner ScrollArea viewport (`data-slot="scroll-area-viewport"`),
+         * the element that actually scrolls. For example, `viewportClassName="p-0"` drops the
+         * default body padding for full-bleed content. Ignored when a custom `render` is
+         * supplied (set `viewportClassName` on your own `<ScrollArea>` there instead).
+         */
+        viewportClassName?: string
+    }
+>(function DialogBody({ className, render, children, viewportClassName, ...props }, ref) {
     /*
      * Default render = `<ScrollArea>` so consumers get scroll shadows
      * (and edge-overflow data attrs) for free. The scroll-area-aware
@@ -150,6 +167,7 @@ function DialogBody({
         />
     )
     return useRender({
+        ref,
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
@@ -161,21 +179,34 @@ function DialogBody({
         render: effectiveRender,
         state: { slot: 'dialog-body' },
     })
-}
+})
 
-function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
-    return <DialogPrimitive.Title data-slot="dialog-title" className={cn('quill-dialog__title', className)} {...props} />
-}
+const DialogTitle = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Title>, DialogPrimitive.Title.Props>(
+    function DialogTitle({ className, ...props }, ref) {
+        return (
+            <DialogPrimitive.Title
+                ref={ref}
+                data-slot="dialog-title"
+                className={cn('quill-dialog__title', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props): React.ReactElement {
+const DialogDescription = React.forwardRef<
+    React.ComponentRef<typeof DialogPrimitive.Description>,
+    DialogPrimitive.Description.Props
+>(function DialogDescription({ className, ...props }, ref) {
     return (
         <DialogPrimitive.Description
+            ref={ref}
             data-slot="dialog-description"
             className={cn('quill-dialog__description', className)}
             {...props}
         />
     )
-}
+})
 
 export {
     Dialog,

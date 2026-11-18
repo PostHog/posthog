@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useCommentNavigationStore } from "./commentNavigationStore";
 
 const artifact = { scope: "task_artifact", itemId: "a" } as const;
-const canvas = { scope: "desktop_canvas", itemId: "c" } as const;
+const canvas = { scope: "canvas", itemId: "c" } as const;
 
 describe("commentNavigationStore", () => {
   beforeEach(() => {

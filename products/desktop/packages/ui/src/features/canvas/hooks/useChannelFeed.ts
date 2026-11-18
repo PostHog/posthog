@@ -34,6 +34,9 @@ export function useChannelFeed(channelId: string | undefined): {
       client.getTasks({
         channel: channelId,
         ordering: "-last_activity_at",
+        // The feed shows a prompt snippet, not the full body, so ask for the basic
+        // payload. It reads description_preview; the full text is on the open task.
+        basic: true,
       }) as unknown as Promise<Task[]>,
     {
       enabled: !!channelId,

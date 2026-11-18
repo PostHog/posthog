@@ -1,9 +1,12 @@
 """Unit tests for logic/quarantine.py — Quarantined identifiers."""
 
+from datetime import timedelta
+
 import pytest
 
 from django.utils import timezone
 
+from products.visual_review.backend.facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
 from products.visual_review.backend.facade.enums import RunStatus, RunType
 from products.visual_review.backend.logic import quarantine, repos
 from products.visual_review.backend.models import Repo, Run
@@ -89,3 +92,35 @@ class TestQuarantineIdentifier:
             team_id=team.id,
         )
         assert entry.source_run_id is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestExpiringQuarantines:
+    @pytest.fixture
+    def repo(self, team):
+        return repos.create_repo(team_id=team.id, repo_external_id=88889, repo_full_name="org/test-expiring")
+
+    @pytest.mark.parametrize(
+        "expiry_days,listed",
+        [
+            (FLAKINESS_EXPIRY_SOON_DAYS - 1, True),
+            (FLAKINESS_EXPIRY_SOON_DAYS + 1, False),
+            (-1, False),
+            (None, False),
+        ],
+    )
+    def test_lists_only_quarantines_running_out_inside_the_window(self, repo, team, user, expiry_days, listed):
+        now = timezone.now()
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            expires_at=None if expiry_days is None else now + timedelta(days=expiry_days),
+        )
+
+        entries = quarantine.list_expiring_quarantines(repo.id, now=now)
+
+        assert [entry.identifier for entry in entries] == (["flake"] if listed else [])

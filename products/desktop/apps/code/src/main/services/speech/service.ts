@@ -63,7 +63,10 @@ export class ElevenLabsSpeechService implements ISpeechSynthesizer {
     );
     try {
       const res = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=${OUTPUT_FORMAT}`,
+        // Encode the voice so it stays one path segment. An unencoded value
+        // could add segments or a query string and move this authenticated
+        // request to a different ElevenLabs route.
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=${OUTPUT_FORMAT}`,
         {
           method: "POST",
           headers: { "xi-api-key": apiKey, "content-type": "application/json" },

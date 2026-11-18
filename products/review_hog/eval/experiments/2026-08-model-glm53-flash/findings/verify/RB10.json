@@ -1,0 +1,6 @@
+{
+    "id": "RB10",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Premise unreachable: TaskRun.task is a non-nullable FK (tasks/backend/models.py:1078, ForeignKey(Task, on_delete=CASCADE), no null=True). A saved row cannot have task_id NULL (DB NOT NULL rejects the save, so post_save never fires), and a dangling task_id is blocked by the FK constraint with CASCADE delete, so instance.task at receivers.py:97 cannot raise Task.DoesNotExist for a persisted run. Also, guards at receivers.py:82-96 (created, update_fields without 'output', terminal status, no pr_url/head_branch) return before line 97, so unrelated saves never reach the task access. The broad except at 140-141 is a documented never-raise-into-save-path guard (docstring lines 75-77), not masking an expected condition."
+}

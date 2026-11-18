@@ -28,25 +28,26 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~24M states across 31 runs.
-Its long pole is the two-partition epoch-fenced double zombie, which is more than half the wall clock on its own:
+As of 2026-10-16 the suite explores ~19M states across 43 runs.
+Its long pole is the two-partition epoch-fenced double zombie, about a quarter of the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 19s |
-| `two_partitions_double_zombie_loses_acked_writes` | 3.7M | 4.0s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.9s |
-| `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
-| `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.2s |
-| *everything else (26 runs)* | 3.4M | 4s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 4.9M | 8.7s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 1.9M | 3.1s |
+| `chunked_plan_application_is_safe_and_live` | 1.4M | 2.2s |
+| `probe_chunked_pending_units_reach_both_fates_safely` | 1.4M | 2.8s |
+| `rollout_quota_mode_is_safe_and_live` | 1.2M | 2.0s |
+| `a_two_to_four_grow_is_safe_and_live` | 1.1M | 2.8s |
+| `a_chunked_plan_across_a_migration_is_safe_and_live` | 0.9M | 2.4s |
+| *everything else (36 runs)* | 6.1M | 11s |
 
-Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
-Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
+Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x. The migration scenarios run at one or two partitions with keyed traffic and cost 20k to 1.1M states each; the 2→4 grow is the largest.
+Times are release mode, one scenario at a time on 12 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
 
-The test suite (twenty-odd scenarios; the heavy double-zombie pair dominates the runtime) runs the full
-verdict matrix — the 1-partition scenarios, the 2-partition cases
-including both double-zombie verdicts, the 3-pod rejoin, and the
-reachability probes. Two partitions matter for the coordinator's
+The test suite (41 scenarios; the two-partition double zombie dominates the runtime) runs the full
+verdict matrix — the 1-partition scenarios, the 2-partition cases, the
+3-pod rejoin, and the reachability probes. Two partitions matter for the coordinator's
 cross-partition scheduling (rebalancing defers while any handoff is in
 flight); the safety invariants themselves are per-partition, which is
 why every violation class reproduces at one.
@@ -107,6 +108,14 @@ checker verifies, automatically:
 | `protocol::freeze_quorum_met` / `drain_satisfied` / `warm_satisfied` | the phase-advancement rules (identity quorum, id-correlated acks, vacuous drain) — `Action::AdvancePhase` calls them |
 | `protocol::plan_partial_rebalance` | the rebalance decision (placement via `StickyBalancedStrategy` + the move/fresh diff, old_owner from the current assignment, in-flight partitions pinned) — `Action::Rebalance` calls it, as does the coordinator |
 | `types::HandoffPhase` | used directly as the model's phase enum, so adding a phase breaks the model's exhaustive matches at compile time |
+| `protocol::migration::plan_freeze` | which held self-handoffs the freeze creates, and what cancels it (a stray ordinary handoff, a holder or owner that is gone) — `Action::MigrateDrive` at Freezing calls it |
+| `protocol::migration::fleet_quiet` | when a requested saga may start: no handoff record, and every old partition assigned to a registered, Ready pod — `Action::MigrateStart` is enabled through it, as the coordinator's start step is |
+| `protocol::migration::plan_resume` | what Resuming does with the holds: dissolve the shrunk ones, abandon a dead holder's, restart the rest over the new changelog, and place the partitions a grow created — `Action::MigrateDrive` at Resuming calls it |
+| `protocol::migration::migration_unsealed` / `migration_unsettled` | the Sealing and Resuming gates (every old partition sealed; no held handoff left) — `Action::MigrateDrive` calls them |
+| `protocol::migration::seal_targets` | which old partitions a pod seals: every one assigned to it, every one owned by no registered peer, and once the seal is overdue every one no ack reports sealed — `Action::SealTick` calls it |
+| `protocol::migration::planner_may_place` | when the ordinary planner may place during a saga — `Action::Rebalance` and `RebalanceChunked` are enabled through it, as the coordinator's pass is |
+| `changelog::warm_sources` | the partitions a warm replays: the congruent old partitions (mod gcd, key-filtered) then the live one — a pod's warm effect reads it |
+| `types::MigrationPhase::may_transition_to` | the saga's legal phase moves, so a new phase or a new edge fails the model's matches at compile time |
 
 What remains model-side is the *environment and effect application* —
 what warming does to a cache, what leases and zombies mean, how stashes
@@ -121,7 +130,14 @@ queue — mapped to named production behavior for review:
 | `Action::ClientWrite` | The raw proxy leader path: stash if stashing, else forward to the table entry; leader admission = warmed + unfenced (`try_begin`) |
 | `Action::CrashRestartWithinTtl` | Process death + same-name restart before lease expiry: registration and assignments survive, memory wiped |
 | `Action::LeaseExpire` / `SelfFence` | Lease loss with the bounded zombie window before the keepalive self-fences (fix 1); same pair for routers, where lease loss also drops them from the freeze quorum |
-| `Changelog.epoch_holder` under `Variant::EpochFenced` | Kafka transactional-producer fencing: warming = `init_transactions`, which takes the fence from whoever held it; a produce from a fenced-out producer is rejected before any client ack |
+| `Changelog.epoch_holder` | Kafka transactional-producer fencing: warming = `init_transactions`, which takes the fence from whoever held it; a produce from a fenced-out producer is rejected before any client ack |
+| `Action::MigrateRequest` / `MigrateStart` / `MigrateRequestExpires` | the control plane's request, the coordinator's start once the fleet is quiet, and a request rejected or expired before it starts |
+| `Action::MigrateDrive` / `MigrateCancel` | the coordinator's migration saga: one guarded phase step per drive (freeze, drain, seal, flip, resume, complete); cancel from any pre-Seal phase, standing in for both the operator and the pre-flip deadline |
+| `Action::SealTick(pod)` | the leader's seal duty: a registered pod seals its `seal_targets` on the old generation, no capture needed, plus every unsealed partition once the grace has lapsed |
+| `Action::SealGraceElapses` / `BreakSeal(pod)` | the 2s Sealing grace lapsing, and a registered pod whose seal never succeeds (a hung Kafka client with a live lease); a new incarnation heals it |
+| `Action::AdoptConfig(router)` | the router's config watch: adopt the flipped config. Parked requests stay where they are, and the new count only decides which drain takes them; a write for a partition born in the flip parks until its handoff drains |
+| `Action::ClientWrite(router, key)` / `ClientStrongRead(router, key)` | keyed traffic: the router hashes the key under its own adopted modulus, so a stale router routes to the old partition until it adopts |
+| `Changelog` keyed by `(epoch, partition)` | one changelog per generation; the old generation stays readable for the warm's tail replay and must take no produce after the flip |
 
 Full elimination of the second table would mean deterministic
 simulation — a trait seam over `PersonhogStore` with an in-memory
@@ -136,19 +152,33 @@ implementation so the model executes `converge` and
 | `no_split_write_acceptance` (safety) | No two pods are simultaneously capable of accepting writes for one partition **and** each reachable via a live, non-stashing router — the real split-brain condition |
 | `drained_ack_is_final` (safety) | A pod that wrote a DrainedAck for the current handoff attempt cannot accept another write in that incarnation |
 | `some_handoff_completes`, `some_write_accepted` (sanity) | The interesting states are actually reachable |
-| `converges_to_stable` (liveness) | Every full run ends quiescent: no handoffs, every partition served warm and unfenced by its sticky target, all live routers agreeing, no stashed traffic |
+| `no_overtaken_request` (safety) | A router never delivers a request while an earlier request for the same key is still parked |
+| `no_mixed_modulus_acceptance` (safety) | Every acked write lands in the live generation's changelog, never a retired one |
+| `holds_stop_at_draining` (safety) | The ordinary handoff loop never moves a migration hold past Draining |
+| `old_generation_quiet_after_flip` (safety) | Once flipped, no pod can produce to the old generation |
+| `migration_completes`, `migration_cancels` (sanity) | Both saga outcomes are reachable in a migration config |
+| `converges_to_stable` (liveness) | Every full run ends quiescent: no handoffs, every partition served warm and unfenced by its sticky target, all live routers agreeing, no stashed traffic, and no saga in flight or left to request |
 
 ## Results
 
 | Scenario | `no_lost_acked_write` | `no_split_write_acceptance` | `strong_reads_complete` |
 |---|---|---|---|
-| Current protocol, no failures | holds | holds | holds |
-| Current, crash-restart within TTL / clean lease expiry | holds | holds | holds |
-| Current, pod death past TTL + rejoin (3 pods) | holds | holds | holds |
-| Current, single zombie pod | **holds** | **holds** | holds |
-| Current, double zombie (router + pod) | **violated** — counterexample found | **violated** | — |
-| Epoch-fenced, double zombie | holds | holds | holds |
-| Current, strong reads + one failure | holds | holds | holds |
+| No failures | holds | holds | holds |
+| Crash-restart within TTL / clean lease expiry | holds | holds | holds |
+| Pod death past TTL + rejoin (3 pods) | holds | holds | holds |
+| Single zombie pod | **holds** | **holds** | holds |
+| Double zombie (router + pod) | holds | holds | holds |
+| Strong reads + one failure | holds | holds | holds |
+| Changelog migration: grow 1→2, shrink 2→1, grow 2→4 | holds | holds | holds |
+| Migration with a stale router (adopts late) | holds | holds | holds |
+| Migration with the holder crash-restarted mid-hold | holds | holds | holds |
+| Migration, seal targets by residency (rejected rule) | holds | holds | wedges (liveness) |
+| Migration, live-only warm (rejected rule) | holds | holds | **violated** |
+| Migration, a registered holder that cannot seal, with the grace | holds | holds | holds |
+| Migration, a registered holder that cannot seal, no grace (rejected rule) | holds | holds | wedges (liveness) |
+| Migration racing a chunked bootstrap plan, with the plan basis | holds | holds | holds |
+| Migration racing a chunked bootstrap plan, no plan basis (rejected rule) | **violated** (old generation written after the flip) | holds | holds |
+| Migration started with a handoff in flight (rejected rule) | **violated** | **violated** | **violated** |
 
 Two results worth calling out:
 
@@ -162,10 +192,12 @@ below the warm HWM and is captured. The checker sharpened the
 documented residual from "a zombie pod" to "a zombie router feeding a
 zombie pod, simultaneously."
 
-**Epoch fencing closes the double zombie.** Under the `EpochFenced`
-variant, warming bumps the broker's producer epoch, and the zombie's
-produce is rejected before any client ack. This is the design
-validation gating the transactional-producer implementation.
+**Epoch fencing closes the double zombie.** Warming bumps the broker's
+producer epoch, and the zombie's produce is rejected before any client
+ack. The model carried an unfenced variant until the leader stopped
+being able to run one; the counterexample it produced is the reason the
+protocol is shaped this way, and it lives in this repository's history
+rather than in a checked property.
 
 **Read stashing was machine-validated before it shipped.** A
 direct-read variant of this model (strong reads forwarding to the table
@@ -196,6 +228,8 @@ target rather than having it forced — the one axis a 2-pod world
 under-exercises; the per-partition safety relations themselves are
 two-party (old owner ↔ new owner, zombie ↔ successor).
 
+**The migration saga is checked against the same production decision functions.** The model drives `plan_freeze`, `migration_unsealed`, `migration_unsettled`, `seal_targets` and `warm_sources` through a grow, a shrink and a 2→4 grow, with keyed traffic, a stale router, a crash-restarted holder, and the deadline cancel. Its first run on the branch found a real hole: the freeze held the partitions in the assignment table, but an ordinary handoff for a fresh placement (a partition with no assignment yet) kept running, warmed, and accepted a write the flip then stranded. The saga now starts only from a fleet with no handoff in flight (`MigrateStart` requires it), and `quiet_start: false` keeps the rejected start, which loses acked writes. Two rejected rules stay in the model as variants, each pinned by the counterexample that rejected it: sealing by residency (`SealRule::Residency`) wedges a holder that crash-restarted before sealing, because it no longer holds the data and nobody else is assigned, so the saga never leaves Sealing; a live-only warm (`WarmReplay::LiveOnly`) loses the old generation's tail, because a key's last write before the flip sits in an old partition the new one never replays. A third, `seal_grace: false`, pins why the seal grace exists: one registered holder whose seal never succeeds holds Sealing forever, since peers leave a registered owner's partitions alone and nothing cancels past Draining.
+
 ## Usage
 
 ```sh
@@ -208,13 +242,13 @@ cargo test -p personhog-stateright --release
 STATERIGHT_REPORT=1 cargo test -p personhog-stateright --release -- --nocapture --test-threads=1
 
 # Interactive state-space explorer (http://localhost:3000), for
-# stepping through the double-zombie counterexample trace:
-cargo run -p personhog-stateright --release -- current-zombie
+# stepping through a trace state by state:
+cargo run -p personhog-stateright --release -- fenced-zombie
 ```
 
-Explorer variants: `current` (failures without zombie windows),
-`current-zombie` (the residual, with counterexamples), `epoch-fenced`
-(the fix).
+Explorer scenarios: `fenced` (failures without zombie windows),
+`fenced-zombie` (a zombie window), `fenced-read-first` (the rejected
+warm ordering, with counterexamples).
 
 ## Coverage notes
 
@@ -240,6 +274,8 @@ form closes the stale-read half. Stability now also requires the assigned
 owner to still claim its partitions, so an owner that refuses its own
 reads while looking alive to the coordinator fails liveness rather than
 passing quietly.
+
+Migration coverage: one migration per run with at most one draining generation, which admission also enforces, so the retire step and a second migration are not modeled; the key hash is `key % partitions`, which keeps the congruence structure of the real hash without its constant; the seal is instant (production claims and drops every lane's transactional id); the cancel is unbudgeted, standing in for the pre-flip deadline as well as the operator; the writer is not modeled, since its drain only gates retirement. Coordinator passes are atomic steps in the model, so a stalled pass that wakes after a successor acted cannot occur here; the rule that every plan requires the record it was decided on unchanged is pinned by the coordination store tests instead.
 
 Known remaining abstractions: warming is instant and atomic (production
 streams from Kafka with retries — availability, not safety); stash

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_outbox_counts' */ \n        SELECT count(*) FILTER (WHERE given_up_at IS NULL) AS \"pending!\",\n               count(*) FILTER (WHERE given_up_at IS NOT NULL) AS \"given_up!\"\n        FROM (SELECT given_up_at FROM person_publish_outbox LIMIT $1) AS scanned\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "given_up!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "83af92dcc5a424d9d787243813598a684b18fd057ce6dfcbb1843d290c094e60"
+}

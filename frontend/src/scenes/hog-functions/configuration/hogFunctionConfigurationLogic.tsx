@@ -23,17 +23,20 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { isEmptyObject } from 'lib/utils/guards'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,7 +46,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     EventsNode,
@@ -53,7 +56,6 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -76,14 +78,27 @@ import {
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyGroupFilterValue,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
+    IntegrationType,
 } from '~/types'
+
+import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
+import { asDisplay } from 'products/persons/frontend/person-utils'
+import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
+import { workflowEventsFromFilters } from 'products/workflows/frontend/DestinationWorkflowSuggestion/messagingDestinations'
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
+import {
+    FLAG_CALLS_NOT_LOADABLE,
+    exampleFlagCall,
+    flagCallsOutsideEventsFilters,
+    matchesOnlyFlagCallsOutsideEvents,
+    performTrendsQueryWithFlagCalls,
+} from '../filters/flagCallsMatching'
+import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -96,6 +111,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
+const SPARKLINE_DAYS = 7
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
 
@@ -105,9 +121,7 @@ const VALIDATION_RULES = {
             ? 'You must add at least one mapping'
             : undefined,
     INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
-        data.type === 'internal_destination' && data.filters?.events?.length === 0
-            ? 'You must choose a filter'
-            : undefined,
+        data.type === 'internal_destination' && !data.filters?.events?.length ? 'You must choose a filter' : undefined,
 } as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
@@ -188,14 +202,38 @@ export function sanitizeInputs(
     return sanitizedInputs
 }
 
+function withoutSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
+    config: T
+): { config: T; dropped: boolean } {
+    if (!config.inputs) {
+        return { config, dropped: false }
+    }
+    const secretKeys = new Set(config.inputs_schema?.filter((schema) => schema.secret).map((schema) => schema.key))
+    const inputs: Record<string, CyclotronJobInputType> = {}
+    let dropped = false
+    for (const [key, input] of Object.entries(config.inputs)) {
+        if (input?.secret || secretKeys.has(key)) {
+            const value = input?.value
+            dropped ||=
+                !!input?.secret || !(value === undefined || value === null || value === '' || isEmptyObject(value))
+        } else {
+            inputs[key] = input
+        }
+    }
+    return { config: { ...config, inputs }, dropped }
+}
+
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -340,7 +378,9 @@ export function mightDropEvents(code: string): boolean {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface hogFunctionConfigurationLogicValues {
+    shouldSuggestWorkflow: (template: HogFunctionTemplateType) => boolean // destinationWorkflowSuggestionLogic
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    integrations: IntegrationType[] | null // integrationsLogic
     currentProject: ProjectType | null // projectLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -364,6 +404,7 @@ export interface hogFunctionConfigurationLogicValues {
     eventsDataTableNode: DataTableNode | null
     exampleInvocationGlobals: CyclotronJobInvocationGlobals
     filtersContainPersonProperties: boolean
+    flagCallsOutsideEvents: PropertyGroupFilter | null
     hasGroupsAddon: boolean
     hasHadSubmissionErrors: boolean
     hogFunction: HogFunctionType | null
@@ -385,9 +426,11 @@ export interface hogFunctionConfigurationLogicValues {
     logicProps: HogFunctionConfigurationLogicProps
     mappingTemplates: HogFunctionMappingTemplateType[]
     matchingFilters: PropertyGroupFilter
+    matchingFiltersInput: MatchingFiltersInput | null
     mightDropEvents: boolean
     newFilters: CyclotronJobFiltersType | null
     newHogCode: string | null
+    newInputValues: Record<string, CyclotronJobInputType> | null
     newInputs: CyclotronJobInputSchemaType[] | null
     oldFilters: CyclotronJobFiltersType | null
     oldHogCode: string | null
@@ -426,6 +469,34 @@ export interface hogFunctionConfigurationLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface hogFunctionConfigurationLogicActions {
+    openSuggestion: (
+        template: HogFunctionTemplateType,
+        events: string[],
+        onContinue: () => void
+    ) => {
+        events: string[]
+        onContinue: () => void
+        template: HogFunctionTemplateType
+    } // destinationWorkflowSuggestionLogic
+    acceptInputsDiff: () => {
+        value: true
+    }
+    changeInput: (
+        key: string,
+        input: CyclotronJobInputType
+    ) => {
+        input: {
+            bytecode?: any
+            order?: number | undefined
+            secret?: boolean | undefined
+            templating?: 'hog' | 'liquid' | undefined
+            value: any
+        }
+        key: string
+    }
+    changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => {
+        inputsSchema: CyclotronJobInputSchemaType[]
+    }
     clearFiltersDiff: () => {
         value: true
     }
@@ -577,6 +648,18 @@ export interface hogFunctionConfigurationLogicActions {
     setNewHogCode: (newHogCode: string) => {
         newHogCode: string
     }
+    setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => {
+        newInputValues: Record<
+            string,
+            {
+                bytecode?: any
+                order?: number | undefined
+                secret?: boolean | undefined
+                templating?: 'hog' | 'liquid' | undefined
+                value: any
+            }
+        >
+    }
     setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => {
         newInputs: CyclotronJobInputSchemaType[]
     }
@@ -617,23 +700,23 @@ export interface hogFunctionConfigurationLogicActions {
     sparklineQueryChangedSuccess: (
         sparkline:
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
                       values: number[]
                   }[]
-                  labels: any
+                  labels: string[]
                   warning: string | undefined
               }
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
                       values: number[]
                   }[]
-                  labels: any
+                  labels: string[]
                   warning?: undefined
               }
             | null,
@@ -643,23 +726,23 @@ export interface hogFunctionConfigurationLogicActions {
     ) => {
         sparkline:
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
                       values: number[]
                   }[]
-                  labels: any
+                  labels: string[]
                   warning: string | undefined
               }
             | {
-                  count: any
+                  count: number
                   data: {
                       color: string
                       name: string
                       values: number[]
                   }[]
-                  labels: any
+                  labels: string[]
                   warning?: undefined
               }
             | null
@@ -717,7 +800,7 @@ export interface hogFunctionConfigurationLogicMeta {
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
         hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
@@ -734,7 +817,10 @@ export interface hogFunctionConfigurationLogicMeta {
         loading: (hogFunctionLoading: boolean, templateLoading: boolean) => boolean
         loaded: (hogFunction: HogFunctionType | null, template: HogFunctionTemplateType | null) => boolean
         contextId: (configuration: HogFunctionConfigurationType) => HogFunctionConfigurationContextId
-        inputsValidation: (configuration: HogFunctionConfigurationType) => CyclotronJobInputsValidationResult
+        inputsValidation: (
+            configuration: HogFunctionConfigurationType,
+            integrations: IntegrationType[] | null
+        ) => CyclotronJobInputsValidationResult
         inputFormErrors: (inputsValidation: CyclotronJobInputsValidationResult) => Record<string, string> | null
         inputFormWarnings: (inputsValidation: CyclotronJobInputsValidationResult) => Record<string, string>
         willReEnableOnSave: (
@@ -750,17 +836,24 @@ export interface hogFunctionConfigurationLogicMeta {
             currentProject: ProjectType | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
             contextId: HogFunctionConfigurationContextId,
-            survey: Survey | null
+            survey: Survey | null,
+            hogFunction: HogFunctionType | null
         ) => CyclotronJobInvocationGlobals
         sampleGlobalsWithInputs: (
             sampleGlobals: CyclotronJobInvocationGlobals | null,
             exampleInvocationGlobals: CyclotronJobInvocationGlobals,
             configuration: HogFunctionConfigurationType
         ) => CyclotronJobInvocationGlobalsWithInputs
-        matchingFilters: (
+        matchingFiltersInput: (
             configuration: HogFunctionConfigurationType,
             useMapping: number | true | undefined
-        ) => PropertyGroupFilter
+        ) => MatchingFiltersInput | null
+        matchingFilters: (matchingFiltersInput: MatchingFiltersInput | null) => PropertyGroupFilter
+        flagCallsOutsideEvents: (
+            matchingFiltersInput: MatchingFiltersInput | null,
+            sourceUsesEvents: boolean,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => PropertyGroupFilter | null
         filtersContainPersonProperties: (configuration: HogFunctionConfigurationType) => boolean
         sourceUsesEvents: (configuration: HogFunctionConfigurationType, type: HogFunctionTypeType) => boolean
         sparklineQuery: (
@@ -845,7 +938,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['hasAvailableFeature'],
             teamLogic,
             ['currentTeam'],
+            integrationsLogic,
+            ['integrations'],
+            destinationWorkflowSuggestionLogic,
+            ['shouldSuggestWorkflow'],
         ],
+        actions: [destinationWorkflowSuggestionLogic, ['openSuggestion']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -881,6 +979,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersPromptOpen: true,
         setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
+        changeInput: (key: string, input: CyclotronJobInputType) => ({ key, input }),
+        changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => ({ inputsSchema }),
+        acceptInputsDiff: true,
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -973,6 +1075,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearInputsDiff: () => null,
             },
         ],
+        newInputValues: [
+            null as Record<string, CyclotronJobInputType> | null,
+            {
+                setNewInputValues: (_, { newInputValues }) => newInputValues,
+                clearInputsDiff: () => null,
+            },
+        ],
     })),
     loaders(({ actions, props, values, cache }) => ({
         template: [
@@ -990,7 +1099,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    let res: HogFunctionTemplateType
+                    try {
+                        res = (await hogFunctionTemplatesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.templateId
+                        )) as HogFunctionTemplateType
+                    } catch (e) {
+                        // A template id that does not exist (a stale or mistyped link) 404s here. Fall back
+                        // to null so the scene renders its not-found state instead of filing the rejection
+                        // in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -1057,7 +1180,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                     if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            source: 'traditional',
+                            ui_source: 'traditional',
                             trigger_event: errorTrackingTriggerEvent,
                             subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
@@ -1085,10 +1208,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     } else {
                         await breakpoint(1000)
                     }
-                    const result = await performQuery(sparklineQuery)
+                    const {
+                        data: dataValues,
+                        count,
+                        labels,
+                    } = await performTrendsQueryWithFlagCalls(
+                        sparklineQuery,
+                        values.flagCallsOutsideEvents,
+                        SPARKLINE_DAYS
+                    )
                     breakpoint()
 
-                    const dataValues: number[] = result?.results?.[0]?.data ?? []
                     const showVolumeWarning = TYPES_WITH_VOLUME_WARNING.includes(values.type)
 
                     if (showVolumeWarning) {
@@ -1112,7 +1242,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 color: 'warning',
                             },
                         ]
-                        return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                        return { data, count, labels }
                     }
                     // For transformations, just show the raw values without warning thresholds
                     const data = [
@@ -1124,8 +1254,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     ]
                     return {
                         data,
-                        count: result?.results?.[0]?.count,
-                        labels: result?.results?.[0]?.labels,
+                        count,
+                        labels,
                         warning:
                             values.type === 'transformation'
                                 ? 'Historical volume may not reflect future volume after transformation is applied.'
@@ -1142,7 +1272,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
                     if (sampleGlobalsLoader) {
                         try {
-                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            const globals = await sampleGlobalsLoader(
+                                values.exampleInvocationGlobals,
+                                values.configuration?.filters
+                            )
                             breakpoint()
                             return globals
                         } catch (e: any) {
@@ -1157,8 +1290,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
-                    const errorMessage =
-                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
+                    const matchers = values.matchingFiltersInput ?? {}
+                    const flagCallsNotLoadable = matchesOnlyFlagCallsOutsideEvents(values.currentTeam, matchers)
+                    // A test run applies the destination filters, so a flag call destination needs a flag call example.
+                    const fallbackGlobals = flagCallsNotLoadable
+                        ? exampleFlagCall(values.exampleInvocationGlobals, matchers)
+                        : values.exampleInvocationGlobals
+                    const errorMessage = flagCallsNotLoadable
+                        ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example ${FEATURE_FLAG_CALLED_EVENT} event instead.`
+                        : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
                         let response = await performWideEventsQueryInTwoPhases({
@@ -1219,7 +1359,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         if (!isBreakpoint(e)) {
                             actions.setSampleGlobalsError(e.message ?? errorMessage)
                         }
-                        return values.exampleInvocationGlobals
+                        return fallbackGlobals
                     }
                 },
             },
@@ -1242,7 +1382,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    forms(({ values, props, asyncActions }) => ({
+    forms(({ actions, values, props, asyncActions }) => ({
         configuration: {
             defaults: {} as HogFunctionConfigurationType,
             alwaysShowErrors: true,
@@ -1264,6 +1404,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
+                // The editor shows a pending PostHog AI suggestion that is not in `data` yet.
+                if (values.inputsDiff) {
+                    lemonToast.error('Accept or reject the suggested inputs first')
+                    return
+                }
+
                 // Check HOG code size immediately before submission
                 if (data.hog) {
                     const hogSize = new Blob([data.hog]).size
@@ -1275,6 +1421,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                         return
                     }
+                }
+
+                // A new email destination is offered as PostHog workflows first. "Continue" in that modal submits again.
+                if (
+                    (!props.id || props.id === 'new') &&
+                    values.template &&
+                    values.shouldSuggestWorkflow(values.template)
+                ) {
+                    actions.openSuggestion(values.template, workflowEventsFromFilters(data.filters), () =>
+                        actions.submitConfiguration()
+                    )
+                    return
                 }
 
                 const payload: Record<string, any> = sanitizeConfiguration(data)
@@ -1369,9 +1527,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         inputsValidation: [
-            (s) => [s.configuration],
-            (configuration: HogFunctionConfigurationType): CyclotronJobInputsValidationResult =>
-                CyclotronJobInputsValidation.validate(configuration.inputs ?? {}, configuration.inputs_schema ?? []),
+            (s) => [s.configuration, s.integrations],
+            (
+                configuration: HogFunctionConfigurationType,
+                integrations: IntegrationType[] | null
+            ): CyclotronJobInputsValidationResult =>
+                CyclotronJobInputsValidation.validate(
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? [],
+                    integrations
+                ),
         ],
         inputFormErrors: [
             (s) => [s.inputsValidation],
@@ -1397,13 +1562,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey, s.hogFunction],
             (
                 configuration: HogFunctionConfigurationType,
                 currentProject: null | import('~/types').ProjectType,
                 groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 contextId: HogFunctionConfigurationContextId,
-                survey: Survey | null
+                survey: Survey | null,
+                hogFunction: HogFunctionType | null
             ): CyclotronJobInvocationGlobals => {
                 // Log transformations are seeded with a sample record (no event), so the inline
                 // tester shows something useful to run against instead of an empty object.
@@ -1421,6 +1587,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const eventId = uuid()
                 const personId = uuid()
                 const source = {
+                    id: hogFunction?.id ?? '00000000-0000-0000-0000-000000000000',
                     name: configuration?.name ?? 'Unnamed',
                     url: currentUrl,
                 }
@@ -1585,14 +1752,55 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
         ],
-        matchingFilters: [
+        // Null when the function uses mappings and has none, because it then matches no event.
+        matchingFiltersInput: [
             (s) => [s.configuration, s.useMapping],
             (
                 configuration: HogFunctionConfigurationType,
                 useMapping: number | true | undefined
-            ): PropertyGroupFilter => {
-                // We're using mappings, but none are provided, so match zero events.
+            ): MatchingFiltersInput | null => {
                 if (useMapping && !configuration.mappings?.length) {
+                    return null
+                }
+
+                // Mapped destinations execute mapping-level matchers, not global event/action filters.
+                // Keep these arrays separate from configuration so preview calculation cannot mutate form state.
+                const allPossibleEventFilters = useMapping ? [] : [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = useMapping ? [] : [...(configuration.filters?.actions ?? [])]
+
+                const mappingMatchesAllEvents =
+                    useMapping &&
+                    configuration.mappings?.some(
+                        (mapping) =>
+                            (mapping.filters?.events?.length ?? 0) === 0 &&
+                            (mapping.filters?.actions?.length ?? 0) === 0
+                    )
+
+                if (mappingMatchesAllEvents) {
+                    allPossibleEventFilters.push({ id: '', type: 'events' })
+                } else if (useMapping && Array.isArray(configuration.mappings)) {
+                    for (const mapping of configuration.mappings) {
+                        if (mapping.filters?.events) {
+                            allPossibleEventFilters.push(...mapping.filters.events)
+                        }
+                        if (mapping.filters?.actions) {
+                            allPossibleActionFilters.push(...mapping.filters.actions)
+                        }
+                    }
+                }
+
+                return {
+                    events: allPossibleEventFilters,
+                    actions: allPossibleActionFilters,
+                    properties: configuration.filters?.properties,
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+        matchingFilters: [
+            (s) => [s.matchingFiltersInput],
+            (matchingFiltersInput: MatchingFiltersInput | null): PropertyGroupFilter => {
+                if (!matchingFiltersInput) {
                     return {
                         type: FilterLogicalOperator.And,
                         values: [
@@ -1609,72 +1817,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                const seriesProperties: PropertyGroupFilterValue = {
-                    type: FilterLogicalOperator.Or,
-                    values: [],
-                }
-                const properties: PropertyGroupFilter = {
-                    type: FilterLogicalOperator.And,
-                    values: [seriesProperties],
-                }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
-
-                if (Array.isArray(configuration.mappings)) {
-                    for (const mapping of configuration.mappings) {
-                        if (mapping.filters?.events) {
-                            allPossibleEventFilters.push(...mapping.filters.events)
-                        }
-                        if (mapping.filters?.actions) {
-                            allPossibleActionFilters.push(...mapping.filters.actions)
-                        }
-                    }
-                }
-
-                for (const event of allPossibleEventFilters) {
-                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
-                    if (event.id) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`event = ${event.id}`,
-                        })
-                    }
-                    if (eventProperties.length === 0) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: 'true',
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: eventProperties,
-                    })
-                }
-                for (const action of allPossibleActionFilters) {
-                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
-                    if (action.id) {
-                        actionProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`matchesAction(${parseInt(action.id)})`,
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: actionProperties,
-                    })
-                }
-                if ((configuration.filters?.properties?.length ?? 0) > 0) {
-                    const globalProperties: PropertyGroupFilterValue = {
-                        type: FilterLogicalOperator.And,
-                        values: [],
-                    }
-                    for (const property of configuration.filters?.properties ?? []) {
-                        globalProperties.values.push(property as AnyPropertyFilter)
-                    }
-                    properties.values.push(globalProperties)
-                }
-                return properties
+                return matchingFiltersToPropertyGroup(matchingFiltersInput)
             },
+            { resultEqualityCheck: equal },
+        ],
+        // Filters for the matched flag calls that `events` does not hold, or null when there are none.
+        flagCallsOutsideEvents: [
+            (s) => [s.matchingFiltersInput, s.sourceUsesEvents, s.currentTeam],
+            (
+                matchingFiltersInput: MatchingFiltersInput | null,
+                sourceUsesEvents: boolean,
+                currentTeam: TeamPublicType | TeamType | null
+            ): PropertyGroupFilter | null =>
+                matchingFiltersInput && sourceUsesEvents
+                    ? flagCallsOutsideEventsFilters(currentTeam, matchingFiltersInput)
+                    : null,
             { resultEqualityCheck: equal },
         ],
 
@@ -1731,7 +1888,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     properties: matchingFilters,
                     interval: 'day',
                     dateRange: {
-                        date_from: '-7d',
+                        date_from: `-${SPARKLINE_DAYS}d`,
                     },
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
@@ -1950,6 +2107,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIHogFunctionInputsPrompted: () => {
             posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
         },
+        changeInput: ({ key, input }) => {
+            // A suggested value stays pending until accept. Fields such as the JSON editor also report
+            // a change when they render a new value, so writing it to the form here would apply it early.
+            if (values.newInputValues && key in values.newInputValues) {
+                actions.setNewInputValues({ ...values.newInputValues, [key]: input })
+                return
+            }
+            actions.setConfigurationValue(`inputs.${key}`, input)
+        },
+        acceptInputsDiff: () => {
+            if (values.newInputs) {
+                actions.setConfigurationValue('inputs_schema', values.newInputs)
+            }
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.reportAIHogFunctionInputsAccepted()
+            actions.clearInputsDiff()
+        },
+        changeInputsSchema: ({ inputsSchema }) => {
+            // The editor builds the edited schema from the suggested one, so a schema edit during a
+            // suggestion takes the suggestion with it, including the values it holds as pending.
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.clearInputsDiff()
+            actions.setConfigurationValue('inputs_schema', inputsSchema)
+        },
         reportAIHogFunctionInputsAccepted: () => {
             posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })
         },
@@ -1985,8 +2170,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             },
                         })
                     } else {
+                        // A nested attr names a path inside a form field (`filters__events`), and the
+                        // form only has a manual-error slot for the field itself — anchoring the
+                        // message at the leaf renders nothing at all.
                         actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
+                            [maybeValidationError.attr.split('__')[0]]: maybeValidationError.detail,
                         })
                     }
                 }, 1)
@@ -2035,15 +2223,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
+                const copied = withoutSecrets(values.configuration)
+                const copiedMappings = values.configuration.mappings?.map(withoutSecrets)
+                const droppedSecrets = copied.dropped || !!copiedMappings?.some((mapping) => mapping.dropped)
                 const newConfig = {
-                    ...values.configuration,
+                    ...copied.config,
+                    mappings: copiedMappings?.map((mapping) => mapping.config) ?? copied.config.mappings,
                     name: `${values.configuration.name} (copy)`,
+                    enabled: droppedSecrets ? false : copied.config.enabled,
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
+                const { pathname } = router.values.location
                 router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
                     configuration: newConfig,
                 })
+                const openedCopy = router.values.location.pathname !== pathname
+                if (openedCopy && droppedSecrets) {
+                    lemonToast.info(
+                        'Secret values are not copied, so the copy starts disabled. Enter them again, then enable it.'
+                    )
+                }
             }
         },
         duplicateFromTemplate: async () => {

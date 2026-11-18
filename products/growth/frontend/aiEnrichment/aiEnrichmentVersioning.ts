@@ -9,7 +9,7 @@ const VERSION_SUFFIX_RE = /v(\d+)/g
 // last word - it re-derives this itself from a row lock and accepts a caller-supplied version
 // regardless - so a client/server mismatch here (e.g. a version saved outside this UI) only
 // changes the prefilled suggestion, never what's allowed.
-export function suggestNextVersion(versions: ConfigVersionApi[]): string {
+export function suggestNextVersion(versions: Pick<ConfigVersionApi, 'version'>[]): string {
     let highest: number | null = null
     for (const version of versions) {
         for (const match of version.version.matchAll(VERSION_SUFFIX_RE)) {

@@ -1,9 +1,11 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { formatRelativeDateValue } from 'lib/utils/dateFilters'
 import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     cohortOperatorMap,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
@@ -15,6 +17,7 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
@@ -41,6 +44,7 @@ import {
     PersonPropertyFilter,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterRow,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
@@ -122,6 +126,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+        [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
         [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
@@ -171,17 +176,24 @@ export function formatPropertyLabel(
     const { value, key, type } = item
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
-    const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
-    const resolvedType = type ?? PropertyFilterType.Event
+    const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
+    const relativeDateValue =
+        typeof value === 'string' ? value : Array.isArray(value) && value.length === 1 ? value[0] : undefined
+    const formattedValue =
+        (resolvedType === PropertyFilterType.Account || resolvedType === PropertyFilterType.AccountCustomProperty) &&
+        isOperatorDate(resolvedOperator) &&
+        typeof relativeDateValue === 'string'
+            ? formatRelativeDateValue(relativeDateValue)
+            : undefined
 
-    if (resolvedType === PropertyFilterType.Cohort) {
+    if (isCohortPropertyFilter(item)) {
         return (
             `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
-            (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
+            cohortFilterName(item, typeof value === 'number' ? cohortsById[value]?.name : undefined)
         )
     }
 
@@ -194,13 +206,13 @@ export function formatPropertyLabel(
         (isOperatorFlag(resolvedOperator)
             ? ` ${allOperatorsMapping[resolvedOperator]}`
             : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+                  formattedValue ?? (isSingleEmptyString ? '(empty string)' : valueFormatter(value) || '')
               } `)
     )
 }
 
 /** Make sure unverified user property filter input has at least a "type" */
-export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+export function sanitizePropertyFilter(propertyFilter: PropertyFilterRow): PropertyFilterRow {
     if (!propertyFilter.type) {
         return {
             ...(propertyFilter as any), // TS error with spreading a union
@@ -246,6 +258,24 @@ export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is
     return filter?.type === PropertyFilterType.Cohort
 }
 
+export function cohortFilterName(filter: CohortPropertyFilter, fallbackName?: string | null): string {
+    const name = filter.cohort_name || fallbackName
+    if (filter.cohort_missing) {
+        return name ? `${name} (missing)` : `Missing cohort (ID ${filter.value})`
+    }
+    if (filter.cohort_deleted) {
+        return name ? `${name} (deleted)` : `Deleted cohort (ID ${filter.value})`
+    }
+    return name || `ID ${filter.value}`
+}
+
+// The flag API reads these keys from the cohort table on every response. Nobody edits them.
+export const COHORT_ANNOTATION_KEYS = ['cohort_name', 'cohort_deleted', 'cohort_missing'] as const
+
+export function cohortAnnotations(filter: CohortPropertyFilter): Partial<CohortPropertyFilter> {
+    return Object.fromEntries(COHORT_ANNOTATION_KEYS.map((key) => [key, filter[key]])) as Partial<CohortPropertyFilter>
+}
+
 export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {
     return filter?.type === PropertyFilterType.Behavioral
 }
@@ -268,6 +298,24 @@ export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, 
     [PropertyOperator.LessThan]: 'fewer than',
     [PropertyOperator.Exact]: 'exactly',
 }
+
+export const BEHAVIORAL_NEGATION_OPTIONS = [
+    { value: false, label: 'Performed' },
+    { value: true, label: 'Did not perform' },
+]
+
+export const BEHAVIORAL_COUNT_OPERATOR_OPTIONS = [
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.Exact,
+].map((value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' }))
+
+export const BEHAVIORAL_TIME_INTERVAL_OPTIONS = [
+    { value: TimeUnitType.Day, label: 'days' },
+    { value: TimeUnitType.Week, label: 'weeks' },
+    { value: TimeUnitType.Month, label: 'months' },
+    { value: TimeUnitType.Year, label: 'years' },
+]
 
 /** Display name for the event or action a behavioral filter targets. An unresolved action falls back
  * to its id, which is all the filter itself stores. */
@@ -324,6 +372,12 @@ export function isRevenueAnalyticsPropertyFilter(
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
+export function isAccountRelationshipPropertyFilter(
+    filter?: { type?: string } | null
+): filter is AccountRelationshipPropertyFilter {
+    return filter?.type === PropertyFilterType.AccountRelationship
+}
+
 export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
     return filter?.type === PropertyFilterType.AccountCustomProperty
 }
@@ -331,6 +385,50 @@ export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
 ): filter is PropertyGroupFilter | PropertyGroupFilterValue {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
+}
+
+export function isPropertyFilterAwaitingValue(filter: PropertyFilterRow | undefined): boolean {
+    return (
+        !!filter &&
+        !isPropertyGroupFilterLike(filter) &&
+        !!filter.key &&
+        'operator' in filter &&
+        (!filter.operator || !isOperatorFlag(filter.operator)) &&
+        (filter.value === undefined || filter.value === null || filter.value === '')
+    )
+}
+
+/** Inlines a nested group into flat rows only when its operator matches the parent's — a different
+ * operator must stay one row, since flattening it would change what the insight returns. */
+export function inlineEquivalentPropertyGroups(
+    values: PropertyFilterRow[],
+    operator: FilterLogicalOperator
+): PropertyFilterRow[] {
+    return values.flatMap((value) => {
+        if (!isPropertyGroupFilterLike(value)) {
+            return [value]
+        }
+        const inlined = inlineEquivalentPropertyGroups(value.values, value.type)
+        if (value.type === operator || inlined.length <= 1) {
+            return inlined
+        }
+        return [{ ...value, values: inlined }]
+    })
+}
+
+/** Plain-text description of a nested group, for a row the editor cannot edit. */
+export function propertyGroupSummary(
+    group: PropertyGroupFilterValue,
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>
+): string {
+    return group.values
+        .map((value) =>
+            isPropertyGroupFilterLike(value)
+                ? `(${propertyGroupSummary(value, cohortsById)})`
+                : formatPropertyLabel(value, cohortsById).trim()
+        )
+        .filter((label) => !!label)
+        .join(group.type === FilterLogicalOperator.Or ? ' or ' : ' and ')
 }
 export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is EventPropertyFilter {
     return filter?.type === PropertyFilterType.Event
@@ -417,6 +515,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
+        isAccountRelationshipPropertyFilter(filter) ||
         isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
@@ -462,6 +561,7 @@ export function isPropertyFilterWithOperator(
             isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
+            isAccountRelationshipPropertyFilter(filter) ||
             isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
@@ -514,6 +614,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+    [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
     [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -572,6 +673,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Account]: PropertyDefinitionType.Account,
+        [PropertyFilterType.AccountRelationship]: PropertyDefinitionType.AccountRelationship,
         [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,
@@ -671,8 +773,7 @@ export function taxonomicFilterTypeToPropertyFilterType(
  * Recover a property definition's id. Pinned/default taxonomic items are stored as
  * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
  * (keyed by name + type) instead of building a link with an `undefined` id. Returns
- * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
- * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ * `undefined` when the id can't be resolved so callers can hide the link.
  */
 export function resolvePropertyDefinitionId(
     definition: Pick<PropertyDefinition, 'id' | 'name'>,

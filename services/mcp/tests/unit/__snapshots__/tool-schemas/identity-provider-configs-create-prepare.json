@@ -1,0 +1,147 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config_scope": {
+            "anyOf": [
+                {
+                    "description": "* `saml` - Saml\n* `oidc` - Oidc\n* `scim` - Scim\n* `xaa` - Xaa",
+                    "enum": ["saml", "oidc", "scim", "xaa"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Feature configured by this identity provider configuration.\n\n* `saml` - Saml\n* `oidc` - Oidc\n* `scim` - Scim\n* `xaa` - Xaa"
+        },
+        "domain_scope": {
+            "anyOf": [
+                {
+                    "description": "* `all` - All\n* `selected` - Selected",
+                    "enum": ["all", "selected"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Domains this configuration applies to. An unset value behaves like selected domains.\n\n* `all` - All\n* `selected` - Selected"
+        },
+        "id_jag_allowed_clients": {
+            "description": "Allowed ID-JAG client IDs. Empty list allows any client_id.",
+            "items": {
+                "maxLength": 256,
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "id_jag_issuer_url": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG."
+        },
+        "id_jag_jwks_url": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Override JWKS URL. Defaults to OIDC discovery on the issuer URL."
+        },
+        "name": {
+            "description": "Display name for this IdP configuration (e.g. 'Okta production').",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "oidc_client_id": {
+            "description": "Client ID of the organization's OIDC application.",
+            "maxLength": 512,
+            "type": "string"
+        },
+        "oidc_client_secret": {
+            "description": "OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "oidc_issuer_url": {
+            "anyOf": [
+                {
+                    "format": "uri",
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document."
+        },
+        "organization_domain_ids": {
+            "description": "Organization domain IDs that this identity provider configuration applies to.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "saml_acs_url": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "SAML single sign-on (ACS) URL the IdP redirects to."
+        },
+        "saml_entity_id": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "SAML IdP entity ID (issuer)."
+        },
+        "saml_x509_cert": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "SAML IdP X.509 signing certificate (PEM)."
+        },
+        "scim_enabled": {
+            "description": "Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

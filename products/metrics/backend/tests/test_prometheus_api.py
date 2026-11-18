@@ -1,0 +1,256 @@
+from typing import Any
+
+import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache, caches
+from django.test import override_settings
+
+import requests
+from parameterized import parameterized
+from requests.auth import HTTPBasicAuth
+from rest_framework import status
+
+from posthog.api.snuffle_proxy import snuffle_request
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
+from posthog.clickhouse.workload import Workload
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.metrics.backend.query_counts import list_metric_query_counts
+
+
+def _upstream() -> MagicMock:
+    response = MagicMock(spec=requests.Response)
+    response.status_code = 200
+    response.content = b'{"status":"success","data":{"resultType":"vector","result":[]}}'
+    response.headers = {"Content-Type": "application/json"}
+    return response
+
+
+_ALERTS = ClickHouseUser.ALERTS_PLATFORM_METRICS
+_SNUFFLE = ClickHouseUser.SNUFFLE
+
+
+@pytest.mark.parametrize(
+    "registered,ch_user,workload,expected",
+    [
+        (
+            {_ALERTS},
+            _ALERTS,
+            Workload.METRICS,
+            [("alerts_platform_metrics", "token-1"), ("alerts_platform_metrics", "token-2")],
+        ),
+        # A caller's own user wins over the Snuffle default.
+        (
+            {_ALERTS, _SNUFFLE},
+            _ALERTS,
+            Workload.METRICS,
+            [("alerts_platform_metrics", "token-1"), ("alerts_platform_metrics", "token-2")],
+        ),
+        (set(), _ALERTS, Workload.METRICS, [("reader", "secret"), ("reader", "secret")]),
+        # Without a caller's user, requests go as snuffle once the deployment registers it.
+        ({_SNUFFLE}, None, Workload.METRICS, [("snuffle", "token-1"), ("snuffle", "token-2")]),
+        ({_SNUFFLE}, None, Workload.LOGS, [("snuffle", "token-1"), ("snuffle", "token-2")]),
+        (set(), None, Workload.METRICS, [("reader", "secret"), ("reader", "secret")]),
+        (set(), None, Workload.LOGS, [("logs-reader", "logs-secret"), ("logs-reader", "logs-secret")]),
+    ],
+)
+def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_token(
+    settings, monkeypatch, tmp_path, registered, ch_user, workload, expected
+):
+    settings.SNUFFLE_METRICS_URL = "http://snuffle.test:9091"
+    settings.SNUFFLE_METRICS_USER = "reader"
+    settings.SNUFFLE_METRICS_PASSWORD = "secret"
+    settings.SNUFFLE_APM_URL = "http://snuffle-logs.test:9091"
+    settings.SNUFFLE_APM_USER = "logs-reader"
+    settings.SNUFFLE_APM_PASSWORD = "logs-secret"
+    token = tmp_path / "token"
+    users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x")}
+    for user in registered:
+        users[user] = ClickHouseCredentials(user=user.value, password="", password_file=str(token))
+    monkeypatch.setattr(connection, "__user_dict", users)
+    request = MagicMock(return_value=_upstream())
+    monkeypatch.setattr("posthog.api.snuffle_proxy.internal_requests.request", request)
+
+    sent = []
+    for rotation in ("token-1", "token-2"):
+        token.write_text(rotation)
+        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user, workload=workload)
+        auth = request.call_args.kwargs["auth"]
+        sent.append((auth.username, auth.password))
+
+    assert sent == expected
+
+
+@override_settings(
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+)
+class TestPrometheusQueryApi(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base = f"/api/projects/{self.team.pk}/metrics/prometheus/api/v1"
+        patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
+        self.request_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        cache.clear()
+        caches["metrics_prometheus_usage"].clear()
+
+    def test_query_is_forwarded_to_the_prometheus_api_with_team_header(self):
+        response = self.client.get(f"{self.base}/query", {"query": "sum(rate(http_requests_total[5m]))"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "success"
+        method, url = self.request_mock.call_args.args
+        kwargs = self.request_mock.call_args.kwargs
+        assert method == "GET"
+        assert url == "http://snuffle.test:9091/api/v1/query"
+        assert kwargs["params"] == {"query": ["sum(rate(http_requests_total[5m]))"]}
+        assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
+        assert kwargs["auth"] == HTTPBasicAuth("reader", "secret")
+
+    @parameterized.expand(
+        [
+            (
+                "instant_query",
+                "GET",
+                "query",
+                {"query": "sum(rate(http_requests_total[5m])) / up"},
+                ["http_requests_total", "up"],
+            ),
+            (
+                "form_range_query",
+                "POST",
+                "query_range",
+                "query=rate(http_requests_total%5B5m%5D)&step=60",
+                ["http_requests_total"],
+            ),
+            ("series_lookup", "GET", "series", {"match[]": "http_requests_total"}, []),
+        ]
+    )
+    def test_query_requests_count_the_metrics_they_read(
+        self, _name: str, method: str, path: str, payload: Any, expected: list[str]
+    ):
+        if method == "POST":
+            response = self.client.post(
+                f"{self.base}/{path}", payload, content_type="application/x-www-form-urlencoded"
+            )
+        else:
+            response = self.client.get(f"{self.base}/{path}", payload)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(count.metric_name for count in list_metric_query_counts(self.team)) == sorted(expected)
+
+    @parameterized.expand(
+        [
+            ("label_values", "label/__name__/values"),
+            ("metadata", "metadata"),
+            ("buildinfo", "status/buildinfo"),
+        ]
+    )
+    def test_read_endpoints_are_allowed(self, _name: str, path: str):
+        response = self.client.get(f"{self.base}/{path}")
+
+        assert response.status_code == status.HTTP_200_OK
+        _, url = self.request_mock.call_args.args
+        assert url == f"http://snuffle.test:9091/api/v1/{path}"
+
+    @parameterized.expand([("remote_write", "write"), ("remote_read", "read")])
+    def test_remote_storage_endpoints_are_rejected(self, _name: str, path: str):
+        response = self.client.post(f"{self.base}/{path}", "query=up", content_type="application/x-www-form-urlencoded")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self.request_mock.assert_not_called()
+
+    def test_snuffle_flag_gates_the_api(self):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"{self.base}/query", {"query": "up"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.request_mock.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("metrics_read", ["metrics:read"], status.HTTP_200_OK),
+            ("logs_read_only", ["logs:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_needs_metrics_read(self, _name: str, scopes: list[str], expected_status: int):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="grafana", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.get(f"{self.base}/query", {"query": "up"}, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == expected_status
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="grafana", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+        )
+        return token
+
+    @parameterized.expand(
+        [
+            ("grafana_with_personal_api_key", True, "Grafana/11.3.0", "personal_api_key", "grafana"),
+            ("in_app_connection_test", False, "Mozilla/5.0", "session", "other"),
+        ]
+    )
+    def test_usage_is_reported_with_auth_method_and_client(
+        self, _name: str, use_key: bool, user_agent: str, auth_method: str, client: str
+    ):
+        headers = {"user-agent": user_agent}
+        if use_key:
+            headers["authorization"] = f"Bearer {self._personal_api_key(['metrics:read'])}"
+            self.client.logout()
+
+        with patch("posthoganalytics.capture") as capture_mock:
+            response = self.client.get(f"{self.base}/query", {"query": "up"}, headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        usage_calls = [c for c in capture_mock.call_args_list if c.kwargs["event"] == "metrics prometheus api used"]
+        assert len(usage_calls) == 1
+        assert usage_calls[0].kwargs["distinct_id"] == self.user.distinct_id
+        assert usage_calls[0].kwargs["properties"]["auth_method"] == auth_method
+        assert usage_calls[0].kwargs["properties"]["client"] == client
+
+    def test_usage_tracking_failure_keeps_the_query_response(self):
+        with (
+            patch.object(
+                caches["metrics_prometheus_usage"], "add", side_effect=ConnectionError("redis down")
+            ) as add_mock,
+            patch("products.metrics.backend.prometheus_usage.capture_exception") as capture_exception_mock,
+        ):
+            response = self.client.get(f"{self.base}/query", {"query": "up"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "success"
+        add_mock.assert_called_once()
+        capture_exception_mock.assert_called_once()
+        assert isinstance(capture_exception_mock.call_args.args[0], ConnectionError)
+
+    def test_malformed_referer_keeps_the_query_response(self):
+        response = self.client.get(f"{self.base}/query", {"query": "up"}, headers={"referer": "http://["})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "success"
+
+    def test_repeated_dashboard_queries_report_usage_once_per_window(self):
+        headers = {
+            "authorization": f"Bearer {self._personal_api_key(['metrics:read'])}",
+            "user-agent": "Grafana/11.3.0",
+        }
+        self.client.logout()
+
+        with patch("posthoganalytics.capture") as capture_mock:
+            for path in ("query", "query_range", "labels", "series"):
+                assert self.client.get(f"{self.base}/{path}", headers=headers).status_code == status.HTTP_200_OK
+            self.client.get(f"{self.base}/write", headers=headers)
+
+        usage_calls = [c for c in capture_mock.call_args_list if c.kwargs["event"] == "metrics prometheus api used"]
+        assert len(usage_calls) == 1

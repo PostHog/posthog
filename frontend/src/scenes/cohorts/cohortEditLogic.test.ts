@@ -5,8 +5,12 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
+import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -16,20 +20,30 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
     BehavioralEventType,
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
+    CohortType,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     TimeUnitType,
 } from '~/types'
 
-import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type {
+    CohortRealtimeReadinessApi,
+    CohortUsedInResponseApi,
+} from 'products/cohorts/frontend/generated/api.schemas'
+import { REALTIME_POLL_INTERVAL_MS } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
@@ -43,17 +57,21 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         error: jest.fn(),
         success: jest.fn(),
+        warning: jest.fn(),
     },
 }))
 
 const mockUsedInResponse: CohortUsedInResponseApi = {
     feature_flags: {
-        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag', archived: false }],
         total: 1,
+        hidden: 0,
         has_more: false,
     },
-    insights: { results: [], total: 0, has_more: false },
-    cohorts: { results: [], total: 0, has_more: false },
+    insights: { results: [], total: 0, hidden: 0, has_more: false },
+    cohorts: { results: [], total: 0, hidden: 0, has_more: false },
+    test_account_filters: { results: [], total: 0, has_more: false },
+    workflows: { results: [], total: 0, hidden: 0, has_more: false },
 }
 
 describe('cohortEditLogic', () => {
@@ -103,6 +121,15 @@ describe('cohortEditLogic', () => {
         })
 
         it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
+        it('treats a used-in response without a workflows block as no workflows', async () => {
+            const { workflows: _, ...olderResponse } = mockUsedInResponse
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': olderResponse } })
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
 
@@ -172,22 +199,334 @@ describe('cohortEditLogic', () => {
     })
 
     describe('calculation polling', () => {
-        it('refreshes import counts when calculation finishes', async () => {
+        // The final poll response is the only thing that refreshes these fields while the page
+        // stays open, so a field the merge drops keeps its stale value until a reload.
+        it.each([
+            ['import counts', { last_import_total_count: 5, last_import_unmatched_count: 3 }],
+            [
+                'failure reason',
+                {
+                    errors_calculating: 1,
+                    last_error_message: 'Cohort calculation was terminated for reading too much data.',
+                },
+            ],
+        ])('refreshes %s when calculation finishes', async (_, finishedFields) => {
             await initCohortLogic({ id: 1 })
 
             await expectLogic(logic, () => {
                 logic.actions.checkIfFinishedCalculating({
                     ...mockCohort,
                     is_calculating: false,
-                    last_import_total_count: 5,
-                    last_import_unmatched_count: 3,
+                    ...finishedFields,
                 })
             }).toMatchValues({
-                cohort: partial({
-                    last_import_total_count: 5,
-                    last_import_unmatched_count: 3,
-                }),
+                cohort: partial(finishedFields),
             })
+        })
+    })
+
+    describe('realtime history build polling', () => {
+        // No feature flag setup: the API only sends `realtime` inside the rollout, so gating the
+        // poll on the flag as well would strand a build whose flags resolve after the page fetch.
+        afterEach(() => {
+            // One case varies the generated criteria keys; the rest of the file reads the constant.
+            ;(uuidv4 as jest.Mock).mockReturnValue('mocked-uuid')
+        })
+
+        const buildingRealtime: CohortRealtimeReadinessApi = {
+            state: 'building',
+            ready_at: null,
+            build: { phase: 'scanning', percent_complete: 40, updated_at: '2026-09-15T10:00:00Z' },
+            reason: null,
+            history_limit_days: null,
+        }
+        const readyRealtime: CohortRealtimeReadinessApi = {
+            state: 'ready',
+            ready_at: '2026-09-15T10:20:00Z',
+            build: null,
+            reason: null,
+            history_limit_days: null,
+        }
+        const criteriaGroupKeys = (): (string | undefined)[] =>
+            logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
+        const setPageHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        it('merges the readiness without discarding unsaved criteria', async () => {
+            // The build runs for tens of minutes, so every poll lands on a form the user may be
+            // part-way through editing. Merging the whole cohort back would throw those edits away,
+            // and re-keying the criteria groups would remount the fields they are typing in.
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+            const keysBeforePoll = criteriaGroupKeys()
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            })
+                .toDispatchActions(['pollRealtimeReadiness', 'armRealtimeReadinessPoll'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime: readyRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                })
+            expect(criteriaGroupKeys()).toEqual(keysBeforePoll)
+        })
+
+        it('merges a turn-on without discarding unsaved criteria', async () => {
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
+            const offRealtime: CohortRealtimeReadinessApi = { ...readyRealtime, state: 'off', ready_at: null }
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: offRealtime } },
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': {
+                        ...mockCohort,
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: offRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ realtimeSwitchAction: 'turn_on' })
+            const keysBeforeTurnOn = criteriaGroupKeys()
+
+            await expectLogic(logic, () => {
+                logic.actions.switchRealtime(true)
+            })
+                // Turning one cohort on can turn on several, and the usage line reads the team.
+                .toDispatchActions(['switchRealtimeSuccess', teamLogic.actionTypes.refreshCurrentTeam])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                    realtimeSwitchAction: 'turn_off',
+                })
+            expect(criteriaGroupKeys()).toEqual(keysBeforeTurnOn)
+        })
+
+        it.each([
+            // A cohort that is on holds a slot of the plan's limit, so it has to be possible to free it.
+            { state: 'is on', realtimeEnabled: true, expected: 'turn_off' },
+            { state: 'is off', realtimeEnabled: false, expected: null },
+        ])(
+            'offers $expected for a person property cohort that $state, outside the workflows rollout',
+            async ({ realtimeEnabled, expected }) => {
+                await initCohortLogic({ id: 1 })
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        cohort_type: 'realtime',
+                        realtime_enabled: realtimeEnabled,
+                        realtime: { ...readyRealtime, state: 'person_properties', ready_at: null },
+                    })
+                }).toMatchValues({ realtimeSwitchAction: expected })
+            }
+        )
+
+        it('reloads the team after a refused turn-on', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': () => [
+                        400,
+                        { type: 'validation_error', code: 'realtime_limit_reached', detail: 'No slot is left.' },
+                    ],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.switchRealtime(true)
+            }).toDispatchActions(['switchRealtimeFailure', teamLogic.actionTypes.refreshCurrentTeam])
+        })
+
+        it.each([
+            { saved: 'new criteria of a cohort that is on', id: 1, realtimeEnabled: true, warned: 0 },
+            { saved: 'a new cohort that realtime was refused for', id: 'new', realtimeEnabled: false, warned: 1 },
+        ] as const)('reloads the team after saving $saved', async ({ id, realtimeEnabled, warned }) => {
+            const saved: CohortType = {
+                ...mockCohort,
+                realtime_enabled: realtimeEnabled,
+                filters: {
+                    properties: {
+                        ...mockCohort.filters.properties,
+                        values: [
+                            {
+                                id: '70427',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        key: '$pageview',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+            useMocks({
+                post: { '/api/projects/:team_id/cohorts/': { ...saved, id: 2 } },
+                patch: { '/api/projects/:team_id/cohorts/:id/': saved },
+            })
+            await initCohortLogic({ id })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...saved, id, realtime_enabled: true })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['submitCohortSuccess', teamLogic.actionTypes.refreshCurrentTeam])
+            expect(lemonToast.warning).toHaveBeenCalledTimes(warned)
+        })
+
+        it('drops a readiness the save it crossed has already replaced', async () => {
+            // A poll in flight answers for the definition before the save, so letting it land would
+            // report the old build as ready and stop watching the one the save just started.
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            const rebuildingRealtime: CohortRealtimeReadinessApi = { ...buildingRealtime, state: 'rebuilding' }
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+                logic.actions.saveCohortSuccess({ ...mockCohort, realtime: rebuildingRealtime })
+            }).toFinishAllListeners()
+
+            expect(logic.values.cohort.realtime).toEqual(rebuildingRealtime)
+            expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('keeps checking while the build runs, and stops once it is ready', async () => {
+            // Both halves matter. A loop that never stops refetches the cohort every 15 seconds for
+            // as long as the tab is open; one that stops early freezes the progress row until reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                // The mount armed the poll on a real timer. Arming again replaces that disposable
+                // with one on the fake clock, which is the same timer the loop re-arms below.
+                logic.actions.armRealtimeReadinessPoll()
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+                // The flag picker rows and the condition link read readiness off the shared model,
+                // so without this push they keep showing the cohort as unprepared all session.
+                expect(cohortsModel.values.cohortsById[mockCohort.id]?.realtime).toEqual(readyRealtime)
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
+                expect(detailFetches).toBe(afterMount + 2)
+
+                // Stopping means disposing, not just declining to re-arm. The disposables manager
+                // re-runs every registered setup when the tab comes back, so a poll left on it
+                // refetches the cohort 15 seconds after each return to a page that is long done.
+                setPageHidden(true)
+                setPageHidden(false)
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+            } finally {
+                jest.useRealTimers()
+                delete (document as any).hidden
+            }
+        })
+
+        it('keeps watching across the gap between the queued build and its run row', async () => {
+            // The debounce key expires exactly when the run-creation task fires, and the run row
+            // lands a moment later. A poll in between answers `needs_attention` for a build that is
+            // fine, so stopping there would leave the page on "Unavailable" until a reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                logic.actions.armRealtimeReadinessPoll()
+
+                served = {
+                    state: 'needs_attention',
+                    ready_at: null,
+                    build: null,
+                    reason: null,
+                    history_limit_days: null,
+                }
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+                expect(logic.values.cohort.realtime).toEqual(readyRealtime)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('announces the ready moment once, not on every check after it', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).toHaveBeenCalledWith('This cohort is ready. Feature flags can target it now.')
+
+            ;(lemonToast.success as jest.Mock).mockClear()
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
     })
 
@@ -218,6 +557,115 @@ describe('cohortEditLogic', () => {
             },
             expect.anything()
         )
+    })
+
+    describe('workflows that rely on the cohort', () => {
+        const blockingWorkflows = {
+            results: [{ id: 'flow-1', name: 'Welcome series', status: 'active' }],
+            total: 2,
+            hidden: 1,
+            has_more: true,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': {
+                        ...mockUsedInResponse,
+                        workflows: blockingWorkflows,
+                    },
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': blockingWorkflows,
+                },
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/': () => [
+                        400,
+                        { type: 'validation_error', code: 'cohort_used_by_workflows', detail: 'Blocked', attr: null },
+                    ],
+                },
+            })
+        })
+
+        it('lists the blocking workflows instead of deleting the cohort', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort())
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([cohortsModel.actionTypes.deleteCohort])
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'delete',
+                workflows: blockingWorkflows,
+            })
+        })
+
+        it('deletes on the next attempt once the blocking workflows are gone', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse } })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                'deleteCohort',
+                'loadUsedIn',
+                'loadUsedInSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                cohortsModel.actionTypes.deleteCohort,
+            ])
+        })
+
+        it('does nothing after the blocked save workflow check when the editor has closed', async () => {
+            let releaseLookup: () => void = () => {}
+            const lookupHeld = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            let lookupStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                lookupStarted = resolve
+            })
+            let lookupAnswered: () => void = () => {}
+            const answered = new Promise<void>((resolve) => {
+                lookupAnswered = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': async () => {
+                        lookupStarted()
+                        await lookupHeld
+                        lookupAnswered()
+                        return [200, blockingWorkflows]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The cohorts list keeps the modal logic mounted after the editor closes.
+            cohortBlockingWorkflowsModalLogic.mount()
+            const deleteSpy = jest.spyOn(cohortsModel.actions, 'deleteCohort')
+
+            logic.actions.saveCohort()
+            await started
+            logic.unmount()
+            releaseLookup()
+            await answered
+            await expectLogic(cohortsModel).toFinishAllListeners()
+
+            expect(deleteSpy).not.toHaveBeenCalled()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(null)
+        })
+
+        it('lists the blocking workflows when the API refuses an edit that stops realtime updates', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => logic.actions.saveCohort()).toFinishAllListeners()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'edit',
+                workflows: blockingWorkflows,
+            })
+            expect(lemonToast.error).not.toHaveBeenCalledWith('Blocked')
+        })
     })
 
     describe('form validation', () => {
@@ -253,6 +701,10 @@ describe('cohortEditLogic', () => {
                 .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
                 .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining('Cohort saved'),
+                expect.objectContaining({ button: undefined })
+            )
         })
 
         it('do not save with invalid name', async () => {
@@ -729,6 +1181,13 @@ describe('cohortEditLogic', () => {
         })
 
         it('can create static cohort from criteria without csv', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
+                },
+            } as AppContext
             await initCohortLogic({ id: 'new' })
             const createdCohort = {
                 ...mockCohort,
@@ -782,10 +1241,63 @@ describe('cohortEditLogic', () => {
             expect(createPayload.get('is_static')).toEqual('true')
             expect(createPayload.get('filters')).toContain('"values"')
             expect(createPayload.get('filters')).not.toContain('"properties":{}')
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining('Cohort saved'),
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Email this cohort' }) })
+            )
 
             // Let the post-submit refreshPersonsData debounce finish before the test ends
             await expectLogic(logic).toFinishAllListeners()
             setTimeoutSpy.mockRestore()
+        })
+
+        it('offers no email button for a new cohort a broadcast cannot send to', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
+                },
+            } as AppContext
+            await initCohortLogic({ id: 'new' })
+            const behavioralFilters = {
+                properties: {
+                    ...mockCohort.filters.properties,
+                    values: [
+                        {
+                            id: '70427',
+                            type: FilterLogicalOperator.Or,
+                            values: [
+                                {
+                                    type: BehavioralFilterKey.Behavioral,
+                                    value: BehavioralEventType.PerformEvent,
+                                    event_type: TaxonomicFilterGroupType.Events,
+                                    time_value: 30,
+                                    time_interval: TimeUnitType.Day,
+                                    key: 'dashboard date range changed',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }
+            jest.spyOn(api.cohorts, 'create').mockResolvedValue({
+                ...mockCohort,
+                id: 3,
+                is_static: false,
+                filters: behavioralFilters,
+            })
+
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({ ...mockCohort, id: 'new', is_static: false, filters: behavioralFilters })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining('Cohort saved'),
+                expect.objectContaining({ button: undefined })
+            )
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('do not save static cohort with empty csv', async () => {
@@ -802,6 +1314,44 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
+        })
+
+        const MB = 1024 * 1024
+
+        it.each([
+            { case: 'over the default limit', isStatic: true, configuredMax: undefined, blocked: true },
+            { case: 'under a larger configured limit', isStatic: true, configuredMax: 50 * MB, blocked: false },
+            { case: 'left on a cohort switched to dynamic', isStatic: false, configuredMax: undefined, blocked: false },
+        ])('csv size check: $case', async ({ isStatic, configuredMax, blocked }) => {
+            await initCohortLogic({ id: 1 })
+            preflightLogic.actions.loadPreflightSuccess({
+                ...preflightLogic.values.preflight,
+                cohort_csv_upload_max_bytes: configuredMax,
+            } as any)
+            const csv = new File(['user_1'], 'ids.csv')
+            Object.defineProperty(csv, 'size', { value: 20 * MB + 1 })
+            logic.actions.setCohort({ ...mockCohort, is_static: isStatic, csv })
+            expect(logic.values.cohortValidationErrors.csv).toEqual(
+                blocked
+                    ? 'CSV file is larger than the limit of 20 MB. Split the file into smaller parts and upload them one at a time.'
+                    : undefined
+            )
+        })
+
+        it('shows the size limit when the save is rejected with a 413', async () => {
+            await initCohortLogic({ id: 1 })
+            ;(api.update as jest.Mock).mockRejectedValueOnce(new ApiError('Payload too large', 413))
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: new File(['user_1'], 'ids.csv'),
+                })
+                logic.actions.setStaticCohortMode('people')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['submitCohort', 'saveCohortSuccess'])
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('larger than the limit of 20 MB'))
         })
 
         it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
@@ -823,10 +1373,140 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('CSV upload', () => {
+        const savedCohort = {
+            ...mockCohort,
+            id: 1,
+            name: 'Saved name',
+            description: 'Saved description',
+            is_static: true,
+        }
+
+        it('uploads only the CSV, preserves unsaved cohort details and closes the modal', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...savedCohort,
+                    name: 'Unsaved name',
+                    description: 'Unsaved description',
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['setCohort', 'uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const formData = updateSpy.mock.calls[0][1] as FormData
+            expect([...formData.keys()]).toEqual(['csv'])
+            expect(formData.get('csv')).toBe(csv)
+            expect(logic.values.cohort.name).toBe('Unsaved name')
+            expect(logic.values.cohort.description).toBe('Unsaved description')
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            updateSpy.mockRestore()
+        })
+
+        it('keeps the modal open when the upload fails', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockRejectedValue({ detail: 'Upload failed' })
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            // The loader catch path keeps the csv on the cohort, which keeps the modal open for a retry.
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+            expect(logic.values.cohort.csv).toBe(csv)
+
+            updateSpy.mockRestore()
+        })
+
+        it('does not start the upload when the CSV exceeds the size limit', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv'])
+
+            expect(updateSpy).not.toHaveBeenCalled()
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+
+            updateSpy.mockRestore()
+        })
+    })
+
+    describe('manual person selection for static cohort creation', () => {
+        it('keeps the display name so it can be shown in the selected list, and forgets it on remove', async () => {
+            await initCohortLogic({ id: 'new' })
+
+            await expectLogic(logic, () => {
+                logic.actions.addPersonToCreateStaticCohort('person-1', 'Jane Doe')
+            }).toMatchValues({
+                personsToCreateStaticCohort: { 'person-1': 'Jane Doe' },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removePersonFromCreateStaticCohort('person-1')
+            }).toMatchValues({
+                personsToCreateStaticCohort: {},
+            })
+        })
+    })
+
     describe('mutate filters', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
         })
+
+        it.each([
+            ['email', PropertyOperator.IsSet, PropertyOperator.IsSet],
+            ['birth_date', PropertyOperator.IsDateBefore, PropertyOperator.IsDateBefore],
+            ['email', PropertyOperator.IContains, PropertyOperator.IsDateExact],
+        ])(
+            'switching a %s row on %s to a DateTime property leaves the operator %s',
+            async (startKey, startOperator, expectedOperator) => {
+                propertyDefinitionsModel.mount()
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    'person/email': { id: 'email', name: 'email', property_type: PropertyType.String },
+                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+                    'person/signup_date': {
+                        id: 'signup_date',
+                        name: 'signup_date',
+                        property_type: PropertyType.DateTime,
+                    },
+                })
+                logic.actions.setCriteria(
+                    {
+                        type: BehavioralFilterKey.Person,
+                        value: BehavioralEventType.HaveProperty,
+                        key: startKey,
+                        operator: startOperator,
+                    },
+                    0,
+                    0
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCriteria({ key: 'signup_date' }, 0, 0)
+                }).toFinishAllListeners()
+
+                const group = logic.values.cohort.filters.properties.values[0] as CohortCriteriaGroupFilter
+                expect(group.values[0]).toEqual(
+                    expect.objectContaining({ key: 'signup_date', operator: expectedOperator })
+                )
+            }
+        )
 
         it('duplicate group', async () => {
             const expectedGroupValue = partial({
@@ -1140,6 +1820,19 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(expectedSelect)
+        })
+
+        it('pins the cohort filter to the saved cohort after a draft is saved', async () => {
+            await initCohortLogic({ id: 'new' })
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, id: 42 })
+            }).toDispatchActions(['setCohort'])
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
         })
 
         it('does not carry columns from one unsaved draft cohort over to the next', async () => {

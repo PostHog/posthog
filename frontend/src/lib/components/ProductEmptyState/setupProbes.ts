@@ -6,8 +6,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { ProductSetupStatus } from './types'
 
 /**
- * A cheap, declarative approximation of a product's setup status, resolvable at
- * app boot from event definitions. A product declares its probe as `setupProbe`
+ * A cheap, declarative approximation of a product's setup status, resolvable
+ * after login from event definitions. A product declares its probe as `setupProbe`
  * in its manifest; `build-products.mjs` aggregates them into `productSetupProbes`
  * (see `~/products`), and each one is answered by a Postgres-backed API call
  * (see `productSetupPreloadLogic`), so statuses are known before the

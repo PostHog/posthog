@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
+import * as errorPng from '@posthog/brand/hoggies/png/error'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
@@ -10,6 +11,8 @@ import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { AccessControlDetailContent } from './ResourceAccessControlsV2/AccessControlDetail'
 import { accessControlsLogic } from './ResourceAccessControlsV2/accessControlsLogic'
 import type { AccessDetailSubjectScope } from './ResourceAccessControlsV2/accessDetailLogic'
+
+const HedgehogError = pngHoggie(errorPng)
 
 /**
  * Access detail for a single member or role, shown in the side panel instead of taking over the
@@ -51,7 +54,7 @@ function SidePanelAccessDetailForProject({ projectId }: { projectId: string }): 
                 {!subjectId ? (
                     <div className="mx-auto p-8 max-w-160 mt-8 text-center">
                         <div className="max-w-24 mx-auto">
-                            <WarningHog className="w-full h-full" />
+                            <HedgehogError className="w-full h-full" />
                         </div>
                         <h2>Nothing selected</h2>
                         <p>Select a specific member or role to view and edit their access permissions.</p>

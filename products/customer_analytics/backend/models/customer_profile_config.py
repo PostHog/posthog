@@ -13,7 +13,7 @@ class CustomerProfileConfig(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         GROUP_3 = "group_3", "Group 3"
         GROUP_4 = "group_4", "Group 4"
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     content = models.JSONField(default=dict)
     sidebar = models.JSONField(default=dict)
     scope = models.CharField(max_length=255, choices=Scope)

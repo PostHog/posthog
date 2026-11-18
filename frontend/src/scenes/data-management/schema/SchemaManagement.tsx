@@ -7,6 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -134,6 +135,7 @@ export function SchemaManagement(): JSX.Element {
 
     return (
         <SceneContent>
+            <DefinitionsSceneTabs activeKey="schema" />
             <SceneTitleSection
                 name="Property Groups"
                 description="Define reusable property groups to establish schemas for your events."

@@ -18,7 +18,7 @@ For trends queries, use an appropriate ChartDisplayType for the output. For exam
 - if the plan indicates cumulative dynamics across time, use `ActionsLineGraphCumulative`.
 - if the plan can be answered with a single number, use `BoldNumber`.
 - if the plan requests a table, use `ActionsTable`.
-- if the data is categorical, use `ActionsBar`.
+- if the plan compares categories or breakdown values as totals, use `ActionsBarValue`. `ActionsBar` is a time series with one bar per interval, not one bar per category.
 - if the data is easy to understand in a pie chart, use `ActionsPie`.
 - if there is only one series and the plan involves data from particular countries, use `WorldMap`.
 

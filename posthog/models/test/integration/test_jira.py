@@ -3,9 +3,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.integration import Integration, JiraIntegration
+from posthog.models.integration import Assignee, Integration, JiraIntegration, ReconnectRequired
+from posthog.models.integration.jira import trim_url
 
 
 class TestJiraIntegrationModel:
@@ -70,3 +72,208 @@ class TestJiraIntegrationModel:
             "integration_id": 123,
             "team_id": 456,
         }
+
+    @parameterized.expand(
+        [
+            (
+                "plain_text_stays_one_paragraph",
+                "Details\nNo links here",
+                [{"type": "paragraph", "content": [{"type": "text", "text": "Details\nNo links here"}]}],
+            ),
+            (
+                "url_becomes_link",
+                "Details\nPostHog issue: https://example.com/issue/1",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "Details\nPostHog issue: "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/issue/1",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/issue/1"}}],
+                            },
+                        ],
+                    }
+                ],
+            ),
+            (
+                "trailing_punctuation_stays_outside_link",
+                "See https://example.com/a. Also (https://example.com/b), then https://example.com/c_(x)!",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "See "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/a",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/a"}}],
+                            },
+                            {"type": "text", "text": ". Also ("},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/b",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/b"}}],
+                            },
+                            {"type": "text", "text": "), then "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/c_(x)",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/c_(x)"}}],
+                            },
+                            {"type": "text", "text": "!"},
+                        ],
+                    }
+                ],
+            ),
+            (
+                "markdown_wrappers_stay_outside_link",
+                "**https://example.com/a** `https://example.com/b` (_https://example.com/c_d_).",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "**"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/a",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/a"}}],
+                            },
+                            {"type": "text", "text": "** `"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/b",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/b"}}],
+                            },
+                            {"type": "text", "text": "` (_"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/c_d",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/c_d"}}],
+                            },
+                            {"type": "text", "text": "_)."},
+                        ],
+                    }
+                ],
+            ),
+            (
+                "fence_becomes_code_block",
+                'Checkout failed\n\n```\nTypeError: boom\n  File "app.js", line: 3\n```\n\nPostHog issue: https://example.com/issue/1',
+                [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Checkout failed"}]},
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": 'TypeError: boom\n  File "app.js", line: 3'}],
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "PostHog issue: "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/issue/1",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/issue/1"}}],
+                            },
+                        ],
+                    },
+                ],
+            ),
+            (
+                "longer_closing_fence_closes_block",
+                "```\nboom\n````\nafter",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "boom"}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "after"}]},
+                ],
+            ),
+            (
+                "unclosed_fence_runs_to_end",
+                "Details\n```js\nboom\n\nPostHog issue: https://example.com/issue/1",
+                [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Details"}]},
+                    {
+                        "type": "codeBlock",
+                        "attrs": {"language": "js"},
+                        "content": [{"type": "text", "text": "boom\n\nPostHog issue: https://example.com/issue/1"}],
+                    },
+                ],
+            ),
+            (
+                "shorter_inner_fence_stays_in_code",
+                "````python\nprint('x')\n```\n````",
+                [
+                    {
+                        "type": "codeBlock",
+                        "attrs": {"language": "python"},
+                        "content": [{"type": "text", "text": "print('x')\n```"}],
+                    }
+                ],
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.jira.requests.post")
+    def test_create_issue_converts_description_to_adf(self, _name, description, expected_content, mock_post):
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = {"key": "ENG-1", "id": "10001"}
+
+        JiraIntegration(self.integration()).create_issue(
+            {"project_key": "ENG", "title": "Checkout failed", "description": description}
+        )
+
+        assert mock_post.call_args.kwargs["json"]["fields"]["description"] == {
+            "type": "doc",
+            "version": 1,
+            "content": expected_content,
+        }
+
+    @parameterized.expand(
+        [
+            ("long_punctuation_run", "https://example.com/a" + "." * 1_000_000, "https://example.com/a"),
+            ("long_unmatched_parentheses", "https://example.com/a" + ")." * 500_000, "https://example.com/a"),
+            ("matched_parenthesis_kept", "https://example.com/c_(x))).", "https://example.com/c_(x)"),
+        ]
+    )
+    def test_trim_url(self, _name, url, expected):
+        # A trailing run as long as the description must not make trimming quadratic.
+        assert trim_url(url) == expected
+
+    @parameterized.expand(
+        [
+            ("with_assignee", {"assignee": "account-id"}, {"accountId": "account-id"}),
+            ("without_assignee", {}, None),
+        ]
+    )
+    @patch("posthog.models.integration.jira.requests.post")
+    def test_create_issue_sets_assignee_by_account_id(self, _name, extra_config, expected_assignee, mock_post):
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = {"key": "ENG-1", "id": "10001"}
+
+        JiraIntegration(self.integration()).create_issue(
+            {"project_key": "ENG", "title": "Checkout failed", "description": "Details", **extra_config}
+        )
+
+        assert mock_post.call_args.kwargs["json"]["fields"].get("assignee") == expected_assignee
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignees_requires_reconnect(self, _name, status_code, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "refreshed_at": 9999999999}
+        mock_get.return_value.status_code = status_code
+
+        with pytest.raises(ReconnectRequired):
+            JiraIntegration(integration).list_assignees("ENG")
+
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignees_searches_and_skips_inactive_users(self, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "scope": "read:jira-work read:jira-user"}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"accountId": "a1", "displayName": "Ada", "active": True},
+            {"accountId": "a2", "displayName": "Gone", "active": False},
+        ]
+
+        assert JiraIntegration(integration).list_assignees("ENG", " ad ") == [Assignee(id="a1", name="Ada")]
+        assert mock_get.call_args.kwargs["params"] == {"project": "ENG", "maxResults": "100", "query": "ad"}

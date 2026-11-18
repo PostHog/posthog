@@ -37,7 +37,25 @@ func GetChecks() []Check {
 		{Name: "Disk space available", Run: checkDiskSpace},
 		{Name: "Network connectivity", Run: checkNetwork},
 		{Name: "Docker volumes", Run: checkDockerVolumes},
+		{Name: "Object storage", Run: checkObjectStorage},
 	}
+}
+
+func checkObjectStorage() CheckResult {
+	logger := GetLogger()
+
+	if !DirExists("posthog") {
+		logger.Debug("posthog directory not found, skipping object storage check")
+		return CheckResult{Passed: true, Detail: "new install"}
+	}
+
+	warning := GetObjectStorageWarning()
+	if warning == "" {
+		return CheckResult{Passed: true, Detail: "SeaweedFS"}
+	}
+
+	logger.WriteString("⚠ " + warning + "\n")
+	return CheckResult{Passed: true, Warning: true, Detail: "legacy MinIO objects need copying"}
 }
 
 func checkDocker() CheckResult {

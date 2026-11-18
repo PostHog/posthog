@@ -62,6 +62,10 @@ export interface AlertDefinitionSectionProps {
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
     showAnomalyGuidance?: boolean
+    /** Show the AI detector in the detector picker. Off until the alerts-llm-detector flag is on. */
+    llmDetectorEnabled?: boolean
+    /** Show the forecast detector in the detector picker. Off until the alerts-forecast-detector flag is on. */
+    forecastDetectorEnabled?: boolean
     twoColumnLayout?: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
@@ -86,6 +90,8 @@ export function AlertDefinitionSection({
     hogql,
     supportsAnomalyDetection,
     showAnomalyGuidance = false,
+    llmDetectorEnabled = false,
+    forecastDetectorEnabled = false,
     twoColumnLayout = false,
     simulationResult,
     simulationResultLoading,
@@ -178,7 +184,7 @@ export function AlertDefinitionSection({
                                     label: 'Anomaly detection',
                                     description: showAnomalyGuidance
                                         ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
-                                        : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
+                                        : 'Automatically flag unusual changes. No fixed value needed.',
                                     'data-attr': 'alertForm-mode-detector',
                                 },
                             ]}
@@ -214,6 +220,9 @@ export function AlertDefinitionSection({
                                 onClearSimulationOverlay()
                             }}
                             calculationInterval={alertForm.calculation_interval}
+                            llmDetectorEnabled={llmDetectorEnabled}
+                            forecastDetectorEnabled={forecastDetectorEnabled}
+                            hasBreakdown={trends.isBreakdownValid}
                         />
                     )}
 

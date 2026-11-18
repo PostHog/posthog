@@ -23,13 +23,14 @@ If the reason is no longer correct, write this in the PR and try the idea again.
 
 ## Verdicts
 
-| Verdict      | Meaning                                                         |
-| ------------ | --------------------------------------------------------------- |
-| `rejected`   | Someone built the idea and measured it. The result was too bad. |
-| `reverted`   | The change went to master. Then someone removed it.             |
-| `superseded` | The problem was real. A different solution replaced this one.   |
-| `abandoned`  | Someone started the work and stopped. There is no verdict.      |
-| `open`       | The idea is good. The work is incomplete. You can continue it.  |
+| Verdict      | Meaning                                                                     |
+| ------------ | --------------------------------------------------------------------------- |
+| `rejected`   | Someone built the idea and measured it. The result was too bad.             |
+| `reverted`   | The change went to master. Then someone removed it.                         |
+| `superseded` | The problem was real. A different solution replaced this one.               |
+| `abandoned`  | Someone started the work and stopped. There is no verdict.                  |
+| `open`       | The idea is good. The work is incomplete. You can continue it.              |
+| `landed`     | The change is on master. An earlier attempt or alternative is still a trap. |
 
 ## Add an entry
 
@@ -68,6 +69,23 @@ A factor of 2.5 in compute is too much for 6 minutes of wall time.
 
 `pytest-xdist` is still a development dependency, and it operates correctly on a local machine. CI does not use it in the shards.
 
+**Re-measured Sep 2026** · [#93810](https://github.com/PostHog/posthog/pull/93810)
+
+The 2025 test moved the runners from 2 cores to 8 at the same time.
+The 2.5x compute came from the larger runners, and not from xdist.
+
+Two workers on the current 2-core runner was never measured.
+It measures -21.9% of wall time over ten Core shards, and the runner size does not change, so the cost falls with the wall time.
+A shard uses about half of its runner, because the test phase waits on the service stack.
+
+That PR did not merge either. Product databases are never created for a worker.
+`posthog/conftest.py` points each product alias at `test_posthog_gwN_<product>`, and nothing creates that database.
+A single-worker run hides this, because both naming schemes then produce the same string.
+Fixing it means provisioning the test databases before pytest starts.
+
+Four other single-process assumptions surfaced first, and each one was deterministic rather than flaky.
+Read the PR before you start again.
+
 _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores on the runner, why is each shard single-process
 
 ### Change the `django_db_setup` fixture from package scope to session scope
@@ -83,6 +101,27 @@ Measure the setup cost first. Then you know what a scope change can win.
 
 _Also asked as:_ session-scoped database fixture, build the test database once, why is the first test so slow
 
+### Collapse the warehouse-sources parametrized tests
+
+**Verdict: rejected** · Sep 2026 · measured, not built ([PR run](https://github.com/PostHog/posthog/actions/runs/35767882260), [master run](https://github.com/PostHog/posthog/actions/runs/35768184399))
+
+warehouse-sources collects about 58,000 tests. About 56,000 of them take less than 20 ms, and pytest-split puts almost all of them in one shard.
+Their cost was not the count. They took 89 s on master and 202 s on PR runs, because turbo dropped `COVERAGE_CORE` from the product jobs and coverage used its slow tracer.
+Four functions that run once per source give 5,392 tests and 15 s. Collapsing them saves little.
+The larger fixed cost is collection: each shard of the product collects all 58,000 tests, which takes about 90 s, before pytest-split selects its group.
+
+_Also asked as:_ too many parametrized tests, trim the warehouse-sources suite, delete per-source tests, why is the last warehouse-sources shard slow
+
+### Lower the backend shard wall target from 12 to 10 minutes
+
+**Verdict: rejected** · Sep 2026 · one run each: [12 minutes](https://github.com/PostHog/posthog/actions/runs/35784807053), [10 minutes](https://github.com/PostHog/posthog/actions/runs/35784814651)
+
+`TARGET_WALL_SECONDS` in `turbo-discover.js` sizes every backend test shard.
+At 10 minutes a full PR run used 23% more shard minutes, in 85 test jobs instead of 58.
+It did not finish sooner (13.4 minutes against 12.9, inside run-to-run noise). Each extra shard pays the full setup and collection cost again.
+
+_Also asked as:_ more shards, smaller shards, lower the shard target, split the slowest shard
+
 ### Shard the Playwright E2E suite
 
 **Verdict: reverted** · Feb 2026 · [#46774](https://github.com/PostHog/posthog/pull/46774), reverted by [#46853](https://github.com/PostHog/posthog/pull/46853)
@@ -96,9 +135,47 @@ Thus four shards used approximately 22 more minutes of CPU in each run, and decr
 
 A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard is not much faster than a retry of all the tests.
 
-The workflow contains a comment about this decision. Read the comment near `runs-on` in `.github/workflows/ci-e2e-playwright.yml`.
-
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
+
+### Run the Storybook WebKit shards on 4-CPU runners
+
+**Verdict: rejected** · Nov 2026 · [#128516](https://github.com/PostHog/posthog/pull/128516), [run](https://github.com/PostHog/posthog/actions/runs/41694856025)
+
+The 8 WebKit shards run on `depot-ubuntu-24.04` (2 CPUs) with 2 Jest workers. Depot metrics show the test runner step at 84% mean CPU and above 90% for a third of the time.
+On `depot-ubuntu-24.04-4` the test runner step took 228s median, against about 362s on 2 CPUs.
+
+Each shard also has about 190s of setup, and more CPUs do not make the setup faster.
+Thus the slowest shard finished only about 50s sooner (477s against about 526s), and the 4-CPU runner costs twice as much per minute. WebKit cost increased by about 75%.
+WebKit runs only on master pushes and in the merge queue, so 50s gives little value. Fewer shards on 4 CPUs are slower than today, because each shard then has more tests.
+
+The 2-CPU shards peaked at 86% memory. If WebKit starts to fail with out-of-memory errors, more memory is the reason to try a larger runner again.
+
+_Also asked as:_ bigger runners for WebKit, WebKit visual regression is slow, give Storybook more CPU
+
+### Run the Node.js serial tests in 2 duration-balanced shards
+
+**Verdict: rejected** · Nov 2026 · [#128491](https://github.com/PostHog/posthog/pull/128491), [2-shard run](https://github.com/PostHog/posthog/actions/runs/41702931651), [3-shard run](https://github.com/PostHog/posthog/actions/runs/41718453769)
+
+The serial lane runs about 270s of Jest in `--runInBand`, and each shard has about 230s of setup. A sequencer that splits the files by measured duration (`nodejs/jest.serial.sequencer.js`) can make 2 shards almost equal.
+The proposal was to use 2 shards and remove one runner from each run.
+
+With 2 shards the Jest steps took 153s and 186s. The serial lane then finished about 30s later than the old worst hash shard, and it was the last Node.js job.
+The JUnit times in the duration map do not include the start-up cost of each test file, so the measured shards were 15–40% heavier than the map predicted.
+With 3 shards the Jest steps took 119s, 106s and 126s, and the serial lane was no longer the slowest job.
+
+_Also asked as:_ fewer Node.js serial shards, merge the serial shards, save a runner on the Node.js tests
+
+### Run the Rust ingestion consumer e2e job on 2-CPU runners
+
+**Verdict: rejected** · Nov 2026 · [#129158](https://github.com/PostHog/posthog/pull/129158), [run](https://github.com/PostHog/posthog/actions/runs/41834630979)
+
+Depot metrics showed the job at 21% mean CPU on `depot-ubuntu-24.04-4`, so a 2-CPU runner looked sufficient.
+On `depot-ubuntu-24.04` the job took 675s, against a 358s median. The low average hides the setup steps, which use all the CPUs: `pnpm install` took 123s against about 16s, the Rust cache restore 47s against about 9s, and the personhog pre-build 47s against about 19s.
+The job then was the slowest Node.js job by about 250s.
+
+Average CPU does not show which steps are CPU-bound. Examine the time of each setup step before you move a job to a smaller runner.
+
+_Also asked as:_ smaller runner for the Rust e2e job, downsize the ingestion e2e runner, cheaper Node.js CI
 
 ### Use Bazel to scope product tests
 
@@ -170,13 +247,49 @@ Two things make this look inactive:
 The selection was also active for draft PRs only for some time. The team wanted a stable merge queue first.
 
 [#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
-Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
+The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains which tests run on each type of pull request.
+
+The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
+Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
+What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
 
+### Give the jest PR matrix a fixed shard count
+
+**Verdict: superseded** · Oct 2026 · 262 sampled PR runs and a [probe run](https://github.com/PostHog/posthog/actions/runs/38407529831)
+
+Jest selection on PRs ran three shards whatever it selected, and the selection was all or nothing: 60% of PR runs executed 2,171 of 2,720 test files and 39% executed under 50.
+The import graph that `--findRelatedTests` walks held one cycle of 2,851 files, and 92% of its edges were imports the transformer removes. Reading imports from the transformer output shrinks it to 218 files and 997 tests.
+The 997 tests that load the cycle cost 3.65 seconds each against 1.07 for the rest, so a changed-file count sizes nothing. `.github/scripts/jest-select.js` counts the related tests and assigns one shard per 171 files, capped at eight. Shard durations measured after that first threshold put a shard at about 102s of fixed setup plus 31s and 1.38s per test file, so the original 342 files produced a ten-minute shard where 171 gives a six-minute one. The selector classifies known fallback cases before installing dependencies. Pricing each shard from the hourly run's JUnit was built and removed: two probe runs sized by count landed within 1.4x of the estimate, and the per-file map cost a recorder job and a cache.
+
+Measured on the way and not worth repeating: `--maxWorkers=100%` on the selective path gained nothing on the 4 vCPU runners; persisting jest's cache made a second run on the same runner 5% (12 seconds) faster; the V8 leak fix (`--retain-maps-for-n-gc=0`, [#114618](https://github.com/PostHog/posthog/pull/114618)) was worth 15 to 20% of a shard and about 5% on the merge queue; a different fixed shard count gained nothing.
+
+_Also asked as:_ jest shard timeout, jest selects everything, more jest shards, jest --maxWorkers, cache jest between runs
+
+### Narrow the product test matrix when the backend selector returns `full`
+
+**Verdict: rejected** · Aug 2026 · read off the Turbo task graph, not measured
+
+On a legacy diff `turbo-discover.js` sets `products = allProducts`, roughly 30 matrix groups and the larger half of a full backend run.
+It already computes `mustRunProducts` (Turbo-affected products, their tach dependents, and the schema-affected set), but applies it only when the selection verdict is `selected`.
+Applying it on a `full` verdict too looks like free money.
+
+It is not. `backend:test` in `turbo.json` declares product-local inputs only — `backend/**/*.py`, `stats/`, `skills/`, `scripts/`, plus `../../pyproject.toml`, `../../uv.lock`, and `../../common/**/*.py`.
+No product task reads `posthog/**` or `ee/**`.
+So Turbo cannot see the core-to-product edge at all, and on a diff that touches only `posthog/` the affected set is empty, the tach dependents of an empty set are empty, and `mustRunProducts` comes out empty.
+Narrowing to it would run zero product tests on a core change that every product imports.
+
+The `selected` guard is what makes the existing narrowing safe: `narrowedProducts` unions `mustRunProducts` with the products Snob's import graph actually reached, and that union is the only thing covering the core-to-product edge.
+A `full` verdict means Snob produced no trustworthy set, so there is nothing to union.
+
+To go after those minutes, reduce how often the verdict is `full` — the `MAX_CHANGED_FILES = 50` bail and the `FULL_RUN_PATTERNS` list in `tools/snob_backend_test_selection_shadow.py` are the levers, and both change recall, so measure with the shadow first.
+
+_Also asked as:_ skip product tests on a full run, narrow the product matrix, why do all products run when I only changed core
+
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
-**Verdict: open, and approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)
+**Verdict: landed** · Jul 2026 to Sep 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057); the hard exit below landed by [#104782](https://github.com/PostHog/posthog/pull/104782)
 
 Each pytest session runs several full-heap `gc.collect()` passes at cleanup.
 These plugins run the passes only to report `__del__` exceptions and thread exceptions as warnings.
@@ -185,14 +298,94 @@ These plugins run the passes only to report `__del__` exceptions and thread exce
 A fixed benchmark of 320 tests decreased from 24.7 seconds to 21.8 seconds.
 
 A reviewer approved the PR. The branch then became inactive, and the stale bot closed it.
-You can open this PR again without changes.
+[#89057](https://github.com/PostHog/posthog/pull/89057) landed the same change, and `pytest.ini` now disables both plugins.
 
 Read this entry before you try a different solution for the pytest cleanup cost.
 [#88759](https://github.com/PostHog/posthog/pull/88759) tried a different solution. It deleted the `gc.unfreeze()` in `pytest_unconfigure`.
 That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
+Backend CI skips `Py_FinalizeEx` on green shards. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after `pytest_unconfigure`, so the `gc.unfreeze()` still runs first.
+One run each: each shard saved 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
+A failing shard, the hourly scheduled run and local runs keep the normal exit, so a teardown crash still shows there. Do not delete the `gc.unfreeze()`.
+
+_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass, os.\_exit after pytest
+
+## Python and pytest runtime
+
+### Tune the Python garbage collector to make the backend tests faster
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+The collector is already tuned.
+`conftest.py` freezes the heap after boot and sets the thresholds to (50000, 20, 20).
+That tuning is worth about 18% of test-phase wall time: the pre-June settings measure +21.6% against it.
+
+Nothing is left beyond it.
+Higher thresholds (200000, 50, 50) measure +0.5%. A collector disabled for the test phase measures +3.1%.
+Both are worse than the current setting.
+
+The suite does not wait on Python.
+CPU is 40% of test-phase wall time on the GitHub Actions runners and 43% on Depot CI.
+The rest waits on Postgres and ClickHouse.
+
+The PR holds the method and the full tables.
+Every variant ran back to back on one runner, and each block ran the baseline twice.
+Two identical baselines on one runner differ by up to 11.7%. Any result below that is noise.
+
+_Also asked as:_ gc.freeze, gc.set_threshold, disable GC during tests, tune Python GC, reduce GC frequency, Python GC cache contention
+
+### Set `PYTHONHASHSEED` to make pytest runtimes consistent
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`PYTHONHASHSEED=0` measures +1.1% on the GitHub Actions runners and -2.9% on Depot CI.
+It also does not reduce the spread, which is the property the proposal asks for.
+
+A constant seed does fix one real problem, and that problem is not a timing one.
+`parameterized.expand` over a set bakes the iteration order into the test ids, so the ids change per process.
+Fix that at the test with `sorted()`. A global seed hides the next one instead.
+
+_Also asked as:_ PYTHONHASHSEED, stabilize pytest runtimes, why do test times vary, make CI timings deterministic
+
+### Use jemalloc or cap `MALLOC_ARENA_MAX` for the backend tests
+
+**Verdict: rejected for speed. The memory result holds.** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+Both cut peak RSS by about 13% on both runner platforms. That part reproduces.
+Neither moves wall time outside the noise.
+
+A backend shard peaks at about 1.6 GB on a 7.6 GB runner, so 13% releases memory that nothing needs.
+Try this again only for a job that runs near its memory limit.
+
+_Also asked as:_ jemalloc, LD_PRELOAD libjemalloc, MALLOC_ARENA_MAX, glibc allocator, reduce pytest memory
+
+### Run the CI Postgres without fsync
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`fsync=off`, `synchronous_commit=off` and `full_page_writes=off` measure -0.0% and +2.4% on the two runner platforms.
+The experiment printed `show fsync` from the container, so the settings did apply.
+
+[#70891](https://github.com/PostHog/posthog/pull/70891) proposed the same settings for `docker-compose.dev.yml` in Jul 2026.
+A reviewer rejected that one for a different reason: an unclean shutdown can corrupt a developer's local database.
+
+_Also asked as:_ postgres fsync off, synchronous_commit off, full_page_writes, disable Postgres durability in CI
+
+### The Depot CI runners are more cache-contended than the GitHub Actions runners
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`lscpu` inside a Depot CI sandbox reports 2 vCPU, one thread per core, an AMD EPYC 9R45, and 32 MiB of L3.
+The `depot-ubuntu-24.04` GitHub Actions runners report the same.
+Measure this before you build on it. An earlier internal note claimed two threads per core on Depot CI, and that reading is wrong.
+
+`depot ci dispatch` needs the workflow on the default branch, the same as GitHub.
+Use `depot ci run --workflow <path>` for a workflow that lives on a branch.
+Depot Cache is separate from the GitHub cache, so the schema cache and `.test_durations` both miss and the shard runs a full migrate.
+Measure the test phase, not the job wall time.
+
+_Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core ratio, is Depot CI a fair comparison
 
 ## Docker and image builds
 
@@ -260,6 +453,61 @@ Run the trial for several days. A short window cannot separate the jobs whose ti
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Run the python static checks in a `parallel:` block
+
+**Verdict: rejected** · Nov 2026 · [#131571](https://github.com/PostHog/posthog/pull/131571)
+
+The `code-quality` job in `ci-python.yml` runs mypy, ty, the projections check and a lint/pytest group. They read the same tree and share no state, so running them concurrently looks free, and the job wall should fall from their sum to the longest of them.
+
+It is a large regression. The job went from 382s to 528s, which is 38% slower.
+mypy went from 106-187s to 415s, and ty from 46-53s to 137s.
+The block itself took 415s, held open until mypy finished at 06:53:29Z, so overlapping the checks bought nothing on top.
+
+`code-quality` runs on `depot-ubuntu-24.04`, which has 2 vCPUs. mypy already saturates both cores with its own worker, and ty parallelizes internally too. Overlapping them does not divide the work, it time-shares one saturated CPU between three jobs, and each one pays the contention.
+On a 2-vCPU runner, the serial order is the fast order.
+
+This also explains why the existing `parallel:` group in that job is cheap to keep: ruff, the template linters and the gated pytest suites are short and mostly I/O-bound, so they do not compete with a CPU-saturating neighbour. Adding a CPU-bound step to that group is what breaks it.
+
+Do not retry this on the same runner. It would need `depot-ubuntu-24.04-4` or larger first, and then the extra runner cost has to be weighed against the wall time, the same trade rejected for WebKit in "Run the Storybook WebKit shards on 4-CPU runners".
+
+Both sides of the comparison ran with every gated pytest suite switched on. A diff that touches `ci-python.yml` matches every path filter in the `changes` job, so its job is not comparable to a typical pull request's.
+
+_Also asked as:_ parallelize mypy and ty, run the static checks at the same time, speed up the python code-quality job, why is mypy slow in CI
+
+### Put the setup actions in a `parallel:` block
+
+**Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
+
+`pnpm-install`, `setup-python-cached`, and `dtolnay/rust-toolchain` each write `$GITHUB_PATH`.
+The `parallel:` block here is [GitHub's native step parallelism](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel), shipped in June 2026.
+It runs every step in the group as a background step and merges their environment changes at the implicit wait.
+The implementation in the GitHub Actions runner is not thread-safe. Two branches that write at the same time crash the runner.
+
+The failing jobs ran on Depot GHA runners, but the bug is not Depot's.
+Depot confirmed that its own `parallel:` construct exists only in Depot CI, which parses `.depot/workflows/`, and that jobs under `.github/workflows/` use GitHub's implementation.
+The two share a keyword and nothing else.
+
+The crash gives one of three messages. None of them names a step:
+
+```text
+##[error]Collection was modified; enumeration operation may not execute.
+##[error]The given key '<guid>' was not present in the dictionary.
+SyntaxError: Unexpected end of JSON input   # setup-node parsing GITHUB_EVENT_PATH
+```
+
+The runner then fails the step that it was running, and the whole job.
+The tool itself succeeds. One failing job logs `1.91.1-x86_64-unknown-linux-gnu installed` inside the step that the runner reports as failed.
+The crash lands in whichever branch loses the race, so the same bug shows up as `Install Rust`, `Install pnpm dependencies`, or `Set up Python`.
+
+Four product test jobs died this way between 09:05 and 11:52 on 4 Sep 2026.
+The same crash is in the runs of 3 Sep 2026, so it is not a single bad day.
+The three setup steps take 151s, 4s, and 12s in the product test job, so the block saves about 16s of a 12-minute job.
+
+The steps are sequential today. Keep an action that writes `$GITHUB_PATH` or `$GITHUB_ENV` out of a `parallel:` block.
+A block of `run:` steps is safe, and `ci-backend.yml`, `ci-python.yml`, `ci-frontend.yml`, and `ci-nodejs.yml` still use one.
+
+_Also asked as:_ parallel steps, run the setup steps at the same time, Collection was modified, key was not present in the dictionary, Install Rust fails in setup
+
 ### Use sparse-checkout on the large CI workflows
 
 **Verdict: abandoned** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
@@ -269,12 +517,86 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
+Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
+The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
+`ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
+The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
+Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
+Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
+
+Desktop Quality keeps `products/desktop/`, `packages/agent/`, and the root `.gitignore` for Biome's VCS ignore rules.
+Compare both Biome passes and the host-boundary check against a full checkout when changing these inputs.
+
+The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
+Keep the full directory so every environment and role remains available to validation and drift checks.
+
+OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
+
+The MCP live canary uses the same workspace manifest pattern, plus `services/mcp/` and `packages/` for its dependency tree.
+It keeps the frozen filtered install and live upstream test.
+
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
+Ownership lint omits new-path metadata when it checks tracked-file coverage, so files excluded by sparse checkout do not cause another ownership lookup.
+
+Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
+
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
+
+### Drop `filter: blob:none` from a deep checkout
+
+**Verdict: rejected** · Sep 2026 · [run](https://github.com/PostHog/posthog/actions/runs/35789980165)
+
+Backend test discovery needs 1000 commits of history.
+With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, because it fetches every file of the tree in a second request.
+Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
+A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
+`--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
+The `test-selection-verdict` job uses the same split checkout and history fetch.
+The `backend-coverage-report` job still uses a deep blobless checkout. It runs after the required gate, so no PR waits on it.
+The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
+Its PR checkout keeps bounded blobless history for the merge-base schema key.
+
+_Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
+
+### Check out the PR head by SHA in the Django test shards
+
+**Verdict: rejected** · Sep 2026 · [before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35781233592)
+
+The Django test shards check out `pull_request.head.ref` and spend about 22 s. The product shards check out the merge commit and spend about 6 s.
+The difference is in the `git fetch --depth=1`, and on master pushes the same Django checkout takes about 7 s.
+A checkout of `pull_request.head.sha` also took 21 to 22 s, so the refspec is not the cause. The cause is not known.
+
+_Also asked as:_ slow checkout in the Django shards, head.ref or head.sha, why is the Django checkout slower than the product checkout
+
+### Keep the pre-built wheels in the uv cache with `prune-cache: false`
+
+**Verdict: rejected** · Oct 2026 · [Depot run](https://depot.dev/orgs/ntsdt08fpt/workflows/4qpth2kdws), [#121208](https://github.com/PostHog/posthog/pull/121208)
+
+`setup-uv` prunes the cache, so each backend shard downloads its wheels from PyPI in `uv sync`.
+Between 00:14 and 03:07 UTC on 27 Oct 2026, PyPI downloads from the Depot CI sandboxes were very slow.
+The `Install Python dependencies` step has `timeout-minutes: 5` and `retry: 1`.
+Both attempts stalled, and Depot killed the step with `exec-step child exited with signal SIGTERM and produced no result`.
+Each shard failed about 10.5 minutes after it started. About 25 Backend CI runs failed. From 22:00 UTC the evening before to 12:00 UTC that day, no other run failed this way.
+
+The proposal was to stop the pruning, so that the shards get the wheels from Depot Cache and not from PyPI.
+The cost was estimated, not measured, because no job runs with an unpruned cache:
+
+- The unpruned cache is about 1 GB. Depot Cache storage costs $0.20 per GB-month, so the storage cost is small.
+- Each shard restores the 1 GB in about 20 s (from #121208). `uv sync` from PyPI takes 11 to 23 s in a healthy shard. The estimated net cost is 5 to 20 s for each shard, on every run.
+- At $0.006 per minute for a 2 vCPU sandbox, the compute of the whole outage, with the killed shards and the full reruns, is equal to about 2 to 8 days of that extra restore time.
+
+The pruning stays because one outage at night costs less than the restore time.
+Try this again if PyPI outages occur during working hours or more than a few times each month. Then the developer time and the merge queue kicks change the result.
+A longer step timeout does not help: the 5-minute bound and the retry let the shard fail fast, and this outage was 3 hours long.
+
+`setup-uv` v9 changed the `prune-cache` default to `false`. Each cache-enabled call sets `prune-cache: true` so that the cache stays at about 3 MB.
+
+_Also asked as:_ uv sync timeout, uv sync SIGTERM, PyPI is slow in CI, cache the Python wheels, why is prune-cache true, exec-step child exited with signal SIGTERM
 
 ### Jest reports the Rust snapshots as obsolete
 
@@ -317,6 +639,21 @@ A different solution replaced it. A CI step must guess which person controls a b
 The agent that opens the PR already knows this person. Thus the instruction moved to the PR template.
 
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
+
+## CI failure triage
+
+### Use a small classifier model to route a failed CI job to the next investigation
+
+**Verdict: rejected** · Oct 2026 · measured, not built
+
+Jev 1.13 (TypeSafe) read a log excerpt of a failed job and picked the next investigation from five routes.
+A list of regular expressions over the same excerpt did at least as well.
+On 24 held-out jobs the rules routed 20 and got 18 right. The model routed 18 and got 14 right. The labels came from agents, and the gap is inside the noise.
+
+The failed step name and the lines above the last `##[error]` carry most of the signal, and a rule reads both.
+Intermittent test failures were wrong for both. The rerun result separates them, and the log does not.
+
+_Also asked as:_ classify CI failures with an LLM, AI triage for red CI, Jev, TypeSafe, System One model, flaky or real failure from the log, route CI failures automatically
 
 ## Dev environment
 
@@ -363,7 +700,7 @@ _Also asked as:_ auto-sync deps, keep the venv current automatically, uv sync in
 Python 3.12.12 needs uv 0.9.2 or later. Flox pinned uv 0.8.23, and that version can get Python 3.12.10 at the maximum.
 Thus a person without Python 3.12.12 on the local machine could not build the environment.
 
-Remember the constraint, not the versions. The repository now uses Python 3.13.13, and this pin is obsolete.
+Remember the constraint, not the versions. The repository now uses Python 3.14.7, and this pin is obsolete.
 Before you increase the Python version, examine which versions the pinned flox uv can get.
 
 _Also asked as:_ bump Python, upgrade the interpreter, why is Python pinned to an exact version
@@ -375,15 +712,20 @@ The entries below give the proposals that people repeat.
 
 ### Squash the Django migration history
 
-**Verdict: rejected** · Feb 2026 to Mar 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267)
+**Verdict: landed on the third attempt** · Feb 2026 to Aug 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267) · [#60518](https://github.com/PostHog/posthog/pull/60518)
 
-The PR added a squash planner, a policy for opaque operations, and 65 squashed migrations across the historical range. A zero-to-head migration on a fresh database was successful, and the schema comparison found no structural difference.
+Two designs failed first. [#48267](https://github.com/PostHog/posthog/pull/48267) used Django's optimizer per app; the effect was small because `RunPython`/`RunSQL` block the optimizer, and `state.clone()` runs per operation, so a squash only helps in proportion to the operation count it removes. [#60518](https://github.com/PostHog/posthog/pull/60518) rebuilt the final project state at a cutoff date from `CreateModel` operations; the approach was right but the trial went stale on CI blockers and a `replaces=` lineage flaw (it claimed names from its own never-merged predecessor, which no real database ever recorded).
 
-The problem is the value. The PR reports that the effect on the timing was small and noisy. The work to resolve each blocker is large, and the reviews are difficult.
+The third attempt reran the #60518 design with [django-nextgensquash](https://github.com/PostHog/django-nextgensquash) (started as `tools/nextgensquash` in this repo) after fixing the lineage rule and a set of structural gaps: idempotent finalize operations so existing databases can apply the squash tail as no-ops, a stub `replaces=` claim so `check_consistent_history` passes on live databases without `--skip-checks`, and forwarding for raw-SQL indexes and composite foreign keys. A fresh database migrate dropped from roughly 20 minutes to about 4, existing databases stamp the squashes on their next migrate, and `makemigrations --check` reports zero drift against the squashed state.
 
-[#60518](https://github.com/PostHog/posthog/pull/60518) tried a second angle three months later. It took the final project state at a cutoff date and rebuilt it as one set of `CreateModel` operations. The PR says that per-app squashing "only nibbles at it because the dep graph is cross-app". That PR also did not merge.
+To repeat with a newer cutoff, reset every migration directory to master first (the tool re-squashes from a clean tree, not on top of its own output), then run it from the repo root through uv; the project config lives in `NEXTGENSQUASH` in `posthog/settings/nextgensquash.py`:
 
-The migration replay in CI is a real cost. Two different squash designs did not decrease it enough. A different change must decrease it.
+```bash
+uv run --with git+https://github.com/PostHog/django-nextgensquash python -m nextgensquash emit --settings posthog.settings --cutoff 2026-09-07 --output-dir /tmp/squash
+uv run --with git+https://github.com/PostHog/django-nextgensquash python -m nextgensquash install --settings posthog.settings --input-dir /tmp/squash
+```
+
+The generated finalize files import `posthog/migration_helpers/squash_idempotent.py`, so the package is a dev-only tool and not a dependency of this repo. The emit gate refuses young migrations that touch deferred foreign-key fields; bump the cutoff past them. Keep the window between cutoff and merge short: every migration that lands on master in that window sits before `finalize_fks` on a fresh database, and one that touches a deferred column forces a re-squash. A dedicated migration test (`TestMigrations` with `migrate_from`) that targets a folded migration fails with "not a valid node", because the loader drops replaced nodes; delete those tests, since a folded migration has been applied everywhere by definition. A `schema_addons` file must not depend on an app routed to another database (`products/db_routing.yaml`): the CI schema restore forgets those apps' `django_migrations` rows so each environment applies them under its own routing, and a dependant of a forgotten row makes Django refuse to migrate at all. The tool skips apps on another database, and `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py` blocks the edge in review; forgetting more rows on restore is the wrong fix, because the caller's `migrate` then re-applies DDL the dump already holds.
 
 _Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay, nextgensquash
 
@@ -430,7 +772,7 @@ One narrow PR from the same window did merge. [#41620](https://github.com/PostHo
 The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
 The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
 `posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
-Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `.agents/architecture.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
 Read this entry before you propose a Django-level cutover. The setting is already there.
 What is missing is everything that must be true before a person changes its value.

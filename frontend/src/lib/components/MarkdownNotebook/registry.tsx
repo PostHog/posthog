@@ -16,7 +16,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
+import { COLUMN_LAYOUT_TAGS } from './columnLayout'
 import { wasNotebookNodeJustInserted } from './freshlyInserted'
+import { sanitizeNotebookLinkHref } from './markdown'
+import { NotebookColumnBoundary } from './NotebookColumnBoundary'
 import {
     NotebookComponentDefinition,
     NotebookComponentBlockNode,
@@ -63,6 +66,18 @@ export function getMarkdownNotebookComponentDefaultProps(
 
 export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry {
     return createMarkdownNotebookRegistry([
+        ...COLUMN_LAYOUT_TAGS.map((tagName) =>
+            makeDefinition({
+                tagName,
+                label: tagName === 'Columns' ? 'Columns' : 'Column boundary',
+                category: 'Text',
+                description: 'Text and charts side by side',
+                ViewComponent: NotebookColumnBoundary,
+                hideModeActions: true,
+                editableTitle: false,
+                ...(tagName === 'Columns' ? { insertCommand: { aliases: ['layout', 'side by side'] } } : {}),
+            })
+        ),
         makeQueryDefinition(),
         makeDefinition({
             tagName: 'Image',
@@ -341,11 +356,11 @@ function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
 }
 
 function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
-    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    const src = typeof node.props.src === 'string' ? sanitizeNotebookLinkHref(node.props.src) : null
     const title = typeof node.props.title === 'string' ? node.props.title : 'Embedded content'
 
     return src ? (
-        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts allow-same-origin" />
+        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts" />
     ) : (
         <SummaryView node={node} mode="view" updateProps={() => {}} deleteNode={() => {}} />
     )

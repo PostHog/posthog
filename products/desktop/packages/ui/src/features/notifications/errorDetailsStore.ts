@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 // The error behind an error-level toast, captured so the details dialog can
 // show the full payload the toast had no room for.
-export interface ErrorDetail {
+interface ErrorDetail {
   title: string;
   error: unknown;
   occurredAt: number;

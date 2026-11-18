@@ -1,4 +1,5 @@
-import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 
 import type { BaseServerConfig } from '../servers/base-server'
 
@@ -42,18 +43,25 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
     recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
+    ai_research_v4_image_fetch = 'ai-research-v4-image-fetch',
+    ai_research_v4_image_fetch_retry = 'ai-research-v4-image-fetch-retry',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
+    cdp_ses_webhooks = 'cdp-ses-webhooks',
+    cdp_intake_transactional_email = 'cdp-intake-transactional-email',
+    cdp_intake_workflow_webhook = 'cdp-intake-workflow-webhook',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
+    cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
+    cdp_cyclotron_worker_email_sandbox = 'cdp-cyclotron-worker-email-sandbox',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -63,11 +71,13 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
+    cdp_dlq_replay = 'cdp-dlq-replay',
     recording_api = 'recording-api',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     ingestion_api = 'ingestion-api',
+    push_api = 'push-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -111,6 +121,10 @@ export type CommonConfig = BaseServerConfig & {
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
 
+    // Schema check hook Job (nodejs/src/schema-check)
+    SCHEMA_CHECK_PUSHGATEWAY_URL: string
+    SCHEMA_CHECK_APP: string
+
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     /**
@@ -123,12 +137,18 @@ export type CommonConfig = BaseServerConfig & {
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
+    /** Host and port of a leader-mode router. CDP sends its consistent person reads there when it is set. */
+    PERSONHOG_LEADER_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Per-call deadline on the identity connection; it outlasts identity's own leader attempts. */
+    PERSONHOG_IDENTITY_TIMEOUT_MS: number
+    /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
+    PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
     PERSONHOG_WRITE_MAX_BYTES: number
     PERSONHOG_PING_INTERVAL_MS: number
@@ -136,6 +156,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+    PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: number
+    PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: number
 
     // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
     // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
@@ -158,13 +180,14 @@ export type CommonConfig = BaseServerConfig & {
 
     // Kafka consumer base
     CONSUMER_BATCH_SIZE: number
+    /** KiB of message values per batch, 0 for no byte bound. Only KafkaConsumerV2 reads it. */
+    CONSUMER_BATCH_SIZE_KB: number
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number
     CONSUMER_LOG_STATS_LEVEL: LogLevel
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
     /**
@@ -208,6 +231,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: number
     // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
     // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -215,6 +239,21 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    // The number of connections the HTTP/2 dispatchers open per origin. The request helper holds a burst to a cold
+    // origin behind one probe request, so this cap only bounds an origin that negotiates HTTP/1.1 and the spill past
+    // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
+    // lane allows 6 per registrable domain.
+    EXTERNAL_REQUEST_H2_CONNECTIONS: number
+    // Which teams send their third-party requests through the egress proxy. Only a deployment in the rollout sets
+    // this. Left unset, a configured proxy carries every request, which is the behavior from before the rollout.
+    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
+    // everyone else's requests, '*' for all.
+    EXTERNAL_REQUEST_PROXY_TEAMS: string
+    // New third-party connections per second, per team and destination IP, across the fleet. 0 turns the limit off.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: number
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: number
+    // When false, a connection over the limit opens anyway and only the metric counts it, to size the limit first.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: boolean
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -227,6 +266,17 @@ export type CommonConfig = BaseServerConfig & {
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    // With the Rust VM enabled, coalesce concurrent same-program invocations into one
+    // executeBatch FFI call per tick, executed off the JS event loop, instead of per-invocation
+    // executeSync on the JS thread.
+    CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
+
+    // Timeout for the internal audience-resolution calls a batch workflow makes while paging its
+    // target audience. These run ClickHouse queries that routinely take longer than the 3s
+    // EXTERNAL_REQUEST_TIMEOUT_MS inter-service budget, so they get a larger one of their own —
+    // without it, resolving a non-trivial audience always times out and the whole batch run fails.
+    CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: number
 
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
     TRANSFORMATIONS_HOG_TIMEOUT_MS: number
@@ -242,17 +292,68 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_PROXY_TEAMS'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED'
 >
+
+const EXTERNAL_REQUEST_NUMBER_KEYS = new Set<string>([
+    'EXTERNAL_REQUEST_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECTIONS',
+    'EXTERNAL_REQUEST_H2_CONNECTIONS',
+    'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND',
+    'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST',
+])
+
+export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
+    const isExternalRequestKey = EXTERNAL_REQUEST_NUMBER_KEYS.has(key)
+    const toNumber = isExternalRequestKey ? Number : parseFloat
+    const trimmed = raw.trim()
+    const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
+    const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
+    if (isExternalRequestKey ? Number.isFinite(value) : !Number.isNaN(value)) {
+        return value
+    }
+    logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {
+        value: raw,
+        default: fallback,
+    })
+    return fallback
+}
+
+function numberFromEnv(key: keyof ExternalRequestConfig, fallback: number): number {
+    const raw = process.env[key]
+    return raw === undefined ? fallback : parseNumberFromEnv(key, raw, fallback)
+}
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
     return {
-        EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: Number(
-            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS ?? DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
+        EXTERNAL_REQUEST_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: numberFromEnv(
+            'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+            DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
         ),
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
-        EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS', 10000),
+        EXTERNAL_REQUEST_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_CONNECTIONS', 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_H2_CONNECTIONS', 8),
+        EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: numberFromEnv(
+            'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND',
+            0
+        ),
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: numberFromEnv(
+            'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST',
+            50
+        ),
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: stringToBoolean(
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+        ),
     }
 }
 
@@ -309,9 +410,14 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
 
+        // Schema check hook Job (nodejs/src/schema-check)
+        SCHEMA_CHECK_PUSHGATEWAY_URL: '',
+        SCHEMA_CHECK_APP: '',
+
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONHOG_LEADER_ADDR: '',
         PERSONS_STORE_MODE: 'pg',
         PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
@@ -320,6 +426,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
+        PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -327,6 +435,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+        PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: 0,
+        PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: 0,
 
         // Usage ingestion gRPC
         USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
@@ -349,13 +459,13 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka consumer base
         CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE_KB: 0,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
         CONSUMER_LOG_STATS_LEVEL: 'debug',
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         CONSUMER_USE_V2: false,
@@ -401,11 +511,17 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
+        HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 30_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
+        EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
+        EXTERNAL_REQUEST_PROXY_TEAMS: '',
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: 0,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: 50,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: false,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
@@ -415,10 +531,16 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
+        // Above Django's WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS (180s), so ClickHouse ends a slow
+        // audience query before this client gives up and a retry never overlaps a query that still runs.
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
+
+        HTTP_SERVER_DRAIN_TIMEOUT_MS: 0,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

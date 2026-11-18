@@ -24,11 +24,7 @@ function SwitchPill({ checked }: { checked: boolean }) {
   );
 }
 
-export type DeliveryIllustration =
-  | "push"
-  | "toast"
-  | "dock-badge"
-  | "dock-bounce";
+type DeliveryIllustration = "push" | "toast" | "dock-badge" | "dock-bounce";
 
 function AppTile({ className }: { className?: string }) {
   return (

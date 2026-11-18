@@ -64,6 +64,17 @@ export function isAnyIntegrationStale(
   );
 }
 
+export function didGithubConnectCompleteFromIntegrations(inputs: {
+  isConnecting: boolean;
+  integrationCountAtStart: number;
+  currentIntegrationCount: number;
+}): boolean {
+  return (
+    inputs.isConnecting &&
+    inputs.currentIntegrationCount > inputs.integrationCountAtStart
+  );
+}
+
 export function buildInstallationSettingsUrl(
   account: GithubInstallationAccount | null | undefined,
   installationId: string,
@@ -147,7 +158,7 @@ export function deriveConnectButtonState(inputs: {
 
 export type GithubApprovalState = "none" | "awaiting" | "approved";
 
-export interface GithubInstallRequestSummary {
+interface GithubInstallRequestSummary {
   status: "pending" | "approved" | "unidentified";
 }
 

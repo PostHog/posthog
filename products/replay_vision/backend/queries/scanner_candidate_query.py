@@ -18,13 +18,13 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
-from posthog.session_recordings.queries.session_recording_list_from_query import (
-    UNSCORED_SURFACING_SCORE,
-    SessionRecordingListFromQuery,
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GROUP_KEY_RESOLUTION_QUERY_TYPE,
 )
-from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
 
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -40,7 +40,7 @@ _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
 # How far behind the watermark the frequent sweep's events subqueries scan. Covers the events of any
 # session up to ~3h long plus skew; sessions whose matching events are older surface via the periodic
-# deep sweep instead (see `find_scanner_candidates_activity`), which scans the full lookback.
+# deep sweep instead (see `find_scanner_candidates`), which scans the full lookback.
 SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
 
 # ClickHouse query-log tags. The read meter matches on these to attribute spend per pass, so a tag
@@ -71,37 +71,11 @@ DEFAULT_CANDIDATE_LIMIT = 5_000
 # replay table and costs a few MiB, so a page that turns out not to prune is nearly free.
 CANDIDATE_SCAN_LIMIT = 2_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
+# A timed-out key lookup falls back to the groups join, which reads about ten times more than the lookup.
+SWEEP_GROUP_KEY_RESOLUTION_SECONDS = 30
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
 OBSERVATION_EVENT_NAME = "$recording_observed"
-
-# Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
-FOCUSED_SURFACING_THRESHOLD = 0.30
-BALANCED_SURFACING_THRESHOLD = 0.10
-_SURFACING_THRESHOLDS = {
-    SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,
-    SamplingMode.BALANCED: BALANCED_SURFACING_THRESHOLD,
-}
-
-
-def surfacing_score_predicate(sampling_mode: SamplingMode | str) -> ast.Expr | None:
-    """Quality pre-filter on the per-session surfacing score; None means no filter. Raises on unknown modes."""
-    threshold = _SURFACING_THRESHOLDS.get(SamplingMode(sampling_mode))
-    if threshold is None:
-        return None
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.GtEq,
-        left=ast.Call(
-            name="coalesce",
-            args=[
-                ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                # Unscored sessions get the same neutral score the recordings list shows, so a session
-                # visible as eligible in the UI is also eligible to the sweep.
-                ast.Constant(value=UNSCORED_SURFACING_SCORE),
-            ],
-        ),
-        right=ast.Constant(value=threshold),
-    )
 
 
 def eligibility_predicates() -> list[ast.Expr]:
@@ -183,7 +157,6 @@ class ScannerCandidateQuery:
         user: User | None = None,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
-        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -193,6 +166,11 @@ class ScannerCandidateQuery:
         skip_negative_blocklists: bool = False,
         # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
         scanner_id: str | None = None,
+        # Caps the settle horizon, so a sweep stops at a known end (an ended experiment's end date).
+        until: dt.datetime | None = None,
+        # Balanced sampling for experiment scanners: one rate per watched variant, replacing the
+        # single `sampling_rate` threshold (see `variant_sampling_predicate`).
+        variant_sampling_rates: dict[str, float] | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -208,11 +186,14 @@ class ScannerCandidateQuery:
         self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
         self._sampling_salt = sampling_salt
+        self._variant_sampling_rates = variant_sampling_rates
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
         self._scanner_id = scanner_id
         # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
         self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
+        if until is not None:
+            self.settle_cutoff = min(self.settle_cutoff, until)
 
         # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)
@@ -227,8 +208,6 @@ class ScannerCandidateQuery:
         extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
-        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-            extra_having.append(surfacing)
 
         # Bounding positive events subqueries to a few hours keeps the every-few-minutes sweep from
         # re-scanning the full events lookback each tick. Exclusion blocklists ignore the floor (see
@@ -244,6 +223,8 @@ class ScannerCandidateQuery:
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
             resolve_group_properties=ClickHouseUser.REPLAY_VISION,
+            group_key_resolution_seconds=SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
+            project_exposure_variant=variant_sampling_rates is not None,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -319,6 +300,8 @@ class ScannerCandidateQuery:
         return keyset_predicate(self._last_swept_at, self._last_seen_session_id, ascending=True)
 
     def _sampling_predicate(self) -> ast.Expr | None:
+        if self._variant_sampling_rates is not None:
+            return variant_sampling_predicate(self._variant_sampling_rates, self._sampling_salt)
         return sampling_predicate(self._sampling_rate, self._sampling_salt)
 
 
@@ -479,6 +462,25 @@ def keyset_predicate(end_time: dt.datetime, session_id: str | None, ascending: b
     )
 
 
+def _sampling_hash_expr(sampling_salt: str) -> ast.Expr:
+    return ast.Call(
+        name="modulo",
+        args=[
+            # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
+            ast.Call(
+                name="cityHash64",
+                args=[
+                    ast.Call(
+                        name="concat",
+                        args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=sampling_salt)],
+                    )
+                ],
+            ),
+            ast.Constant(value=SAMPLE_RATE_PRECISION),
+        ],
+    )
+
+
 def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | None:
     """Deterministic salted-hash downsample on the inner query's session rows; None means keep everything."""
     if sampling_rate >= 1.0:
@@ -489,30 +491,41 @@ def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | N
         return ast.Constant(value=False)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Lt,
-        left=ast.Call(
-            name="modulo",
-            args=[
-                # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
-                ast.Call(
-                    name="cityHash64",
-                    args=[
-                        ast.Call(
-                            name="concat",
-                            args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=sampling_salt)],
-                        )
-                    ],
-                ),
-                ast.Constant(value=SAMPLE_RATE_PRECISION),
-            ],
-        ),
+        left=_sampling_hash_expr(sampling_salt),
         right=ast.Constant(value=threshold),
     )
+
+
+def variant_sampling_predicate(rates: dict[str, float], sampling_salt: str) -> ast.Expr | None:
+    """One salted-hash threshold per attributed variant, so balanced sampling stays stable across
+    sweeps and backfills the way plain sampling does: the same session hashes the same everywhere.
+
+    Reads the exposure join's attributed variant as `any(exposure.variant)` (an aggregate, since
+    the predicate lands in HAVING), so the caller must project it (`project_exposure_variant`).
+    An unlisted variant falls through to false; the join already restricts rows to the watched
+    variants, so that arm only guards drift.
+    """
+    if all(rate >= 1.0 for rate in rates.values()):
+        return None
+    variant_expr = ast.Call(name="any", args=[ast.Field(chain=["exposure", "variant"])])
+    hash_expr = _sampling_hash_expr(sampling_salt)
+    multi_if_args: list[ast.Expr] = []
+    for variant, rate in rates.items():
+        threshold = max(0, round(min(1.0, rate) * SAMPLE_RATE_PRECISION))
+        multi_if_args.append(
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=variant_expr, right=ast.Constant(value=variant))
+        )
+        multi_if_args.append(
+            ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=hash_expr, right=ast.Constant(value=threshold))
+        )
+    multi_if_args.append(ast.Constant(value=False))
+    return ast.Call(name="multiIf", args=multi_if_args)
 
 
 class WindowedCandidateQuery:
     """Enumerate a scanner's candidate sessions inside a closed historical window.
 
-    Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
+    Same eligibility and sampling predicates as `ScannerCandidateQuery`, but bounded on both
     sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
     cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
     enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
@@ -538,7 +551,6 @@ class WindowedCandidateQuery:
         # query carrying an exposure filter. A query without one is unaffected either way.
         user: User | None = None,
         sampling_salt: str,
-        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
         # Oldest-first. The catch-up pass walks this way so a batch that fills up can advance its
@@ -555,6 +567,10 @@ class WindowedCandidateQuery:
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         scanner_id: str | None = None,
+        # Balanced sampling for experiment scanners: one rate per watched variant, replacing the
+        # single `sampling_rate` threshold (see `variant_sampling_predicate`).
+        variant_sampling_rates: dict[str, float] | None = None,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):
             if not isinstance(value, dt.datetime):
@@ -589,10 +605,13 @@ class WindowedCandidateQuery:
         inner_query.after = None
 
         extra_having: list[ast.Expr] = eligibility_predicates()
-        if (sampling := sampling_predicate(sampling_rate, sampling_salt)) is not None:
+        sampling = (
+            variant_sampling_predicate(variant_sampling_rates, sampling_salt)
+            if variant_sampling_rates is not None
+            else sampling_predicate(sampling_rate, sampling_salt)
+        )
+        if sampling is not None:
             extra_having.append(sampling)
-        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-            extra_having.append(surfacing)
 
         self._inner = SessionRecordingListFromQuery(
             team=team,
@@ -602,6 +621,8 @@ class WindowedCandidateQuery:
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
             resolve_group_properties=ClickHouseUser.REPLAY_VISION,
+            group_key_resolution_seconds=group_key_resolution_seconds,
+            project_exposure_variant=variant_sampling_rates is not None,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:

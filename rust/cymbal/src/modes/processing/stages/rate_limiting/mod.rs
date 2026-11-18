@@ -650,6 +650,7 @@ mod tests {
 
     fn settings(per_issue: Option<i32>, project: Option<i32>) -> RateLimitSettings {
         RateLimitSettings {
+            adaptive_ingestion_enabled: false,
             per_issue_value: per_issue,
             per_issue_bucket_minutes: Some(60),
             project_value: project,
@@ -662,6 +663,7 @@ mod tests {
             exception_list: ExceptionList(vec![]),
             proposed_issue_name: None,
             proposed_issue_description: None,
+            proposed_issue_severity: None,
             debug_images: vec![],
             props: HashMap::new(),
             uuid: Uuid::now_v7(),

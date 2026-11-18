@@ -1,11 +1,15 @@
+from collections import defaultdict
 from datetime import timedelta
+from typing import cast
 
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 from celery import shared_task
+from prometheus_client import Gauge
 
+from posthog.models.team import Team
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -16,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +36,27 @@ STOPPED_SYNC_SWEEP_GRACE = timedelta(minutes=30)
 # Jobs stuck in Running from before this sweep shipped are left alone rather than
 # mass-failed (and their latest_error rewritten) on the first ticks after deploy.
 STOPPED_SYNC_SWEEP_MAX_JOB_AGE = timedelta(days=7)
+
+# Bounds one tick's report. The gauge saturates here rather than scanning an unbounded
+# set: past this many the answer is the same either way, which is that something broke
+# fleet-wide.
+STALLED_SCHEDULE_SWEEP_CAP = 2000
+
+# Teams named in the sweep's log line, worst first.
+STALLED_SCHEDULE_LOG_TEAMS = 10
+
+# Alert on a sustained non-zero `no_runs`. Each tick is a whole-fleet snapshot from one query,
+# so only the newest reading is correct. `livemax` would pin the gauge at the highest value any
+# live process ever wrote for this label, so a count that has since dropped to zero — the sweep
+# healed, or the schemas were repaired — would still read as the old, higher value as long as
+# that process stays up.
+STALLED_SCHEMA_SCHEDULES_GAUGE = Gauge(
+    "warehouse_stalled_schema_schedules",
+    "Schemas with should_sync set whose last sync is older than their own cadence allows. "
+    "kind=no_runs means no run started, which points at the schedule; kind=stuck_job means a run started and never finished.",
+    ["kind"],
+    multiprocess_mode="livemostrecent",
+)
 
 
 @shared_task(
@@ -146,3 +172,69 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
     finally:
         if ph_client:
             ph_client.shutdown()
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def sweep_stalled_schema_schedules() -> None:
+    """Report schemas that should be syncing but have stopped getting runs.
+
+    A schedule paused out of band takes a schema's syncs down without producing a job row, an
+    error, or a digest entry, so nothing else in the system reports it. This sweep is the only
+    thing that does.
+
+    It reports and does not repair. Restarting a sync reaches into a customer's database, and
+    the predicate cannot tell a schedule paused by accident from one an operator paused on
+    purpose during an incident. Repair stays behind `repair_stalled_schema_schedules`, where a
+    person confirms the list first.
+    """
+    # Deferred so the sweep's Temporal-free query path stays off Celery autodiscovery imports.
+    from products.warehouse_sources.backend.stalled_schedules import find_stalled_schemas  # noqa: PLC0415
+
+    stalled = find_stalled_schemas(limit=STALLED_SCHEDULE_SWEEP_CAP + 1)
+    capped = len(stalled) > STALLED_SCHEDULE_SWEEP_CAP
+    if capped:
+        stalled = stalled[:STALLED_SCHEDULE_SWEEP_CAP]
+
+    by_kind: dict[str, int] = defaultdict(int)
+    for schema in stalled:
+        by_kind[schema.kind] += 1
+
+    STALLED_SCHEMA_SCHEDULES_GAUGE.labels(kind="no_runs").set(by_kind["no_runs"])
+    STALLED_SCHEMA_SCHEDULES_GAUGE.labels(kind="stuck_job").set(by_kind["stuck_job"])
+
+    if not stalled:
+        return
+
+    per_team: dict[int, int] = defaultdict(int)
+    for schema in stalled:
+        per_team[schema.team_id] += 1
+
+    logger.warning(
+        "sweep_stalled_schema_schedules_found",
+        total=len(stalled),
+        no_runs=by_kind["no_runs"],
+        stuck_job=by_kind["stuck_job"],
+        capped=capped,
+        team_count=len(per_team),
+        # The worst teams only. A fleet-wide stall would otherwise put thousands of ids in one
+        # log line, and the count above already says how wide it is.
+        worst_teams=sorted(per_team.items(), key=lambda item: -item[1])[:STALLED_SCHEDULE_LOG_TEAMS],
+        longest_stall_hours=round(max(schema.stalled_for for schema in stalled).total_seconds() / 3600, 1),
+    )
+
+
+@shared_task(ignore_result=True)
+def compute_incremental_field_suggestion(team_id: int, schema_id: str, table: str, fields: list[dict]) -> None:
+    from products.warehouse_sources.backend.logic.incremental_field_model import (  # noqa: PLC0415 — keeps the LLM client stack off the Celery import path
+        store_incremental_field_suggestion,
+    )
+
+    # The team or the schema can be deleted while the task waits, and then there is nothing to store.
+    team = Team.objects.select_related("organization").filter(pk=team_id).first()
+    if team is None:
+        return
+    try:
+        store_incremental_field_suggestion(team, schema_id, table, cast(list[IncrementalField], fields))
+    except ExternalDataSchema.DoesNotExist:
+        return

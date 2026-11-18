@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase, mock
 
@@ -14,14 +14,24 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -39,13 +49,15 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             secure_value=hash_key_value(self.api_key),
             scopes=["*"],
         )
-        self.sample_hogql_query = {
+        self.sample_hogql_query: dict[str, Any] = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
             "sendRawQuery": None,
@@ -60,7 +72,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_create_hogql_endpoint(self):
-        """Test creating a endpoint successfully."""
         data = {
             "name": "test_query",
             "description": "Test query description",
@@ -311,7 +322,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_update_endpoint(self):
-        """Test updating an existing endpoint."""
         endpoint = create_endpoint_with_version(
             name="update_test",
             team=self.team,
@@ -320,7 +330,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        updated_data = {
+        updated_data: dict[str, Any] = {
             "description": "Updated description",
             "is_active": False,
             "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
@@ -338,11 +348,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response_data["is_active"])
         want_query = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT 1",
             "response": None,
             "sendRawQuery": None,
@@ -411,6 +423,113 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
+
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, "dag_view", "Can't delete blocked_endpoint_v1 yet.", "downstream_view", True),
+            (
+                "disable_materialization",
+                "patch",
+                {"is_materialized": False},
+                "dag_view",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "downstream_view",
+                True,
+            ),
+            (
+                "deactivate_endpoint",
+                "patch",
+                {"is_active": False},
+                "dag_view",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "downstream_view",
+                True,
+            ),
+            (
+                "disable_materialization_for_untracked_endpoint_reader",
+                "patch",
+                {"is_materialized": False},
+                "untracked_endpoint",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "reader",
+                False,
+            ),
+        ]
+    )
+    def test_removing_endpoint_materialization_is_refused_when_a_model_depends_on_it(
+        self,
+        _name: str,
+        method: str,
+        body: dict[str, Any] | None,
+        reader: str,
+        refusal: str,
+        dependent_name: str,
+        has_lineage_link: bool,
+    ):
+        endpoint = create_endpoint_with_version(
+            name="blocked_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        backing_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="blocked_endpoint_v1",
+            query=self.sample_hogql_query,
+        )
+        version.enable_materialization(backing_query)
+        dag = DAG.get_or_create_default(self.team)
+        endpoint_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=backing_query,
+            type=NodeType.ENDPOINT,
+        )
+        if reader == "dag_view":
+            downstream_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="downstream_view",
+                query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+            )
+            downstream_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                saved_query=downstream_query,
+                type=NodeType.VIEW,
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
+        else:
+            reader_endpoint = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
+            EndpointVersion.objects.create(
+                endpoint=reader_endpoint,
+                version=1,
+                query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+                created_by=self.user,
+            )
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "has_dependents")
+        if has_lineage_link:
+            self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        else:
+            self.assertNotIn("extra", response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            f"{refusal} These read from it: {dependent_name} ({'endpoint' if reader == 'untracked_endpoint' else 'view'}). Update or delete them first.",
+        )
+        endpoint.refresh_from_db()
+        backing_query.refresh_from_db()
+        version.refresh_from_db()
+        self.assertFalse(endpoint.deleted)
+        self.assertTrue(endpoint.is_active)
+        self.assertFalse(backing_query.deleted)
+        self.assertEqual(version.saved_query_id, backing_query.id)
+        self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())
 
     def test_delete_endpoint_prevents_hard_delete(self):
         endpoint = create_endpoint_with_version(
@@ -626,27 +745,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
         create_endpoint_with_version(
-            name="query1",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-        create_endpoint_with_version(
             name="query2",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
+        create_endpoint_with_version(
+            name="query1",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
 
-        # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        query_names = {q["name"] for q in response_data["results"]}
-        self.assertEqual(query_names, {"query1", "query2"})
+        self.assertEqual([q["name"] for q in response.json()["results"]], ["query1", "query2"])
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -857,6 +973,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.last_executed_at)
         self.assertIsNotNone(version.last_executed_at)
 
+    def test_api_key_run_that_times_out_still_stamps_last_executed_at(self):
+        create_endpoint_with_version(
+            name="slow_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.process_query_model",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/endpoints/slow_query/run/",
+                headers={"authorization": f"Bearer {self.api_key}"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        endpoint = Endpoint.objects.get(name="slow_query", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
     def test_last_execution_times_is_endpoint_level_only(self):
         """last_execution_times returns endpoint-level rows only — per-version data is not exposed."""
         endpoint = create_endpoint_with_version(
@@ -1022,7 +1162,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-01-01 12:00:00")
+    @time_machine.travel("2025-01-01 12:00:00", tick=False)
     def test_custom_data_freshness_behavior(
         self, name, query, data_freshness_seconds, time_within_freshness_min, time_past_freshness_min
     ):
@@ -1054,7 +1194,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Move time forward (still within freshness window)
         hours_within = time_within_freshness_min // 60
         mins_within = time_within_freshness_min % 60
-        with freeze_time(f"2025-01-01 {12 + hours_within:02d}:{mins_within:02d}:00"):
+        with time_machine.travel(f"2025-01-01 {12 + hours_within:02d}:{mins_within:02d}:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -1066,7 +1206,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Move time forward (past freshness window) - should recalculate
         hours_past = time_past_freshness_min // 60
         mins_past = time_past_freshness_min % 60
-        with freeze_time(f"2025-01-01 {12 + hours_past:02d}:{mins_past:02d}:00"):
+        with time_machine.travel(f"2025-01-01 {12 + hours_past:02d}:{mins_past:02d}:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -1075,7 +1215,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
                 f"Should recalculate after {time_past_freshness_min} minutes",
             )
 
-    @freeze_time("2025-01-01 12:00:00")
+    @time_machine.travel("2025-01-01 12:00:00", tick=False)
     def test_default_data_freshness(self):
         endpoint = create_endpoint_with_version(
             name="default_freshness",
@@ -1092,7 +1232,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         cache_key = response_data.get("cache_key")
 
         # Move time forward 5 minutes - should still use cache (default is 24 hours)
-        with freeze_time("2025-01-01 12:05:00"):
+        with time_machine.travel("2025-01-01 12:05:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -1108,18 +1248,43 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             data_freshness_seconds=3600,
         )
 
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True)
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True, version=1)
+
         # Update to different data freshness
         updated_data: dict[str, int | None] = {"data_freshness_seconds": 21600}
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data_freshness_seconds"], 21600)
+        # The freshness target is part of the throttle's cached snapshot, so the edit drops it.
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
         endpoint.refresh_from_db()
         version = endpoint.get_version()
         self.assertIsNotNone(version)
         self.assertEqual(version.data_freshness_seconds, 21600)
+
+    @parameterized.expand([("flag_on", True, 21600), ("flag_off", False, None)])
+    def test_response_reports_the_plan_refresh_floor(self, _name, flag_enabled, expected_floor_seconds):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        endpoint = create_endpoint_with_version(
+            name="plan_floor_test", team=self.team, query=self.sample_hogql_query, created_by=self.user
+        )
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["plan_refresh_floor_seconds"], expected_floor_seconds)
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""
@@ -1265,6 +1430,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
                 self.var_id_2: {"variableId": self.var_id_2, "code_name": "end_ts", "value": "2024-02-01"},
             },
         }
+        v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
+        )
+        v2_dag_ids_patcher.start()
+        self.addCleanup(v2_dag_ids_patcher.stop)
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
         from products.product_analytics.backend.facade.models import InsightVariable
@@ -1309,6 +1480,42 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["execution_query"] is not None
         assert data["display_execution_query"] is not None
 
+    def test_preview_of_materialized_version_returns_execution_query(self):
+        endpoint = create_endpoint_with_version(
+            name="orders_summary",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() AS total FROM events"},
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=version.materialized_view_name,
+            query=version.query,
+            is_materialized=True,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            table=DataWarehouseTable.objects.create(
+                team=self.team,
+                name="orders_summary_backing_table",
+                columns={"total": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://test-bucket/orders_summary/*.parquet",
+            ),
+        )
+        endpoint.versions.update(saved_query=saved_query)
+
+        with mock.patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/orders_summary/materialization_preview/",
+                {},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        execution_query = response.json()["execution_query"]
+        assert execution_query is not None
+        assert "orders_summary_v1" in execution_query
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
@@ -1344,6 +1551,28 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         # No variables, but query is materializable
         assert data["can_materialize"] is True
         assert data["transformed_query"] is not None
+
+    def test_preview_invalid_hogql_returns_cant_materialize(self):
+        create_endpoint_with_version(
+            name="invalid-hogql-endpoint",
+            team=self.team,
+            query={
+                **self.variable_query,
+                "query": "SELECT substring(event) AS start_ts, count() FROM events "
+                "WHERE timestamp >= {variables.start_ts} GROUP BY start_ts",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/invalid-hogql-endpoint/materialization_preview/",
+            {},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["can_materialize"] is False
+        assert "substring" in data["reason"]
 
     def test_create_does_not_auto_materialize(self):
         endpoint_data = self._create_endpoint_with_variables("no-auto-mat")
@@ -1409,14 +1638,11 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         version = EndpointVersion.objects.get(endpoint__name="clear-bucket", endpoint__team=self.team, version=1)
         assert version.bucket_overrides == {"timestamp": "hour"}
 
-        # Disabling reverts the saved query, whose schedule teardown talks to Temporal —
-        # mock the facade call so the test doesn't require a running Temporal dev server.
-        with mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
-                {"is_materialized": False},
-                format="json",
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
+            {"is_materialized": False},
+            format="json",
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Re-enable without bucket_overrides
@@ -1481,12 +1707,14 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.logic.crud.trigger_saved_query_schedule") as mock_trigger:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
-                {"bucket_overrides": {"timestamp": "hour"}},
-                format="json",
-            )
+        with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
+                    {"bucket_overrides": {"timestamp": "hour"}},
+                    format="json",
+                )
+                mock_trigger.assert_not_called()
             assert response.status_code == status.HTTP_200_OK, response.json()
             version = EndpointVersion.objects.get(endpoint__name="trigger-bucket", endpoint__team=self.team, version=1)
             assert version.bucket_overrides == {"timestamp": "hour"}
@@ -1505,9 +1733,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         )
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
-        with mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
-        ) as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
@@ -1781,20 +2007,6 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
 
-    def test_rejects_for_query_kind_without_breakdown_support(self):
-        # LifecycleQuery has no breakdown support
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/",
-            {
-                "name": "ep_lifecycle",
-                "query": {"kind": "LifecycleQuery", "series": [{"kind": "EventsNode"}]},
-                "optional_breakdown_properties": ["$browser"],
-            },
-            format="json",
-        )
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
-        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
-
     def test_inheritance_on_query_change_prunes_to_existing_breakdowns(self):
         self._create(
             "ep_inherit",
@@ -1897,7 +2109,7 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
 class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "endpoints"
 
-    def _create_endpoints(self, count: int) -> None:
+    def _create_endpoints(self, count: int, materialized: bool) -> None:
         for i in range(count):
             endpoint_name = f"list_perf_{count}_{i}"
             endpoint = create_endpoint_with_version(
@@ -1910,6 +2122,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 },
                 created_by=self.user,
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=endpoint_name,
@@ -1938,9 +2152,9 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 last_run_at=timezone.now(),
             )
 
-    def _list_query_count(self, endpoint_count: int) -> int:
+    def _list_query_count(self, endpoint_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
-        self._create_endpoints(endpoint_count)
+        self._create_endpoints(endpoint_count, materialized)
         url = f"/api/environments/{self.team.id}/endpoints/"
         self.client.get(url)
         with CaptureQueriesContext(connection) as ctx:
@@ -1949,13 +2163,14 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_list_query_count_does_not_grow_with_endpoint_count(self):
-        few = self._list_query_count(2)
-        many = self._list_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_list_query_count_does_not_grow_with_endpoint_count(self, _name: str, materialized: bool):
+        few = self._list_query_count(2, materialized)
+        many = self._list_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
 
-    def _versions_query_count(self, version_count: int) -> int:
+    def _versions_query_count(self, version_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
         endpoint = create_endpoint_with_version(
             name=f"versions_perf_{version_count}",
@@ -1977,6 +2192,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                     columns=[{"name": "result", "type": "integer"}],
                 )
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"versions_perf_{version_count}_v{version_number}",
@@ -2004,9 +2221,10 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(version_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_versions_query_count_does_not_grow_with_version_count(self):
-        few = self._versions_query_count(2)
-        many = self._versions_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_versions_query_count_does_not_grow_with_version_count(self, _name: str, materialized: bool):
+        few = self._versions_query_count(2, materialized)
+        many = self._versions_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 versions cost {many} queries vs {few} for 2, so something N+1s")
 

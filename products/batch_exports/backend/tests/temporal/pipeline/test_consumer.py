@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -6,11 +7,20 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from structlog.testing import capture_logs
 
+from posthog.temporal.common.logger import get_write_only_logger
+
+from products.batch_exports.backend.temporal.pipeline import consumer as consumer_module
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.transformer import Chunk
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 
 pytestmark = [pytest.mark.asyncio]
+
+
+@pytest.fixture(autouse=True, scope="module")
+def fresh_consumer_logger(configure_logger_auto: None) -> Iterator[None]:
+    with patch.object(consumer_module, "LOGGER", get_write_only_logger(consumer_module.__name__)):
+        yield
 
 
 class NoOpConsumer(Consumer):

@@ -7,6 +7,8 @@
 - **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
 - **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
 
+Quotes are ignored. A regex that matches no tool falls back to ranking by its words, so a guessed name such as "project-update" still returns the nearest tools.
+
 **Good queries:**
 
 - `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first

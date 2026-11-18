@@ -28,6 +28,7 @@ from .channel_resolution import (
     RoutingContext,
     RoutingUnavailable,
     build_routing_context,
+    opted_out,
     resolve_destination,
 )
 from .digest import summarize_merged_prs
@@ -249,7 +250,18 @@ def _claim_and_partition(
         if (destination := resolve_destination(context, audience_key, repository)) is not None
     }
     if not destination_by_repo:
-        logger.info("stamphog_digest_no_destination", team_id=team_id, audience_key=audience_key)
+        if opted_out(context, audience_key):
+            logger.info("stamphog_digest_opted_out", team_id=team_id, audience_key=audience_key)
+            return []
+        # Warning rather than info because nothing else reports this: the merges stay unclaimed and
+        # expire after DIGEST_LOOKBACK_DAYS. The repositories name the registries that were read, so
+        # a slug that is misspelled or no longer a live GitHub team is identifiable from the log.
+        logger.warning(
+            "stamphog_digest_no_destination",
+            team_id=team_id,
+            audience_key=audience_key,
+            repositories=sorted(context.registry_by_repo),
+        )
         return []
 
     with transaction.atomic(using=write_db):

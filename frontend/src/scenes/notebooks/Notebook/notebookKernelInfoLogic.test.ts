@@ -1,9 +1,47 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
-import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
+import {
+    notebooksKernelComputeOptionsRetrieve,
+    notebooksKernelStatusRetrieve,
+} from 'products/notebooks/frontend/generated/api'
+
+import { kernelActionErrorMessage, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookLogicMode } from './notebookLogic'
+
+jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksKernelComputeOptionsRetrieve: jest.fn(),
+    notebooksKernelStatusRetrieve: jest.fn(),
+}))
+
+const COMPUTE_OPTIONS = {
+    currency: 'USD',
+    cpu_rate_per_core_hour: 0.2,
+    memory_rate_per_gb_hour: 0.025,
+    default_preset_key: 'small',
+    presets: [
+        { key: 'small', name: 'Small', description: '', cpu_cores: 1, memory_gb: 2, hourly_price: 0.25 },
+        { key: 'balanced', name: 'Balanced', description: '', cpu_cores: 4, memory_gb: 8, hourly_price: 1 },
+    ],
+    allowed_cpu_cores: [1, 2, 4, 8],
+    allowed_memory_gb: [2, 4, 8, 16],
+    allowed_idle_timeout_seconds: [600, 1800],
+}
+
+const SANDBOX_LIMIT_DETAIL = 'You started too many notebook kernels in the last hour. Try again later.'
+const THROTTLE_DETAIL = 'Request was throttled. Expected available in 120 seconds.'
+
+const KERNEL_STATUS = {
+    backend: null,
+    status: 'stopped',
+    frames: [],
+    cpu_cores: 1,
+    memory_gb: 2,
+    hourly_price: 0.25,
+}
 
 const setHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
@@ -11,14 +49,14 @@ const setHidden = (hidden: boolean): void => {
 }
 
 describe('notebookKernelInfoLogic', () => {
-    let kernelStatusSpy: jest.SpyInstance
+    let kernelStatusSpy: jest.MockedFunction<typeof notebooksKernelStatusRetrieve>
     let logic: ReturnType<typeof notebookKernelInfoLogic.build> | undefined
 
     beforeEach(() => {
         initKeaTests()
-        kernelStatusSpy = jest
-            .spyOn(api.notebooks, 'kernelStatus')
-            .mockResolvedValue({ backend: null, status: 'stopped' })
+        kernelStatusSpy = jest.mocked(notebooksKernelStatusRetrieve)
+        kernelStatusSpy.mockResolvedValue(KERNEL_STATUS)
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
         jest.useFakeTimers()
     })
 
@@ -27,13 +65,16 @@ describe('notebookKernelInfoLogic', () => {
         logic = undefined
         setHidden(false)
         jest.useRealTimers()
-        kernelStatusSpy.mockRestore()
+        kernelStatusSpy.mockReset()
     })
 
     test.each([
         { mode: 'notebook' as NotebookLogicMode, shortId: 'abc123', shouldPoll: true },
         { mode: undefined, shortId: 'def456', shouldPoll: true },
         { mode: 'canvas' as NotebookLogicMode, shortId: 'canvas-01890abc', shouldPoll: false },
+        { mode: undefined, shortId: 'canvas-local', shouldPoll: false },
+        { mode: undefined, shortId: 'template-example', shouldPoll: false },
+        { mode: undefined, shortId: 'scratchpad', shouldPoll: true },
     ])('mode $mode polls kernel status: $shouldPoll', async ({ mode, shortId, shouldPoll }) => {
         logic = notebookKernelInfoLogic({ shortId, mode })
         logic.mount()
@@ -50,11 +91,30 @@ describe('notebookKernelInfoLogic', () => {
         if (shouldPoll) {
             // Strictly more than the mount fetch, which is what shows the loop re-arms.
             expect(kernelStatusSpy.mock.calls.length).toBeGreaterThan(1)
-            expect(kernelStatusSpy).toHaveBeenCalledWith(shortId)
+            expect(kernelStatusSpy).toHaveBeenCalledWith(expect.any(String), shortId)
         } else {
             expect(kernelStatusSpy).not.toHaveBeenCalled()
         }
     })
+
+    test.each([401, 403, 404, 410, 429, 500])(
+        'handles a kernel status HTTP %s without endless terminal retries',
+        async (status) => {
+            kernelStatusSpy.mockRejectedValue(new ApiError('Request failed', status))
+            logic = notebookKernelInfoLogic({ shortId: 'kernel-status-error' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(30_000)
+            setHidden(true)
+            setHidden(false)
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            if ([401, 403, 404, 410].includes(status)) {
+                expect(kernelStatusSpy).toHaveBeenCalledTimes(1)
+            } else {
+                expect(kernelStatusSpy.mock.calls.length).toBeGreaterThan(1)
+            }
+        }
+    )
 
     test('stops the refresh loop when the kea store is replaced under it', async () => {
         logic = notebookKernelInfoLogic({ shortId: 'store-reset-01890abc', mode: 'notebook' })
@@ -115,6 +175,165 @@ describe('notebookKernelInfoLogic', () => {
 
         // One fewer than a full window, because the mount request itself is already counted out.
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
+    })
+
+    test('a failed options load blocks configuration instead of going quietly unpriced', async () => {
+        // The loader's null is also its initial value, so a swallowed failure used to leave the
+        // panel looking pre-pricing while Start stayed live.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({ ...KERNEL_STATUS, backend: 'modal' })
+        logic = notebookKernelInfoLogic({ shortId: 'options-fail-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptionsFailed).toBe(true)
+        expect(logic.values.computeBlockedReason).not.toBeNull()
+    })
+
+    test('Refresh retries the rates after they failed', async () => {
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValueOnce(new Error('boom'))
+        logic = notebookKernelInfoLogic({ shortId: 'options-retry-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.computeOptions).toBeNull()
+
+        // Refresh reloads both, which is the panel's retry affordance.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
+        logic.actions.loadKernelInfo()
+        logic.actions.loadComputeOptions()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptions).not.toBeNull()
+        expect(logic.values.computeBlockedReason).toBeNull()
+    })
+
+    test('shows no price at all when the rates are unavailable', async () => {
+        // The status endpoint's hourly_price describes the running sandbox, while the sliders
+        // show the configured shape. Reusing it here would print a price for a shape that is not
+        // on screen, so the panel shows none and blocks configuration instead.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({
+            ...KERNEL_STATUS,
+            backend: 'modal',
+            status: 'running',
+            cpu_cores: 4,
+            memory_gb: 8,
+            hourly_price: 1,
+        })
+        logic = notebookKernelInfoLogic({ shortId: 'no-price-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.selectedHourlyPrice).toBeNull()
+        expect(logic.values.computeBlockedReason).not.toBeNull()
+    })
+
+    test('does not restart again when the server already did', async () => {
+        // A resize restarts the kernel server-side. Restarting again would tear down the sandbox
+        // that was just built for the new shape.
+        const configSpy = jest.spyOn(api.notebooks, 'kernelConfig').mockResolvedValue({ restarted: true })
+        const restartSpy = jest.spyOn(api.notebooks, 'kernelRestart').mockResolvedValue({})
+        logic = notebookKernelInfoLogic({ shortId: 'no-double-restart-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.saveKernelConfig({ cpu_cores: 4, memory_gb: 8 }, 'restart')
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(configSpy).toHaveBeenCalled()
+        expect(restartSpy).not.toHaveBeenCalled()
+    })
+
+    test.each([
+        [
+            'a sandbox limit shows the sentence from the API',
+            new ApiError('refused', 429, undefined, { detail: SANDBOX_LIMIT_DETAIL }),
+            SANDBOX_LIMIT_DETAIL,
+        ],
+        [
+            'a throttle shows the wait from Retry-After',
+            new ApiError('refused', 429, new Headers({ 'Retry-After': '120' }), { detail: THROTTLE_DETAIL }),
+            'Too many kernel starts and restarts. Try again in 2m.',
+        ],
+        [
+            'a throttle with no Retry-After still shows a sentence',
+            new ApiError('refused', 429, undefined, { detail: THROTTLE_DETAIL }),
+            'Too many kernel starts and restarts. Try again later.',
+        ],
+        [
+            'a provider failure keeps the fallback',
+            new ApiError('failed', 503, undefined, { detail: 'Failed to start notebook kernel.' }),
+            'fallback',
+        ],
+        ['a network failure keeps the fallback', new Error('offline'), 'fallback'],
+    ])('kernelActionErrorMessage: %s', (_, error, expected) => {
+        expect(kernelActionErrorMessage(error, 'fallback')).toEqual(expected)
+    })
+
+    test.each(['kernelStart', 'kernelRestart'] as const)(
+        'shows the refusal and refreshes the panel when %s is refused',
+        async (endpoint) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation()
+            jest.spyOn(api.notebooks, endpoint).mockRejectedValue(
+                new ApiError('refused', 429, undefined, { detail: SANDBOX_LIMIT_DETAIL })
+            )
+            logic = notebookKernelInfoLogic({ shortId: `refused-${endpoint}-01890abc`, mode: 'notebook' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            kernelStatusSpy.mockClear()
+
+            if (endpoint === 'kernelStart') {
+                logic.actions.startKernel()
+            } else {
+                logic.actions.restartKernel()
+            }
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(toastSpy).toHaveBeenCalledWith(SANDBOX_LIMIT_DETAIL)
+            expect(kernelStatusSpy).toHaveBeenCalled()
+        }
+    )
+
+    test('a shared notebook issues no team-scoped kernel requests', async () => {
+        // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped
+        // call. Both kernel endpoints are team-scoped, so mounting here used to 401 twice.
+        // The panel is not the only mount: notebookLogic connects this logic for every notebook,
+        // and the exporter goes through that path, so isShared has to reach it from there.
+        logic = notebookKernelInfoLogic({ shortId: 'shared-01890abc', mode: 'notebook', isShared: true })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(30_000)
+
+        expect(kernelStatusSpy).not.toHaveBeenCalled()
+        expect(jest.mocked(notebooksKernelComputeOptionsRetrieve)).not.toHaveBeenCalled()
+    })
+
+    test('quotes a hand-tuned shape at the rates the API returned', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'pricing-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setCpuCores(8)
+        logic.actions.setMemoryGb(16)
+
+        // 8 x $0.20 + 16 x $0.025. A hardcoded rate anywhere in the widget fails here.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(2.0, 5)
+        // No preset has this shape, so nothing should stay highlighted as selected.
+        expect(logic.values.selectedPresetKey).toBeNull()
+    })
+
+    test('a preset sets both halves of the shape it is priced for', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'preset-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const balanced = logic.values.computePresets.find((preset) => preset.key === 'balanced')!
+        logic.actions.applyComputePreset(balanced)
+
+        expect(logic.values.selectedCpu).toBe(balanced.cpu_cores)
+        expect(logic.values.selectedMemory).toBe(balanced.memory_gb)
+        // The preset's advertised price has to be what the user is then quoted.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(balanced.hourly_price, 5)
+        expect(logic.values.selectedPresetKey).toBe('balanced')
     })
 
     test('stays stopped when the tab returns after the kea store was replaced', async () => {

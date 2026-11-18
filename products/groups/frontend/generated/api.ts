@@ -10,31 +10,22 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CreateGroupApi,
+    FindGroupApi,
     GroupApi,
+    GroupDeletePropertyApi,
+    GroupTypeApi,
+    GroupTypeCreateDetailDashboardApi,
+    GroupTypeMetadataUpdateApi,
+    GroupTypeSetDefaultColumnsApi,
+    GroupUpdatePropertyRequestApi,
     GroupsActivityRetrieveParams,
     GroupsDeletePropertyCreateParams,
     GroupsFindRetrieveParams,
     GroupsListParams,
-    GroupsRelatedRetrieveParams,
+    GroupsRelatedListParams,
     GroupsUpdatePropertyCreateParams,
+    RelatedActorApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
 
 export const getGroupsListUrl = (projectId: string, params: GroupsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -132,15 +123,15 @@ export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: Grou
 
 export const groupsDeletePropertyCreate = async (
     projectId: string,
-    groupApi: NonReadonly<GroupApi>,
+    groupDeletePropertyApi: GroupDeletePropertyApi,
     params: GroupsDeletePropertyCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getGroupsDeletePropertyCreateUrl(projectId, params), {
+): Promise<GroupApi> => {
+    return apiMutator<GroupApi>(getGroupsDeletePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(groupApi),
+        body: JSON.stringify(groupDeletePropertyApi),
     })
 }
 
@@ -164,8 +155,8 @@ export const groupsFindRetrieve = async (
     projectId: string,
     params: GroupsFindRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getGroupsFindRetrieveUrl(projectId, params), {
+): Promise<FindGroupApi> => {
+    return apiMutator<FindGroupApi>(getGroupsFindRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -182,7 +173,7 @@ export const groupsPropertyValuesRetrieve = async (projectId: string, options?: 
     })
 }
 
-export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRelatedRetrieveParams) => {
+export const getGroupsRelatedListUrl = (projectId: string, params: GroupsRelatedListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -198,12 +189,12 @@ export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRel
         : `/api/projects/${projectId}/groups/related/`
 }
 
-export const groupsRelatedRetrieve = async (
+export const groupsRelatedList = async (
     projectId: string,
-    params: GroupsRelatedRetrieveParams,
+    params: GroupsRelatedListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getGroupsRelatedRetrieveUrl(projectId, params), {
+): Promise<RelatedActorApi[]> => {
+    return apiMutator<RelatedActorApi[]>(getGroupsRelatedListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -227,14 +218,91 @@ export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: Grou
 
 export const groupsUpdatePropertyCreate = async (
     projectId: string,
-    groupApi: NonReadonly<GroupApi>,
+    groupUpdatePropertyRequestApi: GroupUpdatePropertyRequestApi,
     params: GroupsUpdatePropertyCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getGroupsUpdatePropertyCreateUrl(projectId, params), {
+): Promise<GroupApi> => {
+    return apiMutator<GroupApi>(getGroupsUpdatePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(groupApi),
+        body: JSON.stringify(groupUpdatePropertyRequestApi),
+    })
+}
+
+export const getGroupsTypesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/`
+}
+
+export const groupsTypesList = async (projectId: string, options?: RequestInit): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGroupsTypesDestroyUrl = (projectId: string, groupTypeIndex: number) => {
+    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/`
+}
+
+export const groupsTypesDestroy = async (
+    projectId: string,
+    groupTypeIndex: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesDestroyUrl(projectId, groupTypeIndex), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getGroupsTypesCreateDetailDashboardUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/create_detail_dashboard/`
+}
+
+export const groupsTypesCreateDetailDashboardUpdate = async (
+    projectId: string,
+    groupTypeCreateDetailDashboardApi: GroupTypeCreateDetailDashboardApi,
+    options?: RequestInit
+): Promise<GroupTypeApi> => {
+    return apiMutator<GroupTypeApi>(getGroupsTypesCreateDetailDashboardUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeCreateDetailDashboardApi),
+    })
+}
+
+export const getGroupsTypesSetDefaultColumnsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/set_default_columns/`
+}
+
+export const groupsTypesSetDefaultColumnsUpdate = async (
+    projectId: string,
+    groupTypeSetDefaultColumnsApi: GroupTypeSetDefaultColumnsApi,
+    options?: RequestInit
+): Promise<GroupTypeApi> => {
+    return apiMutator<GroupTypeApi>(getGroupsTypesSetDefaultColumnsUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeSetDefaultColumnsApi),
+    })
+}
+
+export const getGroupsTypesUpdateMetadataPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/update_metadata/`
+}
+
+export const groupsTypesUpdateMetadataPartialUpdate = async (
+    projectId: string,
+    groupTypeMetadataUpdateApi: GroupTypeMetadataUpdateApi[],
+    options?: RequestInit
+): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesUpdateMetadataPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeMetadataUpdateApi),
     })
 }

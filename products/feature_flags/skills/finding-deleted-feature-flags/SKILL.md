@@ -77,9 +77,9 @@ Feature flags are renamed to `<original>:deleted:<flag_id>` when soft-deleted wh
 Instead, strip the suffix deterministically with [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py). Pass it the whole step 2 candidate list as JSON in one call — not one invocation per flag:
 
 ```bash
-echo '[{"id": 687432, "key": "high_frequency_alerts:deleted:687432"}]' | python3 scripts/strip_deleted_suffix.py
+echo '[{"id": 1001, "key": "example-banner:deleted:1001"}]' | python3 scripts/strip_deleted_suffix.py
 # prints the same array back (pretty-printed), each object gaining an "original_key" field:
-# "original_key": "high_frequency_alerts"
+# "original_key": "example-banner"
 ```
 
 Filter the collected deletion events to those whose `created_at` falls inside the requested window. Present as a table, using each row's recovered original key (not the raw tombstoned form) for the "Key" column:
@@ -103,19 +103,21 @@ User: "what flags got deleted in the last week?"
 2. Run the SQL enumeration to get up to 100 soft-deleted candidates ordered by `created_at DESC`
 3. Fan out activity-log lookups in parallel across the top ~25 candidates
 4. Extract `activity: deleted` entries; filter to those whose `created_at >= now - 7 days`
-5. Recover original keys with `scripts/strip_deleted_suffix.py` and report:
+5. Recover original keys with `scripts/strip_deleted_suffix.py` and report.
+   The values below are illustrative, not real project data:
 
    ```text
-   Found 2 feature flags deleted in the last 7 days (rolling, ending 2026-05-22 19:04 UTC):
+   Found 2 feature flags deleted in the last 7 days (rolling, ending 2026-08-14 09:30 UTC):
 
-   | Flag ID | Key                                       | Deleted at (UTC)     | Deleted by  |
-   |---------|-------------------------------------------|----------------------|-------------|
-   | 687432  | high_frequency_alerts                     | 2026-05-22 17:23     | Matt P.     |
-   | 676665  | tasks-sendblue-prewarmed-sandbox-pool     | 2026-05-15 13:45     | Alessandro  |
+   | Flag ID | Key                     | Deleted at (UTC)     | Deleted by  |
+   |---------|-------------------------|----------------------|-------------|
+   | 1001    | example-banner          | 2026-08-13 15:12     | Jane D.     |
+   | 1002    | example-checkout-test   | 2026-08-09 21:48     | John S.     |
 
-   Methodology: walked the activity log for the 25 most-recently-created soft-deleted
-   flags. Team 2 has ~100 soft-deleted flags total; the remaining ~75 were created
-   before mid-March 2026 and were not checked. Want me to walk the rest?
+   Methodology: walked the activity log for the 25 most-recently-created soft-deleted flags.
+   The step 2 query hit its 100-row cap, so the project may have more soft-deleted flags than that.
+   The other 75 returned candidates were created before late June 2026 and were not checked.
+   Want me to walk the rest?
    ```
 
 ## Related tools

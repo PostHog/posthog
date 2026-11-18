@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from posthog.sync import database_sync_to_async
 
+from products.web_analytics.backend.api.heatmaps_utils import HEATMAP_SNAPSHOT_IMAGE_FORMATS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 from ee.hogai.llm import MaxChatAnthropic
@@ -118,7 +119,7 @@ def _build_markers(heatmap_data: Mapping[str, object]) -> list[_Marker]:
 def _annotate(image_bytes: bytes, markers: list[_Marker]) -> bytes:
     """Draw numbered dots at each marker (rage = red, click = blue), then downscale. Coordinate mapping mirrors
     the frontend heatmap overlay: pixel_x = rel_x * width, pixel_y = pointer_y (already document pixels)."""
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = Image.open(io.BytesIO(image_bytes), formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS).convert("RGB")
     width, height = img.size
     draw = ImageDraw.Draw(img)
     radius = max(16, width // 55)

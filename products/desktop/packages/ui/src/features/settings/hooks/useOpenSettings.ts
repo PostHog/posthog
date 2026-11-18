@@ -1,8 +1,8 @@
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import * as nav from "@posthog/ui/router/navigationBridge";
+import { useReportSourceHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 interface SettingsContext {
   repoPath?: string;
@@ -20,8 +20,7 @@ export function openSettings(
 ): void {
   prepareSettingsPage(contextOrAction);
   // A caller already inside settings is switching category, so replace rather
-  // than stack: one closeSettings() back-step must exit to the app instead of
-  // walking back through the categories visited.
+  // than stack: the categories visited are not steps to walk back through.
   nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
@@ -53,29 +52,21 @@ export function leaveSettings(): void {
   useSettingsPageStore.getState().reset();
 }
 
-/**
- * Close the settings page — returns the user to their prior route via
- * router history. If they came in via a deep link, falls back to /code.
- */
+/** A deep link carries no `from`, so it falls back to /code. */
 export function closeSettings(): void {
   useSettingsPageStore.getState().reset();
   if (!nav.isOnSettingsRoute()) return;
-  if (nav.canGoBackInHistory()) {
-    nav.goBackInHistory();
-  } else {
-    nav.navigateToNewTask();
-  }
-}
-
-export function useCloseSettings(): typeof closeSettings {
-  return useCallback(closeSettings, []);
+  nav.leaveSettingsRoute();
 }
 
 /**
- * True when the current route is anywhere under `/settings/*`.
+ * True when settings covers the screen: a settings route, or a report opened
+ * from one (it hosts the same portal).
  */
 export function useIsSettingsOpen(): boolean {
-  return useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+  const route = useRouterState({
+    select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
+  const reportFromSettings = useReportSourceHref()?.startsWith("/settings/");
+  return route || reportFromSettings === true;
 }

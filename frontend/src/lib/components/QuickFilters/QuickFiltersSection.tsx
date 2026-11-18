@@ -48,8 +48,8 @@ export function QuickFiltersSection({
                 return (
                     <QuickFilterSelector
                         key={filter.id}
-                        label={filter.name}
-                        options={filter.options}
+                        filter={filter}
+                        context={context}
                         selectedOptionId={selectedFilter?.optionId || null}
                         onChange={(option) => {
                             if (option === null) {

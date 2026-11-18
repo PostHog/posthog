@@ -1,8 +1,10 @@
+import pkgutil
+import importlib
+from types import ModuleType
 from typing import Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
-from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
@@ -26,6 +28,15 @@ DEPENDENCY_TO_ASYNC_MIGRATION: dict[Optional[str], str] = {}
 
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
+
+
+def import_submodules(package_name: str) -> dict[str, ModuleType]:
+    """Import every direct submodule of a package, keyed by short name."""
+    package = importlib.import_module(package_name)
+    return {
+        name: importlib.import_module(f"{package_name}.{name}") for _, name, _ in pkgutil.iter_modules(package.__path__)
+    }
+
 
 all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 reload_migration_definitions()

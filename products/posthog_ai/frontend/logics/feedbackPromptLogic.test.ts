@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import * as featureFlagLogic from 'lib/logic/featureFlagLogic'
 
@@ -100,6 +101,39 @@ describe('feedbackPromptLogic (sandbox)', () => {
             await expectLogic(logic, () => {
                 logic.actions.checkShouldShowPrompt(3)
             }).toMatchValues({ isPromptVisible: true, currentTriggerType: 'random_sample' })
+        })
+    })
+
+    describe('feedbackConfig flag-load race', () => {
+        function remountWithMissingPayload(): jest.SpyInstance {
+            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null)
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+            logic.unmount()
+            logic = feedbackPromptLogic(PROPS)
+            logic.mount()
+            return captureException
+        }
+
+        it('stays silent before flags load, then recomputes once the payload arrives', () => {
+            const captureException = remountWithMissingPayload()
+
+            // Flags unresolved: a missing payload is the load-order race, not a real problem.
+            expect(logic.values.feedbackConfig).toBeNull()
+            expect(captureException).not.toHaveBeenCalled()
+
+            // Flags land with a valid payload: the selector recomputes instead of staying stuck at null.
+            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(DEFAULT_CONFIG)
+            featureFlagLogic.featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
+            expect(logic.values.feedbackConfig).not.toBeNull()
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('reports the missing payload only once flags have loaded', () => {
+            const captureException = remountWithMissingPayload()
+            featureFlagLogic.featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
+
+            expect(logic.values.feedbackConfig).toBeNull()
+            expect(captureException).toHaveBeenCalledTimes(1)
         })
     })
 

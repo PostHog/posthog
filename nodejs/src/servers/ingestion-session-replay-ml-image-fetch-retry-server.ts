@@ -1,6 +1,5 @@
 import { LibrdKafkaError } from 'node-rdkafka'
 
-import { initializePrometheusLabels } from '~/common/api/router'
 import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
@@ -13,13 +12,11 @@ import { logger } from '~/common/utils/logger'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/retry-delay-consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { CaptureWatermark, capturedRecords } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /**
  * Headroom on top of the sleeping a batch can do, for the publishing between the sleeps.
@@ -38,30 +35,10 @@ const DELAY_TOPICS = [
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
 ]
 
-export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsumerServer {
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
         const topic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC
         const delayMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS
         const batchSize = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE
@@ -110,11 +87,14 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         // The shutdown handler sets this before it disconnects the consumer, so a stopping pod
         // abandons the wait it holds rather than making the rolling deploy wait out a tier period.
         let stopping = false
+        const watermark = new CaptureWatermark(`image_fetch_retry_${delayMs}`)
         const delayConsumer = new RetryDelayConsumer(producer, {
             isStopping: () => stopping,
             storeOffsets: (messages) => {
                 try {
-                    consumer.offsetsStore(findOffsetsToCommit(messages))
+                    const offsets = findOffsetsToCommit(messages)
+                    consumer.offsetsStore(offsets)
+                    watermark.release(offsets)
                 } catch (error) {
                     const code = (error as LibrdKafkaError | undefined)?.code
                     if (!stopping && !REVOKED_PARTITION_CODES.has(code ?? 0)) {
@@ -133,7 +113,16 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         })
         logger.info('🌐', 'ml_image_fetch_retry_started', { topic, delayMs, pollIntervalMs })
 
-        await consumer.connect((messages) => delayConsumer.handleBatch(messages))
+        await consumer.connect(
+            (messages) => {
+                watermark.hold(capturedRecords(messages, () => 'image_urls'))
+                return delayConsumer.handleBatch(messages)
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch-retry',
@@ -145,7 +134,7 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         })
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [],

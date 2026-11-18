@@ -46,6 +46,8 @@ export const shellRouter = router({
         command: input.command,
         cwd: input.cwd,
         taskId: input.taskId,
+        additionalEnv: input.additionalEnv,
+        unsetEnv: input.unsetEnv,
       }),
     ),
 

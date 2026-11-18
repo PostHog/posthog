@@ -1,10 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from rest_framework import viewsets
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer, TeamBasicSerializer
-from posthog.api.team import TeamSerializer, TeamViewSet
+from posthog.api.team.team_serializer import TeamSerializer
+from posthog.api.team.viewsets import TeamViewSet
 
 # /api/projects/ (Project model) is the canonical surface; /api/environments/ (Team model) is the
 # backward-compat alias, now served through /api/projects/ by an in-process path rewrite
@@ -18,11 +19,28 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 # fails loudly so it gets fixed before it reaches clients.
 
 # Fields that legitimately exist only on the project surface (a genuine Project concept, not a Team field).
-# is_pending_deletion was added project-side on master; a project-only field is fine for the rewrite target.
-PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
+# is_pending_deletion and deletion_scheduled_at were added project-side on master; a project-only field
+# is fine for the rewrite target.
+# `tags` labels a Project, which environments do not have, so it stays off the Team surface.
+PROJECT_ONLY_SERIALIZER_FIELDS = {
+    "product_description",
+    "is_pending_deletion",
+    "deletion_scheduled_at",
+    "tags",
+    "logo_media_id",
+    "is_ai_data_processing_approved",
+}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
-PROJECT_ONLY_ACTIONS = {"change_organization", "default_release_conditions", "default_evaluation_contexts"}
+PROJECT_ONLY_ACTIONS = {
+    "change_organization",
+    "default_release_conditions",
+    "default_evaluation_contexts",
+    "cancel_deletion",
+}
+
+# Fields the project list carries on top of the shared basic serializer.
+PROJECT_ONLY_LIST_FIELDS = {"tags"}
 
 
 def _serializer_field_names(serializer_class) -> set[str]:
@@ -33,7 +51,7 @@ def _extra_action_names(viewset_class: type[viewsets.GenericViewSet]) -> set[str
     return {action.__name__ for action in viewset_class.get_extra_actions()}
 
 
-class TestTeamProjectParity(BaseTest):
+class TestTeamProjectParity(SimpleTestCase):
     def test_detail_serializer_is_a_superset_of_team_serializer(self):
         team_fields = _serializer_field_names(TeamSerializer)
         project_fields = _serializer_field_names(ProjectBackwardCompatSerializer)
@@ -54,15 +72,24 @@ class TestTeamProjectParity(BaseTest):
             f"If intentional, add them to PROJECT_ONLY_SERIALIZER_FIELDS.",
         )
 
-    def test_list_serializers_are_identical(self):
+    def test_list_serializer_is_a_superset_of_team_basic_serializer(self):
         team_basic_fields = _serializer_field_names(TeamBasicSerializer)
         project_basic_fields = _serializer_field_names(ProjectBackwardCompatBasicSerializer)
+
+        missing_on_project = team_basic_fields - project_basic_fields
         self.assertEqual(
-            team_basic_fields,
-            project_basic_fields,
-            "List responses diverge between /api/environments/ and /api/projects/. "
-            f"Only on environments: {sorted(team_basic_fields - project_basic_fields)}; "
-            f"only on projects: {sorted(project_basic_fields - team_basic_fields)}.",
+            missing_on_project,
+            set(),
+            f"/api/environments/ list rows expose fields that /api/projects/ list rows do not: "
+            f"{sorted(missing_on_project)}.",
+        )
+
+        project_only = project_basic_fields - team_basic_fields
+        self.assertEqual(
+            project_only,
+            PROJECT_ONLY_LIST_FIELDS,
+            f"Unexpected project-only list fields: {sorted(project_only - PROJECT_ONLY_LIST_FIELDS)}. "
+            f"If intentional, add them to PROJECT_ONLY_LIST_FIELDS.",
         )
 
     def test_viewset_actions_are_a_superset_of_team_viewset(self):

@@ -45,7 +45,7 @@ def build_logs_url_params(
         params["serviceNames"] = json.dumps(service_names)
 
     filter_group = filters.get("filterGroup")
-    if filter_group and _has_filter_values(filter_group):
+    if filter_group and has_filter_values(filter_group):
         params["filterGroup"] = json.dumps(filter_group)
 
     if date_from is not None or date_to is not None:
@@ -62,7 +62,7 @@ def build_logs_url_params(
     return urlencode(params)
 
 
-def _has_filter_values(filter_group: dict) -> bool:
+def has_filter_values(filter_group: dict) -> bool:
     """True if the filter group contains at least one non-empty property filter."""
     for group in filter_group.get("values", []):
         if group.get("values"):

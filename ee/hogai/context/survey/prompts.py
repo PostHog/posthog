@@ -4,6 +4,7 @@ SURVEY_CONTEXT_TEMPLATE = """
 **Survey ID:** {survey_id}
 **Type:** {survey_type}
 **Status:** {survey_status}
+**Schedule:** {survey_schedule}
 **Description:** {survey_description}
 
 ### Questions

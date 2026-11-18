@@ -1,8 +1,9 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -33,6 +34,36 @@ const getContextDescription = (context: any): JSX.Element | null => {
     return null
 }
 
+function describeOwnershipChange(logItem: ActivityLogItem): HumanizedChange {
+    const isTransfer = logItem.activity === 'transferred_ownership'
+    const owner = logItem.detail.changes?.find((change) => change.field === 'created_by')?.after
+    const ownerEmail =
+        owner && typeof owner === 'object' && !Array.isArray(owner) && typeof owner.email === 'string'
+            ? owner.email
+            : 'another member'
+    const action = isTransfer ? 'transferred ownership of the alert' : 'took ownership of the alert'
+    const target = (
+        <>
+            {formattedName(logItem.detail.name)}
+            {getContextDescription(logItem.detail.context)}
+            {isTransfer && (
+                <>
+                    {' '}
+                    to <strong>{ownerEmail}</strong>
+                </>
+            )}
+        </>
+    )
+    return {
+        summary: activityLogSummary(logItem, action, target),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {action} {target}
+            </>
+        ),
+    }
+}
+
 export function alertConfigurationActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
@@ -47,9 +78,20 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'alert_subscription_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Added subscriber {logItem.detail.context?.subscriber_name} (
+                        {logItem.detail.context?.subscriber_email})
+                    </>,
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> added{' '}
+                        <ActivityLogUserName logItem={logItem} /> added{' '}
                         <strong>
                             {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
                         </strong>{' '}
@@ -61,10 +103,17 @@ export function alertConfigurationActivityDescriber(
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the alert',
+                <>
+                    {formattedName(logItem.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the alert{' '}
-                    {formattedName(logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> created the alert {formattedName(logItem?.detail.name)}
                     {contextDesc}
                 </>
             ),
@@ -76,9 +125,20 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'alert_subscription_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Removed subscriber {logItem.detail.context?.subscriber_name} (
+                        {logItem.detail.context?.subscriber_email})
+                    </>,
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed{' '}
+                        <ActivityLogUserName logItem={logItem} /> removed{' '}
                         <strong>
                             {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
                         </strong>{' '}
@@ -91,14 +151,25 @@ export function alertConfigurationActivityDescriber(
 
         const displayName = logItem.detail.name || 'Alert Configuration'
         return {
-            description: (
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the alert',
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the alert:{' '}
                     {displayName}
                     {contextDesc}
                 </>
             ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> deleted the alert: {displayName}
+                    {contextDesc}
+                </>
+            ),
         }
+    }
+
+    if (['took_ownership', 'transferred_ownership'].includes(logItem.activity)) {
+        return describeOwnershipChange(logItem)
     }
 
     if (logItem.activity == 'updated') {
@@ -106,10 +177,18 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'threshold_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Updated the threshold',
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the{' '}
-                        <strong>threshold</strong> for alert {formattedName(logItem?.detail?.context?.alert_name)}
+                        <ActivityLogUserName logItem={logItem} /> updated the <strong>threshold</strong> for alert{' '}
+                        {formattedName(logItem?.detail?.context?.alert_name)}
                         {contextDesc}
                     </>
                 ),
@@ -117,10 +196,17 @@ export function alertConfigurationActivityDescriber(
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the alert',
+                <>
+                    {formattedName(logItem.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the alert{' '}
-                    {formattedName(logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> updated the alert {formattedName(logItem?.detail.name)}
                     {contextDesc}
                 </>
             ),

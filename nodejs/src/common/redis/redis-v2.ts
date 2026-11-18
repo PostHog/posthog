@@ -1,6 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
+import { AcquisitionGate } from '~/common/utils/acquisition-gate'
 import { RedisPoolConfig, createRedisFromConfig } from '~/common/utils/db/redis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
@@ -25,6 +26,7 @@ export type RedisOptions = {
     name: string
     timeout?: number
     failOpen?: boolean
+    deadlineMs?: number
 }
 
 export type RedisV2 = {
@@ -35,11 +37,31 @@ export type RedisV2 = {
     ) => Promise<Array<[Error | null, any]> | null>
 }
 
+// A non-fatal client can fail to connect at once, for example on a wrong password. generic-pool retries a
+// failed create immediately while a caller waits, so without this pause the pool reconnects in a tight loop.
+const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
+export const MAX_PENDING_ACQUIRES_WITH_DEADLINE = 8
+
+const isStalled = (client: RedisClient): boolean =>
+    (client as unknown as { commandQueue: { length: number } }).commandQueue.length > 0
+
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
+    const nonFatal = config.connection.exitOnRepeatedErrors === false
+    let lastCreateFailureAt = 0
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = await createRedisFromConfig(config.connection)
+                const wait = lastCreateFailureAt + NON_FATAL_CREATE_RETRY_DELAY_MS - Date.now()
+                if (nonFatal && wait > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, wait))
+                }
+                let client: Awaited<ReturnType<typeof createRedisFromConfig>>
+                try {
+                    client = await createRedisFromConfig(config.connection)
+                } catch (error) {
+                    lastCreateFailureAt = Date.now()
+                    throw error
+                }
 
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
@@ -47,14 +69,26 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
                 return client as RedisClient
             },
             destroy: async (client) => {
+                // QUIT on a connection that stopped answering never gets a reply, so close the socket instead.
+                if (config.discardStalledClients === true && isStalled(client)) {
+                    client.disconnect()
+                    return
+                }
                 await client.quit()
             },
+            validate: (client) => Promise.resolve(!isStalled(client)),
         },
         {
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            testOnBorrow: config.discardStalledClients === true,
+            ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
+    )
+    const acquireGate = new AcquisitionGate(
+        MAX_PENDING_ACQUIRES_WITH_DEADLINE,
+        `Redis pool ${config.connection.name ?? 'redis'}`
     )
 
     const useClient: RedisV2['useClient'] = async (options, callback) => {
@@ -63,10 +97,33 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             undefined,
             options.timeout
         )
-        const client = await pool.acquire()
-
+        const deadlineAt = options.deadlineMs === undefined ? undefined : Date.now() + options.deadlineMs
+        let client: RedisClient
         try {
-            return await callback(client)
+            client =
+                deadlineAt === undefined
+                    ? await pool.acquire()
+                    : await acquireGate.acquire(
+                          () => pool.acquire(),
+                          deadlineAt,
+                          (lateClient) => pool.release(lateClient)
+                      )
+        } catch (error) {
+            // A pool with acquireTimeoutMillis rejects here, and the guard must not report a delay afterwards.
+            clearTimeout(timeout)
+            throw error
+        }
+
+        let clientMayStillAnswer = false
+        try {
+            return await beforeDeadline(
+                Promise.resolve().then(() => callback(client)),
+                deadlineAt,
+                options.name,
+                () => {
+                    clientMayStillAnswer = true
+                }
+            )
         } catch (e) {
             if (options.failOpen) {
                 // We log the error and return null
@@ -76,7 +133,12 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             }
             throw e
         } finally {
-            await pool.release(client)
+            if (clientMayStillAnswer) {
+                client.disconnect()
+                pool.destroy(client).catch(() => undefined)
+            } else {
+                await pool.release(client)
+            }
             clearTimeout(timeout)
         }
     }
@@ -104,4 +166,34 @@ export const getRedisPipelineResults = (
 ): RedisPipelineResults => {
     // pipeline results are just a big array of operation results so we need to slice out the correct parts
     return res.slice(index * numOperations, index * numOperations + numOperations)
+}
+
+function beforeDeadline<T>(
+    work: Promise<T>,
+    deadlineAt: number | undefined,
+    name: string,
+    onLate: () => void
+): Promise<T> {
+    if (deadlineAt === undefined) {
+        return work
+    }
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+            () => {
+                onLate()
+                reject(new Error(`Redis call ${name} passed its deadline`))
+            },
+            Math.max(0, deadlineAt - Date.now())
+        )
+        work.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (error) => {
+                clearTimeout(timer)
+                reject(error)
+            }
+        )
+    })
 }

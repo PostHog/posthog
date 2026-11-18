@@ -7,7 +7,8 @@ import {
     CompressionField,
     FileFormatField,
     MaxFileSizeField,
-    PERSON_PROPERTIES_EVENT_FIELD,
+    PERSON_EVENT_FIELDS,
+    ParquetExtensionField,
     validateAzureContainerName,
 } from './common'
 import type { DestinationDefinition } from './types'
@@ -20,13 +21,34 @@ export const azureBlobDefinition: DestinationDefinition = {
         compression: 'zstd',
     }),
     requiredFields: ({ isNew }) => ['integration_id', 'container_name', ...(isNew ? ['file_format'] : [])],
-    configKeys: ['container_name', 'prefix', 'compression', 'file_format', 'max_file_size_mb'],
+    configKeys: [
+        'container_name',
+        'prefix',
+        'compression',
+        'file_format',
+        'max_file_size_mb',
+        'legacy_parquet_extension',
+    ],
     validate: (formValues) => ({
         container_name: validateAzureContainerName(formValues.container_name),
     }),
-    eventTableOverrides: { teamIdHogql: 'team_id' },
-    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
-    Fields: function AzureBlobFields({ formValues }) {
+    eventTableExtraFields: {
+        team_id: {
+            name: 'team_id',
+            hogql_value: 'team_id',
+            type: 'integer',
+            schema_valid: true,
+        },
+        ...PERSON_EVENT_FIELDS,
+        azure_blob_ingested_timestamp: {
+            name: 'azure_blob_ingested_timestamp',
+            hogql_value: 'NOW64()',
+            type: 'datetime',
+            schema_valid: true,
+        },
+    },
+    eventTableOverrides: { includeGenericPersonFields: false },
+    Fields: function AzureBlobFields({ isNew, formValues, savedConfig }) {
         return (
             <>
                 <LemonField name="integration_id" label="Azure connection">
@@ -68,6 +90,13 @@ export const azureBlobDefinition: DestinationDefinition = {
                 </div>
 
                 <CompressionField fileFormat={formValues.file_format} />
+
+                <ParquetExtensionField
+                    isNew={isNew}
+                    fileFormat={formValues.file_format}
+                    compression={formValues.compression}
+                    savedConfig={savedConfig}
+                />
             </>
         )
     },

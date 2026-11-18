@@ -1,12 +1,11 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import EventPropertyFilter, FilterLogicalOperator, PropertyOperator, RecordingsQuery
 
-from products.replay_vision.backend.models.replay_scanner import SamplingMode
 from products.replay_vision.backend.queries.excluded_sessions import excluded_session_ids
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     EXCLUDED_SESSIONS_QUERY_TYPE,
@@ -31,7 +30,6 @@ def _query_for(team, query: RecordingsQuery, *, last_swept_at: dt.datetime | Non
         last_swept_at=last_swept_at or (_NOW - dt.timedelta(minutes=5)),
         sampling_rate=1.0,
         sampling_salt="salt",
-        sampling_mode=SamplingMode.BALANCED,
     )
 
 
@@ -49,8 +47,12 @@ def _event(team, session_id: str, at: dt.datetime, **props) -> None:
     )
 
 
-@freeze_time(_FROZEN_TIME)
 class TestExcludedSessions(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     @pytest.mark.django_db
     def test_excludes_only_the_sessions_carrying_a_disqualifying_event(self, team) -> None:
         _event(team, "dirty", _NOW - dt.timedelta(hours=2), **{"$host": "internal.example.com"})

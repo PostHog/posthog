@@ -19,13 +19,7 @@ import { logger } from "@posthog/ui/shell/logger";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type {
-  ActivityEntry,
-  AgentFeedState,
-  RepoDiscoveryState,
-  RepoEnricherState,
-  SetupStoreState,
-} from "@posthog/core/setup/setupState";
+export type { ActivityEntry } from "@posthog/core/setup/setupState";
 export {
   isTaskForRepo,
   selectRepoDiscovery,

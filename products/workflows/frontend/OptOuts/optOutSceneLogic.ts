@@ -3,8 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
+
+import { messagingPreferencesGenerateLinkCreate } from 'products/messaging/frontend/generated/api'
 
 import type { UserType } from '../../../../frontend/src/types'
 
@@ -57,15 +59,16 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                 }
 
                 try {
-                    const newPreferencesUrl = await api.messaging.generateMessagingPreferencesLink(
-                        recipient ?? values.user.email
+                    const response = await messagingPreferencesGenerateLinkCreate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        { recipient: recipient ?? values.user.email }
                     )
-                    if (!newPreferencesUrl) {
+                    if (!response.preferences_url) {
                         lemonToast.error('Failed to generate workflows preferences link')
                         return null
                     }
-                    window.open(newPreferencesUrl, '_blank')
-                    return newPreferencesUrl
+                    window.open(response.preferences_url, '_blank')
+                    return response.preferences_url
                 } catch {
                     lemonToast.error('Failed to generate workflows preferences link')
                     return null

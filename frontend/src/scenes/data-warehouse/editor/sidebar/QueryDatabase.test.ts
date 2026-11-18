@@ -1,4 +1,9 @@
-import { getColumnInsertText, getSidebarAddJoinSourceTableName } from './QueryDatabase'
+import {
+    getColumnInsertText,
+    getQueryDatabaseTreeData,
+    getSidebarAddJoinSourceTableName,
+    getTooltipDescription,
+} from './QueryDatabase'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
@@ -25,6 +30,32 @@ describe('QueryDatabase', () => {
         })
     })
 
+    describe('getTooltipDescription', () => {
+        test.each([
+            [
+                'a view shows its description',
+                { type: 'view', view: { description: 'Orders per region' } },
+                'Orders per region',
+            ],
+            [
+                'a materialized view shows its description',
+                { type: 'view', view: { is_materialized: true, description: 'Orders per region' } },
+                'Orders per region',
+            ],
+            ['a view with no description shows none', { type: 'view', view: { description: null } }, undefined],
+            ['a view with an empty description shows none', { type: 'view', view: { description: '' } }, undefined],
+            ['a table shows its description', { type: 'table', table: { description: 'All events' } }, 'All events'],
+            [
+                'a column shows its description',
+                { type: 'column', field: { description: 'The user id' } },
+                'The user id',
+            ],
+            ['a row with no record shows none', undefined, undefined],
+        ])('%s', (_name, record, expected) => {
+            expect(getTooltipDescription(record)).toEqual(expected)
+        })
+    })
+
     describe('getSidebarAddJoinSourceTableName', () => {
         test.each([
             ['table rows keep add join in the table-specific menu', 'table', 'events', undefined, null],
@@ -47,6 +78,31 @@ describe('QueryDatabase', () => {
             ['unknown row types do not expose add join', undefined, 'mystery', undefined, null],
         ])('%s', (_name, recordType, itemName, tableName, expected) => {
             expect(getSidebarAddJoinSourceTableName(recordType, itemName, tableName)).toEqual(expected)
+        })
+    })
+
+    describe('getQueryDatabaseTreeData', () => {
+        const displayedTreeData = [{ id: 'views', name: 'Views' }]
+        const extraTreeSections = [
+            {
+                id: 'dataframes',
+                name: 'Dataframes',
+                children: [
+                    { id: 'orders', name: 'orders' },
+                    { id: 'revenue', name: 'revenue' },
+                ],
+            },
+        ]
+
+        test.each([
+            ['', ['orders', 'revenue', 'Views']],
+            ['orders', ['orders', 'Views']],
+        ])('keeps matching embedded sections for search %p', (searchText, expectedNames) => {
+            const treeData = getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
+
+            expect(treeData.flatMap((item) => item.children?.map((child) => child.name) ?? item.name)).toEqual(
+                expectedNames
+            )
         })
     })
 })

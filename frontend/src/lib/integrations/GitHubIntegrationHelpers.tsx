@@ -22,20 +22,49 @@ import {
     IconRust,
     IconSwift,
 } from '@posthog/icons'
-import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { IntegrationType } from '~/types'
+
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { githubIntegrationLogic } from './githubIntegrationLogic'
+
+/**
+ * The project's GitHub integration for anything that runs on the team's behalf rather than one
+ * person's: scheduled work, and settings a whole project shares.
+ *
+ * Must pick the same one as the backend's `resolve_team_github_integration` (org accounts first,
+ * then oldest; broken installs skipped), or a picker built on this offers repositories the
+ * server-side validation then rejects.
+ */
+export function resolveTeamGitHubIntegration(integrations: IntegrationType[]): IntegrationType | undefined {
+    return integrations
+        .filter(
+            (integration) =>
+                integration.errors !== 'TOKEN_REFRESH_FAILED' && !integration.config?.installation_unavailable_since
+        )
+        .sort(
+            (a, b) =>
+                // Missing account type sorts last, like Postgres NULLS LAST.
+                (a.config?.account?.type ?? '\uffff').localeCompare(b.config?.account?.type ?? '\uffff') ||
+                a.created_at.localeCompare(b.created_at) ||
+                a.id - b.id
+        )[0]
+}
 
 export type GitHubRepositoryPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
     className?: string
+    /** Which repo field the picker stores and returns. Default 'name' keeps existing callers'
+     * stored short names working; 'full_name' is for callers matching a webhook delivery's
+     * "owner/repo" property, which carries no owner otherwise. */
+    valueKey?: 'name' | 'full_name'
 }
 
 export const GitHubRepositoryPicker = ({
@@ -43,20 +72,27 @@ export const GitHubRepositoryPicker = ({
     onChange,
     integrationId,
     className,
+    valueKey,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
+    const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey })
 
     return (
-        <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
-            value={value ? [value] : []}
-            mode="single"
-            data-attr="select-github-repository"
-            placeholder="Select a repository..."
-            options={options}
-            loading={loading}
-            className={className}
-        />
+        <div className={className}>
+            {failed && (
+                <LemonBanner type="error" className="mb-2" action={{ children: 'Retry', onClick: retry }}>
+                    Could not load repositories. Try again.
+                </LemonBanner>
+            )}
+            <LemonInputSelect
+                onChange={(val) => onChange?.(val[0] ?? null)}
+                value={value ? [value] : []}
+                mode="single"
+                data-attr="select-github-repository"
+                placeholder="Select a repository..."
+                options={options}
+                loading={loading}
+            />
+        </div>
     )
 }
 
@@ -154,9 +190,12 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
     )
 }
 
-export function useRepositories(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
+export function useRepositories(
+    integrationId: number,
+    { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
+): { options: LemonInputSelectOption[]; loading: boolean; failed: boolean; retry: () => void } {
     const logic = githubIntegrationLogic({ id: integrationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
+    const { repositories, repositoriesLoading, repositoriesFailed } = useValues(logic)
     const { loadRepositories } = useActions(logic)
 
     useEffect(() => {
@@ -168,9 +207,17 @@ export function useRepositories(integrationId: number): { options: LemonInputSel
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r.name, label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
-        [repositories]
+                // A qualified-name key is lowercased because the stored value is. The API lowercases
+                // a repository filter on save, while GitHub reports `full_name` in the owner's
+                // casing. Compared as-is, the stored value matches no option, so LemonInputSelect
+                // shows it as a custom value beside the real repository and drops the rich label.
+                .map((r) => ({
+                    key: valueKey === 'full_name' ? r[valueKey].toLowerCase() : r[valueKey],
+                    label: r.full_name,
+                    labelComponent: <RepoOptionLabel repo={r} />,
+                })),
+        [repositories, valueKey]
     )
 
-    return { options, loading: repositoriesLoading }
+    return { options, loading: repositoriesLoading, failed: repositoriesFailed, retry: loadRepositories }
 }

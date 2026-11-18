@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -22,11 +23,13 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import * as generatedApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
     alertFormLogic,
     canCheckOngoingInterval,
+    evaluationDelayField,
     ongoingIntervalField,
     thresholdAlertHasBounds,
     type AlertFormType,
@@ -200,6 +203,63 @@ describe('alertFormLogic', () => {
         }
     )
 
+    it.each([
+        [
+            'delayed',
+            (logic: ReturnType<typeof mountForm>) => logic.actions.setAlertFormValue('evaluation_delay_intervals', 2),
+        ],
+        ['cleared', (logic: ReturnType<typeof mountForm>) => logic.actions.clearSimulation()],
+        ['run over another range', (logic: ReturnType<typeof mountForm>) => logic.actions.setSimulationDateFrom('-7d')],
+        [
+            'run against another series',
+            (logic: ReturnType<typeof mountForm>) =>
+                logic.actions.setAlertFormValue('config', { type: 'TrendsAlertConfig', series_index: 1 }),
+        ],
+    ])('drops a preview that resolves after the settings it was run with were %s', async (_label, invalidate) => {
+        // Neither action cancels the request the model is still judging, so its verdict must not
+        // repopulate the chart against settings the model never saw.
+        let resolveSimulation: (result: any) => void = () => {}
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
+            () => new Promise((resolve) => (resolveSimulation = resolve))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        invalidate(logic)
+        resolveSimulation({ data: [1], dates: ['2026-01-01'], scores: [0.1], triggered_indices: [], total_points: 1 })
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.simulationResult).toBeNull()
+    })
+
+    it('leaves the loader to the newest preview when an older one settles first', async () => {
+        const pending: ((result: any) => void)[] = []
+        const failing: ((error: Error) => void)[] = []
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
+            () => new Promise((resolve, reject) => (pending.push(resolve), failing.push(reject)))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        logic.actions.simulateAlert()
+        failing[0](new Error('model timed out'))
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.simulationResultLoading).toBe(true)
+        expect(errorToastSpy).not.toHaveBeenCalled()
+
+        const newest = { data: [2], dates: ['2026-01-02'], scores: [0.2], triggered_indices: [], total_points: 1 }
+        pending[1](newest)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.simulationResultLoading).toBe(false)
+        expect(logic.values.simulationResult).toEqual(newest)
+        const simulationRuns = captureSpy.mock.calls.filter(([event]) => event === 'alert simulation run')
+        expect(simulationRuns).toEqual([['alert simulation run', expect.objectContaining({ success: true })]])
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 
@@ -217,6 +277,7 @@ describe('alertFormLogic', () => {
         })
         expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
             ui_version: 'redesigned',
+            detector_type: null,
         })
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
             action: 'created',
@@ -306,7 +367,7 @@ describe('alertFormLogic', () => {
 
     it('shows success toast and no error toast when update succeeds', async () => {
         const onEditSuccess = jest.fn()
-        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })
         const logic = alertFormLogic({
             alert: existingAlert,
             insightId: 42,
@@ -322,12 +383,86 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(updateSpy).toHaveBeenCalledTimes(1)
+        // The form still holds the alert as it loaded, so sending its snooze would undo one set since.
+        expect(updateSpy.mock.calls[0][1].snoozed_until).toBeUndefined()
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
             action: 'updated',
             alert_type: 'insight',
         })
+    })
+
+    it.each([
+        {
+            outcome: 'succeeds',
+            response: () =>
+                Promise.resolve(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })),
+            toasts: () => ({
+                success: [expect.stringMatching(/^Alert snoozed until Jul 16, \d\d:30\.$/)],
+                error: [],
+            }),
+        },
+        {
+            outcome: 'fails',
+            response: () => Promise.reject(new Error('network down')),
+            toasts: () => ({ success: [], error: ["We couldn't snooze this alert. Please try again."] }),
+        },
+    ])('keeps the editor open and tells the user when a snooze $outcome', async ({ response, toasts }) => {
+        const onEditSuccess = jest.fn()
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        jest.spyOn(generatedApi, 'alertsPartialUpdate').mockImplementationOnce(response as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults({ id: existingAlert.id }), checks: undefined })
+
+        await expectLogic(logic, () => {
+            logic.actions.snoozeAlert('2026-07-16T15:30:00Z')
+        }).toFinishAllListeners()
+
+        expect(onEditSuccess).not.toHaveBeenCalled()
+        expect({
+            success: successToastSpy.mock.calls.map(([message]) => message),
+            error: errorToastSpy.mock.calls.map(([message]) => message),
+        }).toEqual(toasts())
+    })
+
+    it('saves the edits disabled before offering to take ownership when the owner left', async () => {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        updateSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
+        const dialogSpy = jest.spyOn(takeOwnership, 'openTakeOwnershipDialog').mockResolvedValue(false)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({ id: existingAlert.id }),
+            enabled: true,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        // The refused save is retried with the alert still disabled, so the takeover's enable sees the saved edits.
+        expect(updateSpy).toHaveBeenCalledTimes(2)
+        expect(updateSpy.mock.calls[1][1].enabled).toBe(false)
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: existingAlert.id, cause: 'left' })
+        )
+        expect(dialogSpy.mock.invocationCallOrder[0]).toBeGreaterThan(updateSpy.mock.invocationCallOrder[1])
+        expect(errorToastSpy).not.toHaveBeenCalled()
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {
@@ -423,6 +558,28 @@ describe('alertFormLogic', () => {
             '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
         )
         expect(successToastSpy).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('saves a new alert with staged PagerDuty only when it can page (%s)', async (available, creates) => {
+        jest.spyOn(generatedApi, 'alertsPagerdutyAvailabilityRetrieve').mockResolvedValue({ available })
+        jest.spyOn(generatedApi, 'alertsDestinationsPagerdutyCreate').mockResolvedValue({ hog_function_ids: [] })
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
+        alertNotificationLogic({}).actions.addPendingNotification({
+            type: 'pagerduty',
+            routingKey: 'a'.repeat(32),
+            severity: 'critical',
+            region: 'us',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(creates)
     })
 
     describe('hogql column prefill', () => {
@@ -1054,6 +1211,17 @@ describe('alertFormLogic', () => {
                 )
             ).toEqual(expected)
         })
+    })
+
+    it.each([
+        ['time-series trends', 'trends', false, 0, true, false],
+        ['non-time-series trends with no saved delay', 'trends', true, 0, false, true],
+        ['non-time-series trends with a saved delay', 'trends', true, 2, true, true],
+        ['funnels with a saved delay', 'funnels', false, 2, true, true],
+    ] as const)('evaluationDelayField: %s', (_name, kind, isNonTimeSeriesDisplay, savedDelay, show, unsupported) => {
+        const field = evaluationDelayField(kind, isNonTimeSeriesDisplay, savedDelay)
+        expect(field.show).toBe(show)
+        expect(field.unsupportedReason !== undefined).toBe(unsupported)
     })
 
     describe('ongoing-interval gating', () => {

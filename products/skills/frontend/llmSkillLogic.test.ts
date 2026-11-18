@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -8,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import {
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
+    llmSkillsNameRenameCreate,
     llmSkillsResolveNameRetrieve,
 } from 'products/skills/frontend/generated/api'
 import type { LLMSkillApi, LLMSkillResolveResponseApi } from 'products/skills/frontend/generated/api.schemas'
@@ -25,12 +27,14 @@ jest.mock('products/skills/frontend/generated/api', () => ({
     llmSkillsNameArchiveCreate: jest.fn(),
     llmSkillsNameFilesRetrieve: jest.fn(),
     llmSkillsNamePartialUpdate: jest.fn(),
+    llmSkillsNameRenameCreate: jest.fn(),
     llmSkillsResolveNameRetrieve: jest.fn(),
 }))
 
 const mockPartialUpdate = llmSkillsNamePartialUpdate as jest.MockedFunction<typeof llmSkillsNamePartialUpdate>
 const mockResolve = llmSkillsResolveNameRetrieve as jest.MockedFunction<typeof llmSkillsResolveNameRetrieve>
 const mockFilesRetrieve = llmSkillsNameFilesRetrieve as jest.MockedFunction<typeof llmSkillsNameFilesRetrieve>
+const mockRename = llmSkillsNameRenameCreate as jest.MockedFunction<typeof llmSkillsNameRenameCreate>
 
 const MOCK_FILE = { path: 'scripts/run.sh', content: 'echo hi', content_type: 'text/x-shellscript' }
 
@@ -233,6 +237,50 @@ describe('llmSkillLogic', () => {
             expect(logic.values.ownersEditing).toBe(true)
             expect(logic.values.skillOwners).toEqual([MOCK_OWNER])
             expect(lemonToast.error).toHaveBeenCalledWith("User 'user-uuid-2' is not a member of this project.")
+        })
+    })
+
+    describe('renaming', () => {
+        let logic: ReturnType<typeof llmSkillLogic.build>
+
+        beforeEach(async () => {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('sends the rename and follows the skill to its new URL', async () => {
+            mockRename.mockResolvedValue({ ...mockSkill, name: 'renamed-skill' } as unknown as LLMSkillApi)
+
+            logic.actions.renameSkill('renamed-skill')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockRename).toHaveBeenCalledWith(expect.anything(), 'my-test-skill', {
+                new_name: 'renamed-skill',
+            })
+            // The old name no longer resolves, so staying on it would show a "skill not found" page.
+            expect(router.values.location.pathname).toContain('renamed-skill')
+            expect(logic.values.renamingSkill).toBe(false)
+        })
+
+        it('surfaces the reason and stays put when the rename is rejected', async () => {
+            mockRename.mockRejectedValue(
+                new ApiError('invalid', 400, undefined, { detail: 'A skill with this name already exists.' })
+            )
+
+            logic.actions.renameSkill('taken')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('A skill with this name already exists.')
+            expect(router.values.location.pathname).not.toContain('taken')
+            expect(logic.values.renamingSkill).toBe(false)
         })
     })
 

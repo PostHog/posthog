@@ -6,6 +6,8 @@ export interface SizeRect {
     height: number
 }
 
+const MAX_CANVAS_SIDE = 32767
+
 /** `canvas.width`/`height` are integers, so a fractional target has to be rounded before it's
  *  compared or assigned — otherwise it never equals the stored value and every sync reads as a
  *  change. */
@@ -17,15 +19,16 @@ function backingSize(cssSize: number, dpr: number): number {
  *  Returns whether the backing store was reallocated — i.e. whether the bitmap was wiped and a
  *  repaint is now mandatory.
  *
- *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black — even when
- *  the assigned value is identical to the current one. The draw loops repaint on the *next*
- *  animation frame, so every redundant assignment costs one fully blank painted frame, and a
- *  container that keeps reporting resizes (a scrollbar appearing and disappearing on an
- *  `overflow: auto` ancestor, an animating panel) wipes the bitmap faster than it is repainted —
- *  the chart reads as blank while its DOM axis labels keep rendering. `ResizeObserver` also
- *  delivers an initial observation on top of the synchronous first measure, so the redundant case
- *  happens on every mount. */
+ *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black and
+ *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
+ *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
 export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
+    // Chromium and Firefox paint nothing into a canvas with a side over 32,767 backing pixels. A
+    // very tall chart (a retention grid with hundreds of cohorts) lowers its ratio to stay under
+    // that side, so it draws less sharply instead of blank. Draw code reads the ratio back off
+    // the backing size, so it follows. ponytail: one canvas per chart; above 32,767 css px the
+    // ratio drops below 1 and blurs, and only splitting the canvas into tiles avoids that.
+    dpr = Math.min(dpr, MAX_CANVAS_SIDE / Math.max(rect.width, rect.height))
     const width = backingSize(rect.width, dpr)
     const height = backingSize(rect.height, dpr)
     let resized = false
@@ -56,7 +59,28 @@ function finitePlotSize(size: number): number {
     return isFinite(size) && size > 0 ? size : 0
 }
 
-export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDimensions {
+// About 8 MB of RGBA per canvas. A larger budget gave no visible gain on dashboard charts at 3x zoom.
+const MAX_ZOOMED_CANVAS_PIXELS = 2_000_000
+
+/** Backing pixels per CSS pixel for a chart. Pinch-zoom raises `pagePixelRatio` above
+ *  `devicePixelRatio`, and the browser re-rasterises text at the zoomed scale but magnifies a canvas
+ *  bitmap. So a chart in view takes the page ratio, up to a pixel budget. A chart out of view keeps
+ *  `devicePixelRatio`, so zoom memory grows only with the charts in view. */
+export function rasterScale(
+    rect: SizeRect,
+    devicePixelRatio: number,
+    pagePixelRatio: number,
+    onScreen: boolean
+): number {
+    if (!onScreen || pagePixelRatio <= devicePixelRatio) {
+        return devicePixelRatio
+    }
+    const area = rect.width * rect.height
+    const budget = area > 0 ? Math.sqrt(MAX_ZOOMED_CANVAS_PIXELS / area) : devicePixelRatio
+    return Math.max(devicePixelRatio, Math.min(pagePixelRatio, budget))
+}
+
+export function buildDimensions(rect: SizeRect, margins: ChartMargins, pixelRatio?: number): ChartDimensions {
     return {
         width: rect.width,
         height: rect.height,
@@ -64,6 +88,7 @@ export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDim
         plotTop: margins.top,
         plotWidth: finitePlotSize(rect.width - margins.left - margins.right),
         plotHeight: finitePlotSize(rect.height - margins.top - margins.bottom),
+        pixelRatio,
     }
 }
 
@@ -74,6 +99,7 @@ export function sameDimensions(a: ChartDimensions, b: ChartDimensions): boolean 
         a.plotLeft === b.plotLeft &&
         a.plotTop === b.plotTop &&
         a.plotWidth === b.plotWidth &&
-        a.plotHeight === b.plotHeight
+        a.plotHeight === b.plotHeight &&
+        a.pixelRatio === b.pixelRatio
     )
 }

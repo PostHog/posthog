@@ -5,6 +5,7 @@ Note: This module uses a real Snowflake connection.
 """
 
 import os
+import json
 import uuid
 import typing as t
 import datetime as dt
@@ -14,10 +15,16 @@ import pytest
 
 from django.test import override_settings
 
-from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeInsertInputs,
     insert_into_snowflake_activity_from_stage,
@@ -50,13 +57,12 @@ async def _run_activity(
     activity_environment,
     snowflake_cursor,
     clickhouse_client,
-    snowflake_config,
+    snowflake_activity_inputs,
     team,
     data_interval_start,
     data_interval_end,
     table_name: str,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events=None,
     sort_key: str = "event",
     expected_fields=None,
@@ -67,27 +73,18 @@ async def _run_activity(
     uppercase_columns: list[str] | None = None,
     extra_fields: dict[str, t.Any] | None = None,
     min_ingested_timestamp: dt.datetime | None = None,
-    integration_id: int | None = None,
     batch_export_id: str | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
-    config = dict(snowflake_config)
-    if integration_id is not None:
-        # Account, user and credentials come from the Integration, not inline config.
-        for key in ("account", "user", "authentication_type", "password", "private_key", "private_key_passphrase"):
-            config.pop(key, None)
-
     insert_inputs = SnowflakeInsertInputs(
         team_id=team.pk,
         table_name=table_name,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id or str(uuid.uuid4()),
-        integration_id=integration_id,
-        **config,
+        **snowflake_activity_inputs,
     )
 
     assert insert_inputs.batch_export_id is not None
@@ -104,7 +101,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export_schema,
             destination_default_fields=snowflake_default_fields(),
         ),
     )
@@ -121,7 +117,7 @@ async def _run_activity(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             exclude_events=exclude_events,
-            batch_export_model=batch_export_model or batch_export_schema,
+            batch_export_model=batch_export_model,
             sort_key=sort_key,
             expected_fields=expected_fields,
             expect_duplicates=expect_duplicates,
@@ -140,9 +136,9 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -162,15 +158,14 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     that they appear in the expected Snowflake table. This function runs against a real Snowflake
     instance, so the environment should be populated with the necessary credentials.
     """
-    if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
 
@@ -187,67 +182,14 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         sort_key=sort_key,
-        min_ingested_timestamp=min_ingested_timestamp,
-    )
-
-
-async def test_insert_into_snowflake_activity_resolves_credentials_from_integration(
-    clickhouse_client,
-    activity_environment,
-    snowflake_cursor,
-    snowflake_config,
-    generate_test_data,
-    data_interval_start,
-    data_interval_end,
-    ateam,
-):
-    """An integration-backed export resolves account, user and credentials from the linked Integration
-    at run time, with none of them present on the activity inputs.
-    """
-    sensitive_config: dict[str, str] = {}
-    if snowflake_config["authentication_type"] == "keypair":
-        sensitive_config["private_key"] = snowflake_config["private_key"]
-        if snowflake_config.get("private_key_passphrase"):
-            sensitive_config["private_key_passphrase"] = snowflake_config["private_key_passphrase"]
-    else:
-        sensitive_config["password"] = snowflake_config["password"]
-
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.SNOWFLAKE,
-        integration_id="prod-snowflake",
-        config={
-            "name": "prod-snowflake",
-            "account": snowflake_config["account"],
-            "user": snowflake_config["user"],
-            "authentication_type": snowflake_config["authentication_type"],
-        },
-        sensitive_config=sensitive_config,
-    )
-
-    table_name = f"test_integration_activity_table_{ateam.pk}"
-    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
-
-    await _run_activity(
-        activity_environment=activity_environment,
-        snowflake_cursor=snowflake_cursor,
-        clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
-        team=ateam,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        table_name=table_name,
-        batch_export_model=BatchExportModel(name="events", schema=None),
-        integration_id=integration.id,
         min_ingested_timestamp=min_ingested_timestamp,
     )
 
@@ -256,7 +198,7 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -269,14 +211,14 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
     run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
     the second run.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_table_mutable_persons_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -312,7 +254,7 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -326,7 +268,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -339,14 +281,14 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
     run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
     the second run with the same time range.
     """
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     table_name = f"test_insert_activity_table_mutable_sessions_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -383,7 +325,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=new_data_interval_start,
         data_interval_end=new_data_interval_end,
@@ -409,7 +351,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -429,7 +371,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     checking this second run worked and exported data, we also check that no files
     are present in the table's internal stage.
     """
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
     table_name = f"test_insert_activity_table_remove_{ateam.pk}"
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     batch_export_id = str(uuid.uuid4())
@@ -437,7 +379,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -473,7 +415,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -494,7 +436,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
     ateam,
     snowflake_batch_export,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     activity_environment,
 ):
     """Test that the insert_into_snowflake_activity_from_stage activity sends heartbeats.
@@ -540,7 +482,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_id=str(uuid.uuid4()),
-        **snowflake_config,
+        **snowflake_activity_inputs,
     )
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
@@ -557,7 +499,6 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 run_id=None,
                 backfill_details=None,
                 batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
@@ -584,7 +525,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -601,14 +542,14 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     To replicate this situation we first export the data with the original
     schema, then delete a column in the destination and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_migration_table_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -649,7 +590,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -664,7 +605,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -686,14 +627,14 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     To replicate this situation we first export the data to create the table, then alter
     'created_at' to be of type INTEGER, and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_persons_table_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -710,7 +651,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -724,14 +665,12 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     assert result.error is None
 
 
-@pytest.mark.parametrize(
-    "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
-)
+@pytest.mark.parametrize("model", [BatchExportEventsModel(), BatchExportPersonsModel()])
 async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -755,7 +694,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -781,7 +720,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -793,12 +732,12 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     )
 
 
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_insert_into_snowflake_activity_handles_extra_columns_in_destination(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -819,7 +758,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -836,7 +775,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -846,3 +785,54 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         extra_fields={"extra_column": "test"},
         min_ingested_timestamp=min_ingested_timestamp,
     )
+
+
+async def test_insert_into_snowflake_activity_loads_malformed_people_set_as_null(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_activity_inputs,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    for event_name, properties in (
+        ("malformed", {"$set": "not valid json", "$set_once": "{also not valid"}),
+        ("well-formed", {"$set": '{"plan": "free"}', "$set_once": '{"plan": "paid"}'}),
+    ):
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            event_name=event_name,
+            properties=properties,
+        )
+
+    table_name = f"test_insert_activity_malformed_people_set_{ateam.pk}"
+    result = await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_activity_inputs=snowflake_activity_inputs,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=BatchExportEventsModel(),
+        assert_clickhouse_records=False,
+    )
+
+    assert isinstance(result, BatchExportResult)
+    assert result.error is None
+
+    snowflake_cursor.execute(f'SELECT "event", "people_set", "people_set_once" FROM "{table_name}" ORDER BY "event"')
+    malformed, well_formed = snowflake_cursor.fetchall()
+
+    assert malformed == ("malformed", None, None)
+    assert well_formed[0] == "well-formed"
+    assert json.loads(well_formed[1]) == {"plan": "free"}
+    assert json.loads(well_formed[2]) == {"plan": "paid"}

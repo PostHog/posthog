@@ -12,7 +12,7 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 
 def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
-    from posthog.api.team import CachingTeamSerializer
+    from posthog.api.team.team_config import CachingTeamSerializer
     from posthog.models.team import Team
 
     if not team:

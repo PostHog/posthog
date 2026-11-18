@@ -4,10 +4,20 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Replay',
+    globalModals: {
+        SessionPlayerModal: () =>
+            import('scenes/session-recordings/player/modal/SessionPlayerModalHost').then(
+                (module) => module.SessionPlayerModalHost
+            ),
+    },
+    activityDescribers: {
+        [ActivityScope.REPLAY]: () =>
+            import('scenes/session-recordings/activityDescription').then((module) => module.replayActivityDescriber),
+    },
     urls: {
         replay: (
             tab?: ReplayTabs,
@@ -42,6 +52,7 @@ export const manifest: ProductManifest = {
             name: 'Replay playlist',
             iconType: 'session_replay',
             href: (ref: string) => urls.replayPlaylist(ref),
+            listHref: () => urls.replay(ReplayTabs.Playlists),
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             filterKey: 'session_recording_playlist',
         },
@@ -50,8 +61,12 @@ export const manifest: ProductManifest = {
         {
             path: 'Session replay',
             intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             href: urls.replay(ReplayTabs.Home),
+            searchKeywords: ['replay', 'sessions', 'recordings', 'session recording'],
+            searchTabs: [
+                { name: 'Collections', href: urls.replay(ReplayTabs.Playlists), searchKeywords: ['playlists'] },
+            ],
             type: 'session_recording_playlist',
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
@@ -69,11 +84,11 @@ export const manifest: ProductManifest = {
         {
             path: 'Heatmaps',
             intents: [ProductKey.HEATMAPS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             iconType: 'heatmap',
             iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
             href: urls.heatmaps(),
-            tags: ['beta'],
+            searchKeywords: ['clickmaps', 'scrollmaps', 'scroll depth'],
             sceneKey: 'Heatmaps',
             sceneKeys: ['Heatmaps'],
         },

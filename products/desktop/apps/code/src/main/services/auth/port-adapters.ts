@@ -2,8 +2,6 @@ import type {
   AuthOrgProjectPreferenceRecord,
   AuthPreferenceRecord,
   AuthSessionRecord,
-  ConnectivityStatus,
-  IAuthConnectivity,
   IAuthOAuthFlowService,
   IAuthPreferenceStore,
   IAuthSessionStore,
@@ -18,22 +16,14 @@ import type {
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
 import type { CloudRegion } from "@posthog/shared";
-import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { IAuthPreferenceRepository } from "@posthog/workspace-server/db/repositories/auth-preference-repository";
 import type { IAuthSessionRepository } from "@posthog/workspace-server/db/repositories/auth-session-repository";
 import { inject, injectable } from "inversify";
 import {
   AUTH_PREFERENCE_REPOSITORY,
   AUTH_SESSION_REPOSITORY,
-  WORKSPACE_CLIENT,
-  WORKSPACE_SERVER_SERVICE,
 } from "../../di/tokens";
 import { decrypt, encrypt } from "../../utils/encryption";
-import {
-  WorkspaceServerEvent,
-  type WorkspaceServerService,
-  WorkspaceServerStatus,
-} from "../workspace-server/service";
 
 @injectable()
 export class TokenCipherPortAdapter implements IAuthTokenCipher {
@@ -148,74 +138,5 @@ export class AuthPreferencePortAdapter implements IAuthPreferenceStore {
 
   saveOrgProject(input: AuthOrgProjectPreferenceRecord): void {
     this.repository.saveOrgProject(input);
-  }
-}
-
-@injectable()
-export class ConnectivityPortAdapter implements IAuthConnectivity {
-  private isOnline = true;
-  private readonly handlers = new Set<(status: ConnectivityStatus) => void>();
-  private sub: { unsubscribe: () => void } | null = null;
-  private readonly onServerStatusChanged = ({
-    status,
-  }: {
-    status: WorkspaceServerStatus;
-  }): void => {
-    if (status === WorkspaceServerStatus.Ready) this.subscribe();
-  };
-
-  constructor(
-    @inject(WORKSPACE_CLIENT)
-    private readonly workspace: WorkspaceClient,
-    @inject(WORKSPACE_SERVER_SERVICE)
-    private readonly workspaceServer: WorkspaceServerService,
-  ) {
-    this.subscribe();
-    // The workspace-server child respawns on a new port after a crash; the
-    // old SSE subscription keeps retrying the dead port forever, so re-
-    // establish it against the current connection once the server is healthy.
-    this.workspaceServer.on(
-      WorkspaceServerEvent.StatusChanged,
-      this.onServerStatusChanged,
-    );
-  }
-
-  dispose(): void {
-    this.workspaceServer.off(
-      WorkspaceServerEvent.StatusChanged,
-      this.onServerStatusChanged,
-    );
-    this.sub?.unsubscribe();
-    this.sub = null;
-  }
-
-  private subscribe(): void {
-    this.sub?.unsubscribe();
-    this.sub = this.workspace.connectivity.onStatusChange.subscribe(undefined, {
-      onData: (status) => {
-        this.isOnline = status.isOnline;
-        for (const handler of this.handlers) {
-          handler({ isOnline: status.isOnline });
-        }
-      },
-      onError: () => {},
-    });
-    void this.workspace.connectivity.getStatus
-      .query()
-      .then((status) => {
-        this.isOnline = status.isOnline;
-      })
-      .catch(() => {});
-  }
-
-  getStatus(): ConnectivityStatus {
-    return { isOnline: this.isOnline };
-  }
-
-  onStatusChange(handler: (status: ConnectivityStatus) => void): () => void {
-    this.handlers.add(handler);
-    return () => {
-      this.handlers.delete(handler);
-    };
   }
 }

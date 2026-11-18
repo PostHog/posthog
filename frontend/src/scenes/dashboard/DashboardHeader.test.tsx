@@ -1,16 +1,16 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
+import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
 
@@ -25,10 +25,11 @@ jest.mock('scenes/max/MaxTool', () => ({
 }))
 
 jest.mock('products/posthog_ai/frontend/api/logics', () => ({
+    ...jest.requireActual('products/posthog_ai/frontend/api/logics'),
     useMcpToolApplyBack: jest.fn(),
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -53,7 +54,7 @@ const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     variables: {},
 }
 
-function makeDashboard(overrides: Record<string, any> = {}): DashboardType<QueryBasedInsightModel> {
+function makeDashboard(overrides: Record<string, any> = {}): DashboardType {
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
@@ -73,10 +74,6 @@ describe('DashboardHeader', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION], {
-            [FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION]: true,
-        })
     })
 
     afterEach(() => {
@@ -84,8 +81,9 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel> | null
+        dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
+        dashboardEditing?: boolean
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -93,6 +91,7 @@ describe('DashboardHeader', () => {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
+            dashboardEditing = false,
             dashboardModeSource = DashboardEventSource.Browser,
             loading = false,
         } = opts
@@ -103,7 +102,9 @@ describe('DashboardHeader', () => {
             ? jest.spyOn(logic.actions, 'loadDashboard').mockImplementation()
             : undefined
 
-        if (dashboardMode) {
+        if (dashboardEditing) {
+            logic.actions.setDashboardEditing(dashboardEditing, dashboardModeSource)
+        } else if (dashboardMode) {
             logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
@@ -125,6 +126,52 @@ describe('DashboardHeader', () => {
         expect(document.querySelector('.scene-title-section')).toBeInTheDocument()
 
         logic.unmount()
+    })
+
+    it('offers Undo once a layout change has saved', async () => {
+        const dashboard = makeDashboard({
+            user_access_level: AccessControlLevel.Editor,
+            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+        })
+        const { logic } = renderHeader({ dashboard })
+        // Undo shows only where the layout can change, which jsdom's default window is too narrow for.
+        act(() => logic.actions.updateContainerWidth(1200, 12))
+        expect(document.querySelector('[data-attr="dashboard-layout-undo"]')).not.toBeInTheDocument()
+
+        act(() => logic.actions.layoutChangeSaved({ 1: { layouts: {}, group_key: null } }))
+        const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement
+        expect(undoButton).toBeInTheDocument()
+        await expectLogic(logic, () => {
+            fireEvent.click(undoButton)
+        }).toDispatchActions(['undoLayoutChange'])
+        expect(logic.values.canUndoLayoutChange).toBe(false)
+
+        logic.unmount()
+    })
+
+    it.each([600, 768])('shows customization at %ipx', async (width) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+        window.dispatchEvent(new Event('resize'))
+
+        try {
+            const dashboard = makeDashboard({
+                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard })
+
+            expect(document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]')).toBeInTheDocument()
+            fireEvent.click(
+                document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]') as HTMLElement
+            )
+            expect(await screen.findByText('Tile density')).toBeInTheDocument()
+            expect(screen.queryByText('When you move a tile')).not.toBeInTheDocument()
+
+            logic.unmount()
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            window.dispatchEvent(new Event('resize'))
+        }
     })
 
     it('recognizes sandbox insight calls that add to the open dashboard', () => {
@@ -156,42 +203,85 @@ describe('DashboardHeader', () => {
     })
 
     it.each([
+        { isShared: false, active: false, empty: false },
+        { isShared: true, active: true, empty: false },
+        { isShared: true, active: true, empty: true },
+    ])(
+        'shows the share button as active when sharing is $isShared and empty is $empty',
+        ({ isShared, active, empty }) => {
+            const dashboard = makeDashboard({
+                is_shared: isShared,
+                tiles: empty ? [] : [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard })
+
+            const shareButton = document.querySelector('[data-attr="dashboard-share-button"]')
+
+            if (active) {
+                expect(shareButton).toHaveClass('LemonButton--active')
+                expect(shareButton).toHaveTextContent('OnSharing')
+                expect(shareButton?.querySelector('.LemonBadge--primary')).toBeVisible()
+                expect(shareButton?.querySelector('.LemonButton__icon svg')).not.toBeInTheDocument()
+            } else {
+                expect(shareButton).not.toHaveClass('LemonButton--active')
+                expect(shareButton).toHaveTextContent('Share')
+                expect(shareButton?.querySelector('.LemonBadge')).not.toBeInTheDocument()
+                expect(shareButton?.querySelector('.LemonButton__icon svg')).toBeInTheDocument()
+            }
+
+            logic.unmount()
+        }
+    )
+
+    it.each([
+        { placement: DashboardPlacement.Builtin, isShared: true, visible: true },
+        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: true },
+        { placement: DashboardPlacement.Builtin, isShared: false, visible: false },
+        { placement: DashboardPlacement.Public, isShared: true, visible: false },
+        { placement: DashboardPlacement.Export, isShared: true, visible: false },
+    ])(
+        'shows the embedded sharing state for $placement when sharing is $isShared',
+        ({ placement, isShared, visible }) => {
+            const dashboard = makeDashboard({ is_shared: isShared })
+
+            render(<DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />)
+
+            const shareButton = document.querySelector('[data-attr="dashboard-share-button"]')
+            if (visible) {
+                expect(shareButton).toHaveTextContent('OnSharing')
+                expect(shareButton).toHaveClass('LemonButton--active')
+            } else {
+                expect(shareButton).not.toBeInTheDocument()
+            }
+        }
+    )
+
+    it.each([
         {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
+            hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
+            hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-edit-mode-button',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'Filter edit mode',
-            dashboardMode: DashboardMode.Edit,
+            dashboardEditing: true,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
+            hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
                 'dashboard-share-button',
                 'dashboard-edit-layout-customize-dropdown',
                 'add-text-tile-to-dashboard',
@@ -199,33 +289,39 @@ describe('DashboardHeader', () => {
             ],
         },
         {
-            scenario: 'Layout edit mode',
-            dashboardMode: DashboardMode.Edit,
-            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
-            canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-layout-customize-dropdown',
-                'add-text-tile-to-dashboard',
-                'dashboard-add-graph-header',
-            ],
+            scenario: 'Filter edit mode, cannot edit',
+            dashboardEditing: true,
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
+            canEdit: false,
+            hasTiles: true,
+            visible: [],
+            notVisible: ['dashboard-share-button'],
         },
         {
             scenario: 'Fullscreen mode',
             dashboardMode: DashboardMode.Fullscreen,
             canEdit: true,
+            hasTiles: false,
             visible: ['dashboard-exit-presentation-mode'],
-            notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
+            notVisible: ['dashboard-share-button'],
         },
     ])(
         '$scenario shows correct action buttons',
-        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+        ({ dashboardMode, dashboardEditing, dashboardModeSource, canEdit, hasTiles, visible, notVisible }) => {
             const dashboard = makeDashboard({
                 user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+                tiles: hasTiles
+                    ? [
+                          {
+                              id: 1,
+                              color: null,
+                              layouts: {},
+                              insight: { id: 1, short_id: 'test', name: 'Test' } as InsightModel,
+                          },
+                      ]
+                    : [],
             })
-            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardEditing, dashboardModeSource })
 
             for (const attr of visible) {
                 expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()

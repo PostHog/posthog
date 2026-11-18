@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // PR review comment domain types. Shared between the git host service (which
 // fetches them via the gh API) and the code-review UI (which renders them).
-export const prReviewCommentUserSchema = z.object({
+const prReviewCommentUserSchema = z.object({
   login: z.string(),
   avatar_url: z.string(),
   isBot: z.boolean().optional(),
@@ -56,13 +56,6 @@ export const githubRefSchema = z.object({
 });
 
 export type GithubRef = z.infer<typeof githubRefSchema>;
-
-// Legacy aliases kept so callers that previously consumed only issues continue to work.
-export const githubIssueStateSchema = githubRefStateSchema;
-export type GithubIssueState = GithubRefState;
-export const githubIssueSchema = githubRefSchema;
-export type GitHubIssue = GithubRef;
-export type GithubPullRequest = GithubRef;
 
 // PR action intent. Shared between the git host service (updatePrByUrl) and the
 // git-interaction UI (PR status menu actions).

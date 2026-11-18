@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
@@ -15,7 +16,10 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_filters import (
@@ -70,6 +74,7 @@ class AccountTrackRuleRunError(ValueError):
 class ParsedAccountTrackRules:
     config: contracts.AccountTrackRulesConfig
     custom_property_display_types: dict[UUID, DisplayType]
+    timezone_info: ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -261,7 +266,11 @@ def parse_account_track_rules(team_id: int, raw_config: Any) -> ParsedAccountTra
         enabled=raw_config["enabled"],
         groups=tuple(groups),
     )
-    parsed = ParsedAccountTrackRules(config=config, custom_property_display_types=display_types)
+    parsed = ParsedAccountTrackRules(
+        config=config,
+        custom_property_display_types=display_types,
+        timezone_info=Team.objects.only("timezone").get(pk=team_id).timezone_info,
+    )
     _validate_compiler_inputs(team_id, parsed)
     return parsed
 
@@ -298,6 +307,7 @@ def _validate_compiler_inputs(team_id: int, parsed: ParsedAccountTrackRules) -> 
                 team_id=team_id,
                 filters=_group_filters(group),
                 custom_property_display_types=parsed.custom_property_display_types,
+                timezone_info=parsed.timezone_info,
             )
     except (InvalidAccountFilter, TypeError) as error:
         raise AccountTrackRuleValidationError([str(error)]) from error
@@ -315,6 +325,7 @@ def matching_accounts_queryset(
             team_id=team_id,
             filters=_group_filters(group),
             custom_property_display_types=parsed.custom_property_display_types,
+            timezone_info=parsed.timezone_info,
         )
         matching_groups |= Q(id__in=Subquery(group_matches.values("id")))
     return queryset.filter(matching_groups)
@@ -536,11 +547,9 @@ def to_run_view(run: AccountTrackRuleRun) -> contracts.AccountTrackRuleRunView:
     )
 
 
-def list_account_track_rule_runs(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.AccountTrackRuleRunView], int]:
+def list_account_track_rule_runs(team_id: int, *, page: PageRequest) -> Page[contracts.AccountTrackRuleRunView]:
     queryset = AccountTrackRuleRun.objects.for_team(team_id).order_by("-created_at")
-    return [to_run_view(run) for run in queryset[offset : offset + limit]], queryset.count()
+    return select_page(queryset, page).map(to_run_view)
 
 
 def list_enabled_account_track_rule_configs(

@@ -1,22 +1,45 @@
 """Mailgun integration helpers for conversations email channel."""
 
-import hmac
-import time
-import hashlib
-from typing import Any
+from email.generator import BytesGenerator
+from io import BytesIO
+from typing import Any, TypedDict
+
+from django.core.mail import EmailMessage
+from django.utils import timezone
 
 import requests
 import structlog
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.conversations.backend.models import MailgunDomainRegistration
+
 logger = structlog.get_logger(__name__)
 
 MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 
-WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
-
 MAILGUN_SEND_TIMEOUT = 30  # seconds
+
+
+def get_email_webhook_signing_key() -> str | None:
+    """The Mailgun account signing key the route endpoints verify with.
+
+    Injected into the ingress provider rather than read there, because the instance setting
+    belongs to this product and nothing under `posthog/ingress/` imports a product. The scheme
+    calls this on every request, and `get_instance_setting` is cached.
+    """
+    return get_instance_setting("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY")
+
+
+class MailgunDnsRecord(TypedDict, total=False):
+    record_type: str
+    name: str
+    value: str
+    valid: str
+
+
+class MailgunDnsRecords(TypedDict, total=False):
+    sending_dns_records: list[MailgunDnsRecord]
 
 
 class MailgunError(Exception):
@@ -29,6 +52,17 @@ class MailgunNotConfigured(MailgunError):
 
 class MailgunDomainConflict(MailgunError):
     """Mailgun refuses to register the domain because it already exists (in our account or another)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_message: str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider_message = provider_message or message
+        self.status_code = status_code
 
 
 class MailgunDomainNotRegistered(MailgunError):
@@ -52,36 +86,6 @@ class MailgunTransientError(MailgunError):
     """
 
 
-def validate_webhook_signature(token: str, timestamp: str, signature: str) -> bool:
-    """Verify inbound Mailgun webhook authenticity via HMAC-SHA256.
-
-    Also rejects timestamps older than 5 minutes to prevent replay attacks.
-    """
-    # Uncomment this to allow debugging in development
-    # if settings.DEBUG:
-    #    return True
-
-    signing_key = get_instance_setting("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY")
-    if not signing_key:
-        return False
-
-    # Reject stale timestamps
-    try:
-        ts = int(timestamp)
-    except (ValueError, TypeError):
-        return False
-    if abs(time.time() - ts) > WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS:
-        return False
-
-    expected = hmac.new(
-        key=signing_key.encode("utf-8"),
-        msg=f"{timestamp}{token}".encode(),
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-
-    return hmac.compare_digest(expected, signature)
-
-
 def _get_api_key() -> str:
     key = get_instance_setting("CONVERSATIONS_EMAIL_MAILGUN_API_KEY")
     if not key:
@@ -89,12 +93,12 @@ def _get_api_key() -> str:
     return key
 
 
-def _filter_sending_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _filter_sending_records(records: list[MailgunDnsRecord]) -> list[MailgunDnsRecord]:
     """Strip tracking CNAME records — we don't use open/click tracking."""
     return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
 
 
-def add_domain(domain: str) -> dict[str, Any]:
+def add_domain(domain: str) -> MailgunDnsRecords:
     """Register a sending domain with Mailgun. Returns DNS records to configure."""
     resp = requests.post(
         f"{MAILGUN_API_BASE}/domains",
@@ -105,22 +109,42 @@ def add_domain(domain: str) -> dict[str, Any]:
 
     if resp.status_code in (200, 201):
         data = resp.json()
+        domain_info = data.get("domain")
+        mailgun_domain_id = domain_info.get("id") if isinstance(domain_info, dict) else None
+        MailgunDomainRegistration.objects.update_or_create(
+            domain=domain.lower(),
+            defaults={
+                "mailgun_domain_id": mailgun_domain_id if isinstance(mailgun_domain_id, str) else "",
+                "registered_at": timezone.now(),
+            },
+        )
         return {
             "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
         }
 
     if resp.status_code == 400:
         try:
-            error_msg = resp.json().get("message", "").lower()
+            provider_message = resp.json().get("message", "")
         except Exception:
-            error_msg = ""
+            provider_message = ""
+        provider_message = provider_message if isinstance(provider_message, str) else ""
+        normalized_message = provider_message.lower()
+        provider_message = provider_message[:500]
         # Never silently adopt a pre-existing Mailgun domain — the shared
         # account may hold domains we don't own. Fail loud so operators
         # can reconcile manually.
-        if "already exists" in error_msg:
-            raise MailgunDomainConflict(f"Domain {domain} already exists")
-        if "already taken" in error_msg:
-            raise MailgunDomainConflict(f"Domain {domain} is already registered by another Mailgun account")
+        if "already exists" in normalized_message:
+            raise MailgunDomainConflict(
+                f"Domain {domain} already exists",
+                provider_message=provider_message,
+                status_code=resp.status_code,
+            )
+        if "already taken" in normalized_message:
+            raise MailgunDomainConflict(
+                f"Domain {domain} is already registered by another Mailgun account",
+                provider_message=provider_message,
+                status_code=resp.status_code,
+            )
 
     resp.raise_for_status()
     return {}
@@ -129,8 +153,7 @@ def add_domain(domain: str) -> dict[str, Any]:
 def get_domain(domain: str) -> dict[str, Any] | None:
     """Fetch a domain's info from our Mailgun account.
 
-    Returns None when the domain isn't registered here — or when the response
-    carries no domain object, so bad Mailgun data never looks like a registration.
+    Returns None only when the domain isn't registered in this account.
     """
     resp = requests.get(
         f"{MAILGUN_API_BASE}/domains/{domain}",
@@ -140,10 +163,13 @@ def get_domain(domain: str) -> dict[str, Any] | None:
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
-    return resp.json().get("domain") or None
+    domain_info = resp.json().get("domain")
+    if not isinstance(domain_info, dict) or not domain_info:
+        raise MailgunError(f"Mailgun returned no domain data for {domain}")
+    return domain_info
 
 
-def get_domain_dns_records(domain: str) -> dict[str, Any]:
+def get_domain_dns_records(domain: str) -> MailgunDnsRecords:
     """Fetch DNS records for an existing Mailgun domain."""
     resp = requests.get(
         f"{MAILGUN_API_BASE}/domains/{domain}",
@@ -187,6 +213,30 @@ def verify_domain(domain: str) -> dict[str, Any]:
     }
 
 
+MAILGUN_LIST_DOMAINS_MAX_PAGES = 50
+
+
+def list_domains(page_size: int = 1000) -> list[dict[str, Any]]:
+    """Return every domain registered in our Mailgun account."""
+    api_key = _get_api_key()
+    domains: list[dict[str, Any]] = []
+    for page in range(MAILGUN_LIST_DOMAINS_MAX_PAGES):
+        resp = requests.get(
+            f"{MAILGUN_API_BASE}/domains",
+            auth=("api", api_key),
+            params={"limit": page_size, "skip": page * page_size},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items") or []
+        domains.extend(items)
+        total_count = data.get("total_count")
+        if len(items) < page_size or (isinstance(total_count, int) and len(domains) >= total_count):
+            return domains
+    raise MailgunError(f"Mailgun domain listing did not end after {MAILGUN_LIST_DOMAINS_MAX_PAGES} pages")
+
+
 def delete_domain(domain: str) -> None:
     """Remove a sending domain from Mailgun."""
     resp = requests.delete(
@@ -196,8 +246,20 @@ def delete_domain(domain: str) -> None:
     )
     if resp.status_code == 404:
         logger.info("mailgun_domain_not_found_on_delete", domain=domain)
-        return
-    resp.raise_for_status()
+    else:
+        resp.raise_for_status()
+    MailgunDomainRegistration.objects.filter(domain=domain.lower()).delete()
+
+
+def mime_bytes_with_crlf(email_message: EmailMessage) -> bytes:
+    """Serialize a Django email to MIME bytes with the CRLF line endings RFC 5322 requires.
+
+    Django 6 returns a stdlib `EmailMessage` from `message()`, whose `as_bytes()` has no `linesep`
+    argument, so this calls `BytesGenerator` directly. That works for the older MIME classes too.
+    """
+    buffer = BytesIO()
+    BytesGenerator(buffer, mangle_from_=False).flatten(email_message.message(), linesep="\r\n")
+    return buffer.getvalue()
 
 
 def send_mime(domain: str, mime_bytes: bytes, recipients: list[str]) -> str:

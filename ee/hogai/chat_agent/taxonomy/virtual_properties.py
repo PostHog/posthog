@@ -1,7 +1,7 @@
 from collections.abc import Container, Iterable
 from typing import Literal
 
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition, is_virtual_property
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
@@ -19,10 +19,9 @@ def virtual_group_for_entity(entity: str) -> VirtualPropertyGroup:
 
 
 def get_virtual_property_definition(group: VirtualPropertyGroup, property_name: str) -> CoreFilterDefinition | None:
-    definition = CORE_FILTER_DEFINITIONS_BY_GROUP[group].get(property_name)
-    if definition is None or definition.get("virtual") is not True:
+    if not is_virtual_property(group, property_name):
         return None
-    return definition
+    return CORE_FILTER_DEFINITIONS_BY_GROUP[group][property_name]
 
 
 def list_virtual_properties(group: VirtualPropertyGroup, exclude: Container[str] = ()) -> list[tuple[str, str | None]]:
@@ -30,7 +29,7 @@ def list_virtual_properties(group: VirtualPropertyGroup, exclude: Container[str]
     return [
         (name, definition.get("type"))
         for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items()
-        if definition.get("virtual") is True and name not in exclude
+        if is_virtual_property(group, name) and name not in exclude
     ]
 
 

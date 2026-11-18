@@ -1,8 +1,12 @@
-export interface TaskListFilters {
+interface TaskListFilters {
   repository?: string;
   createdBy?: number;
   originProduct?: string;
   internal?: boolean;
+  pinned?: boolean;
+  sources?: readonly string[];
+  limit?: number;
+  ordering?: string;
 }
 
 export const taskKeys = {

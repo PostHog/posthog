@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,7 +17,7 @@ import * as zod from 'zod'
  * the input sizes are recorded as span attributes — a slow response on a team
  * with many playlists then shows up as a wide span against a large db_count.
  */
-export const SessionRecordingPlaylistsListParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -25,14 +25,20 @@ export const SessionRecordingPlaylistsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SessionRecordingPlaylistsListQueryParams = /* @__PURE__ */ zod.object({
+export const sessionRecordingPlaylistsListQueryLimitMax = 500
+
+export const SessionRecordingPlaylistsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(sessionRecordingPlaylistsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     short_id: zod.string().optional(),
 })
 
-export const SessionRecordingPlaylistsCreateParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -44,7 +50,7 @@ export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
 
-export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(sessionRecordingPlaylistsCreateBodyNameMax)
@@ -71,7 +77,7 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SessionRecordingPlaylistsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -80,7 +86,7 @@ export const SessionRecordingPlaylistsRetrieveParams = /* @__PURE__ */ zod.objec
     short_id: zod.string(),
 })
 
-export const SessionRecordingPlaylistsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -93,7 +99,7 @@ export const sessionRecordingPlaylistsPartialUpdateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsPartialUpdateBodyDerivedNameMax = 400
 
-export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const SessionRecordingPlaylistsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(sessionRecordingPlaylistsPartialUpdateBodyNameMax)
@@ -111,7 +117,7 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const SessionRecordingsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this session recording.'),
     project_id: zod
         .string()
@@ -120,7 +126,7 @@ export const SessionRecordingsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SessionRecordingsDestroyParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this session recording.'),
     project_id: zod
         .string()
@@ -130,9 +136,60 @@ export const SessionRecordingsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Returns the browser console messages captured during a recording, oldest first.
+ * @summary List console logs of a session recording
+ */
+export const SessionRecordingsConsoleLogsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this session recording.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const sessionRecordingsConsoleLogsRetrieveQueryLimitDefault = 100
+export const sessionRecordingsConsoleLogsRetrieveQueryLimitMax = 500
+
+export const sessionRecordingsConsoleLogsRetrieveQueryOffsetDefault = 0
+export const sessionRecordingsConsoleLogsRetrieveQueryOffsetMin = 0
+
+export const SessionRecordingsConsoleLogsRetrieveQueryParams = () => zod.object({
+    after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time."
+        ),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time."
+        ),
+    level: zod
+        .enum(['info', 'warn', 'error'])
+        .optional()
+        .describe(
+            'Only return entries at this level. Omit to return every level.\n\n\* `info` - Info\n\* `warn` - Warn\n\* `error` - Error'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(sessionRecordingsConsoleLogsRetrieveQueryLimitMax)
+        .default(sessionRecordingsConsoleLogsRetrieveQueryLimitDefault)
+        .describe('Maximum number of entries to return (1-500, default 100).'),
+    offset: zod
+        .number()
+        .min(sessionRecordingsConsoleLogsRetrieveQueryOffsetMin)
+        .default(sessionRecordingsConsoleLogsRetrieveQueryOffsetDefault)
+        .describe('Number of entries to skip. Use with `limit` to page through a long recording.'),
+})
+
+/**
  * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
  */
-export const SessionRecordingsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+export const SessionRecordingsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -142,7 +199,7 @@ export const SessionRecordingsBulkDeleteCreateParams = /* @__PURE__ */ zod.objec
 
 export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 100
 
-export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+export const SessionRecordingsBulkDeleteCreateBody = () => zod.object({
     session_recording_ids: zod
         .array(zod.string())
         .min(1)

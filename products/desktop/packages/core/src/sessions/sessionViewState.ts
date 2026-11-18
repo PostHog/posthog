@@ -4,6 +4,7 @@ import {
   type Task,
   type TaskRunStatus,
 } from "@posthog/shared/domain-types";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import { resolveEffectiveCloudStatus } from "../task-detail/cloudRunState";
 
 export interface SessionViewState {
@@ -21,6 +22,65 @@ export interface SessionViewState {
   errorTitle: string | undefined;
   errorMessage: string | undefined;
   errorRetryable: boolean | undefined;
+  githubConnectionRequired: boolean;
+}
+
+export interface SessionLifecycleState {
+  isCloud: boolean;
+  isCloudRunNotTerminal: boolean;
+  isCloudRunTerminal: boolean;
+  cloudStatus: TaskRunStatus | null;
+  hasError: boolean;
+  isInitializing: boolean;
+}
+
+export function deriveSessionLifecycleState(
+  session: AgentSession | undefined,
+  task: Task,
+  isCloud: boolean,
+  isTaskStarting = false,
+): SessionLifecycleState {
+  const effectiveIsCloud = isCloud || session?.isCloud === true;
+  const taskRunId = task.latest_run?.id;
+  const preferSessionRun =
+    !!taskRunId && session?.resumeAncestorRunIds?.includes(taskRunId) === true;
+  const activeTaskRunId = preferSessionRun
+    ? session.taskRunId
+    : (taskRunId ?? session?.taskRunId);
+  const sessionMatchesActiveRun =
+    !!session && !!activeTaskRunId && session.taskRunId === activeTaskRunId;
+  const cloudStatus = preferSessionRun
+    ? (session.cloudStatus ?? null)
+    : resolveEffectiveCloudStatus(task, session);
+  const isCloudRunTerminal = effectiveIsCloud && isTerminalStatus(cloudStatus);
+  const hasError =
+    sessionMatchesActiveRun &&
+    session.status === "error" &&
+    !session.idleKilled;
+  const hasStarted =
+    sessionMatchesActiveRun && session.firstPromptForRunId === activeTaskRunId;
+  const expectsInitialPrompt =
+    !!session && (!!session.initialPrompt?.length || session.isPromptPending);
+
+  let isInitializing = isTaskStarting;
+  if (!isTaskStarting && !hasError && !isCloudRunTerminal && !hasStarted) {
+    isInitializing = effectiveIsCloud;
+    if (!effectiveIsCloud) {
+      isInitializing =
+        sessionMatchesActiveRun &&
+        (session.status === "connecting" ||
+          (session.status === "connected" && expectsInitialPrompt));
+    }
+  }
+
+  return {
+    isCloud: effectiveIsCloud,
+    isCloudRunNotTerminal: effectiveIsCloud && !isCloudRunTerminal,
+    isCloudRunTerminal,
+    cloudStatus,
+    hasError,
+    isInitializing,
+  };
 }
 
 export function deriveSessionViewState(
@@ -28,15 +88,24 @@ export function deriveSessionViewState(
   task: Task,
   workspace: Workspace | null,
   isCloud: boolean,
+  isTaskStarting = false,
 ): SessionViewState {
   // The live session knows it is cloud before the workspace query or `latest_run`
   // metadata lands, so trust either source.
-  const effectiveIsCloud = isCloud || session?.isCloud === true;
-  const cloudStatus = resolveEffectiveCloudStatus(task, session);
-  const isCloudRunTerminal = effectiveIsCloud && isTerminalStatus(cloudStatus);
-  const isCloudRunNotTerminal = effectiveIsCloud && !isCloudRunTerminal;
-
-  const hasError = session?.status === "error" && !session?.idleKilled;
+  const lifecycle = deriveSessionLifecycleState(
+    session,
+    task,
+    isCloud,
+    isTaskStarting,
+  );
+  const {
+    isCloud: effectiveIsCloud,
+    isCloudRunNotTerminal,
+    isCloudRunTerminal,
+    cloudStatus,
+    hasError,
+    isInitializing,
+  } = lifecycle;
   const isRunning = effectiveIsCloud
     ? !hasError
     : session?.status === "connected";
@@ -45,28 +114,24 @@ export function deriveSessionViewState(
   const isPromptPending = session?.isPromptPending ?? false;
   const promptStartedAt = session?.promptStartedAt;
 
-  const isNewSessionWithInitialPrompt =
-    !task.latest_run?.id && !!task.description;
-  const isResumingExistingSession = !!task.latest_run?.id;
-  const isHydratingEmptyTranscript =
-    effectiveIsCloud &&
-    events.length === 0 &&
-    (session?.isHydratingTranscript ?? false);
-  const isInitializing = effectiveIsCloud
-    ? isHydratingEmptyTranscript ||
-      (!hasError &&
-        (!session || (events.length === 0 && isCloudRunNotTerminal)))
-    : !session ||
-      (session.status === "connecting" && events.length === 0) ||
-      (session.status === "connected" &&
-        events.length === 0 &&
-        (isPromptPending ||
-          isNewSessionWithInitialPrompt ||
-          isResumingExistingSession));
-
   const cloudBranch = effectiveIsCloud
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
     : null;
+
+  const errorMessage =
+    session?.errorMessage ??
+    (effectiveIsCloud ? (session?.cloudErrorMessage ?? undefined) : undefined);
+
+  // A cloud run that fails before the agent boots never reaches
+  // `session.status === "error"`: the reason lands on the run, and reopening
+  // the task hydrates neither the session error nor `cloudErrorMessage`. Read
+  // the run's own message too, or the failure the recovery exists for is the
+  // one case it cannot classify.
+  const githubConnectionRequired =
+    (hasError || (effectiveIsCloud && cloudStatus === "failed")) &&
+    isGithubConnectionRequiredError(
+      errorMessage ?? task.latest_run?.error_message,
+    );
 
   return {
     isCloud: effectiveIsCloud,
@@ -78,14 +143,11 @@ export function deriveSessionViewState(
     events,
     isPromptPending,
     promptStartedAt,
-    isInitializing,
+    isInitializing: isInitializing || (!effectiveIsCloud && !session),
     cloudBranch,
     errorTitle: session?.errorTitle,
-    errorMessage:
-      session?.errorMessage ??
-      (effectiveIsCloud
-        ? (session?.cloudErrorMessage ?? undefined)
-        : undefined),
+    errorMessage,
     errorRetryable: session?.errorRetryable,
+    githubConnectionRequired,
   };
 }

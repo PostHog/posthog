@@ -2,8 +2,6 @@ from contextlib import contextmanager
 
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 from products.logs.backend.retention_name_suggestion import (
     MAX_LEAF_VALUES_RENDERED,
     describe_filter_group,
@@ -65,8 +63,8 @@ class TestDescribeFilterGroup:
 
 class TestSuggestRetentionRuleName:
     @contextmanager
-    def _patched_client(self, content=None, *, error=None, api_key="sk-test"):
-        """Patch the OpenAI client and the API key together — the suggestion no-ops without a key."""
+    def _patched_client(self, content=None, *, error=None, gateway_configured=True):
+        """Patch the OpenAI client and the gateway config together — the suggestion no-ops without a gateway."""
         client = MagicMock()
         if error is not None:
             client.chat.completions.create.side_effect = error
@@ -74,8 +72,13 @@ class TestSuggestRetentionRuleName:
             client.chat.completions.create.return_value = MagicMock(
                 choices=[MagicMock(message=MagicMock(content=content))]
             )
-        with override_settings(OPENAI_API_KEY=api_key):
-            with patch("products.logs.backend.retention_name_suggestion.OpenAI", return_value=client) as mock_client:
+        with patch(
+            "products.logs.backend.retention_name_suggestion.resolve_ai_gateway_config",
+            return_value=MagicMock() if gateway_configured else None,
+        ):
+            with patch(
+                "products.logs.backend.retention_name_suggestion.build_openai_client", return_value=client
+            ) as mock_client:
                 yield mock_client
 
     def _suggest(self, retention_days=14, filter_group=None):
@@ -87,8 +90,14 @@ class TestSuggestRetentionRuleName:
         )
 
     def test_returns_generated_name(self):
-        with self._patched_client("Keep api logs for 30 days"):
+        with self._patched_client("Keep api logs for 30 days") as mock_client:
             assert self._suggest(retention_days=30) == "Keep api logs for 30 days"
+        mock_client.assert_called_once_with(
+            "django",
+            ai_product="logs",
+            properties={"ai_feature": "retention-rule-name-suggestion", "team_id": "1"},
+            distinct_id="user-1",
+        )
 
     def test_strips_prefix_and_quotes(self):
         with self._patched_client('  Name: "Keep api logs for 14 days"  '):
@@ -113,6 +122,6 @@ class TestSuggestRetentionRuleName:
 
     def test_no_llm_call_when_key_is_unconfigured(self):
         # Self-hosted instances without a key degrade quietly rather than erroring per keystroke.
-        with self._patched_client("Keep api logs for 14 days", api_key="") as mock_client:
+        with self._patched_client("Keep api logs for 14 days", gateway_configured=False) as mock_client:
             assert self._suggest() == ""
         mock_client.assert_not_called()

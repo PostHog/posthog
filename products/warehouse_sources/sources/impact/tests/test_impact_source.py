@@ -1,0 +1,129 @@
+from typing import Optional
+
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from products.warehouse_sources.sources.impact import source as source_module
+from products.warehouse_sources.sources.impact._config import ImpactSourceConfig
+from products.warehouse_sources.sources.impact.source import ImpactSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
+)
+
+
+def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
+    inputs = MagicMock()
+    inputs.schema_name = schema_name
+    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
+    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-01T00:00:00")
+    inputs.api_version = overrides.get("api_version", None)
+    return inputs
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(ImpactSource(), ImpactSourceConfig(account_sid="s", auth_token="t"))
+
+
+class TestImpactSourceClass:
+    @parameterized.expand(
+        [
+            ("Actions", True),
+            ("MediaPartners", True),
+            ("ActionUpdates", True),
+            ("Campaigns", False),
+            ("Invoices", False),
+            ("Contracts", False),
+            ("InvoiceLineItems", False),
+            ("InvoiceDetailedLineItems", False),
+        ]
+    )
+    def test_supports_incremental_per_endpoint(self, endpoint: str, expected: bool) -> None:
+        schemas = ImpactSource().get_schemas(
+            ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, names=[endpoint]
+        )
+        assert len(schemas) == 1
+        assert schemas[0].supports_incremental is expected
+        assert schemas[0].supports_append is expected
+
+    @parameterized.expand(
+        [
+            ("valid", True, True, None),
+            (
+                "invalid",
+                False,
+                False,
+                "Your impact.com Account SID or Auth token isn't valid for a brand account. Check both values, or use the impact.com Partner source for a partner account.",
+            ),
+        ]
+    )
+    def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:
+        status = 200 if api_result else 401
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            result = ImpactSource().validate_credentials(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
+        assert result == (ok, err)
+        assert network.requests_log[0].path == "/Advertisers/s/Campaigns"
+
+    def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
+        manager = MagicMock()
+        inputs = _inputs(should_use_incremental_field=False)
+        with patch.object(source_module, "impact_source") as mock_impact_source:
+            ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
+
+        assert mock_impact_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_429",
+                "429 Client Error: Too Many Requests for url: https://api.impact.com/Advertisers/s/Actions",
+            ),
+            (
+                "exhausted_500",
+                "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
+            ),
+            ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Advertisers/s/Invoices"),
+        ]
+    )
+    def test_exhausted_transient_responses_are_retryable(self, _name: str, error: str) -> None:
+        assert error_message_matches(error, ImpactSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.impact.com/Advertisers/s/Invoices"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.impact.com/Advertisers/s/Invoices"),
+        ]
+    )
+    def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
+        assert not error_message_matches(error, ImpactSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unpinned_resolves_to_default", None, "14"),
+            ("legacy_pin_honored", "v1", "v1"),
+            ("dated_pin_honored", "14", "14"),
+        ]
+    )
+    def test_source_for_pipeline_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
+        result = _driver().run(
+            "Campaigns", [ScriptedResponse(json={"Campaigns": [], "@numpages": "1"})], api_version=pin
+        )
+        assert result.raised is None
+        assert result.requests[0].headers.get("ir-version") == (None if expected == "v1" else expected)
+
+    @parameterized.expand(
+        [
+            ("unpinned_resolves_to_default", None, "14"),
+            ("legacy_pin_honored", "v1", "v1"),
+        ]
+    )
+    def test_validate_credentials_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            result = ImpactSource().validate_credentials(
+                ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, api_version=pin
+            )
+        assert result == (True, None)
+        assert network.requests_log[0].headers.get("ir-version") == (None if expected == "v1" else expected)

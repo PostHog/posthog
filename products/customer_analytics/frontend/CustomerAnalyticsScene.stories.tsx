@@ -1,8 +1,12 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -10,12 +14,21 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
+import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
-function setBusinessTypeOnMountedLogic(businessType: BusinessType): void {
-    for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-        logic.actions.setBusinessType(businessType)
-    }
+// Mount the scene logic in an effect, so that App has already mounted sceneLogic with its scenes.
+// The effect runs before the lazy scene loads, so the first scene render uses this business type.
+function useBusinessType(businessType: BusinessType, groupType?: number): void {
+    useOnMountEffect(() => {
+        const unmount = customerAnalyticsSceneLogic.mount()
+        customerAnalyticsSceneLogic.actions.setBusinessType(businessType)
+        if (groupType !== undefined) {
+            customerAnalyticsSceneLogic.actions.setSelectedGroupType(groupType)
+        }
+        return unmount
+    })
 }
 
 const meta: Meta = {
@@ -34,6 +47,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, results: [] },
             },
         }),
     ],
@@ -44,9 +58,7 @@ type Story = StoryObj<{}>
 
 export const B2CMode: Story = {
     render: () => {
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2c')
-        })
+        useBusinessType('b2c')
 
         return <App />
     },
@@ -69,12 +81,23 @@ export const B2BModeWithGroupsEnabled: Story = {
             },
         })
 
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
-            for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-                logic.actions.setSelectedGroupType(0)
-            }
-        })
+        useBusinessType('b2b', 0)
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-analytics-group-type"]',
+        },
+    },
+}
+
+export const B2BModeWithoutGroups: Story = {
+    render: () => {
+        useAvailableFeatures([])
+
+        useBusinessType('b2b')
 
         return <App />
     },
@@ -83,18 +106,160 @@ export const B2BModeWithGroupsEnabled: Story = {
     },
 }
 
-export const B2BModeWithoutGroups: Story = {
+const customerTaskStoryItems: CustomerTaskApi[] = [
+    {
+        id: '018f47de-7e12-7000-8000-000000000041',
+        account: { id: '018f47de-7e12-7000-8000-000000000051', name: 'Acme Inc' },
+        name: 'Review renewal feedback',
+        description:
+            'Summarize recent feedback, confirm the renewal risks, and prepare the account review notes before the customer meeting next week.',
+        status: 'open',
+        assigned_to: {
+            id: 178,
+            email: 'alex@example.com',
+            first_name: 'Alex',
+            last_name: 'Morgan',
+        },
+        due_at: '2024-01-12T16:00:00Z',
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-08T10:00:00Z',
+        updated_at: '2024-01-14T14:30:00Z',
+        can_edit: true,
+        can_restore: false,
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000042',
+        account: { id: '018f47de-7e12-7000-8000-000000000052', name: 'Globex' },
+        name: 'Confirm implementation timeline',
+        description: 'Check the rollout dates with the engineering team.',
+        status: 'open',
+        assigned_to: {
+            id: 202,
+            email: 'taylor@example.com',
+            first_name: 'Taylor',
+            last_name: 'Rivera',
+        },
+        due_at: '2024-01-18T11:00:00Z',
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-09T09:00:00Z',
+        updated_at: '2024-01-13T16:15:00Z',
+        can_edit: true,
+        can_restore: false,
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000043',
+        account: null,
+        name: 'Share adoption report',
+        description: null,
+        status: 'open',
+        assigned_to: null,
+        due_at: null,
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-10T13:00:00Z',
+        updated_at: '2024-01-12T09:45:00Z',
+        can_edit: true,
+        can_restore: false,
+    },
+]
+
+export const CustomerTasks: Story = {
     render: () => {
-        useAvailableFeatures([])
-
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/customer_tasks/': {
+                    count: customerTaskStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: customerTaskStoryItems,
+                },
+            },
         })
-
         return <App />
     },
     parameters: {
-        pageUrl: urls.customerAnalyticsDashboard(),
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        pageUrl: urls.customerAnalyticsTasks(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-task-name"]',
+        },
+    },
+}
+
+const roleStoryItems = [
+    {
+        id: '018f47de-7e12-7000-8000-000000000061',
+        name: 'Team Onboarding',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [
+            {
+                id: '018f47de-7e12-7000-8000-000000000071',
+                role_id: '018f47de-7e12-7000-8000-000000000061',
+                user: MOCK_DEFAULT_BASIC_USER,
+                user_uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                joined_at: '2024-01-01T10:00:00Z',
+                updated_at: '2024-01-01T10:00:00Z',
+            },
+        ],
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000062',
+        name: 'Team Customer Success',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [],
+    },
+]
+
+export const CustomerTasksAssigneeRoles: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/customer_tasks/': {
+                    count: customerTaskStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: customerTaskStoryItems,
+                },
+                '/api/organizations/:organization_id/roles/': {
+                    count: roleStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: roleStoryItems,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        pageUrl: urls.customerAnalyticsTasks(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-task-name"]',
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>('[data-attr="customer-tasks-assignee-filter"]')
+                if (!element) {
+                    throw new Error('Assignee filter not rendered yet')
+                }
+                return element
+            },
+            { timeout: 15000 }
+        )
+        await userEvent.click(trigger)
+        await within(canvasElement.ownerDocument.body).findByText('Team Customer Success', {}, { timeout: 15000 })
     },
 }
 

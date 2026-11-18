@@ -1,0 +1,6 @@
+{
+    "id": "RA13",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted: the claimed inline copy does not exist. process_inbox_pr_review calls the shared helper at tasks.py:1186 (`pr_obj = _upsert_pull_request(repo_config, pr)`), same as the webhook path at tasks.py:1036. The get-or-create plus payload_updated_at staleness rule (WHERE-clause gate, lines 339-362) exists exactly once, inside _upsert_pull_request — the suggested extraction is already the code's shape. The only shared inline snippet is the 3-clause post-upsert recheck comparison (webhook 1045-1049, inbox 1191-1195), a trivial guard over the helper's returned clock with path-specific logging and delivery-marking; the staleness rule itself would still change in one place. Not a should_fix duplication defect."
+}

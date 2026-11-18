@@ -1,10 +1,11 @@
 import datetime as dt
 from uuid import UUID
 
-from temporalio.common import Priority
+from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
 
 # How long a cached admission budget admits without re-running the spend aggregates. Spend the
 # cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
@@ -14,10 +15,22 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
-# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
-# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The folded chain is create 3m + prepare 5m + rasterize 40m +
+# upload 20m + provider 25m + finalize 8m + terminal mark 3m + cleanup 1m = 105m. The headroom covers task-queue
+# scheduling latency between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
+
+# Retry policy for the short Postgres writes that move an observation or its media between states.
+STATE_ACTIVITY_RETRY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
+
+# Bounds each state write's whole retry chain, backoff included, so the failure path provably fits inside
+# APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
+STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
 
 def on_demand_priority(team_id: int) -> Priority:
@@ -38,26 +51,10 @@ REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 # The reaper heartbeats as it works, so an attempt quiet this long is stranded or stalled, not slow.
 REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 
-# Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
-# workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
-PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
-PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
-
-# Running runs older than twice the process execution timeout are provably stuck (the final
-# update activity failed or the workflow was terminated without reaching it).
-VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
-REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
-
 # An inline scanner is minted just before its scans start, so anything still childless well after a
 # scan could have persisted its first observation never had one.
 INLINE_SCANNER_REAP_GRACE = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 INLINE_SCANNER_REAP_BATCH_SIZE = 500
-
-
-def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
-    """Deterministic id: a still-running action is skipped (WorkflowAlreadyStartedError), not double-fired."""
-    return f"{PROCESS_VISION_ACTION_WORKFLOW_NAME}-{vision_action_id}"
-
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
@@ -109,20 +106,14 @@ READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
-# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
-# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+# budget check plus the candidate scan. Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-
-# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
-# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
-# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
-# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
-REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
 # scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
 # kills the attempt after the candidates were found, so the tick retries without ever dispatching.
-FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+# Covers the 30 s group key lookup and the 180 s candidate query, plus slack for Postgres reads.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=230)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -144,11 +135,18 @@ RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+# Caps each of the upsert and delete fan-outs per reconciler tick, so a fleet-wide fingerprint change rolls
+# out over several ticks instead of one workflow scheduling an activity per scanner past the history limit.
+RECONCILE_MAX_SCHEDULE_OPS_PER_TICK = 1000
 
 # Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
+# Room past both sweep budgets for one workflow-step wake that started just before the deadline: its POST
+# can time out and fall back to an internal event, the completion events still flush after it, and the
+# stamping queries still need room inside bounded_queries, which takes 75% of this.
+COMPLETE_OBSERVATION_REQUESTS_TIMEOUT = dt.timedelta(seconds=100)
 
 # The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
 # healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.
@@ -177,8 +175,20 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
+
+# Covers signal emission (up to 2 minutes), the result write and the delivery steps after it.
+FINALIZE_OBSERVATION_TIMEOUT = dt.timedelta(minutes=5)
+FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=8)
+
+# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
+SWEEP_SCANNER_TICK_TIMEOUT = (
+    FIND_SCANNER_CANDIDATES_TIMEOUT + CHECK_SCANNER_BUDGET_TIMEOUT + COUNT_IN_FLIGHT_APPLIES_TIMEOUT
+)
+# Fits two timed-out attempts plus backoff, so a third attempt only follows fast admission rejections.
+SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE = 2 * SWEEP_SCANNER_TICK_TIMEOUT + dt.timedelta(seconds=40)
 
 
 # Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
@@ -191,9 +201,8 @@ def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
     per-team caps, minus the slots reserved for on-demand admission.
 
-    The sweep workflow throttles on this and the count activity records the throttled
-    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
-    inside deterministic workflow code.
+    The sweep tick throttles on this and the count activity records the throttled metric from
+    it, so the decision and the metric can't drift apart.
     """
     return min(
         MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,
@@ -213,7 +222,7 @@ BACKFILL_TICK_INTERVAL = dt.timedelta(minutes=1)
 BACKFILL_TICK_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 
 PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
-FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+FIND_BACKFILL_CANDIDATES_TIMEOUT = FIND_SCANNER_CANDIDATES_TIMEOUT
 ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
 BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 
@@ -239,7 +248,7 @@ ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
 ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
 ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
 
-# Quarter-hourly checks against a 24h staleness target keep estimates at most ~24h15m old.
+# Quarter-hourly so an estimate nulled by a config edit is recomputed soon; the staleness clocks live with the query.
 ESTIMATES_REFRESH_INTERVAL = dt.timedelta(minutes=15)
 # Covers the worst-case batch (MAX_PER_RUN / CONCURRENCY × the 60s activity timeout = 100 min) with margin;
 # overlap SKIP means a slow run absorbs later ticks instead of being cancelled mid-batch.
@@ -259,14 +268,28 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
 
 
-EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+# Learned rules: ratings settle for a while before a team is distilled, so a 10-minute tick is prompt enough.
+LEARNED_RULES_WORKFLOW_NAME = "replay-vision-refresh-learned-rules"
+LEARNED_RULES_WORKFLOW_ID = "replay-vision-learned-rules-refresher"
+LEARNED_RULES_SCHEDULE_ID = "replay-vision-learned-rules-refresher-schedule"
+LEARNED_RULES_REFRESH_INTERVAL = dt.timedelta(minutes=10)
+LEARNED_RULES_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
+# Two waves of the 4-minute activity timeout fit inside the 9-minute execution timeout.
+LEARNED_RULES_MAX_TEAMS_PER_RUN = 32
+LEARNED_RULES_CONCURRENCY = 16
+LIST_DUE_LEARNED_RULES_TIMEOUT = dt.timedelta(seconds=60)
+# Covers the model call's own 120s timeout plus the database reads around it.
+REFRESH_TEAM_LEARNED_RULES_TIMEOUT = dt.timedelta(minutes=4)
 
 
-def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
-    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
-    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
-
-
-def replay_vision_distinct_id(team_id: int) -> str:
-    """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
-    return f"replay-vision:{team_id}"
+# Highlight feed rebuilds: a schedule starts this every minute and skips a start while one still runs.
+HIGHLIGHT_REBUILD_WORKFLOW_NAME = "replay-vision-rebuild-highlight-feeds"
+HIGHLIGHT_REBUILD_WORKFLOW_ID = "replay-vision-highlight-feed-rebuilder"
+HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule"
+HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
+HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
+# One team's build holds one heavy statement under its own 120s cap, so a heartbeat per team arrives well inside this.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
+# The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
+HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)

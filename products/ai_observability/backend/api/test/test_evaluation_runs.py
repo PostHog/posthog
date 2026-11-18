@@ -82,7 +82,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.ai_event_lookup.query_with_columns")
     @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
     def test_create_evaluation_run_success(self, mock_connect, mock_query):
         """Test successfully creating an evaluation run"""
@@ -141,7 +141,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert workflow_inputs.event_data is not None
         assert workflow_inputs.event_data["uuid"] == target_event_id.replace("-", "")
 
-    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.ai_event_lookup.query_with_columns")
     @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
     def test_create_evaluation_run_tags_clickhouse_query(self, mock_connect, mock_query):
         """The manual eval-trigger ClickHouse lookup must run inside an LLM analytics tag context.

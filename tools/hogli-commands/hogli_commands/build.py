@@ -9,6 +9,7 @@ import click
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.projections import all_triggers
 
 # command -> file globs that should trigger it
 TRIGGERS: dict[str, tuple[str, ...]] = {
@@ -21,7 +22,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     # trigger a regen.
     "build:openapi": (
         "posthog/api/*.py",
-        "posthog/scopes.py",
+        "posthog/scopes/*.py",
         "ee/api/*.py",
         "products/*/backend/api/*.py",
         "products/*/backend/presentation/*.py",
@@ -37,7 +38,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         ".oxlintrc.json",
     ),
     "build:grammar": ("posthog/hogql/grammar/*",),
-    "build:taxonomy-json": ("posthog/taxonomy/*",),
+    "build:projections": all_triggers(),
     "build:products": ("products/*/frontend/*",),
     "build:skills": ("products/*/skills/*",),
     "build:schema-mcp": ("services/mcp/src/*",),

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
@@ -10,14 +10,28 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.traffic_type import log_traffic_fields
 
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
-# 50GB - limit for user-provided HogQL queries on log tables to prevent expensive full scans
-HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES = 50_000_000_000
+    from posthog.models.organization import Organization
+
+# Limit for user-provided HogQL queries on log tables to prevent expensive full scans.
+# Paid and enterprise orgs get a higher budget; free stays at the original 50GB cap.
+HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
+    "free": 50_000_000_000,
+    "paid": 150_000_000_000,
+    "enterprise": 150_000_000_000,
+}
+
+
+def get_hogql_max_bytes_to_read_for_logs_user_queries(organization: "Organization | None") -> int:
+    """Read-byte budget for user-provided HogQL queries on log tables, scaled by plan tier."""
+    tier = organization.get_plan_tier() if organization is not None else "free"
+    return HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES_BY_TIER[tier]
 
 
 class LogsTable(Table):
@@ -104,7 +118,11 @@ class LogsTable(Table):
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
         "_bytes_uncompressed": IntegerDatabaseField(name="_bytes_uncompressed", nullable=True, hidden=True),
         "mat_body_ipv4_matches": StringJSONDatabaseField(name="mat_body_ipv4_matches", nullable=True, hidden=True),
+        **log_traffic_fields(),
     }
+
+    def avoid_asterisk_fields(self) -> list[str]:
+        return list(log_traffic_fields())
 
     def to_printed_clickhouse(self, context):
         return "logs_distributed"
@@ -154,6 +172,60 @@ class LogsVolumeBucketsTable(Table):
 
     def to_printed_hogql(self) -> str:
         return "logs_volume_buckets"
+
+
+class LogsPatternBucketsTable(Table):
+    description: str = (
+        "Log pattern volume rollup on a 5-minute UTC grid, one row per (service, namespace, environment, severity, "
+        "pattern_version, pattern) series per bucket. Only holds logs with a pattern. Holds partial counts: always "
+        "GROUP BY the key columns and sum(log_count)."
+    )
+    workload: Workload | None = Workload.LOGS
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket",
+            nullable=False,
+            description="Start of the 5-minute UTC bucket the counts fall in.",
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the logs."
+        ),
+        "namespace": StringDatabaseField(
+            name="namespace",
+            nullable=False,
+            description="Kubernetes or service namespace of the emitting resource; empty string when absent.",
+        ),
+        "environment": StringDatabaseField(
+            name="environment",
+            nullable=False,
+            description="Deployment environment of the emitting resource; empty string when absent.",
+        ),
+        "severity_text": StringDatabaseField(
+            name="severity_text", nullable=False, description="Lowercased log severity (for example info, warn, error)."
+        ),
+        "pattern_version": IntegerDatabaseField(
+            name="pattern_version",
+            nullable=False,
+            description="Version of the masking rules that produced `pattern`. Compare patterns only within one version.",
+        ),
+        "pattern": StringDatabaseField(
+            name="pattern",
+            nullable=False,
+            description="Masked template of the log message, with variable parts replaced. Logs that share a pattern are the same kind of message.",
+        ),
+        "log_count": IntegerDatabaseField(
+            name="log_count",
+            nullable=False,
+            description="Partial log count for the bucket; sum() across rows for the true count.",
+        ),
+    }
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "logs_pattern_buckets_distributed"
+
+    def to_printed_hogql(self) -> str:
+        return "logs_pattern_buckets"
 
 
 class LogAttributesTable(Table):

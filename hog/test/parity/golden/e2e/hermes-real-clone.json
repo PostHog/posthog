@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "rn/index.android.bundle": "sha512:7a288200bed529fe6441685bdb0299122749177803ffb8a2c453cd65d026022188ba61494a47729875eb593abf017971805bb8a7927055111a2baa7ec05df8f0",
+    "rn/react-native-hermes.map": "sha512:e8d1df0eec6f7aa2cdb88801cd8616c4c31d244dd7fa5f30ef7b8ece640f66f9340b575a62e27f101296ea71a179211dfde6427ac3ee266ceb887b67a632232b",
+    "rn/react-native-metro.js.map": "sha512:5ba632cd41b16e47e58f08a52a6a52f215ff2a18d68c53eaed2d05529e35ab437efabcb98aed425467b9f3e08368b3b05d2b87220ddbeb916cf8e913b8e64ab2"
+  }
+}

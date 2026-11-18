@@ -1,7 +1,12 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock
 
 from products.workflows.backend.models import HogFlow
-from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
+from products.workflows.backend.services.template_input_usage import (
+    HogFlowReference,
+    filter_hog_flow_references_by_access_level,
+    get_hog_flows_referencing_template_input_keys,
+)
 
 TEMPLATE_ID = "template-posthog-update-account-property"
 
@@ -76,3 +81,34 @@ class TestTemplateInputUsage(BaseTest):
         usage = get_hog_flows_referencing_template_input_keys(self.team.id + 1, TEMPLATE_ID, "properties")
 
         assert usage == {}
+
+    def test_filters_pre_scanned_references_without_loading_actions(self):
+        visible = self._create_flow(name="Visible", status="active", actions=[_account_property_action({"def-a": "1"})])
+        denied = self._create_flow(name="Denied", status="active", actions=[_account_property_action({"def-a": "1"})])
+        user_access_control = MagicMock()
+        user_access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset.exclude(
+            id=denied.id
+        )
+
+        with self.assertNumQueries(1) as queries:
+            references = filter_hog_flow_references_by_access_level(
+                self.team.id,
+                {
+                    "def-a": [
+                        HogFlowReference(
+                            id=str(visible.id), name=visible.name or str(visible.id), status=visible.status
+                        ),
+                        HogFlowReference(id=str(denied.id), name=denied.name or str(denied.id), status=denied.status),
+                    ]
+                },
+                user_access_control,
+            )
+
+        assert references == {
+            "def-a": [HogFlowReference(id=str(visible.id), name=visible.name or str(visible.id), status=visible.status)]
+        }
+        assert all(
+            '"actions"' not in query["sql"]
+            for context in queries.contexts.values()
+            for query in context.captured_queries
+        )

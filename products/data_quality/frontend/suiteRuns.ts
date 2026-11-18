@@ -20,8 +20,8 @@ export function pollDelayMs(elapsedMs: number): number {
 }
 
 /** The newest run that still has its query. Retention clears the compiled query after 30 days. */
-export function latestFailingRowsQuery(runs: DataQualityCheckRunApi[]): string | null {
-    return runs.find((run) => run.compiled_query)?.compiled_query || null
+export function latestRunWithQuery(runs: DataQualityCheckRunApi[]): DataQualityCheckRunApi | null {
+    return runs.find((run) => run.compiled_query || run.audited_staged_refresh) ?? null
 }
 
 export type SuiteRunOutcome = 'empty' | 'errored' | 'warning' | 'success'
@@ -157,4 +157,28 @@ export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {
         .filter(([count]) => count > 0)
         .map(([count, outcome]) => `${count} ${outcome}`)
         .join(', ')
+}
+
+export const SUITE_RUN_TOAST_DISPOSABLE = 'suiteRunToast'
+
+export function suiteRunToastId(suiteRun: DataQualitySuiteRunApi): string {
+    return `data-quality-suite-run-${suiteRun.id}`
+}
+
+export function suiteRunToastMessage(suiteRun: DataQualitySuiteRunApi): string {
+    const problemCount = suiteRun.checks_failed + suiteRun.checks_errored
+    if (problemCount > 0) {
+        return `${pluralize(problemCount, 'data quality check')} ${suiteRunProblemVerb(suiteRun)}`
+    }
+    if (suiteRun.checks_passed === 0) {
+        return `${pluralize(suiteRun.checks_skipped, 'data quality check')} skipped`
+    }
+    return `All ${pluralize(suiteRun.checks_passed, 'data quality check')} passed`
+}
+
+function suiteRunProblemVerb(suiteRun: DataQualitySuiteRunApi): string {
+    if (!suiteRun.checks_errored) {
+        return 'failed'
+    }
+    return suiteRun.checks_failed ? "didn't pass" : "couldn't run"
 }

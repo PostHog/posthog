@@ -369,7 +369,6 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=initial_query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         old_table = DataWarehouseTable.objects.create(
@@ -386,14 +385,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         old_saved_query_id = old_saved_query.id
 
         # Mock Temporal-related functions to avoid connection errors
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"),
-        ):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ) as schedule_materialization:
             # Update query (which should create new version with its own materialization)
             new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
             response = self.client.put(
@@ -420,7 +414,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         new_saved_query = new_version.saved_query
         assert new_saved_query is not None
         self.assertTrue(new_saved_query.is_materialized)
-        self.assertEqual(new_saved_query.sync_frequency_interval, timedelta(hours=24))
+        self.assertEqual(schedule_materialization.call_args.kwargs["frequency_target"], timedelta(hours=24))
 
         # Verify new saved query has the NEW query (not the old one)
         assert new_saved_query.query is not None
@@ -606,8 +600,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        # Mock sync workflow
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             # Enable materialization on v1
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -622,7 +617,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(v1.saved_query.name, "versioned_mat_v1")
 
         # Create v2 by changing query
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
                 {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
@@ -673,7 +670,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(v2.is_materialized)
 
         # Enable materialization on v1 specifically (not the current version)
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
                 {"is_materialized": True, "data_freshness_seconds": 86400},
@@ -696,8 +695,6 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
     def test_update_with_version_param_disables_materialization_on_specific_version(self):
         """Update with ?version=N should disable materialization on that specific version."""
 
-        from datetime import timedelta
-
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -717,7 +714,6 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=initial_query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         table = DataWarehouseTable.objects.create(

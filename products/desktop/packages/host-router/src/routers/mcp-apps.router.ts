@@ -11,6 +11,7 @@ import {
   openLinkInput,
   proxyResourceReadInput,
   proxyToolCallInput,
+  serverConfigChangedSubscriptionInput,
 } from "@posthog/core/mcp-apps/schemas";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 
@@ -125,4 +126,19 @@ export const mcpAppsRouter = router({
       yield event;
     }
   }),
+
+  onServerConfigChanged: publicProcedure
+    .input(serverConfigChangedSubscriptionInput)
+    .subscription(async function* (opts) {
+      const service = opts.ctx.container.get<McpAppsService>(MCP_APPS_SERVICE);
+      const targetServer = opts.input.serverName;
+      for await (const event of service.toIterable(
+        McpAppsServiceEvent.ServerConfigChanged,
+        { signal: opts.signal },
+      )) {
+        if (event.serverName === targetServer) {
+          yield event;
+        }
+      }
+    }),
 });

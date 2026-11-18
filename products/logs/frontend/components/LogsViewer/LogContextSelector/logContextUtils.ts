@@ -1,10 +1,12 @@
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
+
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import {
     SESSION_LOGS_WINDOW_MINUTES,
-    SessionIdMatch,
+    LogIdentityMatch,
     buildDateRangeAround,
     getSessionIdWithKey,
 } from 'products/logs/frontend/utils'
@@ -20,13 +22,13 @@ export interface LogContextOption {
 const SURROUNDING_WINDOW_MINUTES = 1
 const TRACE_WINDOW_MINUTES = 5
 
-function getServiceName(log: ParsedLogMessage): string | null {
+export function getServiceName(log: ParsedLogMessage): string | null {
     const resourceAttrs = log.resource_attributes as Record<string, unknown> | undefined
     const serviceName = resourceAttrs?.['service.name']
     return serviceName ? String(serviceName) : null
 }
 
-function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): SessionIdMatch | null {
+function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): LogIdentityMatch | null {
     return getSessionIdWithKey(log.attributes, log.resource_attributes, configuredKeys)
 }
 
@@ -67,7 +69,7 @@ export function getAvailableContexts(log: ParsedLogMessage, configuredKeys?: str
         description: 'All logs across services around this time',
     })
 
-    if (log.trace_id) {
+    if (usableId(log.trace_id)) {
         contexts.push({
             type: 'trace',
             label: 'View trace logs',
@@ -113,10 +115,11 @@ export function buildContextFilters(
             }
         }
         case 'trace': {
+            const traceId = usableId(log.trace_id)
             return {
                 ...base,
                 dateRange: buildDateRangeAround(log.timestamp, TRACE_WINDOW_MINUTES),
-                filterGroup: buildFilterGroup('trace_id', log.trace_id, PropertyFilterType.Log),
+                filterGroup: traceId ? buildFilterGroup('trace_id', traceId, PropertyFilterType.Log) : undefined,
             }
         }
         case 'session': {

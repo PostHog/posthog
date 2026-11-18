@@ -1,6 +1,12 @@
-from django.db import models
+from typing import TYPE_CHECKING
+
+from django.db import connection, models, transaction
+from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 class UserPushToken(UUIDModel):
@@ -39,3 +45,18 @@ class UserPushToken(UUIDModel):
     class Meta:
         db_table = "posthog_user_push_token"
         unique_together = [("user", "token")]
+
+    @classmethod
+    def register(cls, *, user: "User", token: str, platform: str) -> "UserPushToken":
+        with transaction.atomic():
+            # A row lock cannot serialize the first registration of a token. Lock its identity instead.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"user-push-token:{token}"])
+            cls.objects.filter(token=token).exclude(user=user).delete()
+            # Include last_seen_at in defaults so update_or_create persists it on the update path too.
+            push_token, _created = cls.objects.update_or_create(
+                user=user,
+                token=token,
+                defaults={"platform": platform, "last_seen_at": timezone.now()},
+            )
+            return push_token

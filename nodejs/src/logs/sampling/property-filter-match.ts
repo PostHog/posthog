@@ -151,7 +151,6 @@ function matchExact(value: PropertyFilterLeaf['value'], overrideValue: string | 
     return String(value).toLowerCase() === String(overrideValue).toLowerCase()
 }
 
-// Mirrors `is_truthy_or_falsy_property_value` in posthog/queries/base.py.
 function isTruthyOrFalsyValue(v: unknown): boolean {
     if (v === true || v === false) {
         return true

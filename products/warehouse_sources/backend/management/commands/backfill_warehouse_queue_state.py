@@ -15,11 +15,7 @@ import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    PARTITION_PRUNING_INTERVAL,
-    latest_status_lateral,
-)
+from products.warehouse_sources_queue.backend.sdk import BATCH_TABLE, PARTITION_PRUNING_INTERVAL, latest_status_lateral
 
 logger = structlog.get_logger(__name__)
 

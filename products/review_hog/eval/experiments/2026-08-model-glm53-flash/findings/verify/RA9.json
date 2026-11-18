@@ -1,0 +1,6 @@
+{
+    "id": "RA9",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "The claim's core assertions are false. The failure is not silent: settings.py:80 calls logger.exception, which emits an ERROR record with the full traceback, so a TypeError is trivially distinguishable from an OperationalError in logs and error tracking — 'nothing distinguishes a transient DB outage from a genuine bug' does not hold. The breadth is a deliberate, documented design (settings.py:73-76): stamphog_connected is an informational UI flag read from a separate product DB behind a fail-fast breaker, and a cross-DB failure must not 500 the always-called settings endpoint; False renders the toggle disabled. Narrowing to DatabaseError would 500 the endpoint on any non-DB failure of this decorative boolean — the exact outcome the design rejects. The callee is a plain .exists() query (products/stamphog/backend/facade/api.py:112-125); the breaker raises CircuitOpenError, an OperationalError subclass (posthog/db_backends/failopen/base.py:12-13), so nothing about the breaker forces the broad catch either — it is a documented style choice, not a defect."
+}

@@ -1,0 +1,31 @@
+name: 'Download context-mill skills'
+description: 'Unpack the latest context-mill skills release into a skills directory'
+inputs:
+    target-dir:
+        description: 'Directory that receives one subdirectory per skill'
+        required: true
+runs:
+    using: 'composite'
+    steps:
+        - shell: bash
+          env:
+              TARGET_DIR: ${{ inputs.target-dir }}
+          run: |
+              CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+              tmp_dir=$(mktemp -d)
+              trap 'rm -rf "$tmp_dir"' EXIT
+              echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
+              curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
+              unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
+              mkdir -p "$TARGET_DIR"
+              count=0
+              while read -r inner_zip; do
+                  skill_name="$(basename "$inner_zip" .zip)"
+                  skill_name="${skill_name#omnibus-}"
+                  skill_dir="$TARGET_DIR/$skill_name"
+                  mkdir -p "$skill_dir"
+                  unzip -q -o "$inner_zip" -d "$skill_dir"
+                  find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
+                  count=$((count + 1))
+              done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
+              echo "Installed ${count} context-mill skills into ${TARGET_DIR}"

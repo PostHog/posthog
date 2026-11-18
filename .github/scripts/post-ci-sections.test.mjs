@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import { buildDependencyScanSection } from './post-dependency-scan-section.mjs'
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
-import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
+import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
+import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -61,16 +63,115 @@ describe('CI report section builders', () => {
         },
         {
             name: 'describes a non-backend lane',
-            input: { impactedTargets: ['fe:core'], isUniversal: false },
+            input: { impactedTargets: ['fe:core', 'node:ingestion'], isUniversal: false },
             expected: {
                 status: 'ok',
                 summary: 'non-backend lane',
                 body: 'This PR is assigned to the non-backend lane. It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
+        {
+            name: 'names the single non-backend target',
+            input: { impactedTargets: ['fe:product:desktop'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>fe:product:desktop</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>fe:product:desktop</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single backend Python target',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane (<code>py:product:surveys</code>)',
+                body: 'This PR is assigned to the backend Python lane (<code>py:product:surveys</code>). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'escapes a target before rendering it',
+            input: { impactedTargets: ['</summary><img src="x">'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
     ]) {
         it(testCase.name, () => {
             assert.deepEqual(buildTrunkLaneSection(testCase.input), testCase.expected)
+        })
+    }
+
+    it('warns and names both sides when a PR mixes lanes', () => {
+        const section = buildTrunkLaneSection({
+            impactedTargets: ['node:ingestion', 'py:core'],
+            isUniversal: false,
+            crossLane: { mixed: true, heavyFiles: ['posthog/api/x.py'], lightFiles: ['nodejs/src/y.ts'] },
+        })
+        assert.equal(section.status, 'warn')
+        assert.match(section.summary, /mixes lanes/)
+        assert.match(section.body, /<code>posthog\/api\/x\.py<\/code>/)
+        assert.match(section.body, /<code>nodejs\/src\/y\.ts<\/code>/)
+    })
+
+    it('counts the files the telemetry cut from a capped list', () => {
+        const crossLane = parseCrossLane({
+            cross_lane: true,
+            cross_lane_heavy_files: ['a.py', 'b.py', 'c.py', 'd.py'],
+            cross_lane_heavy_file_count: 150,
+            cross_lane_light_files: ['nodejs/src/y.ts'],
+        })
+        const section = buildTrunkLaneSection({ impactedTargets: ['node:ingestion', 'py:core'], crossLane })
+        assert.match(section.body, /<code>c\.py<\/code> and 147 more/)
+    })
+
+    it('gives no cross-lane warning when the file lists have the wrong shape', () => {
+        assert.equal(
+            parseCrossLane({ cross_lane: true, cross_lane_heavy_files: 'a.py', cross_lane_light_files: [1] }),
+            null
+        )
+    })
+
+    for (const testCase of [
+        {
+            name: 'reports a clean dependency scan',
+            input: {
+                scanned: 4,
+                skipped: 0,
+                flagged: [{ ecosystem: 'pypi', package: 'idna@3.10', label: 'low', score: 4.9, rules: [] }],
+            },
+            status: 'ok',
+            summary: 'clean, 4 packages scanned',
+        },
+        {
+            name: 'warns on a high-risk package',
+            input: {
+                scanned: 2,
+                skipped: 0,
+                flagged: [
+                    { ecosystem: 'npm', package: 'left-pad@1.3.1', label: 'high_risk', score: 8.8, rules: ['a|b'] },
+                ],
+            },
+            status: 'warn',
+            summary: '1 high-risk package',
+        },
+        {
+            name: 'warns on packages the scanner could not read',
+            input: {
+                scanned: 1,
+                skipped: 2,
+                flagged: [{ ecosystem: 'go', package: 'example.com/m@v1.0.0', label: 'not_scanned', score: 0, rules: [] }],
+            },
+            status: 'warn',
+            summary: '3 packages not scanned',
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildDependencyScanSection(testCase.input)
+            assert.equal(section.status, testCase.status)
+            assert.equal(section.summary, testCase.summary)
+            assert.doesNotMatch(section.body.split('\n').at(-1), /a\|b/)
         })
     }
 
@@ -95,6 +196,36 @@ describe('CI report section builders', () => {
         assert.equal(section.status, 'fail')
         assert.match(section.body, /actions\/runs\/42/)
     })
+
+    for (const testCase of [
+        {
+            name: 'claims the PR frontend only when it was swapped in',
+            frontendSwapped: true,
+            expected: /\*\*and\*\* frontend/,
+        },
+        {
+            name: 'says the frontend is unchanged when it was not swapped in',
+            frontendSwapped: false,
+            expected: /frontend unchanged by this PR/,
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildHogboxPreviewSection({
+                state: 'ready',
+                sha: '1234567890abcdef',
+                runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+                url: 'https://preview.example.com',
+                boxId: 'box-1',
+                penId: 'None',
+                consoleHost: 'console.example.com',
+                frontendSwapped: testCase.frontendSwapped,
+            })
+            assert.equal(section.status, 'ok')
+            assert.match(section.summary, /https:\/\/preview\.example\.com/)
+            assert.match(section.body, testCase.expected)
+            assert.doesNotMatch(section.body, /console\/fleet\/pens/)
+        })
+    }
 
     it('moves a hobby preview through setup, ready, and failed states', () => {
         const initial = buildHobbySection({ state: 'initial', ...commonHobby })

@@ -1,21 +1,27 @@
 """Tests for GitHub review normalization used by the PR approval agent."""
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
 
+import gates
 import github
 from github import (
     CommitProvenance,
+    _git_diff_files,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
     _reaction_emoji,
     _trusted_reactor_predicate,
     ensure_commits,
+    git_touched_paths,
     is_bot_author,
     parse_provenance_trailers,
+    write_pr_diff,
 )
+from policy import DenyException
 
 
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
@@ -131,6 +137,94 @@ def test_ensure_commits_fetches_missing_head_and_base(
     )
 
     assert fetched == expected_fetches
+
+
+def _git(cwd: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    "old_path, new_path, denied",
+    [
+        ("models/flow.py", "flow.py", []),
+        ("apps/billing/old.yaml", "apps/billing/new.yaml", []),
+        ("apps/billing/old\tname.yaml", "apps/billing/new\nname.yaml", []),
+        ("apps/billing/service.py", "apps/plain/values.yaml", ["billing"]),
+    ],
+)
+def test_touched_paths_carry_both_rename_names_unquoted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, old_path: str, new_path: str, denied: list[str]
+) -> None:
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "--quiet", "-b", "main", str(repo))
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "user.email", "t@example.com")
+    (repo / old_path).parent.mkdir(parents=True)
+    (repo / old_path).write_text("\n".join(f"line {i}" for i in range(20)) + "\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "root")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / new_path).parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "mv", old_path, new_path)
+    (repo / "odd\nname.py").write_text("x\n")
+    _git(repo, "add", "--all")
+    _git(repo, "commit", "--quiet", "-m", "move")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    touched = git_touched_paths(base, head, repo)
+    assert sorted(touched) == sorted([old_path, new_path, "odd\nname.py"])
+    files = _git_diff_files(base, head, repo)
+    assert {f["filename"]: f for f in files} == {
+        new_path: {"filename": new_path, "additions": 0, "deletions": 0, "binary": False, "status": "R100"},
+        "odd\nname.py": {"filename": "odd\nname.py", "additions": 1, "deletions": 0, "binary": False, "status": "A"},
+    }
+    exceptions = {"billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml",)),)}
+    monkeypatch.setattr(gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(gates._DENY_PATTERN_DEFS, exceptions))
+    assert gates.detect_deny_categories([*(f["filename"] for f in files), *touched]) == denied
+
+
+def test_shallow_checkout_diffs_from_the_given_merge_base(tmp_path: Path) -> None:
+    # The hosted sandbox holds only the PR head and the merge base, each at depth 1, so git cannot
+    # compute base...head there. With the merge base given, the file list and the diff text must
+    # match what a full-history checkout reports for base...head.
+    origin = tmp_path / "origin"
+    _git(tmp_path, "init", "--quiet", "-b", "main", str(origin))
+    _git(origin, "config", "user.name", "t")
+    _git(origin, "config", "user.email", "t@example.com")
+    (origin / "kept.py").write_text("old\n")
+    (origin / "gone.py").write_text("bye\n")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "--quiet", "-m", "root")
+    merge_base = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "--quiet", "-b", "feature")
+    (origin / "kept.py").write_text("new\n")
+    (origin / "gone.py").unlink()
+    (origin / "added.py").write_text("hi\n")
+    _git(origin, "add", "--all")
+    _git(origin, "commit", "--quiet", "-m", "feature")
+    head = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "--quiet", "main")
+    (origin / "base_only.py").write_text("drift\n")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "--quiet", "-m", "base drift")
+    base_tip = _git(origin, "rev-parse", "HEAD")
+
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "init", "--quiet", str(shallow))
+    for sha in (head, merge_base):
+        _git(shallow, "fetch", "--quiet", "--depth=1", f"file://{origin}", sha)
+    _git(shallow, "-c", "advice.detachedHead=false", "checkout", "--quiet", head)
+
+    expected = _git_diff_files(base_tip, head, origin)
+    assert {f["filename"]: f["status"] for f in expected} == {"added.py": "A", "gone.py": "D", "kept.py": "M"}
+    assert _git_diff_files(base_tip, head, shallow, merge_base) == expected
+    with pytest.raises(RuntimeError):
+        _git_diff_files(base_tip, head, shallow)
+
+    full_diff = write_pr_diff(base_tip, head, origin)
+    shallow_diff = write_pr_diff(base_tip, head, shallow, merge_base)
+    assert shallow_diff.read_text() == full_diff.read_text()
 
 
 @pytest.mark.parametrize(

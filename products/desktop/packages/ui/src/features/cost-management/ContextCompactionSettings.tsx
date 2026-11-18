@@ -34,7 +34,7 @@ interface ContextCompactionSettingsViewProps {
   onWarnOnModelSwitchChange: (enabled: boolean) => void;
 }
 
-export function ContextCompactionSettingsView({
+function ContextCompactionSettingsView({
   percent,
   onChange,
   warnOnModelSwitch,

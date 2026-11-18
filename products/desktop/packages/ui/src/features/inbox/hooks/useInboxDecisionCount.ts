@@ -8,16 +8,16 @@ import {
 } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
 const EMPTY_FILTER_ARRAY: never[] = [];
 
 /**
- * The navigation badge needs only the ready-report count. Keeping it separate
- * from `useInboxSectionCounts` avoids polling the other two section counts on
- * every route.
+ * The navigation badge shows the ready-report count: the reports with and
+ * without an implementation PR. With the same filters as the inbox list it
+ * shares that list's count request.
  */
 export function useInboxDecisionCount(options?: {
   enabled?: boolean;
@@ -32,9 +32,6 @@ export function useInboxDecisionCount(options?: {
   const priorityFilter = useInboxSignalsFilterStore((state) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : state.priorityFilter,
   );
-  const prFilter = useInboxSignalsFilterStore((state) =>
-    ignoreFilters ? "all" : state.prFilter,
-  );
   const isForYou = scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
@@ -45,15 +42,8 @@ export function useInboxDecisionCount(options?: {
   const reviewerUuid =
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
   const scopeReady = !isForYou || reviewerUuid !== null;
-  const query = useInboxReports(
+  const query = useInboxSectionCounts(
     {
-      status: "ready",
-      has_implementation_pr:
-        prFilter === "with_pr"
-          ? true
-          : prFilter === "without_pr"
-            ? false
-            : undefined,
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -62,14 +52,10 @@ export function useInboxDecisionCount(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
     },
-    {
-      enabled: enabled && scopeReady,
-      refetchInterval: 60_000,
-      refetchIntervalInBackground: false,
-    },
+    { enabled: enabled && scopeReady, refetchInterval: 60_000 },
   );
 
-  return enabled ? (query.data?.count ?? 0) : 0;
+  const counts = query.data;
+  return enabled && counts ? counts.pull_requests + counts.reports : 0;
 }

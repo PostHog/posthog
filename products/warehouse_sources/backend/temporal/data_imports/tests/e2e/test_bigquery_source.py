@@ -25,6 +25,12 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
+    PostgresQueueReplay,
+    ensure_queue_tables_in_test_database,
+    patch_producer_to_test_database,
+    replay_v3_consumer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -315,9 +321,19 @@ async def setup_bigquery(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
-        pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
     )
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
+
+
+async def _import_and_load(activity_environment, inputs: ImportDataActivityInputs, bucket_name: str) -> None:
+    """Run the extraction, then replay the load queue the way the V3 load consumer would."""
+    # A finished job skips the replay, and the incremental tests run the same job twice.
+    await ExternalDataJob.objects.filter(id=inputs.run_id).aupdate(status=ExternalDataJob.Status.RUNNING)
+    await sync_to_async(ensure_queue_tables_in_test_database)()
+    with patch_producer_to_test_database():
+        await activity_environment.run(import_data_activity_sync, inputs)
+    await replay_v3_consumer(PostgresQueueReplay(), inputs.team_id, inputs.schema_id, bucket_name, job_id=inputs.run_id)
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
@@ -354,7 +370,7 @@ async def test_bigquery_source_full_refresh_table(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -420,7 +436,7 @@ async def test_bigquery_source_full_refresh_view(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -489,7 +505,7 @@ async def test_bigquery_source_incremental_integer(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -536,7 +552,7 @@ async def test_bigquery_source_incremental_integer(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -610,7 +626,7 @@ async def test_bigquery_source_incremental_timestamp(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -658,7 +674,7 @@ async def test_bigquery_source_incremental_timestamp(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -736,7 +752,7 @@ async def test_bigquery_source_incremental_custom_primary_key(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
@@ -784,7 +800,7 @@ async def test_bigquery_source_incremental_custom_primary_key(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        await activity_environment.run(import_data_activity_sync, inputs)
+        await _import_and_load(activity_environment, inputs, bucket_name)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0

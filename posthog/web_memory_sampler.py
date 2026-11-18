@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 30.0
 
-# Web-worker RSS, scraped via bin/unit_metrics.py's MultiProcessCollector. `livemax`
+# Web-worker RSS, scraped via bin/granian_metrics.py's MultiProcessCollector. `livemax`
 # reports the maximum across live workers as a single series, so the worker nearest the
 # cgroup limit is visible without the per-pid cardinality — and stale-series-on-recycle,
-# since a request-limited or OOM-killed worker never calls `mark_process_dead` — that
+# since a recycled or OOM-killed worker never calls `mark_process_dead` — that
 # `liveall` would accumulate. Per-worker detail lives in the `worker_memory` log line.
 WORKER_RSS_MB = Gauge(
     "posthog_web_worker_rss_mb",
@@ -37,7 +37,7 @@ def current_rss_mb() -> float | None:
     return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
 
 
-def _sample_once(log: structlog.BoundLogger, pod: str | None, request_limit: str | None) -> None:
+def _sample_once(log: structlog.BoundLogger, pod: str | None, max_rss_mb: str | None) -> None:
     rss_mb = current_rss_mb()
     if rss_mb is None:
         return
@@ -47,18 +47,18 @@ def _sample_once(log: structlog.BoundLogger, pod: str | None, request_limit: str
         "worker_memory",
         rss_mb=rss_mb_rounded,
         pod=pod,
-        request_limit=request_limit,
+        max_rss_mb=max_rss_mb,
     )
 
 
 def _sample_loop(interval_seconds: float) -> None:
     log = structlog.get_logger("posthog.web_memory_sampler")
     pod = os.getenv("K8S_POD_NAME") or os.getenv("HOSTNAME")
-    request_limit = os.getenv("NGINX_UNIT_REQUEST_LIMIT")
+    max_rss_mb = os.getenv("GRANIAN_WORKERS_MAX_RSS")
     while True:
         time.sleep(interval_seconds)
         try:
-            _sample_once(log, pod, request_limit)
+            _sample_once(log, pod, max_rss_mb)
         except Exception:
             logger.exception("web memory sample failed")
 
@@ -69,11 +69,9 @@ def start_web_memory_sampler() -> None:
     gradual climb toward the cgroup limit that precedes an OOM kill is visible in both
     metrics and PostHog logs rather than only on infra dashboards.
 
-    MUST be called post-fork, from inside each worker (see posthog/wsgi.py). Nginx Unit
-    forks workers from a prototype process that imported this module, and a thread started
-    in the prototype does not survive the fork — an import-time start would only ever
-    sample the idle prototype, never the workers that serve requests. The pid guard re-arms
-    per process because the once-flag is copy-on-write-inherited from the prototype.
+    MUST be called from inside each worker (see posthog/wsgi.py), because threads do not
+    survive a fork and the idle process that started one is not the one serving requests.
+    The pid guard re-arms per process so an inherited once-flag cannot suppress the start.
 
     Interval is set by WEB_MEMORY_SAMPLE_INTERVAL_SECONDS (default 30); set it to 0 or less
     to disable. Best-effort and idempotent — never breaks startup."""

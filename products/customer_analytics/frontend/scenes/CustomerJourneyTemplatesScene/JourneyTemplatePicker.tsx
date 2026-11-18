@@ -10,10 +10,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { JourneyTemplateKey, journeyTemplatePickerLogic } from './journeyTemplatePickerLogic'
 
@@ -184,7 +184,7 @@ export function JourneyTemplatePicker(): JSX.Element {
                                 },
                                 {
                                     title: 'Tags',
-                                    dataIndex: 'tags' as keyof QueryBasedInsightModel,
+                                    dataIndex: 'tags' as keyof InsightModel,
                                     key: 'tags',
                                     render: function renderTags(tags: string[]) {
                                         return <ObjectTags tags={tags} staticOnly />

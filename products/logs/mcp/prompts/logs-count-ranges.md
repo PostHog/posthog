@@ -1,5 +1,11 @@
 Get adaptive-interval bucket counts for a filtered log stream. Returns a flat list of `{date_from, date_to, count}` buckets covering the requested window. Modeled on Elasticsearch's `auto_date_histogram` — caller specifies a target bucket count, the engine picks the interval.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Use this to find **where the volume is concentrated** before pulling rows. Cheaper than `query-logs`, more agent-friendly than `logs-sparkline-query` (each bucket carries explicit `date_from`/`date_to` you can feed straight back as the next call's `dateRange` to drill in).
 
 # When to use this vs other tools
@@ -21,8 +27,6 @@ Use the response to narrow into a sub-range without reasoning about interval wid
 This is the same pattern Elasticsearch users follow with `auto_date_histogram`. Keep recursion shallow — every call is cheap individually but they multiply quickly.
 
 # Parameters
-
-All parameters must be nested inside a `query` object.
 
 ## query.dateRange
 

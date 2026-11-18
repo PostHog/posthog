@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -28,48 +29,89 @@ logic. It replaces only the steps that touch the network with injected data:
   familiarity, which are the author-team membership lookup and the author's
   merged-PR set. Familiarity's blame math is mirrored here with the injected PR
   set (see _familiarity_offline), because Pipeline._compute_familiarity hardcodes
-  the `gh` fetch that only the networked entrypoint can make.
+  the `gh` fetch that only the networked entrypoint can make. The hosted server
+  also injects blame and history facts read from GitHub, which replace the git
+  history reads entirely (see _attach_familiarity).
 
 The engine reads the trusted policy (`.stamphog/policy.yml`,
 `.stamphog/review-guidance.md`) from the checkout at import time. The server
 overwrites those paths in the checkout with the default-branch versions before
 this script runs, so a PR head cannot substitute its own gate. The reviewer key
 comes from the environment (ANTHROPIC_API_KEY).
+
+`--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
+in a temporary tree that holds the trusted policy files, this engine and, when the server could read
+them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
+`--attest` runs the same gates in the same tree before the server posts an approval (see attest()).
 """
 
 import os
 import json
 import time
 import argparse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
+from attestations import pending_check_names
 from familiarity import (
     AuthorFamiliarity,
     _band,
     _blame_overlap,
+    _BlameOverlap,
     _files_previously_modified,
     _merge_base,
     _parse_diff,
     _prior_prs_in_paths,
     _read_diff,
     _select_considered_files,
+    familiarity_from_facts,
 )
-from gates import POLICY, assign_tier
+from gates import POLICY, assign_tier, dependency_manifests_without_lockfile, substantive_size
+from gateway import SUMMARY_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
+    CommitProvenance,
     PRData,
     _git_diff_files,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
     _prompt_worthy_author,
     _reaction_emoji,
+    git_touched_paths,
     is_bot_author,
     pr_provenance,
+    provenance_from_messages,
 )
-from migration_risk import migration_check_pending
-from policy import FamiliarityPolicy
-from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
+from policy import Attestation, FamiliarityPolicy
+from review_pr import ATTESTATION_LIFTED_GATES, REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
+
+# The hosted server exports the sandbox's wall clock in milliseconds right before `uv run`, so the
+# engine can report how long uv and the interpreter took to reach main().
+LAUNCHED_AT_ENV = "STAMPHOG_LAUNCHED_AT_MS"
+
+_TIMINGS_MS: dict[str, int] = {}
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+@contextmanager
+def _timed_phase(name: str) -> Iterator[None]:
+    started = _now_ms()
+    try:
+        yield
+    finally:
+        _TIMINGS_MS[name] = _now_ms() - started
+
+
+def _launched_at_ms() -> int | None:
+    try:
+        return int(os.environ.get(LAUNCHED_AT_ENV, ""))
+    except ValueError:
+        return None
 
 
 def _api_file_status(status: str) -> str:
@@ -105,13 +147,15 @@ def _convert_api_file(f: dict) -> dict:
     }
 
 
-def _build_pr_data(context: dict) -> PRData:
+def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     """Build the engine's PRData from the injected context.
 
     File stats are recomputed locally with the exact function that review_pr.py
-    uses (`git diff --numstat` over base...head), so PRData.files is identical to
-    a networked run. The context's file list is only a fallback for an empty
-    local diff, which happens when a sha failed to fetch. The context also
+    uses (`git diff --numstat` over the PR range), so PRData.files is identical to
+    a networked run. The hosted server passes the merge base, because its shallow
+    checkout cannot compute one (see github.diff_range). The context's file list
+    is only a fallback for an empty local diff, which happens when a sha failed to
+    fetch. The context also
     carries reviews, top-level discussion comments, and head-commit check runs.
     Reviews and discussion are normalized with the same helpers that review_pr.py
     uses, and check runs are passed through raw the same way. The prerequisite
@@ -125,20 +169,28 @@ def _build_pr_data(context: dict) -> PRData:
     empty list, which is a clean no-op and never a crash. A local review_pr.py
     run does not pass the key.
     Reactions on those inline comments are not carried, so they default empty.
+
+    ``checkout=False`` is the server's gate-only pre-check, which has no git tree, so the file list
+    comes from the context alone.
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
     base = pr.get("base") or {}
     base_sha = context.get("base_sha") or base.get("sha") or ""
     head_sha = context.get("head_sha") or (pr.get("head") or {}).get("sha") or ""
+    merge_base_sha = context.get("merge_base_sha") or ""
     # Both feed PRData.stacked (the stacked-PR prompt note). A lean context without them reads as
     # non-stacked, matching the Action's default.
     default_branch = (base.get("repo") or {}).get("default_branch") or "master"
     base_ref = base.get("ref") or default_branch
 
-    files = _git_diff_files(base_sha, head_sha, REPO_ROOT)
-    if not files:
-        files = [_convert_api_file(f) for f in context.get("files") or []]
+    files = _git_diff_files(base_sha, head_sha, REPO_ROOT, merge_base_sha) if checkout else []
+    if files:
+        touched_paths = git_touched_paths(base_sha, head_sha, REPO_ROOT, merge_base_sha)
+    else:
+        api_files = context.get("files") or []
+        files = [_convert_api_file(f) for f in api_files]
+        touched_paths = [path for f in api_files for path in (f.get("filename"), f.get("previous_filename")) if path]
 
     # Drop only EMPTY COMMENTED reviews from the offline reviews. A bare COMMENTED top-level review
     # carries no readable body — yet _summarize_assurance would surface its author as a current-head
@@ -200,6 +252,8 @@ def _build_pr_data(context: dict) -> PRData:
                 }
             )
 
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -212,70 +266,58 @@ def _build_pr_data(context: dict) -> PRData:
         base_ref=base_ref,
         base_sha=base_sha,
         head_sha=head_sha,
+        merge_base_sha=merge_base_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=review_comments,
         check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
+        author_id=int(user.get("id") or 0),
         pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
+        review_evidence=review_evidence,
     )
 
 
-def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
-    """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
+def _context_provenance(context: dict, pr: PRData) -> CommitProvenance | None:
+    """Commit-trailer provenance from the server's commit messages, else from `git log`.
 
-    review_pr.py resolves membership with one `gh` call per owning team. The sandbox holds no
-    token, so the server supplies every team that the author belongs to, and this function does the
-    intersection.
-
-    `author_on_owning_team` matters beyond the summary text. The reviewer prompt reads that key with
-    a default of True, so an unset key tells the reviewer that the author owns the code, whoever
-    opened the PR. An unresolvable lookup arrives as an empty set and yields "not on any owning
-    team". review_pr.py fails in the same direction, and that direction is the safe one for a bot that
-    approves.
+    The hosted server always sets ``commit_messages`` (null when GitHub could not list the commits
+    at the reviewed head), because its shallow checkout holds none of the PR's history. A context
+    without the key comes from a checkout with history, where `git log` reads the same trailers.
     """
-    cl = pipeline.classification
-    ownership = cl.get("ownership", {})
-    individuals = ownership.get("individuals", [])
-    teams = ownership.get("teams", [])
-    if ownership.get("team_count", 0) == 0 and not individuals:
-        cl["ownership_summary"] = "no owned paths touched"
-        return
-
-    author = pipeline.pr.author
-    author_teams = [team for team in teams if team.split("/")[-1] in author_team_slugs]
-
-    parts = []
-    if teams:
-        parts.append(f"touches {', '.join(teams)}")
-    if individuals:
-        # Individuals never enter the membership check. The author either is one of them or is
-        # not.
-        suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
-        parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
-    if author_teams:
-        parts.append(f"author {author} is on {', '.join(author_teams)}")
-    elif teams:
-        parts.append(f"author {author} is not on any owning team")
-    if ownership.get("cross_team"):
-        parts.append("cross-team change")
-
-    cl["ownership_summary"] = "; ".join(parts)
-    cl["author_on_owning_team"] = bool(author_teams)
+    if "commit_messages" in context:
+        messages = context["commit_messages"]
+        return None if messages is None else provenance_from_messages([str(m) for m in messages])
+    return pr_provenance(pr.base_sha, pr.head_sha, REPO_ROOT)
 
 
-def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
-    """Run the four deterministic gate checks, the same ones that _run_gates runs.
+def _author_team_slugs(context: dict) -> set[str]:
+    """Every team that the server found the author on, for the pipeline's membership checks.
 
-    Mirrors Pipeline._run_gates, and replaces _summarize_ownership's `gh` membership lookup with the
-    server-injected team set (see _apply_ownership_summary).
+    review_pr.py asks GitHub once per team. The sandbox holds no token, so the server supplies the set.
+    It decides two things. The reviewer prompt reads `author_on_owning_team` with a default of True,
+    so the ownership summary must always set it. A deny category's `exempt_author_teams` reads it too.
+    An unresolvable lookup arrives as an empty set, which yields "not on any owning team" and denies
+    owner-only paths. review_pr.py fails in the same direction, and that direction is the safe one
+    for a bot that approves.
+    """
+    return {str(slug) for slug in context.get("author_team_slugs") or []}
+
+
+def _run_gates_offline(pipeline: Pipeline) -> None:
+    """Run the deterministic gate checks, the same ones that _run_gates runs.
+
+    Mirrors Pipeline._run_gates without the console output. Set `pipeline.author_team_slugs` first
+    (see _author_team_slugs), or the membership checks call `gh`, which the sandbox cannot do.
     """
     gates = [
         ("prerequisites", pipeline._check_prerequisites),
         ("deny-list", pipeline._check_deny_list),
+        ("every_file_attested", pipeline._check_every_file_attested),
         ("size", pipeline._check_size),
         ("tier", pipeline._check_tier),
     ]
@@ -283,7 +325,7 @@ def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
         passed, message = check()
         pipeline.gate_results.append(GateResult(name, passed, message))
 
-    _apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
 
 def _familiarity_offline(
@@ -309,11 +351,12 @@ def _familiarity_offline(
     considered_paths = [f.path for f in considered if f.path]
 
     blame_sha = _merge_base(base_sha, head_sha, REPO_ROOT)
-    if blame_sha is not None:
-        owned, total, top_authors = _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
-    else:
-        owned, total, top_authors = 0, 0, ()
-    blame_overlap_pct = (100.0 * owned / total) if total else 0.0
+    overlap = (
+        _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
+        if blame_sha is not None
+        else _BlameOverlap(owned_lines=0, total_lines=0, incomplete_files=0, top_prior_authors=())
+    )
+    blame_overlap_pct = (100.0 * overlap.owned_lines / overlap.total_lines) if overlap.total_lines else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, REPO_ROOT, now)
     files_prev_count, files_total = _files_previously_modified(considered, author_prs, REPO_ROOT)
@@ -322,14 +365,15 @@ def _familiarity_offline(
     return AuthorFamiliarity(
         band=band,
         blame_overlap_pct=blame_overlap_pct,
-        modified_lines_owned=owned,
-        modified_lines_total=total,
+        modified_lines_owned=overlap.owned_lines,
+        modified_lines_total=overlap.total_lines,
         prior_prs_in_paths=prior_prs,
         days_since_last_touch=days_since,
         files_prev_count=files_prev_count,
         files_total=files_total,
         capped=capped,
-        top_prior_authors=top_authors,
+        blame_incomplete_files=overlap.incomplete_files,
+        top_prior_authors=overlap.top_prior_authors,
     )
 
 
@@ -337,45 +381,66 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
     """Attach the author-familiarity signal for the T1-agent path only.
 
     Same gating as Pipeline._maybe_compute_familiarity (T0 skips the LLM, T2 is a
-    deny, so neither benefits). Absent injected PR numbers leaves the signal None,
-    exactly as a failed `gh` call would in review_pr.py — a one-way ratchet.
+    deny, so neither benefits).
+
+    The hosted server always sets ``familiarity_facts``: the blame and history facts it read
+    from GitHub, or null when that failed or the run is an inbox review. Null leaves the signal
+    absent (a one-way ratchet), and never falls back to git, because the hosted checkout does
+    not carry the history that git blame needs. A context without the key comes from a runtime
+    that predates the server facts, so it keeps the git path. There, absent injected PR numbers
+    leave the signal None, exactly as a failed `gh` call would in review_pr.py.
     """
     if pipeline.classification.get("tier") != "T1-agent":
         return
-    raw_prs = context.get("author_pr_numbers")
-    if not raw_prs:
-        return
-    author_prs = {int(n) for n in raw_prs}
+    author_prs = {int(n) for n in context.get("author_pr_numbers") or []}
+    if "familiarity_facts" in context:
+        facts = context["familiarity_facts"]
+        if not facts:
+            return
+        source = "server"
+    else:
+        if not author_prs:
+            return
+        source = "git"
     diff_path = pipeline._ensure_diff_path()
     try:
-        pipeline.classification["familiarity"] = _familiarity_offline(
-            author_prs, diff_path, pipeline.pr.base_sha, pipeline.pr.head_sha, POLICY.familiarity
-        )
+        if source == "server":
+            fam = familiarity_from_facts(facts, pipeline.pr.author, author_prs, diff_path, POLICY.familiarity)
+        else:
+            fam = _familiarity_offline(
+                author_prs, diff_path, pipeline.pr.base_sha, pipeline.pr.head_sha, POLICY.familiarity
+            )
     except Exception as exc:
         print(f"warning: familiarity computation failed ({exc}); continuing without the signal")
+        return
+    # Telemetry reads pipeline.familiarity and the prompt reads the classification, so both are set.
+    pipeline.familiarity = fam
+    pipeline.familiarity_source = source
+    pipeline.classification["familiarity"] = fam
 
 
-def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
-    """True when only the unfinished migration analyzer keeps this PR from a review.
+_TIER_OR_LIFTED_GATES = ATTESTATION_LIFTED_GATES | {"tier"}
 
-    `Pipeline._only_pending_migration_check` cannot answer this. It disqualifies the PR on any
-    failing gate other than the deny-list, and a migrations deny always pulls the tier gate down to
-    T2-never as well. That method therefore returns False for every migration PR that it exists to
-    catch.
 
-    This function derives the tier again with the migrations deny removed, rather than special-casing
-    the gate. A PR that is T2 for another reason (breadth, size, a second deny) therefore stays
-    refused, and does not wait for a check that cannot change the outcome.
+def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestation]:
+    """The unfinished checks that alone keep this PR from a review, or nothing.
+
+    `Pipeline._only_pending_attestations` cannot answer this. It disqualifies the PR on any
+    failing gate other than the deny-list, and a deny always sets the tier gate to T2-never as
+    well. That method returns nothing for every PR that it exists to catch.
+
+    This function derives the tier again with the denies removed. A PR that is T2 for another
+    reason (breadth, size) stays refused, and does not wait for a check that cannot change the
+    outcome.
     """
     pr = pipeline.pr
     cl = pipeline.classification
-    if cl.get("deny_categories") != ["migrations"]:
-        return False
-    if not migration_check_pending(pr.check_runs, pr.file_paths):
-        return False
-    if any(not gate.passed and gate.gate not in ("deny-list", "tier") for gate in pipeline.gate_results):
-        return False
-    tier_without_migrations = assign_tier(
+    pending = pipeline.pending_lifting_attestations()
+    if not pending:
+        return []
+    if any(not gate.passed and gate.gate not in _TIER_OR_LIFTED_GATES for gate in pipeline.gate_results):
+        return []
+    tier_without_denies = assign_tier(
         deny_categories=[],
         allow_listed_only=bool(cl.get("allow_listed_only")),
         is_test_only=bool(cl.get("is_test_only")),
@@ -385,7 +450,209 @@ def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
         breadth=cl.get("breadth", ""),
         commit_type=cl.get("commit_type"),
     )
-    return tier_without_migrations != "T2-never"
+    return pending if tier_without_denies != "T2-never" else []
+
+
+# Gates the pre-check evaluates from the same inputs the sandbox uses, so a failure here is a
+# failure there. The size gate is not in this set: see _size_denial_is_final.
+_CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "every_file_attested", "tier"})
+
+
+def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
+    """True when no folder override on the PR head can lift the size gate.
+
+    With ``folder_policies_known``, the server wrote every AGENT_APPROVALS.md that governs a changed
+    file at the PR head into the pre-check tree, so the size gate budgets exactly as in the sandbox.
+
+    Otherwise the pre-check reads no AGENT_APPROVALS.md and budgets every file against the global
+    ceilings. A folder file can raise a ceiling up to the policy's delegation contract, and the
+    whole-PR roof is the most generous ceiling in play. A PR past the higher of the global ceiling
+    and the contract ceiling therefore fails the size gate in the sandbox, whatever folder files it
+    carries. A PR between the two can pass there, so it is not final here.
+    """
+    if folder_policies_known:
+        return True
+    lines, files = substantive_size(pipeline.pr.files)
+    line_contract = POLICY.overrides.get("size_gate.max_lines")
+    file_contract = POLICY.overrides.get("size_gate.max_files")
+    line_ceiling = max(POLICY.size_gate.max_lines, line_contract.ceiling if line_contract else 0)
+    file_ceiling = max(POLICY.size_gate.max_files, file_contract.ceiling if file_contract else 0)
+    return lines > line_ceiling or files > file_ceiling
+
+
+def _pending_attestation_outcome_is_known(pipeline: Pipeline, folder_policies_known: bool) -> bool:
+    """True when the pre-check reaches the same pending-attestation decision as the sandbox.
+
+    That decision reads the whole gate set. Only two inputs of it need a checkout: the folder size
+    grants, which ``folder_policies_known`` supplies, and the manifest scripts scan, which reads git
+    and can add a deny. A PR with a dependency manifest therefore stays undecided.
+    """
+    return folder_policies_known and not dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+
+
+def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
+    """True when the full sandbox review of this PR must also end REFUSED.
+
+    A deny that a pending check may lift ends as WAIT in the sandbox (see
+    _blocked_only_by_pending_attestations). Unless the pre-check can settle that decision, only a
+    failing prerequisite, which both runs see identically, keeps that case final.
+    """
+    failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
+    if (
+        pipeline.pending_lifting_attestations()
+        and "prerequisites" not in failed
+        and not _pending_attestation_outcome_is_known(pipeline, folder_policies_known)
+    ):
+        return False
+    return bool(failed & _CHECKOUT_FREE_GATES) or (
+        "size" in failed and _size_denial_is_final(pipeline, folder_policies_known)
+    )
+
+
+def _pending_attestation_wait(pipeline: Pipeline, pending: list[Attestation]) -> dict:
+    """The WAIT the full review returns while a check that may lift the deny has not reported."""
+    # The server queues no review of a self-driving inbox PR when a check reports.
+    again = "on the next push" if pipeline.self_driving else "when the check reports, or on the next push"
+    return {
+        "verdict": "WAIT",
+        "reasoning": (
+            f"The {pending_check_names(pending)} check has not finished for this commit, so stamphog "
+            f"cannot tell yet whether the change it covers is safe. Stamphog reviews again {again}."
+        ),
+        "risk": "unknown",
+        "issues": [],
+    }
+
+
+def _not_final_reason(pipeline: Pipeline) -> str:
+    """Why a pre-check that did not settle the verdict leaves it to the sandbox, for telemetry."""
+    failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
+    if not failed:
+        return "no_failing_gate"
+    if failed == {"size"}:
+        return "size_folder_override"
+    return "pending_migration_check"
+
+
+def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
+    """The refusal text when no LLM summary is available: the failing gates' own messages."""
+    failed = "\n".join(f"- {gate.gate}: {gate.message}" for gate in pipeline.gate_results if not gate.passed)
+    return (
+        f"stamphog's deterministic gates refused this PR, so no agent review ran. A human review is needed.\n\n{failed}"
+    )
+
+
+def _pipeline_without_checkout(context: dict) -> Pipeline:
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        admitted_bot=str(context.get("admitted_bot") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+    return pipeline
+
+
+def pregate(context: dict) -> dict:
+    """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
+
+    It drives the same Pipeline steps as run(), on the same context, with no checkout and no LLM.
+    ``final`` is True only when the sandbox review would end with the same verdict as ``result``,
+    which is a gate refusal or a pending-attestation WAIT. The server then posts ``result`` as the
+    verdict and skips the sandbox. Any other outcome falls through to the full
+    review, which runs every gate again.
+
+    A pending check that alone blocks the review is final too, as the same WAIT the sandbox would
+    return, when the pre-check can settle it (see _pending_attestation_outcome_is_known).
+
+    A gate refusal takes its reasoning from ``refusal_reasoning`` in the context, which the server
+    fills with a short LLM summary, or else from the gate messages. ``needs_summary`` tells the server
+    whether a summary is worth asking for: the bot-author refusal carries its own text.
+
+    ``folder_policies_known`` in the context means the server placed the PR head's AGENT_APPROVALS.md
+    files in the pre-check tree. ``not_final_reason`` names why a non-final outcome needs the sandbox.
+    """
+    pipeline = _pipeline_without_checkout(context)
+    # Only the server's commit messages work here, because the pre-check tree is not a git
+    # repository. Without them, provenance stays null on the fast-path event.
+    if "commit_messages" in context:
+        pipeline.provenance = _context_provenance(context, pipeline.pr)
+    folder_policies_known = context.get("folder_policies_known") is True
+    outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
+
+    if pipeline.refuses_bot_author():
+        pipeline._refuse_bot_author()
+        return {**outcome, "final": True, "result": pipeline.to_dict()}
+
+    pipeline.author_team_slugs = _author_team_slugs(context)
+    pipeline._classify()
+    _run_gates_offline(pipeline)
+    if pending := _blocked_only_by_pending_attestations(pipeline):
+        if not _pending_attestation_outcome_is_known(pipeline, folder_policies_known):
+            return {**outcome, "not_final_reason": "pending_migration_check"}
+        pipeline.final_verdict = "WAIT"
+        pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
+        pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-ATTESTATION")
+        return {**outcome, "final": True, "result": pipeline.to_dict()}
+    if not _denial_is_final(pipeline, folder_policies_known):
+        return {**outcome, "not_final_reason": _not_final_reason(pipeline)}
+
+    pipeline.final_verdict = "REFUSED"
+    pipeline.reviewer_output = {
+        "verdict": "REFUSE",
+        "reasoning": str(context.get("refusal_reasoning") or "").strip() or _gate_refusal_reasoning(pipeline),
+        "risk": "unknown",
+        "issues": [],
+    }
+    pipeline._capture_review_completed("DENIED", "GATES-ONLY")
+    return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
+
+
+def attest(context: dict) -> dict:
+    """Gate-only check that the hosted server runs before it posts an approval from the sandbox.
+
+    The sandbox prints its verdict and its gate results on stdout, and the server cannot authenticate
+    that output. So the server runs the deterministic gates again on the worker, under the trusted
+    policy and on the file list it read from GitHub. ``attested`` is True only when this run reaches
+    every condition that the sandbox needs before it may ask the LLM: no refused bot author, every
+    gate passed, and no reviewer in flight. ``reason`` names the first condition that failed.
+
+    Two inputs come from the checkout in the sandbox, so an unknown value fails the check rather
+    than guessing. The folder files can lower a size ceiling, so ``folder_policies_known`` must be
+    set. The manifest scripts scan can add a deny, so each dependency manifest without its lockfile
+    needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
+    and ``manifests`` names the paths for the server to read and pass in on a second run.
+    """
+    pipeline = _pipeline_without_checkout(context)
+
+    def outcome(reason: str) -> dict:
+        gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
+        # The server gives an approval that a lift made possible no approval retention.
+        lifted = bool(pipeline.classification.get("lifted_files"))
+        return {"attested": not reason, "reason": reason, "gates": gates, "lifted": lifted}
+
+    if pipeline.refuses_bot_author():
+        return outcome("bot_author")
+    if context.get("folder_policies_known") is not True:
+        return outcome("folder_policies_unknown")
+    manifests = dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    manifest_contents = context.get("manifest_contents")
+    if manifests:
+        if not isinstance(manifest_contents, dict) or any(path not in manifest_contents for path in manifests):
+            return {**outcome("dependency_manifest"), "manifests": manifests}
+        pipeline.manifest_contents = manifest_contents
+
+    pipeline.author_team_slugs = _author_team_slugs(context)
+    pipeline._classify()
+    _run_gates_offline(pipeline)
+    if any(not gate.passed for gate in pipeline.gate_results):
+        return outcome("gate_failed")
+    if pipeline._in_flight_bot_reviewers() or pipeline.pr.pending_review_evidence():
+        return outcome("review_in_flight")
+    return outcome("")
 
 
 def run(context: dict) -> dict:
@@ -399,22 +666,23 @@ def run(context: dict) -> dict:
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
         review_trigger=str(context.get("review_trigger") or ""),
+        admitted_bot=str(context.get("admitted_bot") or ""),
         head_checkout=True,
     )
     pipeline.pr = _build_pr_data(context)
-    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token,
-    # and it behaves here exactly as it does on a networked run. Without this call, the
-    # agent-authorship evidence and the stamphog_review_completed provenance properties are null for
-    # every hosted review.
-    pipeline.provenance = pr_provenance(pipeline.pr.base_sha, pipeline.pr.head_sha, REPO_ROOT)
+    # Without this, the agent-authorship evidence and the stamphog_review_completed provenance
+    # properties are null for every hosted review.
+    pipeline.provenance = _context_provenance(context, pipeline.pr)
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+    if pipeline.refuses_bot_author():
         pipeline._refuse_bot_author()
         return pipeline.to_dict()
 
     try:
-        pipeline._classify()
-        _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+        with _timed_phase("gates"):
+            pipeline.author_team_slugs = _author_team_slugs(context)
+            pipeline._classify()
+            _run_gates_offline(pipeline)
         gate_verdict = pipeline._gate_verdict()
 
         # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment
@@ -423,19 +691,10 @@ def run(context: dict) -> dict:
         # every refusal to a ReviewHog handoff and strips the trigger label. A refusal would
         # therefore escalate a transient check to a second review agent, and force the author to
         # re-request the review that it displaced.
-        if _blocked_only_by_pending_migration_check(pipeline):
+        if pending := _blocked_only_by_pending_attestations(pipeline):
             pipeline.final_verdict = "WAIT"
-            pipeline.reviewer_output = {
-                "verdict": "WAIT",
-                "reasoning": (
-                    "The `Migration risk` check has not finished for this commit, so stamphog cannot "
-                    "tell a safe migration from a risky one yet. The review runs again on the next "
-                    "push, or you can re-request it once the check reports."
-                ),
-                "risk": "unknown",
-                "issues": [],
-            }
-            pipeline._capture_review_completed(gate_verdict, "PENDING-MIGRATION-CHECK")
+            pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
+            pipeline._capture_review_completed(gate_verdict, "PENDING-ATTESTATION")
             return pipeline.to_dict()
 
         # Mirror review_pr.py's in-flight reviewer-bot handling, minus the wait: there is no token in
@@ -458,8 +717,27 @@ def run(context: dict) -> dict:
             }
             return pipeline.to_dict()
 
-        _attach_familiarity(pipeline, context)
-        pipeline._llm_review(gate_verdict)
+        # The server waited for these reviews too, so a review still pending here outlasted the
+        # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
+        with _timed_phase("familiarity"):
+            _attach_familiarity(pipeline, context)
+        with _timed_phase("llm"):
+            pipeline._llm_review(gate_verdict)
     finally:
         if pipeline._diff_path is not None:
             pipeline._diff_path.unlink(missing_ok=True)
@@ -496,12 +774,31 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Offline PR review (sandbox entrypoint)")
     parser.add_argument("--context", required=True, help="Path to the review context JSON")
     parser.add_argument("--repo-dir", default=None, help="Checkout directory (defaults to cwd)")
+    parser.add_argument("--pregate", action="store_true", help="Gates only, no checkout and no LLM (server pre-check)")
+    parser.add_argument(
+        "--attest", action="store_true", help="Gates only, no checkout and no LLM (server check before an approval)"
+    )
     args = parser.parse_args()
 
     if args.repo_dir:
         os.chdir(args.repo_dir)
 
     context = json.loads(Path(args.context).read_text())
+    if args.pregate:
+        # No escalate fallback here: a crash exits non-zero, and the server falls through to the full
+        # review, which is the safe answer for a check that can only shorten the path to a refusal.
+        pregate_result = pregate(context)
+        flush_analytics()
+        print(json.dumps(pregate_result), flush=True)
+        return
+    if args.attest:
+        # A crash exits non-zero, and the server treats that as a failed check and posts no approval.
+        print(json.dumps(attest(context)), flush=True)
+        return
+
+    launched_at = _launched_at_ms()
+    if launched_at is not None:
+        _TIMINGS_MS["launch"] = _now_ms() - launched_at
     try:
         result = run(context)
     except Exception as exc:  # never let a crash become a silent non-verdict
@@ -509,7 +806,11 @@ def main() -> None:
 
     # Flush BEFORE the final line: batched capture events are dropped at process exit otherwise,
     # and any client noise the flush prints must stay above the machine-readable line.
-    flush_analytics()
+    with _timed_phase("flush"):
+        flush_analytics()
+    if launched_at is not None:
+        _TIMINGS_MS["total"] = _now_ms() - launched_at
+    result["timings_ms"] = dict(_TIMINGS_MS)
 
     # The single machine-readable line the server parses — always last on stdout.
     print(json.dumps(result), flush=True)

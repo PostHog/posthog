@@ -2,7 +2,7 @@ import json
 import random
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
@@ -283,7 +283,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_sorts_nulls_first_and_then_least_recently_counted(
         self, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             playlist1 = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="test1",

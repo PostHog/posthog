@@ -2,15 +2,16 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBug, IconCursorClick, IconGlobe, IconKeyboard } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import type { LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import type {
     SessionProblemEventEntryApi,
@@ -23,14 +24,6 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** How many timeline events to show before collapsing the rest behind a toggle. */
 const TIMELINE_PREVIEW_COUNT = 4
-
-const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtraApi['problem_type'], { label: string; type: LemonTagType }> = {
-    blocking_exception: { label: 'Blocking exception', type: 'danger' },
-    failure: { label: 'Failure', type: 'danger' },
-    non_blocking_exception: { label: 'Exception', type: 'warning' },
-    abandonment: { label: 'Abandonment', type: 'warning' },
-    confusion: { label: 'Confusion', type: 'caution' },
-}
 
 /** Narrows a raw `extra` payload to the live session-problem shape. */
 export function isSessionProblemExtra(value: unknown): value is Record<string, unknown> & SessionProblemSignalExtraApi {
@@ -106,15 +99,14 @@ function TimelineRow({
 
 /** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const [showAllEvents, setShowAllEvents] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
-    const problemTag = PROBLEM_TYPE_TAG[extra.problem_type]
 
     const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
     const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const recordingExists = getRecordingExists(extra.session_id)
     const recordingExistsLoading = isRecordingExistsLoading(extra.session_id)
 
@@ -127,19 +119,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         extra.session_duration !== undefined ? humanFriendlyDuration(extra.session_duration) : undefined
 
     return (
-        <SignalCardShell
-            signal={signal}
-            label={extra.segment_title}
-            // Under the redesign the evidence card header carries only the segment title, to match
-            // the chip-free report header above it.
-            rightSlot={
-                !redesign && problemTag ? (
-                    <LemonTag type={problemTag.type} size="small" className="shrink-0">
-                        {problemTag.label}
-                    </LemonTag>
-                ) : undefined
-            }
-        >
+        <SignalCardShell signal={signal} label={extra.segment_title}>
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
                     {signal.content}
@@ -147,13 +127,17 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
             )}
 
             {/* Both open the recording at the segment in the player modal and disable when it wasn't
-                captured. Under the redesign the screenshot frame is used when the emitter exported
-                one, since it shows what the user saw without opening the player. */}
-            {redesign && typeof extra.exported_asset_id === 'number' ? (
+                captured. The screenshot frame is used when the emitter exported one, since it shows
+                what the user saw without opening the player. */}
+            {typeof extra.exported_asset_id === 'number' ? (
                 <RecordingPreview
                     sessionId={extra.session_id}
                     seekTime={segmentSeekTime}
-                    exportedAssetId={extra.exported_asset_id}
+                    thumbnailSrc={
+                        currentTeamId !== null
+                            ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id)
+                            : undefined
+                    }
                     alt={`Recording preview for ${extra.segment_title}`}
                 />
             ) : (

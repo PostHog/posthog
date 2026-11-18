@@ -3,28 +3,32 @@
 Single source of truth for the "survey performance" numbers (shown / dismissed / sent
 counts, unique persons, and derived response/dismissal rates). Both the surveys REST
 viewset and the dashboard survey widget call `get_survey_stats` so there is exactly one
-query path for these stats.
+query path for these stats. `get_survey_responses_count` shares its definition of a unique
+sent response.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, TypedDict
+
+from django.db.models import Min
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import relative_date_parse
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.util import (
-    SurveyEventName,
-    get_archived_response_uuids,
-    get_unique_survey_event_uuids_sql_subquery,
-)
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
+from products.surveys.backend.util import SurveyEventName, get_archived_response_uuids
 
 
 class EventStats(TypedDict):
@@ -54,56 +58,56 @@ SurveyStats = TypedDict(
 )
 
 
-class _InvertedDateRangeError(ValueError):
-    """date_from is after date_to — kept distinct so its message survives the parse-error rewrite."""
+@frozen
+class StatsWindow:
+    date_from: datetime | None
+    date_to: datetime | None
+
+    def __post_init__(self) -> None:
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must be before date_to")
 
 
-def validate_and_parse_dates(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
-    """Parse ISO timestamps to UTC datetimes, raising on malformed input or inverted range.
+# relative_date_parse reads any unmatched string as "now", so only hand it inputs that are relative dates.
+RELATIVE_DATE = re.compile(r"-?\d*(?P<unit>[hdwmqy])(?:Start|End)?")
+CALENDAR_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+
+def _parse_date(value: str, team: Team, *, is_end: bool) -> datetime:
+    """Follows insight date ranges: a start snaps to the start of its day, an end to the end of its day, except for hours."""
+    if relative := RELATIVE_DATE.fullmatch(value):
+        parsed = relative_date_parse(
+            value, team.timezone_info, always_truncate=not is_end, team_week_start_day=team.week_start_day
+        )
+        whole_days = relative["unit"] != "h"
+    else:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=team.timezone_info)
+        whole_days = CALENDAR_DAY.fullmatch(value) is not None
+    if is_end and whole_days:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed.astimezone(UTC)
+
+
+def validate_and_parse_dates(date_from: str | None, date_to: str | None, team: Team) -> StatsWindow:
+    """Parse ISO timestamps, calendar days or relative dates (`-7d`, `-24h`, `mStart`) to UTC datetimes.
+
+    Naive and relative inputs are read in the project's timezone, and weeks start on its week start day.
     Raises ``ValueError`` on parse failures and inverted ranges so callers in non-REST contexts
     (e.g. the dashboard widget) receive a standard Python exception. The REST viewset re-raises
     it as ``rest_framework.exceptions.ValidationError``.
     """
-    parsed_from = None
-    parsed_to = None
-
     try:
-        if date_from:
-            parsed_from = datetime.fromisoformat(date_from).astimezone(UTC)
-
-        if date_to:
-            parsed_to = datetime.fromisoformat(date_to).astimezone(UTC)
-
-        if parsed_from and parsed_to and parsed_from > parsed_to:
-            raise _InvertedDateRangeError("date_from must be before date_to")
-
-        return parsed_from, parsed_to
-
-    except _InvertedDateRangeError:
-        raise
-    except ValueError as exc:
+        parsed_from = _parse_date(date_from, team, is_end=False) if date_from else None
+        parsed_to = _parse_date(date_to, team, is_end=True) if date_to else None
+    except (ValueError, OverflowError) as exc:
         raise ValueError(
-            "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
+            "Invalid date format. Use an ISO 8601 timestamp with timezone (e.g. 2024-01-01T00:00:00Z) "
+            "or a relative date such as -7d, -24h or -1m."
         ) from exc
 
-
-def partial_responses_filter(base_conditions_sql: list[str]) -> str:
-    unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-        base_conditions_sql=base_conditions_sql,
-    )
-
-    return f"uuid IN {unique_uuids_subquery}"
-
-
-def archived_responses_filter(survey_id: str | None, team_id: int) -> tuple[str, dict]:
-    archived_uuids = get_archived_response_uuids(survey_id, team_id)
-
-    if not archived_uuids:
-        return "", {}
-
-    params = {"archived_uuids": list(archived_uuids)}
-    return "uuid NOT IN %(archived_uuids)s", params
+    return StatsWindow(date_from=parsed_from, date_to=parsed_to)
 
 
 def _isoformat_utc_z(value: datetime | None) -> str | None:
@@ -195,6 +199,24 @@ def calculate_rates(stats: SurveyStats) -> SurveyRates:
     return rates
 
 
+def _latest_response_event_uuids_subquery(scan_conditions: str) -> str:
+    """Select the latest response event UUID per submission.
+
+    Several sent, dismissed, or abandoned events can exist per submission; only the latest per
+    $survey_submission_id counts, and events without one count by their own uuid (see
+    SUBMISSION_GROUPING_KEY). Grouping per $survey_id keeps a submission id scoped to its
+    survey. `scan_conditions` must start with " AND " and only narrows the scan window; it
+    is deliberately not filtered by survey, so a caller scoped to one survey still dedupes
+    against every sent event in the window.
+    """
+    return f"""(
+                SELECT argMax(uuid, tuple(timestamp, uuid))
+                FROM events
+                WHERE {RESPONSE_EVENT_FILTER}{scan_conditions}
+                GROUP BY properties.$survey_id, {SUBMISSION_GROUPING_KEY}
+            )"""
+
+
 def get_survey_stats(
     *,
     team_id: int,
@@ -206,12 +228,12 @@ def get_survey_stats(
     """Get survey statistics from ClickHouse.
 
     When `survey_id` is None, computes stats across all non-archived surveys for the team.
-    `date_from`/`date_to` are optional ISO timestamps; for a single survey they are clamped
+    `date_from`/`date_to` are optional ISO timestamps or relative dates; for a single survey they are clamped
     to the survey's own start/end window.
     """
-    parsed_from, parsed_to = validate_and_parse_dates(date_from, date_to)
-
     team = Team.objects.get(pk=team_id)
+    window = validate_and_parse_dates(date_from, date_to, team)
+
     # Bare events.person_id: no override join; merged persons count per pre-merge id.
     modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
     placeholders: dict[str, ast.Expr] = {
@@ -220,8 +242,8 @@ def get_survey_stats(
         "sent": ast.Constant(value=SurveyEventName.SENT.value),
     }
     conditions: list[str] = []
-    effective_from = parsed_from
-    effective_to = parsed_to
+    effective_from = window.date_from
+    effective_to = window.date_to
 
     if survey_id:
         survey_dates = (
@@ -233,10 +255,10 @@ def get_survey_stats(
             survey_end = survey_dates["end_date"]
 
             if survey_start:
-                effective_from = max(filter(None, [parsed_from, survey_start]), default=survey_start)
+                effective_from = max(filter(None, [window.date_from, survey_start]), default=survey_start)
 
             if survey_end:
-                effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
+                effective_to = min(filter(None, [window.date_to, survey_end]), default=survey_end)
 
     date_conditions = ""
     if effective_from:
@@ -273,39 +295,26 @@ def get_survey_stats(
         conditions.append("properties.$survey_id IN {survey_ids}")
         placeholders["survey_ids"] = ast.Constant(value=[str(id) for id in active_survey_ids])
 
-    # Partially-completed submissions carry a synthetic "survey dismissed" event; don't count those.
-    conditions.append("(event != {dismissed} OR coalesce(properties.$survey_partially_completed, '') != 'true')")
-
     condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
 
-    # Multiple partial "survey sent" events can exist per submission; only the latest per
-    # $survey_submission_id counts (pre-submission-id events group by their own uuid). Deliberately
-    # not filtered by survey, matching get_unique_survey_event_uuids_sql_subquery's semantics.
-    sent_dedup_sql = f"""(event != {{sent}} OR uuid IN (
-                SELECT argMax(uuid, timestamp)
-                FROM events
-                WHERE event = {{sent}}{date_conditions}
-                GROUP BY if(
-                    coalesce(properties.$survey_submission_id, '') = '',
-                    toString(uuid),
-                    properties.$survey_submission_id
-                )
-            ))"""
+    sent_dedup_sql = (
+        f"(NOT {RESPONSE_EVENT_FILTER} OR uuid IN {_latest_response_event_uuids_subquery(date_conditions)})"
+    )
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
 
     # Query 1: Base Stats
     base_stats_query = f"""
         SELECT
-            event AS event_name,
+            if({RESPONSE_EVENT_FILTER}, {{sent}}, event) AS event_name,
             count() AS total_count,
             count(DISTINCT person_id) AS unique_persons,
             if(count() > 0, min(timestamp), NULL) AS first_seen,
             if(count() > 0, max(timestamp), NULL) AS last_seen
         FROM events
-        WHERE event IN ({{shown}}, {{dismissed}}, {{sent}}){condition_sql}
+        WHERE (event IN ({{shown}}, {{dismissed}}, {{sent}}) OR {RESPONSE_EVENT_FILTER}){condition_sql}
             AND {sent_dedup_sql}
-        GROUP BY event
+        GROUP BY event_name
     """
     results_base = execute_hogql_query(
         base_stats_query,
@@ -321,10 +330,10 @@ def get_survey_stats(
         FROM (
             SELECT person_id
             FROM events
-            WHERE event IN ({{dismissed}}, {{sent}}){condition_sql}
+            WHERE (event = {{dismissed}} OR {RESPONSE_EVENT_FILTER}){condition_sql}
             GROUP BY person_id
-            HAVING countIf(event = {{dismissed}}) > 0
-               AND countIf(event = {{sent}}) > 0
+            HAVING countIf(event = {{dismissed}} AND NOT {RESPONSE_EVENT_FILTER}) > 0
+               AND countIf({RESPONSE_EVENT_FILTER}) > 0
         )
     """
     dismissed_and_sent_count_result = execute_hogql_query(
@@ -376,3 +385,56 @@ def get_survey_stats(
         "stats": stats,
         "rates": rates,
     }
+
+
+def get_survey_responses_count(
+    *, team: Team, exclude_archived: bool = False, survey_ids: list[str] | None = None
+) -> dict[str, int]:
+    """Count captured submissions per survey, including incomplete responses.
+
+    Only events since the earliest survey start date in the project are scanned. With no
+    started survey there can be no responses, so that case returns empty without a query.
+    """
+    earliest_start_date = Survey.objects.filter(team__project_id=team.project_id).aggregate(Min("start_date"))[
+        "start_date__min"
+    ]
+    if not earliest_start_date:
+        return {}
+
+    placeholders: dict[str, ast.Expr] = {"since": ast.Constant(value=earliest_start_date)}
+    scan_conditions = ""
+    if survey_ids:
+        scan_conditions = "\n                AND properties.$survey_id IN {survey_ids}"
+        placeholders["survey_ids"] = ast.Constant(value=survey_ids)
+
+    archived_filter = ""
+    if exclude_archived:
+        archived_uuids = get_archived_response_uuids(None, team.pk)
+        if archived_uuids:
+            archived_filter = "\n        WHERE response_uuid NOT IN {archived_uuids}"
+            placeholders["archived_uuids"] = ast.Constant(value=sorted(archived_uuids))
+
+    # HogQL adds a 100-row LIMIT to a top-level SELECT without one, which would silently drop
+    # surveys past the first hundred; MAX_SELECT_RETURNED_ROWS is the most a query may return.
+    query = f"""
+        SELECT survey_id, count()
+        FROM (
+            SELECT properties.$survey_id AS survey_id, argMax(uuid, tuple(timestamp, uuid)) AS response_uuid
+            FROM events
+            WHERE {RESPONSE_EVENT_FILTER}
+                AND timestamp >= {{since}}{scan_conditions}
+            GROUP BY survey_id, {SUBMISSION_GROUPING_KEY}
+        ){archived_filter}
+        GROUP BY survey_id
+        LIMIT {MAX_SELECT_RETURNED_ROWS}
+    """
+
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+    results = execute_hogql_query(
+        query,
+        placeholders=placeholders,
+        team=team,
+        query_type="survey_responses_count",
+    ).results
+
+    return dict(results)

@@ -6,6 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { alertsEmptyState } from './emptyState/alertsEmptyState'
 import { Alerts } from './views/Alerts'
 
 export function AlertsScene(): JSX.Element {
@@ -22,4 +23,5 @@ export function AlertsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: AlertsScene,
     productKey: ProductKey.ALERTS,
+    emptyState: alertsEmptyState,
 }

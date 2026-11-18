@@ -1,22 +1,57 @@
 from datetime import timedelta
 
 import pytest
-from unittest.mock import patch
+import time_machine
+from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
+    USAGE_METRICS_RECORDED_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+class _RecordingMetric:
+    def __init__(self, sink, name, attributes):
+        self.sink = sink
+        self.name = name
+        self.attributes = attributes
+
+    def record(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+    def add(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+
+class _RecordingMetricMeter:
+    def __init__(self, sink, attributes=None):
+        self.sink = sink
+        self.attributes = dict(attributes or {})
+
+    def with_additional_attributes(self, additional_attributes):
+        return _RecordingMetricMeter(self.sink, {**self.attributes, **dict(additional_attributes)})
+
+    def create_counter(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
+
+    def create_histogram(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
 
 
 async def _run_update_task_run_status(
@@ -53,7 +88,7 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
-        # A run cancelled out of band (loop cancel_previous overlap, owner deactivation) must stay
+        # A run cancelled out of band (for example on owner deactivation) must stay
         # cancelled even if its own workflow finishes and reports completed afterward.
         test_task_run.status = TaskRun.Status.CANCELLED
         test_task_run.save(update_fields=["status"])
@@ -65,17 +100,33 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.status == TaskRun.Status.CANCELLED
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("status", [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+    def test_terminal_run_refuses_to_start(self, activity_environment, test_task_run, status):
+        test_task_run.status = status
+        test_task_run.save(update_fields=["status"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        assert exc_info.value.non_retryable is True
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == status
+
+    @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
         error_msg = "Something went wrong"
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_msg,
+            error_type="RepositoryAccessError",
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
+        assert test_task_run.state["failure_error_type"] == "RepositoryAccessError"
 
     @pytest.mark.django_db(transaction=True)
     def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
@@ -158,21 +209,53 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "marker",
-        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+        "marker,status",
+        [
+            (TIMED_OUT_WALL_CLOCK_STATE_KEY, TaskRun.Status.FAILED),
+            (SANDBOX_GONE_STATE_KEY, TaskRun.Status.FAILED),
+            (TIMED_OUT_WALL_CLOCK_STATE_KEY, TaskRun.Status.COMPLETED),
+        ],
     )
-    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
+    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker, status):
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
-            status=TaskRun.Status.FAILED,
+            status=status,
             timeout_marker=marker,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
-        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.status == status
         assert test_task_run.error_message is None
         assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "timed_out_inactivity,timeout_marker,end_of_turn_received,flagged",
+        [
+            (True, None, False, True),
+            (True, None, None, True),
+            (True, None, True, False),
+            (False, SANDBOX_GONE_STATE_KEY, False, True),
+            (False, SANDBOX_GONE_STATE_KEY, True, False),
+            (False, TIMED_OUT_WALL_CLOCK_STATE_KEY, False, False),
+            (False, None, False, False),
+        ],
+    )
+    def test_a_run_stopped_before_its_turn_closed_is_flagged(
+        self, activity_environment, test_task_run, timed_out_inactivity, timeout_marker, end_of_turn_received, flagged
+    ):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.COMPLETED,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+            end_of_turn_received=end_of_turn_received,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert ((test_task_run.state or {}).get(STOPPED_BEFORE_TURN_CLOSED_STATE_KEY) is True) == flagged
 
     @pytest.mark.django_db(transaction=True)
     def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):
@@ -198,22 +281,42 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,expected_event",
+        "status,expected_event,agent_version_expected,agent_version_matches_pin",
         [
-            (TaskRun.Status.COMPLETED, "task_run_completed"),
-            (TaskRun.Status.FAILED, "task_run_failed"),
+            (TaskRun.Status.COMPLETED, "task_run_completed", "2.4.213", True),
+            (TaskRun.Status.FAILED, "task_run_failed", "2.4.233", False),
         ],
     )
     @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_terminal_transition_captures_analytics_with_usage(
-        self, mock_capture, mock_record, activity_environment, test_task_run, status, expected_event
+        self,
+        mock_capture,
+        mock_record,
+        activity_environment,
+        test_task_run,
+        status,
+        expected_event,
+        agent_version_expected,
+        agent_version_matches_pin,
     ):
         test_task_run.state = {
             **(test_task_run.state or {}),
             "token_usage": dict(TOKEN_USAGE),
             "rtk_effective": True,
+            "benjamin_effective": True,
+            "benjamin_version": "2026.08.1",
+            "agent_version": "2.4.213",
+            "agent_version_expected": agent_version_expected,
+            "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
+            "budget_guard": {
+                "cap_usd": 20,
+                "spent_usd": 14.5,
+                "stage": "warn",
+                "mode": "publish",
+                "steers": [{"stage": "warn", "spent_usd": 14.1, "delivered": True}],
+            },
         }
         test_task_run.save(update_fields=["state"])
 
@@ -231,24 +334,120 @@ class TestUpdateTaskRunStatusActivity:
         assert props["total_tokens"] == 1500
         assert props["usage_turns"] == 3
         assert props["rtk_enabled"] is True
+        assert props["benjamin_enabled"] is True
+        assert props["benjamin_version"] == "2026.08.1"
+        assert props["agent_version"] == "2.4.213"
+        assert props["agent_version_expected"] == agent_version_expected
+        assert props["agent_version_matches_pin"] is agent_version_matches_pin
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
+        assert props["budget_cap_usd"] == 20
+        assert props["budget_spent_usd"] == 14.5
+        assert props["budget_stage"] == "warn"
+        assert props["budget_steers"] == 1
+        assert props["budget_steers_delivered"] == 1
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
+        assert mock_record.call_args.kwargs["benjamin_enabled"] is True
+        assert mock_record.call_args.kwargs["model"] == "gpt-5.6-sol"
         assert mock_record.call_args.kwargs["runtime_adapter"] == "codex"
         assert mock_record.call_args.kwargs["status"] == status
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_agent_terminalized_run_still_records_usage_metrics_once(
+        self, mock_capture, mock_record, activity_environment, test_task_run
+    ):
+        test_task_run.status = TaskRun.Status.COMPLETED
+        test_task_run.state = {**(test_task_run.state or {}), "token_usage": dict(TOKEN_USAGE)}
+        test_task_run.save(update_fields=["status", "state"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        mock_record.assert_called_once()
+        assert mock_record.call_args.kwargs["status"] == TaskRun.Status.COMPLETED
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+        assert [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"] == []
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason,run_output,expected_pr_created",
         [
-            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (
+                TaskRun.Status.COMPLETED,
+                True,
+                None,
+                None,
+                "task_run_completed",
+                TIMED_OUT_INACTIVITY_STATE_KEY,
+                None,
+                False,
+            ),
             (
                 TaskRun.Status.FAILED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_failed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
+                None,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
+                "task_run_completed",
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
+                False,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                SANDBOX_GONE_STATE_KEY,
+                "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue.",
+                "task_run_completed",
+                SANDBOX_GONE_STATE_KEY,
+                None,
+                False,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                {"pr_url": "https://github.com/PostHog/posthog/pull/42"},
+                True,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                "https://github.com/PostHog/posthog/pull/42",
+                False,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                None,
+                None,
+                "task_run_completed",
+                None,
+                ["https://github.com/PostHog/posthog/pull/42"],
+                False,
             ),
         ],
     )
@@ -261,12 +460,19 @@ class TestUpdateTaskRunStatusActivity:
         status,
         timed_out_inactivity,
         timeout_marker,
+        error_message,
         expected_event,
         expected_reason,
+        run_output,
+        expected_pr_created,
     ):
+        if run_output is not None:
+            test_task_run.output = run_output
+            test_task_run.save(update_fields=["output"])
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=status,
+            error_message=error_message,
             timed_out_inactivity=timed_out_inactivity,
             timeout_marker=timeout_marker,
             agent_active_at_termination=False,
@@ -279,6 +485,8 @@ class TestUpdateTaskRunStatusActivity:
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
         properties = captured[0].kwargs["properties"]
         assert properties["termination_reason"] == expected_reason
+        assert properties["error_message"] == (error_message or "")
+        assert properties.get("pr_created") is expected_pr_created
         assert properties["agent_active_at_termination"] is False
         assert properties["end_of_turn_received"] is True
         assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
@@ -286,24 +494,46 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "error_type,expected_error_type",
+        "error_type,failure_state,expected_error_type",
         [
-            ("ActivityError", "ActivityError"),
-            (None, "unspecified"),
+            ("ActivityError", {}, "ActivityError"),
+            (None, {}, "unspecified"),
+            ("agent_reported", {"failure_error_type": "agent_declined"}, "agent_declined"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "sandbox_backend,persisted_state,expected_backend",
+        [
+            (None, {}, None),
+            ("modal", {}, "modal"),
+            ("hogland", {}, "hogland"),
+            (None, {"sandbox_id": "sandbox-example", "sandbox_backend": "hogland"}, "hogland"),
         ],
     )
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_failed_transition_carries_error_type_and_message_tail(
-        self, mock_capture, activity_environment, test_task_run, error_type, expected_error_type
-    ):
+        self,
+        mock_capture: MagicMock,
+        activity_environment: ActivityEnvironment,
+        test_task_run: TaskRun,
+        error_type: str | None,
+        failure_state: dict[str, str],
+        expected_error_type: str,
+        sandbox_backend: str | None,
+        persisted_state: dict[str, str],
+        expected_backend: str | None,
+    ) -> None:
+        test_task_run.state = {**persisted_state, **failure_state}
+        test_task_run.save(update_fields=["state"])
         error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_message,
             error_type=error_type,
+            sandbox_backend=sandbox_backend,
         )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         assert len(captured) == 1
@@ -311,6 +541,9 @@ class TestUpdateTaskRunStatusActivity:
         assert props["error_type"] == expected_error_type
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
+        assert props.get("sandbox_backend") == expected_backend
+        test_task_run.refresh_from_db()
+        assert test_task_run.state.get("failure_error_type") == (expected_error_type if error_type else None)
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -373,9 +606,9 @@ class TestUpdateTaskRunStatusActivity:
             # An earlier prewarm nobody typed into does not — the next message resumes into a
             # successor, so counting it would report the first real chat as a continuation.
             ({"prewarmed": True, "await_user_message": True}, {}, True),
-            # A conversation carried over from LangGraph is continued, however little sandbox
-            # history it has: the conversion starts it on a fresh task with no earlier run.
-            (None, {"converted_from_langgraph": True}, False),
+            # A chat copied from LangGraph is an earlier run that held a chat, so the conversation
+            # is continued however little sandbox history it has.
+            ({"imported_from": "conversation"}, {}, False),
             (None, {}, True),
         ],
     )
@@ -433,33 +666,6 @@ class TestUpdateTaskRunStatusActivity:
         assert "task_run_completed" in events
 
     @pytest.mark.django_db(transaction=True)
-    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        loop = Loop(
-            team=test_task_run.team,
-            created_by=test_task_run.task.created_by,
-            name="Nightly digest",
-            instructions="Summarize",
-            runtime_adapter="claude",
-        )
-        loop.save()
-        test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.status = TaskRun.Status.FAILED
-        test_task_run.error_message = "sandbox crashed"
-        test_task_run.save(update_fields=["state", "status", "error_message"])
-
-        input_data = UpdateTaskRunStatusInput(
-            run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
-        )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-
-        loop.refresh_from_db()
-        assert loop.last_run_status == TaskRun.Status.FAILED
-        assert loop.last_error == "sandbox crashed"
-        assert loop.consecutive_failures == 1
-        assert loop.last_run_at is not None
-
-    @pytest.mark.django_db(transaction=True)
     def test_missing_task_run_raises_non_retryable(self, activity_environment):
         # Rows hard-deleted mid-run (team deletion cascade) must fail the workflow fast,
         # not be swallowed as a successful status write.
@@ -498,3 +704,164 @@ class TestUpdateTaskRunStatusActivity:
 
         after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
         assert after == before + expected_delta
+
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_transition_is_counted_once_with_its_failure_reason(self, activity_environment, test_task_run):
+        from prometheus_client import REGISTRY
+
+        test_task_run.task.origin_product = Task.OriginProduct.WORKFLOW
+        test_task_run.task.save(update_fields=["origin_product"])
+        labels = {
+            "origin_product": "workflow",
+            "run_environment": test_task_run.environment,
+            "status": "failed",
+            "error_type": "unknown",
+            "termination_reason": "timed_out_inactivity",
+        }
+        before = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            error_message="The agent stopped before finishing its turn",
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+        assert after == before + 1
+
+
+class TestRecordRunTokenUsageMetrics:
+    def _record(self, activity_environment, **overrides):
+        recorded: list = []
+        activity_environment.metric_meter = _RecordingMetricMeter(recorded)
+        kwargs = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "rtk_enabled": True,
+            "benjamin_enabled": True,
+            "model": "gpt-5.6-sol",
+            "runtime_adapter": "codex",
+            "status": "completed",
+            **overrides,
+        }
+        activity_environment.run(record_run_token_usage, dict(TOKEN_USAGE), **kwargs)
+        return recorded
+
+    def test_records_turns_alongside_tokens(self, activity_environment):
+        recorded = self._record(activity_environment)
+
+        turns = [entry for entry in recorded if entry[0] == "tasks_run_turns"]
+        assert len(turns) == 1
+        assert turns[0][1] == 3
+        assert turns[0][2]["benjamin_enabled"] == "true"
+        assert turns[0][2]["model"] == "gpt-5.6-sol"
+
+    @pytest.mark.parametrize(
+        "model, expected",
+        [
+            ("gpt-5.6-sol", "gpt-5.6-sol"),
+            ("Claude-Sonnet-5", "claude-sonnet-5"),
+            ("some-unreleased-model", "other"),
+            ("", "unknown"),
+            (None, "unknown"),
+        ],
+    )
+    def test_model_attribute_is_bounded_to_the_catalogue(self, activity_environment, model, expected):
+        recorded = self._record(activity_environment, model=model)
+
+        assert {entry[2]["model"] for entry in recorded} == {expected}
+
+    @pytest.mark.parametrize("benjamin_enabled, expected", [(True, "true"), (False, "false"), (None, "unknown")])
+    def test_benjamin_attribute_labels_every_posture(self, activity_environment, benjamin_enabled, expected):
+        recorded = self._record(activity_environment, benjamin_enabled=benjamin_enabled)
+
+        assert {entry[2]["benjamin_enabled"] for entry in recorded} == {expected}
+
+
+@pytest.mark.requires_secrets
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "origin_product,origin_key,wakes,cost_failure,uses_gateway",
+    [
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, True, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, False),
+        (Task.OriginProduct.USER_CREATED, None, False, False, True),
+    ],
+)
+def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
+    activity_environment: ActivityEnvironment,
+    test_task_run: TaskRun,
+    origin_product: str,
+    origin_key: str | None,
+    wakes: bool,
+    cost_failure: bool,
+    uses_gateway: bool,
+) -> None:
+    task = test_task_run.task
+    task.origin_product = origin_product
+    task.origin_key = origin_key
+    task.save(update_fields=["origin_product", "origin_key"])
+    test_task_run.output = {"final_message": "done"}
+    test_task_run.state = (
+        {"token_cost": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_cost_incomplete": True}
+    )
+    test_task_run.save(update_fields=["output", "state"])
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+    with (
+        patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume,
+        patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+        patch(
+            "products.tasks.backend.logic.services.gateway_usage._compute_cost_source",
+            side_effect=OperationalError("unavailable") if cost_failure else None,
+            return_value=None,
+        ),
+    ):
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
+
+    assert resume.call_count == (2 if wakes else 0)
+    assert sum(call.kwargs.get("event") == "task_run_completed" for call in capture.call_args_list) == 1
+    test_task_run.refresh_from_db()
+    assert ("compute_cost" in test_task_run.state) is not cost_failure
+    if wakes:
+        assert resume.call_args.kwargs["origin_key"] == "job:step:1"
+        assert resume.call_args.kwargs["status"] == "completed"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "status,wake_target",
+    [
+        (TaskRun.Status.COMPLETED, "current_app.send_task"),
+        (TaskRun.Status.FAILED, "emit_workflow_step_resume"),
+    ],
+)
+def test_terminal_retry_after_wake_failure_wakes_again_and_keeps_finish_time(
+    activity_environment, test_task_run, status, wake_target
+):
+    task = test_task_run.task
+    task.origin_product = Task.OriginProduct.WORKFLOW
+    task.origin_key = "job:step:1"
+    task.save(update_fields=["origin_product", "origin_key"])
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+    first_attempt_at = timezone.now()
+
+    with patch(
+        f"products.tasks.backend.logic.services.workflow_step_resume.{wake_target}",
+        side_effect=[RuntimeError("broker down"), None],
+    ) as wake:
+        with time_machine.travel(first_attempt_at, tick=False), pytest.raises(RuntimeError, match="broker down"):
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == status
+        with time_machine.travel(first_attempt_at + timedelta(minutes=5), tick=False):
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    assert wake.call_count == 2
+    test_task_run.refresh_from_db()
+    assert test_task_run.completed_at == first_attempt_at

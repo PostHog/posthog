@@ -20,9 +20,8 @@ import {
     IngesterLike,
     createKafkaMessages,
     createTestWithTeamIngester,
-    waitForClickHouseKafkaConsumer,
+    ensureIngestionE2EInfraReady,
 } from '~/tests/helpers/ingestion-e2e'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
 
@@ -119,8 +118,7 @@ describe('Heatmaps consumer E2E', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await waitForClickHouseKafkaConsumer(clickhouse)
+        await ensureIngestionE2EInfraReady()
     })
 
     afterAll(() => {

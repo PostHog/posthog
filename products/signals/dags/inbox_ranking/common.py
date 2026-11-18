@@ -6,6 +6,7 @@ live in sibling packages and import from here so they share one destination and 
 definition.
 """
 
+import shutil
 import datetime
 import tempfile
 
@@ -17,12 +18,19 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
+
+from products.signals.backend.models import SignalActorKind
 
 DATASET_VERSION = "v1"
 
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
 
 PARQUET_PART_NAME = "part-00000.parquet"
+
+_READ_CHUNK_BYTES = 8 << 20
+# An embeddings row holds 1536 float32 values (6 KiB), so a batch of them stays near 100 MiB.
+_READ_BATCH_ROWS = 16384
 
 # Earliest label event worth reading: report-attributed pr_created starts 2026-04-20, and the
 # other label streams start later. Also the earliest backfillable partition.
@@ -35,16 +43,45 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+# A report can be resolved without an implemented fix, so these reasons do not label a fix.
+NOT_FIXED_RESOLUTION_REASONS = (
+    "no_action_needed",
+    "analysis_wrong",
+    "wontfix_intentional",
+    "wontfix_irrelevant",
+    "report_unclear",
+    "wrong_assignee",
+    "wrong_repo",
+)
+# A dismissal that says the problem was real and is fixed somewhere.
+FIXED_DISMISSAL_REASONS = ("already_fixed", "fixed_outside_posthog", "pr_merged")
+# A dismissal that says the problem is real but not worth fixing: a relevance failure, not a precision failure.
+LOW_VALUE_DISMISSAL_REASONS = ("wontfix_irrelevant",)
+
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}
+
+# The serving publish runs inside the manifest asset and inside the manual promote job.
+RunContext = dagster.AssetExecutionContext | dagster.OpExecutionContext
 
 
 def is_inbox_ranking_registered() -> bool:
     """EU report rows and embeddings are unreachable from a US dag, and labels from every region
     already land in the US dogfood project, so the whole location registers on US only."""
     return settings.CLOUD_DEPLOYMENT != "EU"
+
+
+def is_inbox_ranking_mirror_registered() -> bool:
+    """EU trains nothing, but it builds its own project vectors from its own report embeddings."""
+    return settings.CLOUD_DEPLOYMENT == "EU"
 
 
 def dataset_unconfigured() -> bool:
@@ -91,7 +128,7 @@ def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
 # boto3.client("s3") is left untyped on purpose: mypy and pyright resolve it to different stub
 # packages (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both.
 def s3_client():  # noqa: ANN201
-    # The dedicated bucket is reached via ambient AWS config (the node role on prod). Without it,
+    # The dedicated bucket is reached via ambient AWS config (the `dagster` IRSA role on prod). Without it,
     # every other environment (local dev, self-hosted, CI) uses the deployment's object-storage
     # service, which needs its explicit endpoint and credentials regardless of DEBUG.
     if settings.INBOX_RANKING_DATASET_S3_BUCKET:
@@ -105,11 +142,26 @@ def s3_client():  # noqa: ANN201
     )
 
 
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
+
+
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
 ROW_COUNT_METADATA_KEY = "row-count"
+# The FEATURE_SCHEMA_VERSION the labels asset wrote an object under. The refresh sensor rewrites a
+# partition whose stamp is missing or older, so a new label column reaches the whole lookback.
+SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
 
 
-def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+def write_parquet(
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
     """Write one Parquet object at a deterministic key.
 
     Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
@@ -120,6 +172,8 @@ def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date:
     metadata = {ROW_COUNT_METADATA_KEY: str(table.num_rows)}
     if snapshot_date:
         metadata[SNAPSHOT_DATE_METADATA_KEY] = snapshot_date
+    if schema_version is not None:
+        metadata[SCHEMA_VERSION_METADATA_KEY] = str(schema_version)
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
         spool.seek(0)
@@ -151,6 +205,19 @@ def object_row_count(client, bucket: str, key: str) -> int | None:
     return int(stamped) if stamped is not None else None
 
 
+def object_schema_version(client, bucket: str, key: str) -> int | None:
+    """The schema version stamped on an object at write time, or None when the object is missing
+    or predates the stamp."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(SCHEMA_VERSION_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
 def partition_write_allowed(existing_row_count: int | None, row_count: int) -> bool:
     """Whether a re-run may overwrite a partition it has already written.
 
@@ -179,19 +246,58 @@ def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[
     return pa.concat_tables([existing, fresh.filter(mask)])
 
 
-def read_parquet(client, bucket: str, key: str) -> pa.Table:
-    body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body))
+def read_parquet(
+    client, bucket: str, key: str, columns: list[str] | None = None, *, skip_absent_columns: bool = False
+) -> pa.Table:
+    """Read one Parquet object, or only `columns` of it.
+
+    The object is streamed to a temp file and decoded in record batches, for the reason
+    `write_parquet` spools: the embeddings snapshot carries a 1536-float vector per live report.
+    A read from the object bytes holds those bytes, the pre-buffered row group and the decoded
+    table at the same time, which costs several times the table. The batch read holds the table
+    and one batch only, and its read buffer decodes a column chunk page by page.
+
+    With `skip_absent_columns`, a requested column that the object's schema does not have is left
+    out instead of failing the read, because older snapshots lack the columns added later."""
+    with tempfile.NamedTemporaryFile() as spool:
+        shutil.copyfileobj(client.get_object(Bucket=bucket, Key=key)["Body"], spool, _READ_CHUNK_BYTES)
+        spool.flush()
+        with pq.ParquetFile(spool.name, pre_buffer=False, buffer_size=_READ_CHUNK_BYTES) as parquet:
+            schema = parquet.schema_arrow
+            if columns is not None:
+                if skip_absent_columns:
+                    columns = [column for column in columns if column in schema.names]
+                schema = schema.empty_table().select(columns).schema
+            batches = parquet.iter_batches(batch_size=_READ_BATCH_ROWS, columns=columns)
+            return pa.Table.from_batches(batches, schema=schema)
 
 
-def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
+def _never_written(error: ClientError) -> bool:
+    return error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound")
+
+
+def read_parquet_if_exists(
+    client, bucket: str, key: str, columns: list[str] | None = None, *, skip_absent_columns: bool = False
+) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
-        return read_parquet(client, bucket, key)
+        return read_parquet(client, bucket, key, columns, skip_absent_columns=skip_absent_columns)
     except ClientError as error:
-        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+        if _never_written(error):
             return None
         raise
+
+
+def parquet_file_if_exists(client, bucket: str, key: str) -> pq.ParquetFile | None:
+    """The object for a reader that decodes it in batches, or None when it was never written. Only the
+    object's bytes are held, not its decoded rows."""
+    try:
+        body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except ClientError as error:
+        if _never_written(error):
+            return None
+        raise
+    return pq.ParquetFile(pa.BufferReader(body))
 
 
 def ensure_utc(value: datetime.datetime | None) -> datetime.datetime | None:

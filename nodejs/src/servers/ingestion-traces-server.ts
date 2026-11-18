@@ -2,6 +2,8 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -12,6 +14,9 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { createTracesIngestionConsumer } from '~/logs/framework/create-consumer'
+import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -21,7 +26,9 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
-import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
+import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
+import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
+import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -49,6 +56,7 @@ export type IngestionTracesServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
+    UsageIngestionConfig &
     Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'CLOUD_DEPLOYMENT' | 'HEALTHCHECK_MAX_STALE_SECONDS'>
 
 export class IngestionTracesServer implements NodeServer {
@@ -103,6 +111,23 @@ export class IngestionTracesServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
+        // Span-based metric rules share the log rules table + OTLP emitter; the traces
+        // consumer filters to `source=spans`. Inert without a traces export URL.
+        const metricRulesCache = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new MetricRulesCache(this.postgres)
+            : undefined
+        const metricsEmitter = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
+            : undefined
+
+        // Span drop rules share the log rules table; the consumer reads `source=spans` and gates on
+        // TRACES_SAMPLING_ENABLED_TEAMS and the killswitch per team.
+        const samplingRulesCache = new SamplingRulesCache(this.postgres)
+
+        // The tracing config supplies the per-team default for spans no rule matches.
+        const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const tracingConfigCache = new TracingConfigCache(this.postgres)
+
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
@@ -110,10 +135,20 @@ export class IngestionTracesServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const consumer = new TracesIngestionConsumer(this.config, {
+            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm_traces'), {
+                unit: 'bytes',
+                isTeamEnabled: usageReportTeamMatcher(this.config),
+            })
+            const consumer = createTracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
+                usageBatch,
+                samplingRulesCache,
+                metricRulesCache,
+                metricsEmitter,
+                retentionRulesCache,
+                tracingConfigCache,
             })
             await consumer.start()
             return consumer.service

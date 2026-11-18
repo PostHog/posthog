@@ -3,7 +3,7 @@
         z-index: var(--quill-z-popover, 50);
         width: 18rem;
         padding: 0.625rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         color: var(--foreground);
         background-color: var(--card);
         border: 1px solid var(--border);

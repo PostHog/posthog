@@ -9,6 +9,8 @@ import { formatSqlSeriesValue, hasAxisTickFormatting } from './sqlLineGraphAdapt
  *  own column's currency/percent/prefix/suffix settings — the same trick the line path uses. */
 export interface SqlScatterPointMeta {
     settings?: AxisSeriesSettings
+    rowIndex?: number
+    rowKey?: string
 }
 
 export type SqlScatterSeries = ScatterSeries<SqlScatterPointMeta>
@@ -102,7 +104,11 @@ export function buildScatterConfig({
         },
         showGrid: yAxisSettings?.showGridLines ?? true,
         showBestFit: chartSettings.scatter?.showBestFit ?? false,
-        legend: { show: chartSettings.showLegend ?? false, position: 'top', interactive: true },
+        legend: {
+            show: chartSettings.showLegend ?? false,
+            position: chartSettings.legendPosition ?? 'top',
+            interactive: true,
+        },
         tooltip: {
             xFormatter: (value: number): string => value.toLocaleString(),
             yFormatter: (value: number, point): string => formatSqlSeriesValue(value, point.meta?.settings),

@@ -1,3 +1,5 @@
+from collections.abc import Collection
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -11,7 +13,10 @@ from posthog.hogql.database.database import _compute_system_table_access_decisio
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import hash_key_value
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -180,10 +185,15 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
     def test_psak_run_uses_synthetic_user_access_control(self):
         token, _ = _make_psak(self.team, label="run-with-rbac")
 
-        captured: dict = {}
+        captured: dict[str, list[tuple[UserAccessControl | None, set[str]]]] = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured.setdefault("results", []).append(result)
             return result
 

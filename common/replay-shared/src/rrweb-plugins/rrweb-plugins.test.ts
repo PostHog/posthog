@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
+import { CorsPlugin, createCorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
 
 describe('CorsPlugin', () => {
     it.each(['https://some-external.js'])('should replace JS urls', (jsUrl) => {
@@ -36,6 +36,28 @@ describe('CorsPlugin', () => {
         el.href = 'https://app.posthog.com/my-image.js'
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
+    })
+
+    it.each([
+        [null, 'https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/fonts/my-font.woff2#iefix'],
+        [
+            'header.payload.signature',
+            'https://replay.ph-proxy.com/proxy?token=header.payload.signature&url=https://app.posthog.com/fonts/my-font.woff2#iefix',
+        ],
+    ])('sends proxy token %s before the url', (token, expected) => {
+        const plugin = createCorsPlugin(() => token)
+
+        expect(plugin._replaceFontUrl('https://app.posthog.com/fonts/my-font.woff2#iefix')).toEqual(expected)
+    })
+
+    it('reads the latest proxy token for each url', () => {
+        let token = 'first'
+        const plugin = createCorsPlugin(() => token)
+        token = 'second'
+
+        expect(plugin._replaceJSUrl('https://some-external.js')).toEqual(
+            'https://replay.ph-proxy.com/proxy?token=second&url=https://some-external.js'
+        )
     })
 })
 

@@ -1,6 +1,7 @@
 import tempfile
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -13,7 +14,7 @@ import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
 
 from products.context_layer.backend import repo_lint, store
-from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
 
 
 class TestRepoWriterLock(SimpleTestCase):
@@ -52,6 +53,9 @@ class TestDreamPathGuard(SimpleTestCase):
         assert not store._dream_may_edit("AGENTS.md")
         assert not store._dream_may_edit("index.md")
         assert not store._dream_may_edit("projects/1/spaces/index.md")
+        assert not store._dream_may_edit("areas/AGENTS.md")
+        assert not store._dream_may_edit("org/claude.md")
+        assert not store._dream_may_edit("decisions/INDEX.md")
         assert not store._dream_may_edit("scripts/lint")
         assert not store._dream_may_edit("scripts/publish")
 
@@ -174,7 +178,17 @@ class TestContextLayerStore(BaseTest):
             (root / "areas" / "replay.md").write_text(_page("Replay"))
 
         store.apply_changes(self.organization.id, message="Add the replay area page", mutate=add_page)
+        WikiPageProposal.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            task_id=uuid4(),
+            path="areas/replay.md",
+            original_content="Content to remove",
+            content="Suggested content",
+            base_head=store.get_config(self.organization.id).head_sha,
+        )
         store.purge_repo_history(self.organization.id)
+        assert not WikiPageProposal.objects.for_team(self.team.id).exists()
 
         with store.checkout_repo(self.organization.id) as checkout:
             assert (checkout.path / "areas" / "replay.md").is_file()

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
 import { getKafkaConfigFromEnv } from '~/common/kafka/config'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
+import { DEFAULT_PRODUCER_BROKER_LIST } from '~/common/outputs/kafka-producer-config'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -12,6 +13,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'
+import { KafkaWarpstreamIngestionProducerEnvConfig, WARPSTREAM_INGESTION_PRODUCER } from '../outputs/producers'
 import {
     CohortMembershipSweeper,
     MembershipWatermarks,
@@ -29,7 +31,8 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
         | 'COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE'
         | 'COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS'
         | 'COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS'
-    >
+    > &
+    Pick<KafkaWarpstreamIngestionProducerEnvConfig, 'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST'>
 
 /**
  * The broker list the membership consumer resolves, mirroring the consumer's own config
@@ -42,14 +45,14 @@ function membershipClusterId(): string {
     return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
 }
 
-const offFormatVersions = new Counter({
-    name: 'cdp_cohort_membership_off_format_versions',
-    help: 'Membership changes whose version stamp broke the producer contract and was degraded to versionless',
+const versionlessChanges = new Counter({
+    name: 'cdp_cohort_membership_versionless_changes',
+    help: 'Membership changes accepted as versionless because their version stamp was missing or broke the producer contract',
 })
 
 // `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
 // processor added later would throw the whole batch and crash-loop on redelivery.
-const CohortMembershipChangeSchema = z.object({
+export const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),
     team_id: z.number(),
@@ -60,6 +63,15 @@ const CohortMembershipChangeSchema = z.object({
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
+
+/**
+ * Control records share the topic with membership changes, and a string `type` tells them apart
+ * because no change carries one. The Node readers skip every type, so a new kind of control record
+ * needs no Node change first.
+ */
+export function isCohortMembershipControlRecord(message: unknown): boolean {
+    return typeof message === 'object' && message !== null && typeof (message as { type?: unknown }).type === 'string'
+}
 
 /** How far the consumer has applied a partition, in the same units as a Kafka high watermark. */
 type PartitionProgress = {
@@ -173,6 +185,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         }
 
         if (config.COHORT_MEMBERSHIP_SWEEP_ENABLED) {
+            // The sweep publishes its floors with this producer. A floor on another cluster never
+            // reaches a reader of this topic, which then keeps every member the sweep deletes.
+            const floorCluster =
+                config.KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST || DEFAULT_PRODUCER_BROKER_LIST
+            if (floorCluster !== this.membershipCluster) {
+                throw new Error(
+                    'COHORT_MEMBERSHIP_SWEEP_ENABLED requires KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST ' +
+                        `to name the brokers this consumer reads (${this.membershipCluster}), not ${floorCluster}`
+                )
+            }
+
             // Markers from runs that predate the sweeper are useless, because the next reconcile
             // heals anyway, so a fresh sweeper group starts at the tip of the marker topic.
             this.markerKafkaConsumer = createKafkaConsumer(
@@ -184,6 +207,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
                 captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
                 refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
+                producer: deps.cdpProducerRegistry.getProducer(WARPSTREAM_INGESTION_PRODUCER),
             })
         }
     }
@@ -496,6 +520,9 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 }
 
                 const parsedMessage = parseJSON(messageValue)
+                if (isCohortMembershipControlRecord(parsedMessage)) {
+                    continue
+                }
 
                 // Validate using Zod schema
                 const validationResult = CohortMembershipChangeSchema.safeParse(parsedMessage)
@@ -521,13 +548,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                     cohortMembershipChange.last_updated &&
                     !PRODUCER_VERSION_FORMAT.test(cohortMembershipChange.last_updated)
                 ) {
-                    offFormatVersions.inc()
                     logger.warn('Dropping an off-format membership version', {
                         last_updated: cohortMembershipChange.last_updated,
                         team_id: cohortMembershipChange.team_id,
                         cohort_id: cohortMembershipChange.cohort_id,
                     })
                     cohortMembershipChange.last_updated = undefined
+                }
+                // The producer always sets a version, so a missing one breaks its contract as
+                // much as an off-format one.
+                if (cohortMembershipChange.last_updated === undefined) {
+                    versionlessChanges.inc()
                 }
 
                 cohortMembershipChanges.push(cohortMembershipChange)
@@ -545,6 +576,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
 
     private async handleBatch(messages: Message[]): Promise<void> {
         const cohortMembershipChanges = this._parseAndValidateBatch(messages)
+        // Taken from every message, skipped control records included, so a partition whose newest
+        // message is a control record still reaches the watermark the sweep gate waits for.
         const progress = this.config.COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED
             ? partitionProgressFromMessages(messages)
             : []

@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB19",
+    "cluster": 57,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:159-173 explicitly defines one acting reviewer: the requester when assigned, otherwise the first resolved assigned reviewer. Lines 169-170 expressly state that this person's respective ReviewHog/Stamphog toggles govern; implementation at 202-207 matches that rule. The Stamphog webhook resolver uses the same selection before checking its toggle at 151-155. tests/test_inbox_trigger.py:229-238 intentionally asserts that an opted-out canonical reviewer blocks review even if another assigned reviewer opted in; 241-252 covers the assigned-requester exception, and 255-267 rejects an unassigned requester's preference.",
+            "refutation": "I first looked for the alleged any-assigned-reviewer contract. The authoritative caller comments and explicit regression cases say the opposite: canonical selection is deliberate, so later assignees must not override whose review settings govern. The Stamphog resolver's specific toggle is also tested at test_inbox_trigger.py:371-387. The code does produce the claimed no-review outcome, but that outcome is required under the frozen design. Changing it to any opted-in reviewer would change product policy rather than fix a defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The claimed any-assigned-reviewer contract is contradicted by the frozen implementation contract. /tmp/frozen-75215/products/review_hog/backend/receivers.py:159-173 explicitly defines one canonical acting reviewer, preferring the assigned requester and otherwise the first resolved assignee, whose independent Stamphog toggle governs the run. Lines202-207 implement that choice; lines144-156 apply the same choice to later reviews. /tmp/frozen-75215/products/stamphog/AGENTS.md:84-87,110-112 likewise specifies the acting reviewer's toggle, not any assignee's toggle.",
+            "refutation": "I checked whether this was an accidental reuse of the ReviewHog resolver against tests and the declared Stamphog contract. /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:229-238 deliberately asserts that an opted-out canonical reviewer blocks review despite another assignee opting in; lines241-267 verify the assigned-requester exception and non-assigned requester behavior. The receiver module expressly extends that same reviewer to Stamphog at17-23 and159-173. Thus the reported behavior is intentional and supported by the available source, and the suggested any-opted-in selection would change the contract rather than fix a proved defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The source explicitly defines one acting reviewer: the requesting task creator if assigned, otherwise the first resolved reviewer, whose independent ReviewHog and Stamphog toggles govern the respective run (products/review_hog/backend/receivers.py:1-23,159-173,202-207). The test for an opted-out canonical reviewer plus another opted-in reviewer expects no review (tests/test_inbox_trigger.py:228-238), while the assigned requester case expects their own settings (240-252). The separate Stamphog dispatch follows that documented canonical-reviewer policy, not an any-assigned-reviewer rule.",
+            "refutation": "I checked the resolver contract and existing multi-reviewer tests for the claimed policy. Both directly contradict it: the first reviewer is explicitly canonical when the task requester is not among assigned users, and both toggles are attached to that same person (receivers.py:165-171). Independent-toggle coverage at tests/test_inbox_trigger.py:314-343 checks that one canonical person's ReviewHog setting does not gate their Stamphog choice, not that any assignee may override them. Searching for a later opted-in user would change the intended ownership policy and is not a bug fix."
+        }
+    ]
+}

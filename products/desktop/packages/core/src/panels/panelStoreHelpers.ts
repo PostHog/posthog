@@ -1,6 +1,5 @@
 import { DEFAULT_TAB_IDS } from "./panelConstants";
 import type {
-  GroupPanel,
   LeafPanel,
   PanelNode,
   SplitDirection,
@@ -8,11 +7,11 @@ import type {
   TaskLayout,
 } from "./panelTypes";
 
-export const DEFAULT_FALLBACK_TAB = DEFAULT_TAB_IDS.LOGS;
+const DEFAULT_FALLBACK_TAB = DEFAULT_TAB_IDS.LOGS;
 
-export type TabType = "file" | "system";
+type TabType = "file" | "system";
 
-export interface ParsedTabId {
+interface ParsedTabId {
   type: TabType;
   value: string;
 }
@@ -21,14 +20,14 @@ export function createFileTabId(filePath: string): string {
   return `file-${filePath}`;
 }
 
-export function parseTabId(tabId: string): ParsedTabId & { status?: string } {
+function parseTabId(tabId: string): ParsedTabId & { status?: string } {
   if (tabId.startsWith("file-")) {
     return { type: "file", value: tabId.slice(5) };
   }
   return { type: "system", value: tabId };
 }
 
-export function createTabLabel(tabId: string): string {
+function createTabLabel(tabId: string): string {
   const parsed = parseTabId(tabId);
   if (parsed.type === "file") {
     return parsed.value.split("/").pop() || parsed.value;
@@ -91,14 +90,6 @@ export function activeArtifactId(layout: TaskLayout): string | null {
   );
 }
 
-export function getGroupPanel(
-  tree: PanelNode,
-  panelId: string,
-): GroupPanel | null {
-  const panel = findPanelById(tree, panelId);
-  return panel?.type === "group" ? panel : null;
-}
-
 let nextPanelId = 1;
 
 export function generatePanelId(): string {
@@ -109,11 +100,7 @@ export function resetPanelIdCounter(): void {
   nextPanelId = 1;
 }
 
-export function createNewTab(
-  tabId: string,
-  closeable = true,
-  isPreview = false,
-): Tab {
+function createNewTab(tabId: string, closeable = true, isPreview = false): Tab {
   const parsed = parseTabId(tabId);
   let data: Tab["data"];
 
@@ -236,7 +223,7 @@ export function applyCleanupWithFallback(
   return cleanedTree || originalTree;
 }
 
-export function isTabActiveInTree(tree: PanelNode, tabId: string): boolean {
+function isTabActiveInTree(tree: PanelNode, tabId: string): boolean {
   if (tree.type === "leaf") {
     return tree.content.activeTabId === tabId;
   }

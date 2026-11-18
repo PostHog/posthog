@@ -23,4 +23,5 @@ export interface HogTransformer {
     transformEventAndProduceMessages(event: PluginEvent): Promise<HogTransformationResult>
     // Refresh cached transformation hog-function states for the given teams (used by the ingestion
     // prefetch step). Encapsulates the hog-function-manager lookup ingestion would otherwise reach into.
+    prefetchHogFunctionsForTeams(teamIds: number[]): Promise<void>
 }

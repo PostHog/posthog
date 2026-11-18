@@ -36,21 +36,38 @@ describe('tracingFiltersLogic', () => {
     })
 
     describe('view mode', () => {
-        it('defaults to traces', () => {
-            expect(logic.values.viewMode).toBe('traces')
-            expect(logic.values.filters.viewMode).toBe('traces')
-        })
-
-        it('switches to spans', () => {
-            logic.actions.setViewMode('spans')
+        it('defaults to spans', () => {
             expect(logic.values.viewMode).toBe('spans')
             expect(logic.values.filters.viewMode).toBe('spans')
         })
 
-        it('switches back to traces', () => {
-            logic.actions.setViewMode('spans')
+        it('switches to traces', () => {
             logic.actions.setViewMode('traces')
             expect(logic.values.viewMode).toBe('traces')
+            expect(logic.values.filters.viewMode).toBe('traces')
+        })
+
+        it('switches back to spans', () => {
+            logic.actions.setViewMode('traces')
+            logic.actions.setViewMode('spans')
+            expect(logic.values.viewMode).toBe('spans')
+        })
+    })
+
+    describe('utcDateRange', () => {
+        it('passes absolute bounds through as ISO strings', () => {
+            logic.actions.setDateRange(ABSOLUTE_RANGE)
+            expect(logic.values.utcDateRange).toEqual({
+                date_from: '2024-01-08T00:00:00.000Z',
+                date_to: '2024-01-08T04:00:00.000Z',
+            })
+        })
+
+        it('resolves an open relative window to the anchored end instead of null', () => {
+            jest.useFakeTimers().setSystemTime(Date.parse('2024-01-08T12:00:00Z'))
+            logic.actions.setDateRange({ date_from: '-1h', date_to: null })
+            expect(logic.values.utcDateRange.date_to).toBe('2024-01-08T12:00:00.000Z')
+            jest.useRealTimers()
         })
     })
 
@@ -107,12 +124,12 @@ describe('tracingFiltersLogic', () => {
             a.mount()
             b.mount()
             try {
-                a.actions.setViewMode('spans')
+                a.actions.setViewMode('traces')
                 a.actions.setServiceNames(['svc-a'])
 
-                expect(a.values.viewMode).toBe('spans')
+                expect(a.values.viewMode).toBe('traces')
                 expect(a.values.filters.serviceNames).toEqual(['svc-a'])
-                expect(b.values.viewMode).toBe('traces')
+                expect(b.values.viewMode).toBe('spans')
                 expect(b.values.filters.serviceNames).toEqual([])
             } finally {
                 a.unmount()
@@ -237,6 +254,58 @@ describe('tracingFiltersLogic', () => {
                     type: PropertyFilterType.SpanAttribute,
                 },
             ])
+        })
+    })
+
+    describe('relative ranges', () => {
+        const NOW = Date.parse('2024-01-08T12:00:00Z')
+        const MINUTE_MS = 60 * 1000
+        let nowSpy: jest.SpyInstance<number, []>
+
+        beforeEach(() => {
+            nowSpy = jest.spyOn(Date, 'now').mockReturnValue(NOW)
+        })
+
+        afterEach(() => {
+            nowSpy.mockRestore()
+        })
+
+        // The window resolved through a unit map local to this file that had 'm' and 'M' the other
+        // way round, so the "Last 30 minutes" preset ('-30M') spanned 30 months, and 'w'/'q'/'y'
+        // matched nothing and collapsed to a zero-width window. The letters must mean what they
+        // mean everywhere else in the app.
+        it.each([
+            ['-30M', 30 * MINUTE_MS],
+            ['-3h', 3 * HOUR_MS],
+            ['-7d', 7 * DAY_MS],
+            ['-2w', 14 * DAY_MS],
+        ])('resolves %s back from now', (dateFrom, expectedSpanMs) => {
+            logic.actions.setDateRange({ date_from: dateFrom, date_to: null })
+
+            expect(logic.values.sparklineWindowMs).toEqual({ startMs: NOW - expectedSpanMs, endMs: NOW })
+        })
+
+        // Refreshing has to move an open-ended window along. Reading the clock inside the memoized
+        // selector pinned it to the moment the range was picked, so the chart never caught up.
+        it('advances an open-ended window when the anchor refreshes', () => {
+            logic.actions.setDateRange({ date_from: '-30M', date_to: null })
+            nowSpy.mockReturnValue(NOW + HOUR_MS)
+
+            logic.actions.refreshWindowAnchor()
+
+            expect(logic.values.sparklineWindowMs).toEqual({
+                startMs: NOW + HOUR_MS - 30 * MINUTE_MS,
+                endMs: NOW + HOUR_MS,
+            })
+        })
+
+        it('leaves an absolute window where it is when the anchor refreshes', () => {
+            logic.actions.setDateRange(ABSOLUTE_RANGE)
+            nowSpy.mockReturnValue(NOW + HOUR_MS)
+
+            logic.actions.refreshWindowAnchor()
+
+            expect(logic.values.sparklineWindowMs).toEqual({ startMs: RANGE_START, endMs: RANGE_END })
         })
     })
 

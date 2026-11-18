@@ -8,6 +8,12 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized_class
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
+from products.tasks.backend.access import PostHogAIAccessDecision
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -221,6 +227,39 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert artifact["error"] == "unsupported_runtime"
         assert not await sync_to_async(task.runs.exists)()
         mock_execute_workflow.assert_not_called()
+
+    @patch(
+        "products.tasks.backend.max_tools.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.BETA_OFF,
+    )
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_refuses_posthog_ai_task_without_posthog_ai_access(self, _mock_execute_workflow, _decision):
+        task = await self._create_task(origin_product=Task.OriginProduct.POSTHOG_AI)
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert content == "This task isn't available to you."
+        assert artifact["error"] == "task_unavailable"
+        assert not await sync_to_async(task.runs.exists)()
+
+    @patch(
+        "products.tasks.backend.max_tools.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_runs_posthog_ai_task_with_posthog_ai_access(self, _mock_execute_workflow, _decision):
+        task = await self._create_task(origin_product=Task.OriginProduct.POSTHOG_AI)
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "Started execution" in content
+        assert await sync_to_async(task.runs.filter(id=artifact["run_id"]).exists)()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -708,16 +747,19 @@ class TestListTasksTool(BaseTaskToolTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_list_tasks_includes_run_status(self):
+    async def test_list_tasks_includes_task_status(self):
         task = await self._create_task("Task with run")
-        await self._create_task_run(task, status=TaskRun.Status.COMPLETED)
+        await self._create_task_run(task, status=TaskRun.Status.FAILED)
+        await Task.objects.filter(pk=task.pk).aupdate(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE
+        )
 
         tool = self._create_tool(ListTasksTool)
 
         content, artifact = await tool._arun_impl()
 
-        assert "Completed" in content
-        assert artifact["tasks"][0]["status"] == TaskRun.Status.COMPLETED
+        assert "Status: Idle (unexpected failure)" in content
+        assert artifact["tasks"][0]["status"] == Task.Status.IDLE
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1096,3 +1138,48 @@ class TestListRepositoriesTool(BaseTaskToolTest):
         assert "/integrations/github" in content
         assert artifact["repositories"] == []
         assert artifact["settings_url"] == "/integrations/github"
+
+
+@parameterized_class("tool_class", [(GetTaskRunTool,), (GetTaskRunLogsTool,), (ListTaskRunsTool,)])
+class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
+    tool_class: type[GetTaskRunTool] | type[GetTaskRunLogsTool] | type[ListTaskRunsTool]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @patch("products.tasks.backend.max_tools.object_storage")
+    async def test_protected_runs_require_the_viewers_analytics_access(self, storage):
+        task = await self._create_task()
+        run = await self._create_task_run(task, output="Protected findings", error_message="Protected error")
+        query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+
+        @sync_to_async
+        def restrict():
+            run.state = {"analytics_query_context": [query]}
+            run.save(update_fields=["state"])
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            return PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.create(
+                    team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+                ),
+                organization_member=self.organization_membership,
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+        restriction = await restrict()
+        _, denied = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
+        assert denied == {"error": "permission_denied"}
+        storage.get_presigned_url.assert_not_called()
+        await sync_to_async(restriction.delete)()
+        _, allowed = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
+        assert "error" not in allowed
+        if self.tool_class == GetTaskRunLogsTool:
+            assert allowed["logs_api_url"].endswith(f"/runs/{run.id}/logs/")
+            assert "log_url" not in allowed
+            storage.get_presigned_url.assert_not_called()

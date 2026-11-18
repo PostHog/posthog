@@ -1,22 +1,82 @@
 import re
+import json
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
+import openai
 import anthropic
+from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.outputs import ChatGeneration, Generation, LLMResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, Generation, LLMResult
 from parameterized import parameterized
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.llm.billing import BILLABLE_AI_PRODUCTS
+from posthog.llm.gateway_client import AIGatewayConfig
+from posthog.models import Organization, Team, User
 from posthog.settings import BASE_DIR
+from posthog.temporal.ai.chat_agent import CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT
 
-from ee.hogai.llm import BILLING_SKIPPED_COUNTER, PROJECT_ORG_USER_CONTEXT_PROMPT, MaxChatAnthropic, MaxChatOpenAI
+from ee.hogai.llm import (
+    AI_GATEWAY_BILLABLE_PRODUCTS,
+    AI_GATEWAY_FALLBACK_COUNTER,
+    AI_GATEWAY_SERVED_KEY,
+    AI_GATEWAY_TIMEOUT,
+    AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS,
+    BILLING_SKIPPED_COUNTER,
+    PROJECT_ORG_USER_CONTEXT_PROMPT,
+    MaxCallbackHandler,
+    MaxChatAnthropic,
+    MaxChatOpenAI,
+    is_ai_gateway_served,
+)
+
+
+@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
+class TestMaxChatContextVariables(SimpleTestCase):
+    def test_initialization_and_context_variables(self):
+        """Test initialization and context variable extraction."""
+        organization = Organization(name="Test Organization")
+        team = Team(
+            organization=organization,
+            name="Test Project",
+            timezone="America/New_York",
+            modifiers={"personsOnEventsMode": PersonsOnEventsMode.DISABLED},
+        )
+        user = User(first_name="John", last_name="Doe", email="john@example.com")
+
+        with patch("datetime.datetime") as mock_datetime:
+            for llm in (
+                MaxChatOpenAI(user=user, team=team),
+                MaxChatAnthropic(user=user, team=team, model="claude"),
+            ):
+                # Test initialization
+                self.assertEqual(llm.user, user)
+                self.assertEqual(llm.team, team)
+                self.assertIsNotNone(llm.max_retries)
+
+                # Test context variables
+                mock_now = datetime(2024, 1, 15, 10, 30, 45)
+                mock_datetime.now.return_value = mock_now
+
+                variables = llm._get_project_org_user_variables()
+
+                self.assertEqual(variables["project_name"], "Test Project")
+                self.assertEqual(variables["project_timezone"], "America/New_York")
+                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
+                self.assertEqual(variables["organization_name"], "Test Organization")
+                self.assertEqual(variables["user_full_name"], "John Doe")
+                self.assertEqual(variables["user_email"], "john@example.com")
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
@@ -43,31 +103,6 @@ class TestMaxChatOpenAI(BaseTest):
         self.user.first_name = "John"
         self.user.last_name = "Doe"
         self.user.email = "john@example.com"
-
-    def test_initialization_and_context_variables(self):
-        """Test initialization and context variable extraction."""
-        with patch("datetime.datetime") as mock_datetime:
-            for llm in (
-                MaxChatOpenAI(user=self.user, team=self.team),
-                MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
-            ):
-                # Test initialization
-                self.assertEqual(llm.user, self.user)
-                self.assertEqual(llm.team, self.team)
-                self.assertIsNotNone(llm.max_retries)
-
-                # Test context variables
-                mock_now = datetime(2024, 1, 15, 10, 30, 45)
-                mock_datetime.now.return_value = mock_now
-
-                variables = llm._get_project_org_user_variables()
-
-                self.assertEqual(variables["project_name"], "Test Project")
-                self.assertEqual(variables["project_timezone"], "America/New_York")
-                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
-                self.assertEqual(variables["organization_name"], "Test Organization")
-                self.assertEqual(variables["user_full_name"], "John Doe")
-                self.assertEqual(variables["user_email"], "john@example.com")
 
     def test_message_enrichment_with_context(self):
         """Test that context is properly injected into messages."""
@@ -609,3 +644,764 @@ class TestProjectOrgUserContextPrompt(SimpleTestCase):
             "The prompt names settings sections that don't resolve, so the assistant will link users "
             'to "Setting not found" pages. Valid IDs come from frontend/src/scenes/settings/SettingsMap.tsx.',
         )
+
+
+def _anthropic_message_body(text: str) -> dict:
+    return {
+        "id": "msg_test",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 3, "output_tokens": 2},
+    }
+
+
+def _usage(input_tokens: int) -> dict[str, int]:
+    return {"input_tokens": input_tokens, "output_tokens": 1, "total_tokens": input_tokens + 1}
+
+
+def _anthropic_error(
+    status: int, error_type: str = "api_error", message: str = "failed", headers: dict[str, str] | None = None
+) -> httpx.Response:
+    return httpx.Response(
+        status, headers=headers, json={"type": "error", "error": {"type": error_type, "message": message}}
+    )
+
+
+_WORKSPACE_LIMIT = "You have reached your specified workspace API usage limits. You will regain access on 2026-10-01."
+
+
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "direct-api-key"})
+class TestMaxChatAnthropicAIGateway(BaseTest):
+    gateway = AIGatewayConfig(url="https://ai-gateway.test/v1", api_key="phs_gateway")
+
+    def setUp(self):
+        super().setUp()
+        self.requests: list[httpx.Request] = []
+        self.gateway_outcome: httpx.Response | Exception = httpx.Response(200, json=_anthropic_message_body("gateway"))
+        cooldown = patch.object(MaxChatAnthropic, "_ai_gateway_timed_out_monotonic", None)
+        cooldown.start()
+        self.addCleanup(cooldown.stop)
+
+    def _respond(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if request.url.host != "ai-gateway.test":
+            return httpx.Response(200, json=_anthropic_message_body("direct"))
+        if isinstance(self.gateway_outcome, Exception):
+            raise self.gateway_outcome
+        return self.gateway_outcome
+
+    def _gateway_model(self, **kwargs) -> MaxChatAnthropic:
+        with patch("ee.hogai.llm.resolve_ai_gateway_config", return_value=self.gateway):
+            return MaxChatAnthropic(model="claude-sonnet-4-6", user=self.user, team=self.team, **kwargs)
+
+    def _model(self, **kwargs) -> MaxChatAnthropic:
+        model = self._gateway_model(
+            inject_context=False,
+            billable=True,
+            posthog_properties={"agent_mode": "sql", "supermode": None},
+            **kwargs,
+        )
+        transport = httpx.MockTransport(self._respond)
+        for target in (model, model.ai_gateway_fallback):
+            assert target is not None
+            params = {**target._client_params, "max_retries": 0}
+            target.__dict__["_client"] = anthropic.Client(**params, http_client=httpx.Client(transport=transport))
+            target.__dict__["_async_client"] = anthropic.AsyncClient(
+                **params, http_client=httpx.AsyncClient(transport=transport)
+            )
+        return model
+
+    def _direct_host(self, model: MaxChatAnthropic) -> str:
+        assert model.ai_gateway_fallback is not None
+        return httpx.URL(model.ai_gateway_fallback.anthropic_api_url or "").host
+
+    def _max_handler(self, **kwargs) -> MaxCallbackHandler:
+        return MaxCallbackHandler(
+            Mock(privacy_mode=False), **{"distinct_id": "distinct-1", "trace_id": "trace-1", **kwargs}
+        )
+
+    def _config(self, **configurable) -> dict:
+        return {
+            "configurable": {
+                "trace_id": "trace-1",
+                "thread_id": "conversation-1",
+                "distinct_id": "distinct-1",
+                "ai_product": "posthog_ai",
+                "privacy_mode": False,
+                "is_agent_billable": True,
+                **configurable,
+            }
+        }
+
+    def _fake_astream(
+        self,
+        calls: list[str],
+        gateway_chunks: int,
+        gateway_raises: bool,
+        metadata_chunks: int = 0,
+        tool_chunk: bool = False,
+    ):
+        """`metadata_chunks` stand in for Anthropic's opening message-start chunk: usage, no output."""
+
+        async def _astream(model, messages, stop=None, run_manager=None, **kwargs):
+            if model.ai_gateway_fallback is None:
+                calls.append("direct")
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(content="direct", usage_metadata=_usage(3)),
+                )
+                return
+            calls.append("gateway")
+            for _ in range(metadata_chunks):
+                yield ChatGenerationChunk(message=AIMessageChunk(content="", usage_metadata=_usage(7)))
+            if tool_chunk:
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        tool_call_chunks=[
+                            {"name": "query", "args": "{}", "id": "toolu_1", "index": 0, "type": "tool_call_chunk"}
+                        ],
+                    )
+                )
+            for _ in range(gateway_chunks):
+                yield ChatGenerationChunk(message=AIMessageChunk(content="gateway"))
+            if gateway_raises:
+                raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://ai-gateway.test/v1/messages"))
+
+        return _astream
+
+    def test_gateway_config_targets_the_gateway_and_keeps_a_direct_twin(self):
+        model = self._gateway_model()
+        twin = model.ai_gateway_fallback
+
+        self.assertEqual(model.anthropic_api_url, "https://ai-gateway.test")
+        self.assertEqual(model.anthropic_api_key.get_secret_value(), "phs_gateway")
+        self.assertTrue(model.bypass_proxy)
+        self.assertEqual(model.max_retries, 0)
+        assert isinstance(twin, MaxChatAnthropic)
+        self.assertNotIn("ai-gateway.test", twin.anthropic_api_url or "")
+        self.assertEqual(twin.anthropic_api_key.get_secret_value(), "direct-api-key")
+        self.assertFalse(twin.bypass_proxy)
+        self.assertEqual(twin.max_retries, 3)
+        self.assertIsNone(twin.ai_gateway_fallback)
+
+    async def test_routed_call_sends_gateway_attribution_headers(self):
+        cases: list[tuple[bool, bool, str | None, dict[str, str]]] = [
+            (True, False, None, {}),
+            (False, False, "false", {}),
+            (False, True, "false", {"ai_support_impersonated": "true"}),
+        ]
+        for is_agent_billable, is_impersonated, billable_header, impersonation_props in cases:
+            with self.subTest(is_agent_billable=is_agent_billable, is_impersonated=is_impersonated):
+                self.requests.clear()
+                model = self._model()
+                config = self._config(is_agent_billable=is_agent_billable, is_impersonated=is_impersonated)
+                with patch("ee.hogai.llm.ensure_config", return_value=config):
+                    result = await model.agenerate([[HumanMessage(content="hello")]], callbacks=[self._max_handler()])
+
+                self.assertEqual(
+                    [str(request.url) for request in self.requests], ["https://ai-gateway.test/v1/messages"]
+                )
+                headers = self.requests[0].headers
+                self.assertEqual(headers["x-api-key"], "phs_gateway")
+                self.assertEqual(headers["x-posthog-product"], "posthog_ai")
+                self.assertEqual(headers["x-posthog-trace-id"], "trace-1")
+                self.assertEqual(headers["x-posthog-session-id"], "conversation-1")
+                self.assertEqual(headers["x-posthog-distinct-id"], "distinct-1")
+                self.assertEqual(
+                    json.loads(headers["x-posthog-properties"]),
+                    {
+                        "agent_mode": "sql",
+                        "team_id": str(self.team.id),
+                        "conversation_id": "conversation-1",
+                        "ai_product": "posthog_ai",
+                        **impersonation_props,
+                    },
+                )
+                self.assertEqual(headers.get("x-posthog-billable"), billable_header)
+                self.assertTrue(is_ai_gateway_served(result))
+
+    async def test_privacy_mode_routes_with_the_redaction_header(self):
+        for privacy_mode, redaction_header in [(False, None), (True, "true"), (None, "true")]:
+            with self.subTest(privacy_mode=privacy_mode):
+                self.requests.clear()
+                model = self._model()
+                with patch("ee.hogai.llm.ensure_config", return_value=self._config(privacy_mode=privacy_mode)):
+                    result = await model.agenerate([[HumanMessage(content="hello")]])
+
+                self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
+                self.assertEqual(self.requests[0].headers.get("x-posthog-privacy-mode"), redaction_header)
+                self.assertTrue(is_ai_gateway_served(result))
+
+    @parameterized.expand(
+        [
+            ("mcp conversation is unbilled", "mcp", None, True, "mcp", "false"),
+            ("posthog_ai turn is billed", "posthog_ai", None, True, "posthog_ai", None),
+            ("product outside a runner", None, "alert_investigation_agent", True, "alert_investigation_agent", None),
+            (
+                "no handler bills nothing",
+                None,
+                "alert_investigation_agent",
+                False,
+                "alert_investigation_agent",
+                "false",
+            ),
+        ]
+    )
+    async def test_routes_every_product_with_its_label_and_current_billing(
+        self, _name, configurable_product, properties_product, with_handler, expected_product, billable_header
+    ):
+        model = self._model()
+        if properties_product:
+            model.posthog_properties = {"ai_product": properties_product}
+        callbacks = [self._max_handler(properties={"ai_product": configurable_product})] if with_handler else None
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product=configurable_product)):
+            result = await model.agenerate([[HumanMessage(content="hello")]], callbacks=callbacks)
+
+        self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
+        headers = self.requests[0].headers
+        self.assertEqual(headers["x-posthog-product"], expected_product)
+        self.assertEqual(headers.get("x-posthog-billable"), billable_header)
+        self.assertTrue(is_ai_gateway_served(result))
+
+    async def test_attached_handler_attribution_wins_over_an_inherited_config(self):
+        model = self._model()
+        model.posthog_properties = {"ai_product": "workflows"}
+        model.billable = False
+        handler = self._max_handler(
+            distinct_id="workflows-user",
+            trace_id="workflows-trace",
+            privacy_mode=True,
+            properties={"ai_product": "workflows", "alert_id": "alert-1"},
+        )
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config(privacy_mode=False)):
+            await model.agenerate([[HumanMessage(content="hello")]], callbacks=[handler])
+
+        headers = self.requests[0].headers
+        self.assertEqual(
+            [
+                headers["x-posthog-product"],
+                headers["x-posthog-trace-id"],
+                headers["x-posthog-distinct-id"],
+                headers.get("x-posthog-privacy-mode"),
+                headers.get("x-posthog-billable"),
+                json.loads(headers["x-posthog-properties"]).get("alert_id"),
+            ],
+            ["workflows", "workflows-trace", "workflows-user", "true", "false", "alert-1"],
+        )
+
+    @parameterized.expand(
+        [
+            ("handler that would capture the generation again", "posthog_ai", "plain"),
+            ("billed product the gateway does not bill", "replay_vision", "max"),
+            ("capture opted out", "posthog_ai", "disabled"),
+        ]
+    )
+    async def test_calls_that_would_change_capture_or_billing_go_direct(self, _name, ai_product, handler_kind):
+        model = self._model()
+        model.posthog_properties = {"ai_product": ai_product}
+        handlers = {
+            "max": lambda: self._max_handler(),
+            "disabled": lambda: MaxCallbackHandler(Mock(privacy_mode=False, disabled=True), distinct_id="d"),
+            "plain": lambda: CallbackHandler(Mock(), distinct_id="d"),
+        }
+        handler = handlers[handler_kind]()
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product=None)):
+            result = await model.agenerate([[HumanMessage(content="hello")]], callbacks=[handler])
+
+        self.assertEqual([request.url.host for request in self.requests], [self._direct_host(model)])
+        self.assertFalse(any(header.lower().startswith("x-posthog-") for header in self.requests[0].headers))
+        self.assertFalse(is_ai_gateway_served(result))
+
+    def test_gateway_billable_products_are_billed_today(self):
+        self.assertLessEqual(AI_GATEWAY_BILLABLE_PRODUCTS, BILLABLE_AI_PRODUCTS)
+
+    async def test_retryable_gateway_failures_fall_back_to_the_direct_twin(self):
+        request = httpx.Request("POST", "https://ai-gateway.test/v1/messages")
+        cases: list[tuple[str, httpx.Response | Exception]] = [
+            ("connection", httpx.ConnectError("refused", request=request)),
+            ("timeout", httpx.ReadTimeout("slow", request=request)),
+            ("unauthorized", _anthropic_error(401)),
+            ("rate_limited", _anthropic_error(429)),
+            ("server_error", _anthropic_error(503)),
+            ("server_error", _anthropic_error(529)),
+            ("provider_billing", _anthropic_error(400, "invalid_request_error", _WORKSPACE_LIMIT)),
+            ("provider_billing", _anthropic_error(402, "billing_error", "Payment required")),
+            (
+                "credit_bucket",
+                _anthropic_error(
+                    402, "billing_error", "out", {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}
+                ),
+            ),
+        ]
+        for reason, outcome in cases:
+            with self.subTest(reason=reason, outcome=outcome):
+                self.requests.clear()
+                self.gateway_outcome = outcome
+                MaxChatAnthropic._ai_gateway_timed_out_monotonic = None
+                model = self._model()
+                with (
+                    patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+                    patch.object(AI_GATEWAY_FALLBACK_COUNTER, "labels") as mock_labels,
+                ):
+                    result = await model.agenerate([[HumanMessage(content="hello")]])
+
+                self.assertEqual(
+                    [request.url.host for request in self.requests], ["ai-gateway.test", self._direct_host(model)]
+                )
+                direct_headers = self.requests[1].headers
+                self.assertEqual(direct_headers["x-api-key"], "direct-api-key")
+                self.assertFalse(any(header.lower().startswith("x-posthog-") for header in direct_headers))
+                self.assertEqual(result.generations[0][0].text, "direct")
+                self.assertFalse(is_ai_gateway_served(result))
+                mock_labels.assert_called_once_with(reason=reason)
+
+    async def test_a_gateway_timeout_sends_calls_direct_until_the_cooldown_ends(self):
+        self.gateway_outcome = httpx.ReadTimeout("slow", request=httpx.Request("POST", "https://ai-gateway.test"))
+        model = self._model()
+        direct = self._direct_host(model)
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config()):
+            await model.agenerate([[HumanMessage(content="hello")]])
+            await self._model().agenerate([[HumanMessage(content="hello")]])
+            with patch.object(
+                ChatAnthropic,
+                "get_num_tokens_from_messages",
+                lambda counting_model, *args, **kwargs: 3 if counting_model.ai_gateway_fallback else 7,
+            ):
+                tokens = self._model().get_num_tokens_from_messages([HumanMessage(content="hello")])
+            assert MaxChatAnthropic._ai_gateway_timed_out_monotonic is not None
+            MaxChatAnthropic._ai_gateway_timed_out_monotonic -= AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS
+            self.gateway_outcome = httpx.Response(200, json=_anthropic_message_body("gateway"))
+            result = await self._model().agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(
+            [(request.url.host, request.url.path) for request in self.requests],
+            [
+                ("ai-gateway.test", "/v1/messages"),
+                (direct, "/v1/messages"),
+                (direct, "/v1/messages"),
+                ("ai-gateway.test", "/v1/messages"),
+            ],
+        )
+        self.assertEqual(tokens, 7)
+        self.assertTrue(is_ai_gateway_served(result))
+
+    async def test_non_retryable_gateway_failures_raise_without_fallback(self):
+        cases: list[tuple[str, httpx.Response]] = [
+            ("bad request", _anthropic_error(400, "invalid_request_error", "prompt is too long")),
+            (
+                "gateway's own credit denial",
+                _anthropic_error(402, "billing_error", _WORKSPACE_LIMIT, {"X-PostHog-Denial": "insufficient_credits"}),
+            ),
+            (
+                "credit bucket denial of a billed call",
+                _anthropic_error(
+                    402, "billing_error", "out", {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}
+                ),
+            ),
+            ("forbidden", _anthropic_error(403)),
+            ("not found", _anthropic_error(404)),
+        ]
+        for name, outcome in cases:
+            with self.subTest(name):
+                self.requests.clear()
+                self.gateway_outcome = outcome
+                model = self._model()
+                with (
+                    patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+                    patch.object(AI_GATEWAY_FALLBACK_COUNTER, "labels") as mock_labels,
+                    self.assertRaises(Exception),
+                ):
+                    await model.agenerate([[HumanMessage(content="hello")]], callbacks=[self._max_handler()])
+
+                self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
+                mock_labels.assert_not_called()
+
+    async def test_streaming_gateway_success_marks_the_generation(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(ChatAnthropic, "_astream", self._fake_astream(calls, gateway_chunks=2, gateway_raises=False)),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+        self.assertEqual(result.generations[0][0].text, "gatewaygateway")
+        self.assertTrue(is_ai_gateway_served(result))
+
+    async def test_streaming_falls_back_when_the_gateway_fails_before_any_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(ChatAnthropic, "_astream", self._fake_astream(calls, gateway_chunks=0, gateway_raises=True)),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway", "direct"])
+        self.assertEqual(result.generations[0][0].text, "direct")
+        self.assertFalse(is_ai_gateway_served(result))
+
+    async def test_streaming_does_not_fall_back_after_a_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(ChatAnthropic, "_astream", self._fake_astream(calls, gateway_chunks=1, gateway_raises=True)),
+            self.assertRaises(anthropic.APIConnectionError),
+        ):
+            await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+
+    async def test_streaming_falls_back_after_an_output_free_metadata_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=True, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway", "direct"])
+        self.assertEqual(result.generations[0][0].text, "direct")
+        self.assertFalse(is_ai_gateway_served(result))
+        # The held chunk is dropped, so the gateway's usage does not land on the twin's generation.
+        generation = result.generations[0][0]
+        assert isinstance(generation, ChatGeneration) and isinstance(generation.message, AIMessage)
+        message = generation.message
+        assert message.usage_metadata is not None
+        self.assertEqual(message.usage_metadata["input_tokens"], 3)
+
+    async def test_streaming_marks_the_generation_when_output_follows_a_metadata_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=1, gateway_raises=False, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+        self.assertEqual(result.generations[0][0].text, "gateway")
+        self.assertTrue(is_ai_gateway_served(result))
+        generation = result.generations[0][0]
+        assert isinstance(generation, ChatGeneration) and isinstance(generation.message, AIMessage)
+        message = generation.message
+        assert message.usage_metadata is not None
+        self.assertEqual(message.usage_metadata["input_tokens"], 7)
+
+    async def test_streaming_does_not_fall_back_after_a_tool_call_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=True, metadata_chunks=1, tool_chunk=True),
+            ),
+            self.assertRaises(anthropic.APIConnectionError),
+        ):
+            await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+
+    async def test_streaming_marks_a_gateway_stream_that_produced_no_output(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=False, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+        self.assertEqual(result.generations[0][0].text, "")
+        self.assertTrue(is_ai_gateway_served(result))
+
+    def test_gateway_client_has_a_bounded_timeout(self):
+        model = self._gateway_model()
+        twin = model.ai_gateway_fallback
+        assert twin is not None
+
+        for client in (model._client, model._async_client):
+            self.assertEqual(client.timeout, AI_GATEWAY_TIMEOUT)
+            self.assertEqual(client._client.timeout, AI_GATEWAY_TIMEOUT)
+            self.assertEqual(client.max_retries, 0)
+        self.assertIsNone(twin._client_params["timeout"])
+
+        phases = [
+            AI_GATEWAY_TIMEOUT.connect,
+            AI_GATEWAY_TIMEOUT.read,
+            AI_GATEWAY_TIMEOUT.write,
+            AI_GATEWAY_TIMEOUT.pool,
+        ]
+        self.assertNotIn(None, phases)
+        assert model.max_retries is not None
+        stalled_gateway_seconds = sum(phase or 0.0 for phase in phases) * (model.max_retries + 1)
+        self.assertGreaterEqual(CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT - stalled_gateway_seconds, 120)
+
+    def test_gateway_client_keeps_the_callers_timeout(self):
+        model = self._gateway_model(default_request_timeout=30.0)
+
+        self.assertEqual(model._async_client.timeout, 30.0)
+
+    @parameterized.expand(
+        [
+            ("gateway counts", None, 3),
+            ("gateway rate limit falls back to the twin", 429, 7),
+            ("exhausted credits fall back to the twin", 402, 7),
+        ]
+    )
+    def test_token_counting_goes_through_the_gateway(self, _name, gateway_status, expected_tokens):
+        model = self._gateway_model()
+
+        def count(counting_model, messages, tools=None, **kwargs):
+            if counting_model.ai_gateway_fallback is None:
+                return 7
+            if gateway_status is None:
+                return 3
+            request = httpx.Request(
+                "POST", "https://ai-gateway.test/v1/messages/count_tokens", headers=kwargs.get("extra_headers")
+            )
+            response = httpx.Response(
+                gateway_status, request=request, headers={"X-PostHog-Denial": "credit_bucket_exhausted"}
+            )
+            raise anthropic.APIStatusError("denied", response=response, body=None)
+
+        with patch.object(ChatAnthropic, "get_num_tokens_from_messages", count):
+            self.assertEqual(model.get_num_tokens_from_messages([HumanMessage(content="hello")]), expected_tokens)
+
+    def test_sync_calls_route_through_the_gateway(self):
+        model = self._model()
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config()):
+            result = model.generate([[HumanMessage(content="hello")]], callbacks=[self._max_handler()])
+
+        self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
+        self.assertEqual(self.requests[0].headers["x-posthog-product"], "posthog_ai")
+        self.assertTrue(is_ai_gateway_served(result))
+
+    def test_is_ai_gateway_served_reads_the_generation_marker(self):
+        served = LLMResult(
+            generations=[
+                [ChatGeneration(message=AIMessage(content="hi"), generation_info={AI_GATEWAY_SERVED_KEY: True})]
+            ]
+        )
+        unmarked = LLMResult(generations=[[ChatGeneration(message=AIMessage(content="hi"))]])
+
+        self.assertTrue(is_ai_gateway_served(served))
+        self.assertFalse(is_ai_gateway_served(unmarked))
+        self.assertFalse(is_ai_gateway_served(ValueError("failed")))
+
+
+def _openai_body(text: str, responses_api: bool) -> dict:
+    if responses_api:
+        return {
+            "id": "resp_test",
+            "object": "response",
+            "created_at": 0,
+            "status": "completed",
+            "model": "gpt-4.1",
+            "output": [
+                {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": text, "annotations": []}],
+                }
+            ],
+            "parallel_tool_calls": True,
+            "tool_choice": "auto",
+            "tools": [],
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "total_tokens": 5,
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 0},
+            },
+        }
+    return {
+        "id": "chatcmpl_test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "gpt-4.1",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+
+
+@patch.dict("os.environ", {"OPENAI_API_KEY": "direct-api-key"})
+class TestMaxChatOpenAIAIGateway(BaseTest):
+    gateway = AIGatewayConfig(url="https://ai-gateway.test/v1", api_key="phs_gateway")
+
+    def _model(self, gateway: AIGatewayConfig | None, **kwargs) -> MaxChatOpenAI:
+        with patch("ee.hogai.llm.resolve_ai_gateway_config", return_value=gateway):
+            return MaxChatOpenAI(model="gpt-4.1", user=self.user, team=self.team, billable=True, **kwargs)
+
+    def _config(self, ai_product: str) -> dict:
+        return {
+            "configurable": {
+                "trace_id": "trace-1",
+                "thread_id": "conversation-1",
+                "distinct_id": "distinct-1",
+                "ai_product": ai_product,
+                "privacy_mode": True,
+                "is_agent_billable": True,
+            }
+        }
+
+    def test_gateway_config_targets_the_gateway_and_keeps_a_direct_twin(self):
+        model = self._model(self.gateway)
+        twin = model.ai_gateway_fallback
+
+        self.assertEqual(str(model.root_async_client.base_url), "https://ai-gateway.test/v1/")
+        self.assertEqual(model.root_async_client.api_key, "phs_gateway")
+        self.assertEqual(model.root_async_client.max_retries, 0)
+        self.assertEqual(model.root_async_client.timeout, AI_GATEWAY_TIMEOUT)
+        assert isinstance(twin, MaxChatOpenAI)
+        self.assertIsNone(twin.root_async_client.timeout)
+        self.assertNotIn("ai-gateway.test", str(twin.root_async_client.base_url))
+        self.assertEqual(twin.root_async_client.api_key, "direct-api-key")
+        self.assertEqual(twin.max_retries, 3)
+        self.assertIsNone(twin.ai_gateway_fallback)
+        self.assertIsNone(self._model(None).ai_gateway_fallback)
+
+    @parameterized.expand(
+        [
+            ("routed_chat", "posthog_ai", False, 200, ["ai-gateway.test"], "gateway", True, False),
+            ("routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True, False),
+            ("other_product", "mcp", False, 200, ["api.openai.com"], "direct", False, False),
+            ("fallback_chat", "posthog_ai", False, 503, ["ai-gateway.test", "api.openai.com"], "direct", False, False),
+            (
+                "fallback_responses",
+                "posthog_ai",
+                True,
+                503,
+                ["ai-gateway.test", "api.openai.com"],
+                "direct",
+                False,
+                False,
+            ),
+            ("sync_routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True, True),
+            ("sync_other_product", "mcp", False, 200, ["api.openai.com"], "direct", False, True),
+            (
+                "sync_fallback_chat",
+                "posthog_ai",
+                False,
+                503,
+                ["ai-gateway.test", "api.openai.com"],
+                "direct",
+                False,
+                True,
+            ),
+        ]
+    )
+    async def test_generate_routing(self, _name, ai_product, responses_api, gateway_status, hosts, text, served, sync):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.host == "ai-gateway.test" and gateway_status != 200:
+                return httpx.Response(gateway_status, json={"error": {"message": "failed", "type": "server_error"}})
+            source = "gateway" if request.url.host == "ai-gateway.test" else "direct"
+            return httpx.Response(200, json=_openai_body(source, responses_api))
+
+        model = self._model(self.gateway, use_responses_api=responses_api)
+        for target in (model, model.ai_gateway_fallback):
+            assert target is not None
+            target.root_async_client = target.root_async_client.with_options(
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)), max_retries=0
+            )
+            target.async_client = target.root_async_client.chat.completions
+            target.root_client = target.root_client.with_options(
+                http_client=httpx.Client(transport=httpx.MockTransport(respond)), max_retries=0
+            )
+            target.client = target.root_client.chat.completions
+
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product)):
+            if sync:
+                result = await sync_to_async(model.generate)([[HumanMessage(content="hello")]])
+            else:
+                result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual([request.url.host for request in requests], hosts)
+        self.assertEqual(result.generations[0][0].text, text)
+        self.assertEqual(is_ai_gateway_served(result), served)
+        first = requests[0]
+        if first.url.host == "ai-gateway.test":
+            self.assertEqual(first.headers["x-posthog-product"], "posthog_ai")
+            self.assertEqual(first.headers["x-posthog-trace-id"], "trace-1")
+            self.assertEqual(first.headers["x-posthog-session-id"], "conversation-1")
+            self.assertEqual(first.headers["x-posthog-distinct-id"], "distinct-1")
+            self.assertEqual(first.headers["x-posthog-privacy-mode"], "true")
+            self.assertEqual(json.loads(first.headers["x-posthog-properties"])["team_id"], str(self.team.id))
+        last = requests[-1]
+        if last.url.host == "api.openai.com":
+            self.assertFalse(any(name.startswith("x-posthog-") for name in last.headers))
+            if responses_api:
+                self.assertIn("You are currently in project", json.loads(last.content)["instructions"])
+
+    def test_pulse_routes_without_a_runner_config(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=_openai_body("gateway", False))
+
+        model = self._model(self.gateway, posthog_properties={"ai_product": "pulse", "ai_feature": "brief_synthesis"})
+        model.root_client = model.root_client.with_options(
+            http_client=httpx.Client(transport=httpx.MockTransport(respond)), max_retries=0
+        )
+        model.client = model.root_client.chat.completions
+
+        result = model.generate([[HumanMessage(content="hello")]])
+
+        self.assertTrue(is_ai_gateway_served(result))
+        self.assertEqual([request.url.host for request in requests], ["ai-gateway.test"])
+        headers = requests[0].headers
+        self.assertEqual(headers["x-posthog-product"], "pulse")
+        self.assertEqual(headers["x-posthog-distinct-id"], self.user.distinct_id)
+        self.assertEqual(headers["x-posthog-privacy-mode"], "true")
+        self.assertNotIn("x-posthog-billable", headers)
+        self.assertEqual(
+            json.loads(headers["x-posthog-properties"]),
+            {"ai_product": "pulse", "ai_feature": "brief_synthesis", "team_id": str(self.team.id)},
+        )
+
+    async def test_gateway_denial_raises_without_fallback(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(402, json={"error": {"message": "out of balance", "type": "insufficient_quota"}})
+
+        model = self._model(self.gateway)
+        model.root_async_client = model.root_async_client.with_options(
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)), max_retries=0
+        )
+        model.async_client = model.root_async_client.chat.completions
+
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config("posthog_ai")):
+            with self.assertRaises(openai.APIStatusError):
+                await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual([request.url.host for request in requests], ["ai-gateway.test"])

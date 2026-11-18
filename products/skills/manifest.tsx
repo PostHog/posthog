@@ -1,13 +1,18 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Skills',
+    activityDescribers: {
+        [ActivityScope.LLM_SKILL]: () =>
+            import('./frontend/activityDescriber').then((module) => module.skillActivityDescriber),
+    },
     scenes: {
         Skills: {
             import: () => import('./frontend/LLMSkillsScene'),
@@ -16,6 +21,7 @@ export const manifest: ProductManifest = {
             description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
             layout: 'app-container',
             iconType: 'llm_prompts',
+            docsHref: 'https://posthog.com/docs/skills',
         },
         Skill: {
             import: () => import('./frontend/LLMSkillScene'),
@@ -71,9 +77,17 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.SKILLS],
             category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
-            iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconType: 'skill',
+            iconColor: ['var(--color-product-skills-light)', 'var(--color-product-skills-dark)'],
             href: urls.skills(),
+            searchKeywords: ['agent instructions', 'playbooks'],
+            searchTabs: [
+                {
+                    name: 'Community skills',
+                    href: urls.communitySkills(),
+                    flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+                },
+            ],
             sceneKey: 'Skills',
         },
     ],

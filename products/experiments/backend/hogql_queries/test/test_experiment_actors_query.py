@@ -7,7 +7,7 @@ The implementation will follow to make these tests pass.
 
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -16,11 +16,11 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
@@ -29,16 +29,21 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentQuery,
+    ExperimentWarehouseNativeExposureConfig,
+    HogQLPropertyFilter,
 )
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
+from products.ai_observability.backend.facade.contracts import EVALUATION_PASSED_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -159,7 +164,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             ("dropoffs_test", -2, "test", 2),  # Step 2 drop-offs - test variant
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_experiment_funnel_actors(self, _name: str, funnel_step: int, variant: str, expected_count: int):
         """
@@ -195,7 +200,58 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         for distinct_id in distinct_ids:
             assert distinct_id.startswith(f"user_{variant}_")
 
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4))
+    @parameterized.expand([("metric",), ("saved_exposure_criteria",), ("request_exposure_override",)])
+    def test_experiment_funnel_actors_refuses_evaluation_pass_markers(self, placement: str) -> None:
+        _feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+        marker_exposure = ExperimentEventExposureConfig(
+            event="$ai_evaluation", properties=[HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)]
+        )
+        if placement == "metric":
+            experiment_query.metric = ExperimentFunnelMetric(
+                series=[
+                    EventsNode(event="$ai_evaluation", properties=[HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)])
+                ]
+            )
+        elif placement == "saved_exposure_criteria":
+            experiment.exposure_criteria = {"exposure_config": marker_exposure.model_dump(mode="json")}
+            experiment.save()
+
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=marker_exposure if placement == "request_exposure_override" else None,
+            ),
+            select=["id", "person"],
+        )
+
+        with self.assertRaisesMessage(ValidationError, "Persons are not available for evaluation pass rate metrics."):
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+    def test_experiment_actors_refuses_warehouse_native_exposure_override(self) -> None:
+        # The override skips the save-time validation, so the runner must reject it as a query error.
+        _feature_flag, _experiment, experiment_query = self._create_experiment_with_funnel()
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=ExperimentWarehouseNativeExposureConfig(
+                    connection_id="00000000-0000-0000-0000-000000000000",
+                    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                ),
+            ),
+            select=["id", "person"],
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
     def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:
         feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
         experiment.start_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1)
@@ -230,12 +286,12 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             select=["id", "person"],
         )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch_exposure_event_flag(enabled=True):
             response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_experiment_funnel_actors_with_recordings(self):
         """
@@ -319,7 +375,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         # matched_recordings should be a list (may be empty if no actual recordings exist)
         assert isinstance(response.results[0][2], list)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_experiment_exposure_actors_with_recordings(self):
         """
@@ -351,7 +407,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         assert len(response.results[0]) == 3
         assert isinstance(response.results[0][2], list)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_experiment_funnel_actors_invalid_steps(self):
         """
         Test that invalid funnelStep values are properly rejected with helpful error messages.
@@ -417,7 +473,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         self.assertIn("Valid conversion steps: 0", error_message)  # Shows valid range start
         self.assertIn("(exposure step) to 2", error_message)  # Shows valid range end with explanation
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_experiment_funnel_actors_excludes_events_before_exposure(self):
         """
@@ -507,7 +563,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         assert len(response.results) == 1
         assert response.results[0][1]["distinct_ids"][0] == "user_after_exposure"
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_experiment_funnel_actors_step1_dropoff_counts_pre_exposure_signup(self):
         """
@@ -589,7 +645,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             ),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_experiment_funnel_actors_cohort_sanitization(
         self,
         _name: str,

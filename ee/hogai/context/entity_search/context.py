@@ -12,22 +12,24 @@ from pydantic import ValidationError
 from posthog.schema import ArtifactContentType, InsightVizNode
 
 from posthog.api.search import (
+    FEATURE_FLAG_SEARCH_CONFIG,
     LIMIT as SEARCH_LIMIT,
     EntityConfig,
+    FacadeSearch,
     search_entities as search_entities_fts,
+    search_live_actions,
 )
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.facade.api import search_insight_alerts
 from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.facade import api as customer_analytics_facade
 from products.customer_analytics.backend.facade.api import build_account_deeplink
 from products.customer_analytics.backend.facade.contracts import AccountRef
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.dashboards.backend.facade.api import search_dashboards
+from products.experiments.backend.facade.search import search_experiments
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
@@ -37,6 +39,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.facade.api import search_workflows
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
@@ -53,6 +56,7 @@ class EntityKind(StrEnum):
     SURVEYS = "surveys"
     ALERTS = "alerts"
     ACCOUNTS = "accounts"
+    WORKFLOWS = "workflows"
     ALL = "all"
 
 
@@ -67,6 +71,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
     EntityKind.SURVEYS: "survey",
     EntityKind.ALERTS: "alert_configuration",
     EntityKind.ACCOUNTS: "account",
+    EntityKind.WORKFLOWS: "hog_flow",
 }
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -76,30 +81,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description", "query_metadata", "query"],
         "filters": {"deleted": False, "saved": True},
     },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
-    "experiment": {
-        "klass": Experiment,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
-    "feature_flag": {
-        "klass": FeatureFlag,
-        "search_fields": {"key": "A", "name": "C"},
-        "extra_fields": ["key", "name"],
-        "filters": {"deleted": False},
-    },
-    "action": {
-        "klass": Action,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
+    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "cohort": {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C", "filters": "B"},
@@ -111,12 +93,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
         "filters": {"archived": False},
-    },
-    "alert_configuration": {
-        "klass": AlertConfiguration,
-        "search_fields": {"name": "A"},
-        "extra_fields": ["name", "enabled", "state", "calculation_interval"],
-        "filters": {},
     },
     "notebook": {
         "klass": Notebook,
@@ -130,6 +106,41 @@ Map of entity names to their class, search_fields and extra_fields.
 
 The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C or D.
 """
+
+
+def _search_live_experiments(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    return search_experiments(include_deleted=False, **kwargs)
+
+
+# Actions, dashboards, experiments and alerts are searched through their products' facades rather than unioned by
+# model class, so they are not in ENTITY_MAP. Alerts go through a facade because an alert the alerts platform holds
+# has no row, or a row that does not follow its settings.
+ACTION_ENTITY = "action"
+ALERT_ENTITY = "alert_configuration"
+DASHBOARD_ENTITY = "dashboard"
+EXPERIMENT_ENTITY = "experiment"
+FACADE_SEARCHES: dict[str, FacadeSearch] = {
+    EXPERIMENT_ENTITY: _search_live_experiments,
+    ACTION_ENTITY: search_live_actions,
+    DASHBOARD_ENTITY: search_dashboards,
+    ALERT_ENTITY: search_insight_alerts,
+}
+# Dashboards and experiments keep their place after insights, actions theirs before cohorts, and alerts theirs
+# before notebooks, in the counts.
+_UNION_ENTITY_NAMES = [*ENTITY_MAP]
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
+_ALERT_SLOT = _UNION_ENTITY_NAMES.index("notebook")
+COUNTED_ENTITIES = [
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
+    DASHBOARD_ENTITY,
+    EXPERIMENT_ENTITY,
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
+    ACTION_ENTITY,
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:_ALERT_SLOT],
+    ALERT_ENTITY,
+    *_UNION_ENTITY_NAMES[_ALERT_SLOT:],
+]
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
     "insight": {"query", "query_metadata"},
@@ -173,10 +184,12 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = set(ENTITY_MAP.keys())
+            entity_types = {*ENTITY_MAP, *FACADE_SEARCHES, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}
+        workflow_requested = "hog_flow" in entity_types
+        workflow_results: list[dict[str, Any]] = []
 
         if "account" in entity_types:
             # Account uses a fail-closed manager and is not in ENTITY_MAP, so it can't go through the shared FTS path
@@ -185,6 +198,17 @@ class EntitySearchContext:
             results.extend(account_results)
             counts["account"] = account_count
 
+        if workflow_requested:
+            entity_types = entity_types - {"hog_flow"}
+            workflow_results, workflow_count = await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=query,
+                access_control=self.user_access_control,
+                limit=SEARCH_LIMIT,
+            )
+            counts["hog_flow"] = workflow_count
+
+        fts_results: list[dict[str, Any]] = []
         if entity_types:
             fts_results, fts_counts, _ = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entity_types,
@@ -192,10 +216,26 @@ class EntitySearchContext:
                 self._team.project_id,
                 self,  # type: ignore
                 ENTITY_MAP,
+                facade_searches=FACADE_SEARCHES,
+                counted_entities=COUNTED_ENTITIES,
             )
             assert fts_counts is not None
-            results.extend(fts_results)
             counts.update(fts_counts)
+
+        if workflow_requested:
+            database_results = [*workflow_results, *fts_results]
+            if query:
+                database_results.sort(key=lambda result: result.get("rank", 0), reverse=True)
+            else:
+                database_results.sort(
+                    key=lambda result: (
+                        result["type"],
+                        result.get("extra_fields", {}).get("name") or result.get("extra_fields", {}).get("title") or "",
+                    )
+                )
+            results.extend(database_results[:SEARCH_LIMIT])
+        else:
+            results.extend(fts_results)
 
         return results, counts
 
@@ -247,6 +287,14 @@ class EntitySearchContext:
         elif entity_type == "account":
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
+        elif entity_type == "hog_flow":
+            return await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=None,
+                access_control=self.user_access_control,
+                limit=limit,
+                offset=offset,
+            )
         elif entity_type == "feature_flag":
             # Specialized queryset so we can surface each flag's status
             return await self.list_feature_flags(limit, offset)
@@ -260,6 +308,8 @@ class EntitySearchContext:
                 entity_map=ENTITY_MAP,
                 limit=limit,
                 offset=offset,
+                facade_searches=FACADE_SEARCHES,
+                counted_entities=COUNTED_ENTITIES,
             )
             all_entities.extend(db_results)
             assert maybe_count is not None
@@ -444,7 +494,7 @@ class EntitySearchContext:
         return f"{max(percentages)}%" if percentages else None
 
     async def _search_accounts(self, query: str) -> tuple[list[dict[str, Any]], int]:
-        """Search accounts by name or external id."""
+        """Search accounts by name, external id, known email, or email domain."""
         return await database_sync_to_async(self._search_accounts_sync, thread_sensitive=False)(query)
 
     def _search_accounts_sync(self, query: str) -> tuple[list[dict[str, Any]], int]:
@@ -537,7 +587,7 @@ class EntitySearchContext:
             case "experiment":
                 return f"{base_url}/experiments/{result_id}"
             case "feature_flag":
-                return f"{base_url}/feature_flags/{result_id}"
+                return f"{base_url}/feature-flags/{result_id}"
             case "notebook":
                 return f"{base_url}/notebooks/{result_id}"
             case "action":
@@ -547,9 +597,11 @@ class EntitySearchContext:
             case "survey":
                 return f"{base_url}/surveys/{result_id}"
             case "error_tracking_issue":
-                return f"{base_url}/error_tracking/{result_id}"
+                return f"{base_url}/error-tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/alerts?alert_id={result_id}"
+            case "hog_flow":
+                return f"{base_url}/workflows/{result_id}/workflow"
             case "account":
                 # Deep-link to the specific account (filtered + expanded) rather than the bare list.
                 return f"{base_url}{build_account_deeplink(account_id=result_id)}"

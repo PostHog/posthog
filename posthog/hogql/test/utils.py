@@ -1,6 +1,7 @@
 import re
 import json
 import dataclasses
+from collections.abc import Sequence
 from typing import Any
 
 from posthog.test.base import clean_varying_query_parts
@@ -9,7 +10,10 @@ from pydantic import BaseModel
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql.escape_sql import escape_clickhouse_json_path
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 
 
 def execute_hogql_query_with_timings(*args, **kwargs):
@@ -161,3 +165,91 @@ def pretty_dataclasses(obj, seen=None, indent=0):
 
     else:
         return str(obj)
+
+
+class _StoredMembers(list):
+    """The key and value pairs of a JSON object in the order sent, so duplicate keys survive."""
+
+
+class _StoredNumber(str):
+    """The text of a number inside a stored object or array, which the cleaner copies as it was sent."""
+
+
+_STORED_STRING_ESCAPES = {'"': '\\"', "\\": "\\\\", "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def _stored_text(value: object) -> str:
+    if isinstance(value, _StoredMembers):
+        members = sorted(value, key=lambda member: member[0].encode())
+        return "{" + ",".join(f"{_stored_text(key)}:{_stored_text(item)}" for key, item in members) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_stored_text(item) for item in value) + "]"
+    if isinstance(value, _StoredNumber):
+        return value
+    if isinstance(value, str):
+        return (
+            '"'
+            + "".join(
+                _STORED_STRING_ESCAPES.get(char)
+                or (f"\\u{ord(char):04X}" if char < " " or char in "\u2028\u2029" else char)
+                for char in value
+            )
+            + '"'
+        )
+    return json.dumps(value)
+
+
+def native_stored_document(document: str) -> str:
+    """A properties document as the native cleaner stores it, for fixtures that cast text into the JSON column.
+
+    Every top-level object and array, except the `$feature_flags` map of event properties, becomes a string of the
+    text the cleaner writes for it: no whitespace, the keys of every object sorted, strings escaped the way
+    ClickHouse prints them, and numbers as they were sent. Every other value keeps its text, so a number token such
+    as `2.0` or `1e21` reaches ClickHouse as it was written.
+    """
+    decoder = json.JSONDecoder()
+    members: list[str] = []
+    index = document.index("{") + 1
+    while True:
+        index = len(document) - len(document[index:].lstrip())
+        if document[index] == "}":
+            return "{" + ",".join(members) + "}"
+        key, index = decoder.raw_decode(document, index)
+        start = len(document) - len(document[document.index(":", index) + 1 :].lstrip())
+        _, index = decoder.raw_decode(document, start)
+        value = document[start:index]
+        if value[0] in "[{" and key != "$feature_flags":
+            parsed = json.loads(
+                value, object_pairs_hook=_StoredMembers, parse_int=_StoredNumber, parse_float=_StoredNumber
+            )
+            value = json.dumps(_stored_text(parsed))
+        members.append(f"{json.dumps(key)}:{value}")
+        index = len(document) - len(document[index:].lstrip())
+        if document[index] == ",":
+            index += 1
+
+
+def json_dynamic_read_sql(root: str, path: Sequence[str], *, as_json: bool = False) -> str:
+    """The ClickHouse SQL the resolver prints for the read of one property on the native-JSON events table.
+
+    `path` holds the property's key. The read is the text of its path, with the '' that a declared string path stores
+    for a missing key read as NULL. `as_json` gives the JSON text of the value instead, where a string that is a
+    valid JSON object or array prints unquoted.
+    """
+    [key] = path
+    field = f"{root}.{escape_clickhouse_json_path(key)}"
+    declared_types = (
+        PERSON_PROPERTIES_JSON_SUBCOLUMNS if root.endswith(".person_properties") else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    declared_type = declared_types.get(key, "")
+    is_declared_string = declared_type in ("String", "LowCardinality(String)")
+    if as_json:
+        text = f"toString({field})" if is_declared_string else f"CAST({field}, 'Nullable(String)')"
+        missing = f"empty({text})" if is_declared_string else f"isNull({field})"
+        scalar_json = f"toJSONString({text})" if is_declared_string else f"toJSONString({field})"
+        is_container = f"and(in(ascii({text}), tuple(91, 123)), isValidJSON({text}))"
+        return f"if({missing}, NULL, if({is_container}, {text}, {scalar_json}))"
+    if not is_declared_string:
+        return f"CAST({field}, 'Nullable(String)')"
+    text = f"nullIf(toString({field}), '')"
+    return text if declared_type == "String" else f"CAST({text}, 'Nullable(String)')"

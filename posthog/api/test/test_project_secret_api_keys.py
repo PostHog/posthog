@@ -4,10 +4,18 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
+from posthog.models.utils import (
+    ai_credential_value,
+    generate_random_token_personal,
+    generate_random_token_secret,
+    hash_key_value,
+)
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -53,6 +61,52 @@ class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
         assert response.status_code == 200
 
+    def _become_project_admin(self, business_knowledge_access: str | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        if business_knowledge_access is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="business_knowledge",
+                access_level=business_knowledge_access,
+                organization_member=self.organization_membership,
+            )
+
+    @parameterized.expand([("default_access", None, 201), ("viewer", "viewer", 201), ("no_access", "none", 403)])
+    def test_create_business_knowledge_read_scope_needs_business_knowledge_access(
+        self, _name, business_knowledge_access, expected_status
+    ):
+        self._become_project_admin(business_knowledge_access)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "agent key", "scopes": ["business_knowledge:read"]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_roll_business_knowledge_read_key_needs_business_knowledge_access(self):
+        self._become_project_admin("none")
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="agent key", secure_value="sha256$agent", scopes=["business_knowledge:read"]
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == 403, response.json()
+        key.refresh_from_db()
+        assert key.secure_value == "sha256$agent"
+
 
 class TestProjectSecretAPIKeysAPI(APIBaseTest):
     def setUp(self):
@@ -76,13 +130,20 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
-    def test_create_feature_flag_read_scope(self):
+    @parameterized.expand(
+        [
+            ("feature_flag_local_evaluation", "feature_flag:read"),
+            # A service that polls a transactional email's status must not need a key that can also send.
+            ("transactional_email_status", "hog_flow:read"),
+        ]
+    )
+    def test_create_read_only_scope(self, _name, scope):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+            {"label": "read only key", "scopes": [scope]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == [scope]
 
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
@@ -135,96 +196,175 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("blocked_when_flag_disabled", False, 400),
-            ("allowed_when_flag_enabled", True, 201),
-        ]
-    )
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_create_llm_gateway_scope_gated_on_flag(self, _name, flag_enabled, expected_status, mock_feature_enabled):
-        mock_feature_enabled.return_value = flag_enabled
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
 
+    def _key(self, scopes: list[str] | None) -> ProjectSecretAPIKey:
+        return ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=scopes,
+            created_by=self.user,
+        )
+
+    def test_staff_create_llm_gateway_scope(self):
+        self._make_staff()
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "my key", "scopes": ["llm_gateway:read"]},
         )
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+
+    @parameterized.expand(
+        [
+            ("granted_with_full_billing_access", False, True, 201),
+            ("refused_without_full_billing_access", True, True, 403),
+            ("refused_without_enterprise_billing", False, False, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_create_billing_read_scope_needs_full_billing_access(
+        self, _name, owner_only_billing, ee_available, expected_status, mock_owner_only
+    ):
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        with patch("posthog.api.project_secret_api_key.EE_AVAILABLE", ee_available):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "billing key", "scopes": ["billing:read"]},
+            )
+
         assert response.status_code == expected_status, response.json()
-        if expected_status == 201:
-            assert response.json()["scopes"] == ["llm_gateway:read"]
-        else:
-            assert "LLM gateway scope is not available" in response.json()["detail"]
-        mock_feature_enabled.assert_called_once()
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
+    @parameterized.expand(
+        [
+            ("rolled_with_full_billing_access", False, 200),
+            ("refused_without_full_billing_access", True, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_roll_billing_read_key_needs_full_billing_access(
+        self, _name, owner_only_billing, expected_status, mock_owner_only
+    ):
         key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["llm_gateway:read"],
-            created_by=self.user,
+            team=self.team, label="owner's billing key", secure_value="sha256$owner", scopes=["billing:read"]
+        )
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert (key.secure_value != "sha256$owner") == (expected_status == 200)
+
+    @parameterized.expand([("legacy_token_key", True, 400), ("ordinary_key", False, 200)])
+    def test_update_adding_business_knowledge_read_scope_is_refused_for_the_legacy_token_key(
+        self, _name, mirrors_legacy_token, expected_status
+    ):
+        self.team.secret_api_token = "phs_" + "l" * 40
+        self.team.save()
+        secure_value = hash_key_value(self.team.secret_api_token if mirrors_legacy_token else "phs_" + "o" * 40)
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="existing key", secure_value=secure_value, scopes=["feature_flag:read"]
         )
 
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["feature_flag:read", "business_knowledge:read"]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert ("business_knowledge:read" in key.scopes) == (expected_status == 200)
+
+    @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
+    def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
+        self._make_staff()
+        key = self._key(existing_scopes)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": [*(existing_scopes or []), "llm_gateway:read"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["scopes"] == [*(existing_scopes or []), "llm_gateway:read"]
+
+    def test_non_staff_cannot_grant_llm_gateway_scope(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:read"]},
+        )
+        key = self._key(["endpoint:read"])
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["endpoint:read", "llm_gateway:read"]},
+        )
+        for response in (create, update):
+            assert response.status_code == 400, response.json()
+            assert "Scope 'llm_gateway:read' can not be assigned" in response.json()["detail"]
+
+    def test_non_staff_keeps_existing_llm_gateway_scope(self):
+        key = self._key(["llm_gateway:read"])
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"label": "renamed", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["label"] == "renamed"
+        assert response.status_code == 200, response.json()
         assert response.json()["scopes"] == ["llm_gateway:read"]
-        mock_feature_enabled.assert_not_called()
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["endpoint:read"],
-            created_by=self.user,
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"scopes": ["endpoint:read", "llm_gateway:read"]},
-        )
-        assert response.status_code == 400
-        assert "LLM gateway scope is not available" in response.json()["detail"]
-        mock_feature_enabled.assert_called_once()
-
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_adding_llm_gateway_scope_to_key_with_null_scopes(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=None,
-            created_by=self.user,
-        )
-
+    def test_non_staff_cannot_upgrade_gateway_write_only_key(self):
+        key = self._key(["llm_gateway:write"])
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["scopes"] == ["llm_gateway:read"]
+        assert response.status_code == 400, response.json()
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_non_gateway_scope_unaffected_by_flag(self, mock_feature_enabled):
-        response = self.client.post(
+    def test_banned_staff_cannot_grant_llm_gateway_scope(self):
+        self._make_staff()
+        with patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "my key", "scopes": ["llm_gateway:read"]},
+            )
+            key = self._key(["endpoint:read"])
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+                {"scopes": ["endpoint:read", "llm_gateway:read"]},
+            )
+        assert create.status_code == 403, create.json()
+        assert "blocked from the PostHog AI gateway" in create.json()["detail"]
+        assert update.status_code == 403, update.json()
+        assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
+
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_refused):
+        self._make_staff()
+        key = self._key(["llm_gateway:read"])
+        kept = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"label": "renamed", "scopes": ["llm_gateway:read", "endpoint:read"]},
+        )
+        other = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "my key", "scopes": ["endpoint:read"]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["endpoint:read"]
-        mock_feature_enabled.assert_not_called()
+        assert kept.status_code == 200, kept.json()
+        assert other.status_code == 201, other.json()
+        mock_refused.assert_not_called()
+
+    def test_llm_gateway_write_scope_rejected(self):
+        self._make_staff()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:write"]},
+        )
+        assert response.status_code == 400
+        assert "Scope 'llm_gateway:write' can not be assigned" in response.json()["detail"]
 
     def test_update_label(self):
         create_response = self.client.post(
@@ -273,6 +413,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key_id = data["id"]
         original_mask = data["mask_value"]
         original_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert original_secure_value is not None
+        assert data["ai_credential"] == ai_credential_value(original_secure_value)
 
         response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
         assert response.status_code == 200
@@ -285,8 +427,12 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert rolled["value"] is not None
         assert rolled["value"].startswith("phs_")
 
-        key = ProjectSecretAPIKey.objects.get(id=key_id)
-        assert key.secure_value != original_secure_value
+        rolled_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert rolled_secure_value is not None
+        assert rolled_secure_value != original_secure_value
+        # The gateway attribution follows the secret, so a rolled key reports a new value.
+        assert rolled["ai_credential"] == ai_credential_value(rolled_secure_value)
+        assert rolled["ai_credential"] != data["ai_credential"]
 
     def test_list_only_current_team_keys(self):
         self.client.post(
@@ -370,6 +516,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert context["project_name"] == self.team.name
         assert context["scopes"] == ["endpoint:read"]
         assert context["created_by_email"] == self.user.email
+        assert context["ai_credential"] == response.json()["ai_credential"]
+        assert context["previous_ai_credential"] is None
 
     def test_activity_log_on_update(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
@@ -402,8 +550,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             {"label": "roll me", "scopes": ["endpoint:read"]},
         )
         key_id = response.json()["id"]
+        credential_before_roll = response.json()["ai_credential"]
 
-        self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
+        roll_response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
 
         logs = ActivityLog.objects.filter(scope="ProjectSecretAPIKey", item_id=str(key_id), activity="updated")
         assert len(logs) == 1
@@ -418,6 +567,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert changes["mask_value"]["after"].startswith("phs_...")
         assert changes["last_rolled_at"]["before"] is None
         assert changes["last_rolled_at"]["after"] is not None
+
+        context = logs[0].detail["context"]
+        assert context["previous_ai_credential"] == credential_before_roll
+        assert context["ai_credential"] == roll_response.json()["ai_credential"]
+        assert context["ai_credential"] != credential_before_roll
 
     def test_activity_log_on_delete(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
@@ -435,6 +589,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert logs[0].detail is not None
         assert logs[0].detail["name"] == "delete me"
         assert logs[0].team_id == self.team.id
+        assert logs[0].detail["context"]["ai_credential"] == response.json()["ai_credential"]
 
 
 class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
@@ -443,15 +598,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.logout()
-
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="pat-with-project-write",
-            user=self.user,
-            scopes=["project:write", "project:read"],
-            secure_value=hash_key_value(token),
-        )
-        self.token = token
+        self.token = self.create_personal_api_key_with_scopes(["project:write", "project:read", "endpoint:read"])
 
     def _auth(self):
         return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
@@ -555,3 +702,111 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         assert ProjectSecretAPIKey.objects.get(id=key_id).label == "via-put"
+
+    @parameterized.expand(
+        [
+            ("lacks_scope", ["project:write"], ["endpoint:read"], ["endpoint:read"]),
+            (
+                "lacks_one_of_several",
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                ["account:read"],
+            ),
+            ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], ["loop:write"]),
+            (
+                "lacks_several_listed_sorted",
+                ["project:write"],
+                ["loop:write", "account:read"],
+                ["account:read", "loop:write"],
+            ),
+            ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
+            ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
+            ("wildcard", ["*"], ["account:read", "loop:write"], []),
+        ]
+    )
+    def test_create_requires_caller_to_hold_requested_scopes(
+        self, _name: str, caller_scopes: list[str], requested_scopes: list[str], missing_scopes: list[str]
+    ) -> None:
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            data={"label": "minted", "scopes": requested_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        if missing_scopes:
+            assert response.status_code == 403, response.content
+            assert response.json()["detail"].endswith(f": {', '.join(missing_scopes)}."), response.content
+        else:
+            assert response.status_code == 201, response.content
+        assert ProjectSecretAPIKey.objects.filter(team=self.team, label="minted").exists() == (not missing_scopes)
+
+    @parameterized.expand(
+        [
+            (
+                "adds_unheld_scope",
+                ["endpoint:read"],
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                403,
+            ),
+            (
+                "adds_held_scope_and_keeps_unheld_scope",
+                ["account:read"],
+                ["project:write", "endpoint:read"],
+                ["account:read", "endpoint:read"],
+                200,
+            ),
+            (
+                "keeps_and_removes_unheld_scopes",
+                ["endpoint:read", "account:read"],
+                ["project:write"],
+                ["account:read"],
+                200,
+            ),
+        ]
+    )
+    def test_update_requires_caller_to_hold_added_scopes(
+        self, _name: str, key_scopes: list[str], caller_scopes: list[str], new_scopes: list[str], expected_status: int
+    ) -> None:
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=key_scopes,
+            created_by=self.user,
+        )
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/",
+            data={"scopes": new_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        key.refresh_from_db()
+        assert key.scopes == (new_scopes if expected_status == 200 else key_scopes)
+
+    def test_roll_rejected_when_caller_lacks_key_scopes(self) -> None:
+        secure_value = hash_key_value(generate_random_token_secret())
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=secure_value,
+            scopes=["endpoint:read", "account:read"],
+            created_by=self.user,
+        )
+        token = self.create_personal_api_key_with_scopes(["project:write", "endpoint:read"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == 403, response.content
+        key.refresh_from_db()
+        assert key.secure_value == secure_value

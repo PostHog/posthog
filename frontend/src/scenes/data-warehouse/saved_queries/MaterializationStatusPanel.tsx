@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -12,28 +13,47 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { SERVING_ENGINE, suspendedScheduleMessage } from 'products/data_modeling/frontend/suspension'
+import {
+    DataModelingJobsListEngine,
+    type DataModelingJobApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
+import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
+import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+import { MaterializationRunError } from 'products/data_warehouse/frontend/shared/components/MaterializationRunError'
 
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
-import { materializationJobsLogic } from './materializationJobsLogic'
-import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import { DEFAULT_JOBS_PAGE_SIZE, materializationJobsLogic } from './materializationJobsLogic'
+import {
+    MATERIALIZATION_LOG_LEVELS,
+    computeJobDuration,
+    formatWatermark,
+    getMaterializationStatusMessage,
+    jobLogsWindow,
+    refreshModeChange,
+} from './materializationJobUtils'
 import {
     SyncFrequencySelect,
     SyncFrequencyValue,
     defaultCadenceWithin,
     modeDisabledReason,
-    unsatisfiableReason,
 } from './SyncFrequencySelect'
 
-const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
-
-// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
-const SERVING_ENGINE = 'clickhouse'
+const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
+    Completed: 'success',
+    Failed: 'danger',
+    Running: 'warning',
+    Cancelled: 'muted',
+    Skipped: 'muted',
+}
 
 interface MaterializationStatusPanelProps {
     viewId: string
@@ -45,47 +65,8 @@ interface MaterializationStatusPanelProps {
     kind?: 'view' | 'endpoint'
     /** Drops the "Materialization" heading where the surface already names the panel, such as a tab. */
     hideTitle?: boolean
-}
-
-// Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
-// string keys must render as-is: pushing them through a date formatter shows a bogus timestamp.
-const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}([T ]|$)/
-
-function formatWatermark(watermark: string | null | undefined): string {
-    if (watermark == null || watermark === '') {
-        return 'the last run'
-    }
-    return ISO_DATE_PREFIX.test(watermark) ? humanFriendlyDetailedTime(watermark) : watermark
-}
-
-function getMaterializationStatusMessage(
-    rowsMaterialized: number,
-    progressPercentage: number,
-    rowsExpected: number
-): string {
-    const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
-    switch (true) {
-        case rowsMaterialized === 0:
-            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
-        case progressPercentage < 10:
-            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
-        case progressPercentage < 25:
-            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
-        case progressPercentage < 50:
-            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
-        case progressPercentage < 90:
-            return `Still going — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows written... ${percentComplete}% complete.`
-        case progressPercentage === 100:
-            return `Wrapping up — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows processed... ${percentComplete}% complete.`
-        default:
-            return `Almost there — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows processed... ${percentComplete}% complete.`
-    }
+    showRunActions?: boolean
+    showStatusSummary?: boolean
 }
 
 function getMaterializationDisabledReasons(
@@ -99,7 +80,7 @@ function getMaterializationDisabledReasons(
     return {
         sync:
             currentJobStatus === 'Running'
-                ? 'Materialization is already running'
+                ? 'Materialization is currently running'
                 : startingMaterialization
                   ? 'Materialization is starting'
                   : false,
@@ -112,129 +93,93 @@ export function MaterializationStatusPanel({
     viewId,
     kind = 'view',
     hideTitle,
+    showRunActions = true,
+    showStatusSummary = true,
 }: MaterializationStatusPanelProps): JSX.Element {
     const jobsLogic = materializationJobsLogic({ viewId, kind })
     const {
         dataModelingJobs,
         dataModelingJobsLoading,
-        hasMoreJobsToLoad,
+        jobsPage,
+        jobsPageResults,
+        runHistoryLoading,
+        runHistoryError,
+        selectedRunHistoryEngine,
+        lastSuccessfulSyncAt,
         startingMaterialization,
-        resumingMaterialization,
         savedQuery,
         savedQueryLoading,
         initialSyncFrequency,
         incrementalCheck,
         incrementalDraft,
+        syncFrequencyDraft,
+        savingMaterialization,
+        cadencePin,
+        nodeFrequency,
+        nodeFrequencyLoading,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
-        loadOlderDataModelingJobs,
-        setStartingMaterialization,
-        resumeMaterialization,
+        loadRunHistoryJobs,
+        setJobsPage,
+        loadOlderJobsPage,
+        setSelectedRunHistoryEngine,
         setInitialSyncFrequency,
         setIncrementalDraft,
+        setSyncFrequencyDraft,
+        setPinDraft,
     } = useActions(jobsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const {
-        updateDataWarehouseSavedQuery,
-        runDataWarehouseSavedQuery,
-        cancelDataWarehouseSavedQuery,
-        materializeDataWarehouseSavedQuery,
-        revertMaterialization,
-    } = useActions(dataWarehouseViewsLogic)
+    const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const managedWarehouseEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
 
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
-        AccessControlLevel.Editor
+        AccessControlLevel.Editor,
+        savedQuery?.user_access_level
     )
 
     if (!savedQuery) {
         return (
-            <div className="flex min-h-64 items-center justify-center" data-attr="materialization-status-panel">
-                {savedQueryLoading ? <Spinner className="text-2xl" /> : null}
+            <div className="min-h-64" data-attr="materialization-status-panel">
+                {savedQueryLoading ? <MaterializationLoading /> : null}
             </div>
         )
     }
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
-    const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
-    const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
-    const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
+    const { sync } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
+    const supportsIncremental = kind !== 'endpoint'
+    const showIncremental = supportsIncremental && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
-    // Blocks the Materialize/save buttons while the incremental picks are incomplete, mirroring
-    // the save-as-view form's validation.
-    const incrementalDraftError = !incrementalDraft.enabled
-        ? undefined
-        : !incrementalDraft.incrementalKey
-          ? 'Select the incremental column'
-          : incrementalDraft.uniqueKey.length === 0
-            ? 'Select at least one unique key column'
-            : undefined
-    const savedIncremental = savedQuery.incremental
-    // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
-    // definition fingerprint). A lookback-only change is operational and does not.
-    const structuralChange = savedIncremental?.enabled
-        ? !incrementalDraft.enabled ||
-          incrementalDraft.incrementalKey !== savedIncremental.incremental_key ||
-          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',')
-        : incrementalDraft.enabled
-    const lookbackChanged =
-        !!savedIncremental?.enabled &&
-        incrementalDraft.enabled &&
-        incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
-    const refreshModeChanged = structuralChange || lookbackChanged
+    const { structuralChange, refreshModeChanged } = refreshModeChange(savedQuery.incremental, incrementalDraft)
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
-    const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
     const cadenceOwnedElsewhere = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const isPaused = !cadenceOwnedElsewhere && (!savedQuery.sync_frequency || savedQuery.sync_frequency === 'never')
 
-    // Prefer the serving engine's entry when several engines are suspended.
-    const suspension = savedQuery.suspended
-        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
-        : undefined
-    const showSuspendedBanner =
-        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
-        !!suspension &&
-        !!savedQuery.is_materialized
+    // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
+    // run stopped, not that this model stopped refreshing.
+    const suspension = savedQuery.suspended?.[SERVING_ENGINE]
+    const showSuspendedBanner = !!suspension && !!savedQuery.is_materialized
 
     return (
-        <div className="overflow-auto" data-attr="materialization-status-panel">
+        <div className="@container/materialization" data-attr="materialization-status-panel">
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         {!hideTitle && <h3 className="mb-0">Materialization</h3>}
-                        <LemonTag type="warning">BETA</LemonTag>
-                        {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error} interactive>
-                                <LemonTag type="danger">Error</LemonTag>
-                            </Tooltip>
-                        )}
                     </div>
-                    {showSuspendedBanner && suspension && (
-                        <LemonBanner
-                            type="error"
-                            className="mt-2"
-                            action={{
-                                children: 'Resume',
-                                onClick: () => resumeMaterialization(),
-                                loading: resumingMaterialization,
-                                disabledReason: materializationAccessReason || undefined,
-                                tooltip: 'If the query keeps failing, it will pause again.',
-                            }}
-                        >
+                    {showStatusSummary && showSuspendedBanner && suspension && (
+                        <LemonBanner type="error" className="mt-2">
                             <div data-attr="materialization-suspended-banner">
-                                <div>
-                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
-                                    because materialization kept failing. Fix the query, then resume.
-                                </div>
+                                <div>{suspendedScheduleMessage(kind === 'endpoint' ? 'endpoint' : 'view')}</div>
                                 <Tooltip title={suspension.reason} interactive>
                                     <div className="mt-1 text-xs font-normal line-clamp-2">
-                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                        Suspended {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
                                     </div>
                                 </Tooltip>
                             </div>
@@ -243,194 +188,116 @@ export function MaterializationStatusPanel({
                     <div>
                         {savedQuery?.is_materialized ? (
                             <div>
-                                {savedQuery?.last_run_at ? (
-                                    `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : showSuspendedBanner ? null : (
-                                    <div>
-                                        <span>Materialization scheduled</span>
-                                    </div>
+                                {showStatusSummary && (
+                                    <LemonCard hoverEffect={false} className="!p-3 mb-4 w-fit max-w-full">
+                                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                                            <span className="font-semibold">
+                                                {currentJobStatus === 'Running' ? 'Current run' : 'Last run'}
+                                            </span>
+                                            {currentJobStatus ? (
+                                                <LemonTag type={STATUS_TAG_TYPES[currentJobStatus] ?? 'default'}>
+                                                    {currentJobStatus === 'Cancelled' ? 'Canceled' : currentJobStatus}
+                                                </LemonTag>
+                                            ) : dataModelingJobsLoading ? (
+                                                <LemonSkeleton className="h-5 w-20" />
+                                            ) : (
+                                                <LemonTag type="muted">
+                                                    {dataModelingJobs ? 'Not run yet' : 'Status unavailable'}
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                            <span className="text-secondary">Last successful refresh</span>
+                                            {lastSuccessfulSyncAt ? (
+                                                <TZLabel time={lastSuccessfulSyncAt} />
+                                            ) : dataModelingJobsLoading ? (
+                                                <LemonSkeleton className="h-4 w-24" />
+                                            ) : (
+                                                <span>
+                                                    {dataModelingJobs
+                                                        ? 'No successful run in recent history'
+                                                        : 'Run history unavailable'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </LemonCard>
                                 )}
-                                {showIncremental && (
+                                {showIncremental && lastRunMode === 'incremental' && (
                                     <div className="text-xs text-secondary mt-1">
-                                        {lastRunMode === 'incremental'
-                                            ? `Updating new rows only, up to ${formatWatermark(
-                                                  savedQuery.incremental_state?.watermark
-                                              )}`
-                                            : 'The last run rebuilt the whole table. The next one will update only new rows.'}
+                                        Updating new rows only, up to{' '}
+                                        {formatWatermark(savedQuery.incremental_state?.watermark)}
                                     </div>
                                 )}
-                                {isPaused && kind !== 'endpoint' && (
+                                {showStatusSummary && isPaused && kind !== 'endpoint' && (
                                     <div className="text-xs text-secondary mt-1">
                                         Scheduled refreshes are paused. Pick a cadence to resume, or use Sync now to
                                         refresh it once.
                                     </div>
                                 )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
-                                    {kind !== 'endpoint' && (
+                                    {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+                                        // Without the pin state the bar would first render as unpinned, then jump.
+                                        <LemonSkeleton className="h-8 w-80" />
+                                    ) : kind !== 'endpoint' ? (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
-                                            disabledReason={sync || materializationAccessReason || undefined}
-                                            value={(savedQuery.sync_frequency as SyncFrequencyValue) || 'never'}
-                                            onChange={(newValue) =>
-                                                updateDataWarehouseSavedQuery({
-                                                    id: viewId,
-                                                    sync_frequency: newValue,
-                                                    types: [[]],
-                                                    lifecycle: 'update',
-                                                })
+                                            disabledReason={
+                                                sync ||
+                                                (savingMaterialization
+                                                    ? 'Saving materialization settings'
+                                                    : undefined) ||
+                                                materializationAccessReason ||
+                                                (materializationActionLoading ? 'Updating materialization' : undefined)
                                             }
-                                            loading={updatingDataWarehouseSavedQuery}
+                                            value={
+                                                syncFrequencyDraft ??
+                                                (savedQuery.sync_frequency as SyncFrequencyValue) ??
+                                                'never'
+                                            }
+                                            onChange={setSyncFrequencyDraft}
+                                            loading={
+                                                savingMaterialization ||
+                                                updatingDataWarehouseSavedQuery ||
+                                                materializationActionLoading
+                                            }
+                                            pin={cadencePin}
+                                            onUnpin={() => setPinDraft(false)}
                                         />
+                                    ) : null}
+                                    {showRunActions && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <MaterializationRunActions viewId={viewId} kind={kind} />
+                                        </div>
                                     )}
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            className="whitespace-nowrap"
-                                            size="small"
-                                            loading={startingMaterialization || currentJobStatus === 'Running'}
-                                            disabledReason={sync || materializationAccessReason}
-                                            onClick={() => {
-                                                setStartingMaterialization(true)
-                                                runDataWarehouseSavedQuery(viewId)
-                                            }}
-                                            type="secondary"
-                                            sideAction={{
-                                                icon: <IconX fontSize={16} />,
-                                                tooltip: 'Cancel materialization',
-                                                onClick: () => cancelDataWarehouseSavedQuery(viewId),
-                                                disabledReason: cancel || materializationAccessReason || undefined,
-                                            }}
-                                        >
-                                            {startingMaterialization
-                                                ? 'Starting...'
-                                                : currentJobStatus === 'Running'
-                                                  ? 'Running...'
-                                                  : 'Sync now'}
-                                        </LemonButton>
-                                        {showIncremental && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Rebuild the whole table from scratch instead of updating it"
-                                                disabledReason={sync || materializationAccessReason}
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Rebuild this table',
-                                                        maxWidth: '30rem',
-                                                        description:
-                                                            'This runs the query over all of your data and replaces the table, instead of updating only new rows. It takes as long as the first materialization did. Use it after correcting upstream data.',
-                                                        primaryButton: {
-                                                            children: 'Rebuild',
-                                                            onClick: () => {
-                                                                setStartingMaterialization(true)
-                                                                runDataWarehouseSavedQuery(viewId, true)
-                                                            },
-                                                        },
-                                                        secondaryButton: { children: 'Cancel' },
-                                                    })
-                                                }}
-                                            >
-                                                Rebuild
-                                            </LemonButton>
-                                        )}
-                                        {kind !== 'endpoint' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Stop refreshing on a schedule. The table stays, holding what it last loaded."
-                                                disabledReason={
-                                                    materializationAccessReason ||
-                                                    cadenceOwnedElsewhere ||
-                                                    (isPaused ? 'Already paused. Pick a cadence to resume.' : undefined)
-                                                }
-                                                loading={updatingDataWarehouseSavedQuery}
-                                                onClick={() =>
-                                                    updateDataWarehouseSavedQuery({
-                                                        id: viewId,
-                                                        sync_frequency: 'never',
-                                                        types: [[]],
-                                                        lifecycle: 'update',
-                                                    })
-                                                }
-                                            >
-                                                Pause refreshes
-                                            </LemonButton>
-                                        )}
-                                        {kind !== 'endpoint' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Revert materialized view to view"
-                                                disabledReason={revert || materializationAccessReason}
-                                                icon={<IconRevert />}
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Revert materialization',
-                                                        maxWidth: '30rem',
-                                                        description:
-                                                            'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
-                                                        primaryButton: {
-                                                            status: 'danger',
-                                                            children: 'Revert materialization',
-                                                            onClick: () => revertMaterialization(viewId),
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }}
-                                            />
-                                        )}
-                                    </div>
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
-                                    <div className="mt-4 max-w-160">
+                                {supportsIncremental && !savedQuery.managed_viewset_kind && incrementalCheck && (
+                                    <fieldset
+                                        className="mt-4 max-w-160"
+                                        disabled={
+                                            !!(
+                                                sync ||
+                                                savingMaterialization ||
+                                                materializationAccessReason ||
+                                                materializationActionLoading
+                                            )
+                                        }
+                                    >
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
                                             draft={incrementalDraft}
                                             onChange={setIncrementalDraft}
                                         />
-                                        {refreshModeChanged && (
+                                        {refreshModeChanged && incrementalDraft.enabled && (
                                             <div className="mt-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    size="small"
-                                                    loading={updatingDataWarehouseSavedQuery}
-                                                    disabledReason={
-                                                        materializationAccessReason || incrementalDraftError || sync
-                                                    }
-                                                    onClick={() =>
-                                                        updateDataWarehouseSavedQuery({
-                                                            id: viewId,
-                                                            incremental:
-                                                                incrementalDraft.enabled &&
-                                                                incrementalDraft.incrementalKey
-                                                                    ? {
-                                                                          enabled: true,
-                                                                          incremental_key:
-                                                                              incrementalDraft.incrementalKey,
-                                                                          unique_key: incrementalDraft.uniqueKey,
-                                                                          lookback_seconds:
-                                                                              incrementalDraft.lookbackSeconds,
-                                                                      }
-                                                                    : null,
-                                                            types: [[]],
-                                                            lifecycle: 'update',
-                                                        })
-                                                    }
-                                                >
-                                                    Save refresh mode
-                                                </LemonButton>
                                                 <div className="text-xs text-secondary mt-1">
-                                                    {!incrementalDraft.enabled
-                                                        ? 'Every run will rebuild the whole table.'
-                                                        : structuralChange
-                                                          ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
-                                                          : 'The new lookback applies from the next run.'}
+                                                    {structuralChange
+                                                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                        : 'The new lookback applies from the next run.'}
                                                 </div>
                                             </div>
                                         )}
-                                    </div>
+                                    </fieldset>
                                 )}
                             </div>
                         ) : (
@@ -453,37 +320,17 @@ export function MaterializationStatusPanel({
                                         <SyncFrequencySelect
                                             data-attr="initial-sync-frequency"
                                             bounds={savedQuery.sync_frequency_bounds}
-                                            disabledReason={materializationAccessReason || undefined}
+                                            disabledReason={
+                                                materializationAccessReason ||
+                                                (materializationActionLoading ? 'Updating materialization' : undefined)
+                                            }
                                             value={startingFrequency}
                                             onChange={(newValue) => setInitialSyncFrequency(newValue)}
                                         />
                                     )}
-                                    <LemonButton
-                                        size="small"
-                                        onClick={() =>
-                                            materializeDataWarehouseSavedQuery(
-                                                viewId,
-                                                startingFrequency,
-                                                incrementalDraft.enabled && incrementalDraft.incrementalKey
-                                                    ? {
-                                                          enabled: true,
-                                                          incremental_key: incrementalDraft.incrementalKey,
-                                                          unique_key: incrementalDraft.uniqueKey,
-                                                          lookback_seconds: incrementalDraft.lookbackSeconds,
-                                                      }
-                                                    : undefined
-                                            )
-                                        }
-                                        type="primary"
-                                        loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={
-                                            materializationAccessReason || noCadenceReason || incrementalDraftError
-                                        }
-                                    >
-                                        Materialize
-                                    </LemonButton>
+                                    {showRunActions && <MaterializationRunActions viewId={viewId} kind={kind} />}
                                 </div>
-                                {incrementalFlagOn && (
+                                {supportsIncremental && (
                                     <div className="max-w-160">
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
@@ -496,40 +343,75 @@ export function MaterializationStatusPanel({
                         )}
                     </div>
                 </div>
-                <div className="flex items-start justify-between">
+                <div className="border-t pt-6 mt-4 flex items-start justify-between gap-2">
                     <div>
-                        <h3>Materialization Runs</h3>
-                        <p className="text-xs">
-                            The last runs for this materialized view. These can be scheduled or run on demand.
-                        </p>
+                        <h3 className="mb-0">Run history</h3>
                     </div>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => loadDataModelingJobs()}
-                        loading={dataModelingJobsLoading}
-                        disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
-                        tooltip="Refresh runs"
-                    />
+                    <div className="flex items-center gap-2">
+                        {managedWarehouseEnabled ? (
+                            <LemonSelect
+                                value={selectedRunHistoryEngine}
+                                onChange={setSelectedRunHistoryEngine}
+                                options={[
+                                    { value: DataModelingJobsListEngine.Clickhouse, label: 'ClickHouse' },
+                                    {
+                                        value: DataModelingJobsListEngine.ManagedWarehouse,
+                                        label: 'Managed warehouse',
+                                    },
+                                ]}
+                                size="small"
+                                data-attr="materialization-run-history-engine-filter"
+                            />
+                        ) : null}
+                        <LemonButton
+                            icon={<IconRefresh />}
+                            size="small"
+                            type="secondary"
+                            onClick={() =>
+                                jobsPage > 1
+                                    ? loadOlderJobsPage()
+                                    : selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse
+                                      ? loadDataModelingJobs()
+                                      : loadRunHistoryJobs()
+                            }
+                            loading={runHistoryLoading}
+                            disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
+                            tooltip="Refresh runs"
+                            aria-label="Refresh runs"
+                        />
+                    </div>
                 </div>
+                {runHistoryError && (
+                    <LemonBanner type="error">Couldn't load runs. Use Refresh runs to try again.</LemonBanner>
+                )}
                 <LemonTable
+                    rowKey="id"
+                    pagination={{
+                        controlled: true,
+                        useUrl: false,
+                        pageSize: DEFAULT_JOBS_PAGE_SIZE,
+                        currentPage: jobsPage,
+                        entryCount: jobsPageResults?.count,
+                        // PaginationControl decides whether an arrow is enabled from the entry count, not
+                        // from these handlers, so withholding one while a page loads would leave a live
+                        // arrow that does nothing. Let the click through: the page loader breakpoints, so
+                        // the superseded response is discarded.
+                        onBackward: jobsPage > 1 ? () => setJobsPage(jobsPage - 1) : undefined,
+                        onForward: jobsPageResults?.next ? () => setJobsPage(jobsPage + 1) : undefined,
+                    }}
                     size="small"
-                    loading={dataModelingJobsLoading && !dataModelingJobs?.results?.length}
-                    dataSource={dataModelingJobs?.results || []}
+                    // A timer reloads page 1 in the background, and LemonTable's loading overlay blocks
+                    // pointer events over the rows and the pager, so page 1 shows the loader only before it
+                    // has rows. Only a user action loads an older page, so that loader always shows.
+                    loading={runHistoryLoading && (jobsPage > 1 || !jobsPageResults?.results?.length)}
+                    dataSource={jobsPage > 1 && runHistoryError ? [] : jobsPageResults?.results || []}
                     columns={[
                         {
                             title: 'Status',
                             dataIndex: 'status',
-                            render: (_, job: DataModelingJob) => {
-                                const { status, error, rows_materialized, rows_expected } = job
-                                const statusToType: Record<string, LemonTagType> = {
-                                    Completed: 'success',
-                                    Failed: 'danger',
-                                    Running: 'warning',
-                                    Skipped: 'muted',
-                                }
-                                const type = statusToType[status] || 'warning'
+                            render: (_, job: DataModelingJobApi) => {
+                                const { status, rows_materialized, rows_expected } = job
+                                const type = STATUS_TAG_TYPES[status] || 'warning'
 
                                 const progressPercentage =
                                     rows_expected && rows_expected > 0
@@ -553,30 +435,68 @@ export function MaterializationStatusPanel({
                                     )
                                 }
 
-                                const statusTag =
-                                    error && status !== 'Completed' ? (
-                                        <Tooltip title={error} interactive>
-                                            <LemonTag type={type}>{status}</LemonTag>
-                                        </Tooltip>
-                                    ) : (
-                                        <LemonTag type={type}>{status}</LemonTag>
-                                    )
-                                return (
-                                    <div className="flex items-center gap-1">
-                                        {statusTag}
-                                        {showIncremental && job.run_mode && (
-                                            <LemonTag type="muted">
-                                                {job.run_mode === 'incremental' ? 'incremental' : 'full refresh'}
-                                            </LemonTag>
-                                        )}
-                                    </div>
+                                const tag = (
+                                    <LemonTag type={type}>{status === 'Cancelled' ? 'Canceled' : status}</LemonTag>
+                                )
+                                return job.error ? (
+                                    <Tooltip
+                                        title={<div className="whitespace-pre-wrap font-mono text-xs">{job.error}</div>}
+                                        interactive
+                                    >
+                                        <span tabIndex={0} aria-label={`${status}. ${job.error}`}>
+                                            {tag}
+                                        </span>
+                                    </Tooltip>
+                                ) : (
+                                    tag
                                 )
                             },
                         },
                         {
+                            title: 'Refresh mode',
+                            dataIndex: 'run_mode',
+                            isHidden: !supportsIncremental || !savedQuery.has_incremental_history,
+                            render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
+                                if (run_mode === 'incremental') {
+                                    return 'Incremental'
+                                }
+                                if (run_mode === 'full_refresh') {
+                                    return full_refresh_reason ? (
+                                        <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                            <div>Full refresh</div>
+                                            <Tooltip title={capitalizeFirstLetter(full_refresh_reason)}>
+                                                <span
+                                                    className="block truncate text-xs text-secondary"
+                                                    data-attr="materialization-run-full-refresh-reason"
+                                                >
+                                                    {capitalizeFirstLetter(full_refresh_reason)}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
+                                    ) : (
+                                        'Full refresh'
+                                    )
+                                }
+                                return '-'
+                            },
+                        },
+                        {
+                            title: 'Error',
+                            dataIndex: 'error',
+                            render: (_, { error, status }: DataModelingJobApi) => (
+                                <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                    <span
+                                        className={`block truncate ${status === 'Failed' ? 'text-danger' : 'text-secondary'}`}
+                                    >
+                                        {error?.split('\n')[0]}
+                                    </span>
+                                </div>
+                            ),
+                        },
+                        {
                             title: 'Rows',
                             dataIndex: 'rows_materialized',
-                            render: (_, { rows_materialized, status, run_mode }: DataModelingJob) => {
+                            render: (_, { rows_materialized, status, run_mode }: DataModelingJobApi) => {
                                 if (
                                     (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
                                     rows_materialized === 0
@@ -603,19 +523,20 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Updated',
                             dataIndex: 'last_run_at',
-                            render: (_, { last_run_at }: DataModelingJob) =>
-                                last_run_at ? humanFriendlyDetailedTime(last_run_at) : '-',
+                            render: (_, { last_run_at }: DataModelingJobApi) =>
+                                last_run_at ? <TZLabel time={last_run_at} /> : '-',
                         },
                         {
                             title: 'Duration',
-                            render: (_, job: DataModelingJob) => computeJobDuration(job),
+                            render: (_, job: DataModelingJobApi) => computeJobDuration(job),
                         },
                     ]}
                     expandable={
-                        dataModelingJobs?.results?.length
+                        jobsPageResults?.results?.length
                             ? {
-                                  expandedRowRender: (job: DataModelingJob) => (
-                                      <div className="p-4">
+                                  expandedRowRender: (job: DataModelingJobApi) => (
+                                      <div className="p-4 min-w-0">
+                                          <MaterializationRunError error={job.error} status={job.status} />
                                           <LogsViewer
                                               logicKey={`data_modeling_run:${job.id}`}
                                               sourceType="data_modeling_run"
@@ -627,7 +548,9 @@ export function MaterializationStatusPanel({
                                               defaultFilters={{
                                                   instanceId: job.workflow_run_id ?? undefined,
                                                   ...jobLogsWindow(job, timezone),
-                                                  levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                                  levels: showDebugLogs
+                                                      ? ['DEBUG', ...MATERIALIZATION_LOG_LEVELS]
+                                                      : MATERIALIZATION_LOG_LEVELS,
                                               }}
                                           />
                                       </div>
@@ -639,20 +562,6 @@ export function MaterializationStatusPanel({
                     }
                     nouns={['run', 'runs']}
                     emptyState="No runs available"
-                    footer={
-                        hasMoreJobsToLoad && (
-                            <div className="flex items-center m-2">
-                                <LemonButton
-                                    center
-                                    fullWidth
-                                    onClick={() => loadOlderDataModelingJobs()}
-                                    loading={dataModelingJobsLoading}
-                                >
-                                    Load older runs
-                                </LemonButton>
-                            </div>
-                        )
-                    }
                 />
             </div>
         </div>

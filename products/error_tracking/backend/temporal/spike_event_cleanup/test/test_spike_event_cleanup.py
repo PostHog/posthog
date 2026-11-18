@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -85,7 +85,7 @@ async def _run_workflow_with_mock_activity(
 
 
 class TestSpikeEventCleanupWorkflow:
-    @freeze_time("2026-01-31T00:00:00Z")
+    @time_machine.travel("2026-01-31T00:00:00Z", tick=False)
     def test_parse_defaults_match_dagster_config(self) -> None:
         assert ErrorTrackingSpikeEventCleanupWorkflow.parse_inputs([]) == SpikeEventCleanupInputs(days_old=30)
 

@@ -174,6 +174,18 @@ CREATE OR REPLACE TABLE trace_spans
         ORDER BY span_id
     ),
 
+    PROJECTION projection_index_team_span_id
+    (
+        SELECT team_id, _part_offset
+        ORDER BY span_id
+    ),
+
+    PROJECTION projection_index_team_trace_id
+    (
+        SELECT team_id, _part_offset
+        ORDER BY trace_id
+    ),
+
     INDEX idx_trace_id trace_id TYPE tokenbf_v1(10000, 5, 0) GRANULARITY 1,
     INDEX idx_span_id span_id TYPE tokenbf_v1(5000, 5, 0) GRANULARITY 1,
     INDEX idx_name name TYPE ngrambf_v1(4, 5000, 2, 0) GRANULARITY 1,
@@ -426,7 +438,7 @@ CREATE OR REPLACE TABLE trace_spans_kafka_metrics
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
     `max_lag` SimpleAggregateFunction(max, UInt64)
 )
-ENGINE = MergeTree
+ENGINE = AggregatingMergeTree
 ORDER BY (_topic, _partition);
 
 drop view if exists kafka_trace_spans_avro_kafka_metrics_mv;

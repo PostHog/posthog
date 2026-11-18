@@ -29,7 +29,8 @@ export function CreateSlotModal(): JSX.Element {
 
         setIsSubmitting(true)
         try {
-            await api.create(`api/environments/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+            await api.create(`api/projects/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
                 property_definition_id: selectedPropertyId,
             })
             lemonToast.success('Property queued for materialization — it will be picked up by the next weekly cycle')

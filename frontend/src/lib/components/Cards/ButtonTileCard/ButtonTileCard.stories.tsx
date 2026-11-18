@@ -2,7 +2,7 @@ import '~/scenes/dashboard/DashboardItems.scss'
 
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { DashboardPlacement, DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, InsightColor } from '~/types'
 
 import { ButtonTileCard } from './ButtonTileCard'
 
@@ -26,7 +26,7 @@ const makeButtonTile = (
         transparentBackground?: boolean
         color?: InsightColor | null
     } = {}
-): DashboardTile<QueryBasedInsightModel> => {
+): DashboardTile => {
     return {
         id: 1,
         button_tile: {
@@ -94,7 +94,7 @@ export const TransparentBackground: Story = {
                     />
                 </div>
                 <div>
-                    <h5>Transparent background (edit mode — dashed border)</h5>
+                    <h5>Transparent background (edit mode)</h5>
                     <ButtonTileCard
                         className={gridItemStoryClassName}
                         showResizeHandles={true}

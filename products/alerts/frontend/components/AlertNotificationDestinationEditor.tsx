@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { KeyboardEvent, ReactNode } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
 import {
@@ -6,16 +6,18 @@ import {
     LemonBanner,
     LemonInput,
     LemonSelect,
+    LemonSelectOptionLeaf,
     LemonSelectOptions,
     LemonSkeleton,
     LemonTag,
     LemonTagType,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { IntegrationType } from '~/types'
+import { HogFunctionType, IntegrationType } from '~/types'
 
 interface AlertNotificationDestinationIconAction {
     kind: 'icon'
@@ -32,12 +34,22 @@ interface AlertNotificationDestinationButtonAction {
     dataAttr?: string
 }
 
+/** Customize a destination's message, or go back to the standard one. */
+export interface AlertNotificationDestinationMessageAction {
+    label: string
+    tooltip: string
+    onClick: () => void
+    loading?: boolean
+    dataAttr: string
+}
+
 export interface AlertNotificationDestinationView {
     key: string
     title: ReactNode
     detail?: ReactNode
-    tags?: { label: string; type?: LemonTagType }[]
+    tags?: { label: string; type?: LemonTagType; tooltip?: string }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
+    messageAction?: AlertNotificationDestinationMessageAction
     onDelete: () => void
     deleting?: boolean
 }
@@ -54,6 +66,59 @@ export interface AlertNotificationUrlInput {
     helpText?: ReactNode
 }
 
+export type AlertPagerDutySeverity = 'critical' | 'error' | 'warning' | 'info'
+export type AlertPagerDutyRegion = 'us' | 'eu'
+
+export const ALERT_PAGERDUTY_SEVERITY_OPTIONS: LemonSelectOptionLeaf<AlertPagerDutySeverity>[] = [
+    { value: 'critical', label: 'Critical' },
+    { value: 'error', label: 'Error' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'info', label: 'Info' },
+]
+
+export const ALERT_PAGERDUTY_REGION_OPTIONS: LemonSelectOptionLeaf<AlertPagerDutyRegion>[] = [
+    { value: 'us', label: 'US' },
+    { value: 'eu', label: 'EU' },
+]
+
+// Mirrors the backend check, so a mistyped key is caught before the alert is saved instead
+// of failing in the background after it.
+export const PAGERDUTY_ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/
+
+export function pagerDutyRoutingKeyError(routingKey: string): string | undefined {
+    if (!routingKey.trim()) {
+        return 'Enter the PagerDuty integration key'
+    }
+    return PAGERDUTY_ROUTING_KEY_PATTERN.test(routingKey.trim())
+        ? undefined
+        : 'The integration key is 32 letters and digits'
+}
+
+export function pagerDutyPendingDetail(notification: {
+    routingKey: string
+    severity: AlertPagerDutySeverity
+    region: AlertPagerDutyRegion
+}): string {
+    const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
+    const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
+    return `••••${notification.routingKey.slice(-4)} · ${severity?.label ?? notification.severity} · ${region?.label ?? notification.region}`
+}
+
+// The integration key is a secret input, so the API never returns it. The name's destination
+// segment carries the key's tail and is what tells two PagerDuty destinations apart.
+export function pagerDutyDestinationLabel(hogFunction: Pick<HogFunctionType, 'name'>): string | undefined {
+    return hogFunction.name?.split(' → ').pop()
+}
+
+export interface AlertNotificationPagerDutyInput {
+    routingKey: string
+    onRoutingKeyChange: (value: string) => void
+    severity: AlertPagerDutySeverity
+    onSeverityChange: (value: AlertPagerDutySeverity) => void
+    region: AlertPagerDutyRegion
+    onRegionChange: (value: AlertPagerDutyRegion) => void
+}
+
 interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
     description?: ReactNode
     destinations: {
@@ -61,6 +126,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         existingLoading: boolean
         existing: AlertNotificationDestinationView[]
         pending: PendingAlertNotificationDestinationView[]
+        pendingTooltip?: string
     }
     notificationType: {
         options: LemonSelectOptions<NotificationType>
@@ -85,6 +151,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         value: string
         onChange: (value: string) => void
     }
+    pagerduty?: AlertNotificationPagerDutyInput
     add: {
         onClick: () => void
         disabledReason?: string
@@ -154,9 +221,11 @@ function ExistingDestinations({
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
                             {destination.tags?.map((tag) => (
-                                <LemonTag key={tag.label} type={tag.type} size="small">
-                                    {tag.label}
-                                </LemonTag>
+                                <Tooltip key={tag.label} title={tag.tooltip}>
+                                    <LemonTag type={tag.type} size="small">
+                                        {tag.label}
+                                    </LemonTag>
+                                </Tooltip>
                             ))}
                         </div>
                         {destination.detail ? (
@@ -164,6 +233,18 @@ function ExistingDestinations({
                         ) : null}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {destination.messageAction ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={destination.messageAction.onClick}
+                                loading={destination.messageAction.loading}
+                                tooltip={destination.messageAction.tooltip}
+                                data-attr={destination.messageAction.dataAttr}
+                            >
+                                {destination.messageAction.label}
+                            </LemonButton>
+                        ) : null}
                         <DestinationViewAction action={destination.viewAction} />
                         <LemonButton
                             icon={<IconTrash />}
@@ -183,8 +264,10 @@ function ExistingDestinations({
 
 function PendingDestinations({
     destinations,
+    tooltip = 'Save this alert to add this destination.',
 }: {
     destinations: PendingAlertNotificationDestinationView[]
+    tooltip?: string
 }): JSX.Element | null {
     if (destinations.length === 0) {
         return null
@@ -197,9 +280,11 @@ function PendingDestinations({
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
-                            <LemonTag type="warning" size="small">
-                                Pending
-                            </LemonTag>
+                            <Tooltip title={tooltip}>
+                                <LemonTag type="warning" size="small">
+                                    Pending
+                                </LemonTag>
+                            </Tooltip>
                         </div>
                         {destination.detail ? (
                             <span className="text-xs text-muted-alt truncate block">{destination.detail}</span>
@@ -224,6 +309,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     notificationType,
     slack,
     url,
+    pagerduty,
     add,
 }: AlertNotificationDestinationEditorProps<NotificationType>): JSX.Element {
     const addDestinationButton = (
@@ -237,7 +323,19 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             Add
         </LemonButton>
     )
-    const addDestinationButtonIsInline = notificationType.value === slack.notificationType || Boolean(url)
+    const addDestinationButtonIsInline =
+        notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty)
+    const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.nativeEvent.isComposing) {
+            event.stopPropagation()
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (!add.disabledReason) {
+            add.onClick()
+        }
+    }
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
@@ -289,7 +387,13 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 </div>
             )
         } else {
-            slackDestinationInput = <SlackNotConfiguredBanner type="warning" className="max-w-4xl" />
+            slackDestinationInput = (
+                <SlackNotConfiguredBanner
+                    type="warning"
+                    className="max-w-4xl"
+                    onConnected={slack.onIntegrationChange}
+                />
+            )
         }
     }
 
@@ -305,7 +409,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 <ExistingDestinations loading={destinations.existingLoading} destinations={destinations.existing} />
             ) : null}
 
-            <PendingDestinations destinations={destinations.pending} />
+            <PendingDestinations destinations={destinations.pending} tooltip={destinations.pendingTooltip} />
 
             {hasDestinations ? <hr className="border-border m-0" /> : null}
 
@@ -323,26 +427,69 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 {url ? (
                     <div className="space-y-1">
                         <div className="flex flex-col sm:flex-row items-start gap-2">
+                            {/* The URL's path carries its secret. Autocapture records copied text, and session
+                                replay records what is typed, so the input is kept out of both. */}
                             <LemonInput
+                                className="ph-no-capture ph-replay-block"
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
-                                onPressEnter={(event) => {
-                                    if (event.nativeEvent.isComposing) {
-                                        event.stopPropagation()
-                                        return
-                                    }
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    if (!add.disabledReason) {
-                                        add.onClick()
-                                    }
-                                }}
+                                onPressEnter={addOnEnter}
                                 fullWidth
                             />
                             {addDestinationButton}
                         </div>
                         {url.input.helpText ? <p className="text-xs text-muted-alt m-0">{url.input.helpText}</p> : null}
+                    </div>
+                ) : null}
+
+                {pagerduty ? (
+                    <div className="space-y-3">
+                        <fieldset className="space-y-1">
+                            <legend className="text-sm font-medium">Integration key</legend>
+                            <div className="flex flex-col sm:flex-row items-start gap-2">
+                                {/* Autocapture records copied text, which the password type does not stop. */}
+                                <LemonInput
+                                    type="password"
+                                    autoComplete="off"
+                                    className="ph-no-capture"
+                                    placeholder="32-character Events API v2 integration key"
+                                    value={pagerduty.routingKey}
+                                    onChange={pagerduty.onRoutingKeyChange}
+                                    onPressEnter={addOnEnter}
+                                    fullWidth
+                                    data-attr="alert-pagerduty-routing-key"
+                                />
+                                {addDestinationButton}
+                            </div>
+                            <p className="text-xs text-muted-alt m-0">
+                                In PagerDuty, add an "Events API v2" integration to the service you want to page and
+                                paste its integration key here. An incident opens when the alert starts firing and
+                                resolves when it stops.
+                            </p>
+                        </fieldset>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <fieldset className="space-y-1 flex-1 min-w-0">
+                                <legend className="text-sm font-medium">Severity</legend>
+                                <LemonSelect
+                                    fullWidth
+                                    options={ALERT_PAGERDUTY_SEVERITY_OPTIONS}
+                                    value={pagerduty.severity}
+                                    onChange={pagerduty.onSeverityChange}
+                                    data-attr="alert-pagerduty-severity"
+                                />
+                            </fieldset>
+                            <fieldset className="space-y-1 flex-1 min-w-0">
+                                <legend className="text-sm font-medium">Service region</legend>
+                                <LemonSelect
+                                    fullWidth
+                                    options={ALERT_PAGERDUTY_REGION_OPTIONS}
+                                    value={pagerduty.region}
+                                    onChange={pagerduty.onRegionChange}
+                                    data-attr="alert-pagerduty-region"
+                                />
+                            </fieldset>
+                        </div>
                     </div>
                 ) : null}
 

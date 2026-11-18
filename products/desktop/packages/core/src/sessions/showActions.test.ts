@@ -29,10 +29,17 @@ describe("isShowActionsCall", () => {
 });
 
 describe("readShowActions", () => {
+  // The description is presentation, like the label, so it has to stay out of
+  // the action the host turns into a link.
   it("drops an action the host would refuse to open", () => {
     const buttons = readShowActions({
       actions: [
-        { kind: "compose", label: "Add PostHog", prompt: "/instrument" },
+        {
+          kind: "compose",
+          label: "Add PostHog",
+          description: "Instruments the app so events start arriving",
+          prompt: "/instrument",
+        },
         { kind: "open_space", label: "Open the space", channel_id: "  " },
         { kind: "open_website", label: "Go", url: "https://evil.example" },
       ],
@@ -41,6 +48,7 @@ describe("readShowActions", () => {
     expect(buttons).toEqual([
       {
         label: "Add PostHog",
+        description: "Instruments the app so events start arriving",
         action: { kind: "compose", prompt: "/instrument" },
       },
     ]);

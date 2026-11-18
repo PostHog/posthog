@@ -1,5 +1,5 @@
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, InsightModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -18,9 +18,7 @@ import {
 } from './dashboardBreakdownColors'
 
 describe('dashboardBreakdownColors', () => {
-    const createTestTile = (
-        overrides: Partial<QueryBasedInsightModel> = {}
-    ): DashboardTile<QueryBasedInsightModel> => ({
+    const createTestTile = (overrides: Partial<InsightModel> = {}): DashboardTile => ({
         id: 1,
         layouts: {},
         color: null,
@@ -35,7 +33,6 @@ describe('dashboardBreakdownColors', () => {
             created_at: '2023-01-01T00:00:00Z',
             created_by: null,
             is_sample: false,
-            dashboards: null,
             dashboard_tiles: null,
             updated_at: '2023-01-01T00:00:00Z',
             last_modified_at: '2023-01-01T00:00:00Z',
@@ -47,7 +44,7 @@ describe('dashboardBreakdownColors', () => {
         },
     })
 
-    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile<QueryBasedInsightModel> =>
+    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile =>
         createTestTile({
             result,
             query: {
@@ -155,10 +152,10 @@ describe('dashboardBreakdownColors', () => {
         it('handles trends insights', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'], compare_label: 'previous' },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'], compare_label: 'previous' },
+                    { order: 0, breakdown_value: ['Chrome'], compare_label: 'previous' },
+                    { order: 0, breakdown_value: ['Firefox'], compare_label: 'previous' },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: 'Safari' }]),
+                trendsTile([{ order: 0, breakdown_value: 'Safari' }]),
             ]
 
             expect(extractBreakdownValues(tiles)).toEqual([
@@ -171,10 +168,10 @@ describe('dashboardBreakdownColors', () => {
         it('orders values by assignment rank, most re-used first', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Apple'] },
-                    { action: { order: 0 }, breakdown_value: ['Zebra'] },
+                    { order: 0, breakdown_value: ['Apple'] },
+                    { order: 0, breakdown_value: ['Zebra'] },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Zebra'] }]),
+                trendsTile([{ order: 0, breakdown_value: ['Zebra'] }]),
             ]
 
             // Zebra is on two charts vs Apple's one, so the modal lists it first even
@@ -188,12 +185,12 @@ describe('dashboardBreakdownColors', () => {
         it('deduplicates repeated breakdown values across tiles', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 1 }, breakdown_value: ['Firefox'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
+                    { order: 1, breakdown_value: ['Firefox'] },
                 ]),
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 1 }, breakdown_value: ['Safari'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
+                    { order: 1, breakdown_value: ['Safari'] },
                 ]),
             ]
 
@@ -207,7 +204,7 @@ describe('dashboardBreakdownColors', () => {
         it('stringifies numeric values so trends and funnels tiles share one entry', () => {
             const tiles = [
                 // trends keys wrap scalars in an array; funnels keep them bare
-                trendsTile([{ action: { order: 0 }, breakdown_value: [123] }]),
+                trendsTile([{ order: 0, breakdown_value: [123] }]),
                 createTestTile({
                     result: [{ breakdown_value: 123 }],
                     query: {
@@ -246,7 +243,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles retention insights with a breakdown', () => {
-            const retentionTile = (result: any[]): DashboardTile<QueryBasedInsightModel> =>
+            const retentionTile = (result: any[]): DashboardTile =>
                 createTestTile({
                     result,
                     query: {
@@ -318,9 +315,9 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
-            const cohortTile = (values: number[][]): DashboardTile<QueryBasedInsightModel> =>
+            const cohortTile = (values: number[][]): DashboardTile =>
                 createTestTile({
-                    result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
+                    result: values.map((breakdown_value) => ({ order: 0, breakdown_value })),
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
@@ -343,14 +340,14 @@ describe('dashboardBreakdownColors', () => {
 
         it('unifies single and multi form of one property into one scoped entry', () => {
             const tiles = [
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], {
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], {
                     breakdown: '$browser',
                     breakdown_type: 'event',
                 }),
                 trendsTile(
                     [
-                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                        { order: 0, breakdown_value: ['Chrome'] },
+                        { order: 0, breakdown_value: ['Firefox'] },
                     ],
                     { breakdowns: [{ property: '$browser' }] }
                 ),
@@ -364,11 +361,11 @@ describe('dashboardBreakdownColors', () => {
 
         it('clusters values by property in tile order before ranking within each property', () => {
             const tiles = [
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ order: 0, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
             ]
 
             // Chrome is on more tiles, but $os tiles come first on the dashboard
@@ -383,12 +380,12 @@ describe('dashboardBreakdownColors', () => {
         it('keeps values grouped by tile and deduplicates within a tile', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
                     // second series over the same breakdown repeats the value within the tile
-                    { action: { order: 1 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                    { order: 1, breakdown_value: ['Chrome'] },
+                    { order: 0, breakdown_value: ['Firefox'] },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: 'Chrome' }]),
+                trendsTile([{ order: 0, breakdown_value: 'Chrome' }]),
                 trendsTile([]),
             ]
 
@@ -1103,6 +1100,25 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        // Separate configs, because giving the shared list an untyped entry would satisfy the
+        // 'breakdown type must match' case above and remove what it checks.
+        it.each([
+            ['an entry with no type matches an event series', undefined, 'event', 'preset-9'],
+            ['an entry with no type matches a series with no type', undefined, undefined, 'preset-9'],
+            ['a null type reads the same as an omitted one', null, 'event', 'preset-9'],
+            // The default is `event`, not a wildcard, so an untyped entry must not colour a person
+            // series that happens to share the value.
+            ['an entry with no type does not match a person series', undefined, 'person', undefined],
+        ] as const)('%s', (_name, configType, seriesType, expectedToken) => {
+            const untypedConfigs = [
+                { breakdownValue: 'Chrome', breakdownType: configType, colorToken: 'preset-9' },
+            ] as BreakdownColorConfig[]
+
+            expect(findBreakdownColorConfig(untypedConfigs, 'Chrome', seriesType as any)?.colorToken).toEqual(
+                expectedToken
+            )
         })
 
         it('prefers a property-scoped entry and falls back to a property-less one', () => {

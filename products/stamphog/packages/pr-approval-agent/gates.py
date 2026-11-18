@@ -11,39 +11,50 @@ than a private parser — one semantics, many consumers.
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import OwnershipSource, load_policy
+from policy import DenyException, OwnershipSource, load_effective_policy
 
 if TYPE_CHECKING:
-    from posthog_owners.resolver import OwnersResolver
+    from owners_yaml.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package. This script's uv env does not install it, so the
+
+# The resolver lives in the owners-yaml package. This script's uv env does not install it, so the
 # code puts it on the path and imports it as a library. It needs only pyyaml, which review_pr.py
 # declares. _build_hogli_resolver defers the import, because downstream repos vendor this directory
-# (plus .stamphog/) without tools/owners. A module-level import would disable their stamphog copy
+# without the resolver package. A module-level import would disable their stamphog copy
 # before any gate runs. The package is only necessary once a policy declares a hogli-resolver
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
 # The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
-# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with
-# tools/owners beside it. The sandbox therefore never reaches the second entry. The second entry
-# covers a run from this repo, where the engine's own home is under products/stamphog/packages/.
+# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with the
+# resolver beside it at <checkout>/tools/owners. The second entry covers a run from this repo, where
+# the resolver is at packages/owners-yaml and the engine's own home is under
+# products/stamphog/packages/, which has no `owners/` sibling.
+#
+# The sibling goes first because the sandbox extracts it from the same trusted payload as this file,
+# so it is always beside the engine there. The repo-root offset is a path in the PR checkout. If a PR
+# symlink moves the engine deeper in the tree, that offset lands on a directory the PR controls, and
+# checking it first would import the PR's code in place of the trusted resolver.
 #
 # Both entries are fixed offsets from this file, and not a discovered repo root.
 # `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
 # that adds `tools/.stamphog/` would move that root and point this code at a directory that the PR
 # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
 # credentials.
-_OWNERS_PKG_CANDIDATES = (
-    Path(__file__).resolve().parents[1] / "owners",
-    Path(__file__).resolve().parents[4] / "tools" / "owners",
-)
+def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
+    engine_dir = engine_file.resolve().parent
+    # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
+    # four levels up.
+    return (engine_dir.parent / "owners", engine_dir.parents[3] / "packages" / "owners-yaml")
+
+
+_OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -209,11 +220,11 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from posthog_owners.resolver import OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
-            "ownership format 'hogli-resolver' requires the posthog-owners package: "
-            "vendor tools/owners alongside this directory, or drop the "
+            "ownership format 'hogli-resolver' requires the owners-yaml package: "
+            "add a pinned owners-yaml from PyPI to this script's dependencies, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
@@ -254,12 +265,12 @@ TEAM_FILE_SAMPLE = 10
 #
 # Deliberately narrow. This is a "these files carry no news" rule, which AGENTS.md says needs an
 # argument, and the argument only holds for this one directory shape: the repo forbids hand-editing
-# it (root CLAUDE.md, "don't edit them manually, change serializers and rerun"), every product's
+# it (.agents/architecture.md: change the serializer and regenerate instead), every product's
 # generated directory has this exact path, and its only consumer decides who hears about a merge
 # rather than whether code is safe to approve. A bare `generated/` match would also catch
 # hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
 #
-# The ownership registry has a `status: generated` value (posthog_owners.schema) that would be the
+# The ownership registry has a `status: generated` value (owners_yaml.schema) that would be the
 # right home for this, but no owners.yaml or product.yaml declares it today, so reading it would
 # exclude nothing.
 _GENERATED_PATH_RE = re.compile(r"^products/[^/]+/frontend/generated/")
@@ -272,7 +283,8 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
     bucket: `teams` feeds team-membership checks and the cross-team calculus
     downstream, and a raw handle there would fail membership lookups and inflate
     the team count. `team_files` samples each team's changed paths so a later
-    consumer can tell a change in a team's area from one that merely grazed it.
+    consumer can tell a change in a team's area from one that merely grazed it,
+    and a generated path is left out of that sample because no person edited it.
     `team_generated_file_counts` says how many of each team's files a build step
     wrote, which the capped sample cannot answer."""
     all_teams: set[str] = set()
@@ -297,6 +309,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
                 team_file_counts[t] += 1
                 if generated:
                     team_generated_counts[t] += 1
+                    continue
                 # Capped: a sweeping rename can own hundreds of a team's files and no consumer
                 # needs them all. The cap binds only on a sweep, where the count alone is the
                 # useful signal anyway.
@@ -314,7 +327,8 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
         "unowned_files": unowned_files,
         "team_file_counts": dict(team_file_counts.most_common()),
         "team_generated_file_counts": dict(team_generated_counts.most_common()),
-        "team_files": {t: team_files[t] for t, _ in team_file_counts.most_common()},
+        # Empty for a team whose only files a build step wrote: those are excluded above.
+        "team_files": {t: team_files.get(t, []) for t, _ in team_file_counts.most_common()},
         "cross_team": len(all_teams) > 1,
     }
 
@@ -328,7 +342,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
 # deny paths and validates the declared ownership formats against
 # OWNERSHIP_FORMATS. A malformed policy raises at import. The tool fails
 # closed, and crashes rather than gating on a half-loaded policy.
-POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
+POLICY = load_effective_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
@@ -381,6 +395,27 @@ def _compile_patterns(
 
 
 DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
+
+
+def _compile_deny_exceptions(
+    defs: dict[str, dict[str, list[str]]],
+    exceptions: dict[str, tuple[DenyException, ...]],
+) -> dict[str, dict[re.Pattern[str], tuple[DenyException, ...]]]:
+    compiled: dict[str, dict[re.Pattern[str], tuple[DenyException, ...]]] = {}
+    for category, rules in exceptions.items():
+        scopes = defs[category]
+        pattern_rules: dict[re.Pattern[str], tuple[DenyException, ...]] = {}
+        for pattern in scopes.get("paths", []) + scopes.get("any", []):
+            matching_rules = tuple(
+                rule for rule in rules if rule.keyword is None or rule.keyword.lower() == pattern.lower()
+            )
+            if matching_rules:
+                pattern_rules[_compile_pattern(pattern, for_paths=True)] = matching_rules
+        compiled[category] = pattern_rules
+    return compiled
+
+
+DENY_EXCEPTIONS = _compile_deny_exceptions(_DENY_PATTERN_DEFS, POLICY.deny_exceptions)
 
 ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
 
@@ -471,42 +506,66 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Per-category path prefixes exempt from deny matching, sourced from each deny
-# category's `exempt_path_prefixes` in the policy file. Categories without an
-# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere - connector
-# code that stores customer API keys still deserves the crypto gate. Code under
-# the warehouse-connector trees performs auth/OAuth/billing-API handshakes as
-# part of its normal job, so it legitimately mentions auth, oauth, stripe,
-# api_key, etc. without touching the auth *system* or PostHog's own billing.
-DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
-    category: cat.exempt_path_prefixes for category, cat in POLICY.deny.items() if cat.exempt_path_prefixes
+# A deny exception with no keyword lifts every pattern of its category, so a file it covers is
+# exempt from that category as a whole.
+DENY_CATEGORY_EXCEPTIONS: dict[str, tuple[DenyException, ...]] = {
+    category: keywordless
+    for category, rules in POLICY.deny_exceptions.items()
+    if (keywordless := tuple(rule for rule in rules if rule.keyword is None))
 }
 
 
 def _is_exempt_path(category: str, path: str) -> bool:
-    return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
+    path_lower = path.lower()
+    return any(
+        path_lower.startswith(rule.path_prefixes) and (not rule.extensions or path_lower.endswith(rule.extensions))
+        for rule in DENY_CATEGORY_EXCEPTIONS.get(category, ())
+    )
+
+
+DENY_EXEMPT_AUTHOR_TEAMS: dict[str, tuple[str, ...]] = {
+    category: cat.exempt_author_teams for category, cat in POLICY.deny.items() if cat.exempt_author_teams
+}
 
 
 def category_fully_exempt(category: str, files: list[str]) -> bool:
-    """True when every changed file is exempt for this category.
+    """True when a keyword-free deny exception of this category covers every changed file.
 
     Used to suppress title scrutiny flags on connector-only PRs: a Stripe
     source fix legitimately says "stripe"/"oauth" in its title, and flagging
-    it re-creates the friction the path exemption exists to remove.
+    it re-creates the friction the exception exists to remove.
     """
     return bool(files) and all(_is_exempt_path(category, f) for f in files)
 
 
-def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny."""
+def detect_deny_categories(
+    files: list[str],
+    lifted_files: Mapping[str, Collection[str]] | None = None,
+    *,
+    apply_exceptions: bool = True,
+) -> list[str]:
+    """Categories hard-denied by the changed file paths. Titles never deny.
+
+    `lifted_files` maps a deny category to files that do not count toward that category only. A lift
+    matches the exact path, because Git paths are case-sensitive and `SDK/x` is not `sdk/x`.
+    """
     hits: set[str] = set()
-    ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
+    lifted_by_category = lifted_files or {}
 
     for category, scopes in DENY_PATTERNS.items():
-        category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
+        lifted_for_category = lifted_by_category.get(category, ())
+        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
-        if any(rx.search(p) for rx in path_regexes for p in category_paths):
+        exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
+        if any(
+            rx.search(p)
+            and not any(
+                p.startswith(rule.path_prefixes) and (not rule.extensions or p.endswith(rule.extensions))
+                for rule in exceptions.get(rx, ())
+            )
+            for rx in path_regexes
+            for p in paths_lower
+        ):
             hits.add(category)
     return sorted(hits)
 
@@ -636,7 +695,12 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
     r"|^services/mcp/src/api/generated\.ts$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
-    r"|^frontend/src/queries/schema/",
+    r"|^frontend/src/queries/schema/"
+    # Drizzle Kit's schema snapshots: written by `drizzle-kit generate` and read only by its
+    # next run, never by the migrator, so a new table adds thousands of lines and no runtime.
+    # The sibling _journal.json is what the migrator reads, so it stays counted. Scoped to a
+    # migrations/ output dir so an unrelated meta/ folder of runtime JSON keeps counting.
+    r"|(?:^|/)migrations/meta/\d{4}_snapshot\.json$",
     re.IGNORECASE,
 )
 

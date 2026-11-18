@@ -1,26 +1,29 @@
 import { CaretRightIcon, ClockIcon } from "@phosphor-icons/react";
 import type { ScoutScratchpadEntry } from "@posthog/api-client/posthog-client";
 import { splitScratchpadKey } from "@posthog/core/scouts/scoutScratchpad";
+import { Badge } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Badge, type BadgeProps, Box, Flex, Text } from "@radix-ui/themes";
-import { useState } from "react";
 
 // The key prefix (everything before the first colon) encodes the note's *kind* —
 // what the scout was doing when it wrote it. Surface it as a colored tag so the
 // list scans at a glance.
-const KIND_TAG_COLOR: Record<string, BadgeProps["color"]> = {
-  pattern: "iris",
-  dedupe: "gray",
-  noise: "gray",
-  baseline: "green",
-  watch: "amber",
-  watchlist: "amber",
-  coverage: "blue",
-  emerging: "purple",
-  explore: "cyan",
-  tags: "cyan",
-  recheck: "orange",
+
+const KIND_TAG_VARIANT: Record<
+  string,
+  "info" | "default" | "success" | "warning"
+> = {
+  pattern: "info",
+  dedupe: "default",
+  noise: "default",
+  baseline: "success",
+  watch: "warning",
+  watchlist: "warning",
+  coverage: "info",
+  emerging: "info",
+  explore: "info",
+  tags: "info",
+  recheck: "warning",
 };
 
 /**
@@ -31,18 +34,20 @@ const KIND_TAG_COLOR: Record<string, BadgeProps["color"]> = {
  */
 export function ScratchpadEntryCard({
   entry,
+  expanded,
+  onExpandedChange,
 }: {
   entry: ScoutScratchpadEntry;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-
   const { kind, body } = splitScratchpadKey(entry.key);
 
   return (
-    <Box className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1">
+    <div className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1">
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => onExpandedChange(!expanded)}
         aria-expanded={expanded}
         className="flex w-full select-none items-center gap-2 px-3 py-2 text-left"
       >
@@ -52,49 +57,40 @@ export function ScratchpadEntryCard({
         />
         {kind ? (
           <Badge
-            variant="soft"
-            color={KIND_TAG_COLOR[kind] ?? "gray"}
-            size="1"
+            variant={KIND_TAG_VARIANT[kind] ?? "default"}
             className="shrink-0 text-[11px]"
           >
             {kind}
           </Badge>
         ) : null}
-        <Text className="truncate font-mono text-[12px] text-gray-12">
+        <span className="truncate font-mono text-[12px] text-gray-12">
           {body}
-        </Text>
+        </span>
         <span className="flex-1" />
         {entry.updated_at ? (
-          <Flex align="center" gap="1" className="shrink-0 text-gray-10">
+          <div className="flex shrink-0 items-center gap-1 text-gray-10">
             <ClockIcon size={11} className="text-gray-9" />
             <RelativeTimestamp timestamp={entry.updated_at} />
-          </Flex>
+          </div>
         ) : null}
       </button>
 
-      <Box className="px-3 pb-2 pl-9">
-        <Box
-          className={`text-pretty break-words text-[13px] text-gray-11 leading-relaxed [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px] ${
-            expanded ? "" : "line-clamp-2"
+      <div className="px-3 pb-2 pl-9">
+        <div
+          className={`text-pretty break-words text-[12.5px] text-gray-11 leading-relaxed [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px] ${
+            expanded ? "max-h-72 overflow-y-auto pr-2" : "line-clamp-2"
           }`}
         >
           <MarkdownRenderer content={entry.content || "_No content._"} />
-        </Box>
+        </div>
 
         {expanded && entry.created_at ? (
-          <Flex
-            align="center"
-            gap="2"
-            mt="2"
-            pt="2"
-            wrap="wrap"
-            className="border-t border-t-(--gray-5) text-[11px] text-gray-10"
-          >
-            <Text className="text-[11px] text-gray-10">Created</Text>
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-t-(--gray-5) pt-2 text-[11px] text-gray-10">
+            <span className="text-[11px] text-gray-10">Created</span>
             <RelativeTimestamp timestamp={entry.created_at} />
-          </Flex>
+          </div>
         ) : null}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }

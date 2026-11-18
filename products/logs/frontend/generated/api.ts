@@ -13,19 +13,29 @@ import type {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
+    LogsAlertCreatedDestinationResponseApi,
+    LogsAlertCustomizeDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
+    LogsAlertDestinationSendApi,
+    LogsAlertResetDestinationApi,
+    LogsAlertResetDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsDestinationsSendsListParams,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
+    LogsNaturalLanguageQueryRequestApi,
+    LogsNaturalLanguageQueryResponseApi,
     LogsRetentionRuleApi,
     LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
@@ -39,6 +49,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSigningSecretApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -53,6 +64,9 @@ import type {
     PatchedLogsRetentionRuleApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
+    PatchedTeamLogsConfigApi,
+    TasksRunsLogsRetrieveParams,
+    TeamLogsConfigApi,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -62,6 +76,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -70,8 +86,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -91,6 +107,51 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Manage logs product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
+ */
+export const organizationsProjectsLogsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
+}
+
+/**
+ * Manage logs product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
+ */
+export const organizationsProjectsLogsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
+    options?: RequestInit
+): Promise<TeamLogsConfigApi> => {
+    return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamLogsConfigApi),
+    })
+}
 
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -203,19 +264,40 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<LogsAlertDestinationResponseApi> => {
-    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<LogsAlertCreatedDestinationResponseApi> => {
+    return apiMutator<LogsAlertCreatedDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsCustomizeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/customize/`
+}
+
+/**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message, one per event kind, and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const logsAlertsDestinationsCustomizeCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertCustomizeDestinationApi?: LogsAlertCustomizeDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertDestinationResponseApi> => {
+    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCustomizeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertCustomizeDestinationApi),
     })
 }
 
@@ -229,7 +311,7 @@ export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: 
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    logsAlertDeleteDestinationApi?: LogsAlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
@@ -237,6 +319,62 @@ export const logsAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/reset/`
+}
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const logsAlertsDestinationsResetCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertResetDestinationApi: LogsAlertResetDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertResetDestinationResponseApi> => {
+    return apiMutator<LogsAlertResetDestinationResponseApi>(getLogsAlertsDestinationsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertResetDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsSendsListUrl = (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/`
+}
+
+/**
+ * The last messages sent to one destination of this alert in the past 7 days, newest first, on both delivery paths, with whether each one succeeded.
+ */
+export const logsAlertsDestinationsSendsList = async (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams,
+    options?: RequestInit
+): Promise<LogsAlertDestinationSendApi[]> => {
+    return apiMutator<LogsAlertDestinationSendApi[]>(getLogsAlertsDestinationsSendsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -257,7 +395,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 }
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history. So do control-plane rows from the oldest one the platform recorded onward.
  */
 export const logsAlertsEventsList = async (
     projectId: string,
@@ -335,7 +473,7 @@ export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
  * @summary Per-series log volume with expected bands
  */
 export const logsAnomaliesSeriesBandsCreate = async (
@@ -375,6 +513,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
@@ -493,6 +648,23 @@ export const logsHasLogsRetrieve = async (
     })
 }
 
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
+    })
+}
+
 export const getLogsMetricRulesListUrl = (projectId: string, params?: LogsMetricRulesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -599,6 +771,26 @@ export const logsMetricRulesDestroy = async (projectId: string, id: string, opti
     })
 }
 
+export const getLogsNaturalLanguageQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/natural_language_query/`
+}
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreate = async (
+    projectId: string,
+    logsNaturalLanguageQueryRequestApi: LogsNaturalLanguageQueryRequestApi,
+    options?: RequestInit
+): Promise<LogsNaturalLanguageQueryResponseApi> => {
+    return apiMutator<LogsNaturalLanguageQueryResponseApi>(getLogsNaturalLanguageQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsNaturalLanguageQueryRequestApi),
+    })
+}
+
 export const getLogsPatternsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/patterns/`
 }
@@ -666,6 +858,13 @@ export const getLogsRetentionRulesListUrl = (projectId: string, params?: LogsRet
         : `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesList = async (
     projectId: string,
     params?: LogsRetentionRulesListParams,
@@ -681,6 +880,13 @@ export const getLogsRetentionRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreate = async (
     projectId: string,
     logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
@@ -698,6 +904,13 @@ export const getLogsRetentionRulesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -713,6 +926,13 @@ export const getLogsRetentionRulesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdate = async (
     projectId: string,
     id: string,
@@ -731,6 +951,13 @@ export const getLogsRetentionRulesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -749,6 +976,13 @@ export const getLogsRetentionRulesDestroyUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesDestroy = async (
     projectId: string,
     id: string,
@@ -960,7 +1194,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 }
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const logsSamplingRulesReorderCreate = async (
     projectId: string,
@@ -993,6 +1227,57 @@ export const logsServicesCreate = async (
     })
 }
 
+export const getLogsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/`
+}
+
+/**
+ * The secret that servers use to sign log requests for this project.
+ */
+export const logsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/expire_previous/`
+}
+
+/**
+ * End the grace period now, so the previous secret stops being valid immediately. Use it when the replaced secret may be compromised, or once every server uses the new one.
+ */
+export const logsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. The previous secret stays valid for 48 hours, then expires.
+ */
+export const logsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getLogsSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/sparkline/`
 }
@@ -1001,8 +1286,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1143,21 +1428,39 @@ export const logsViewsDestroy = async (projectId: string, shortId: string, optio
     })
 }
 
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
+export const getTasksRunsLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
+    params?: TasksRunsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
+    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })

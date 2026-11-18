@@ -6,6 +6,8 @@ const TASK_ID = "task-1";
 
 function makeClient(): ArchiveClient {
   return {
+    archive: vi.fn().mockResolvedValue(undefined),
+    refreshArchiveState: vi.fn().mockResolvedValue(undefined),
     unarchive: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
     showArchivedTaskContextMenu: vi.fn().mockResolvedValue({ action: null }),

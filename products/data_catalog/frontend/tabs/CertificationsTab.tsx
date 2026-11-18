@@ -1,16 +1,29 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
+import { SuggestedCertificationsTable } from 'products/warehouse_suggestions/frontend/components/SuggestedCertificationsTable'
+
+import {
+    CERTIFICATIONS_PAGE_SIZE,
+    CERTIFICATIONS_TABLE_ID,
+    CertificationStatusFilter,
+    certificationsLogic,
+} from '../certificationsLogic'
+import { certificationStatusTag } from '../certificationStatusTag'
+import { compareText, reportCatalogTableSorted } from '../common'
 import { NewCertificationModal } from '../components/NewCertificationModal'
+import { confirmRevokeCertification } from '../confirmRevokeCertification'
 import type { DataCatalogCertificationApi } from '../generated/api.schemas'
 
 const STATUS_FILTER_OPTIONS: { value: CertificationStatusFilter; label: string }[] = [
@@ -20,72 +33,70 @@ const STATUS_FILTER_OPTIONS: { value: CertificationStatusFilter; label: string }
     { value: 'deprecated', label: 'Deprecated' },
 ]
 
-const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 'muted' }> = {
-    proposed: { label: 'Proposed', type: 'warning' },
-    certified: { label: 'Certified', type: 'success' },
-    deprecated: { label: 'Deprecated', type: 'muted' },
-}
-
 export function CertificationsTab(): JSX.Element {
-    const { filteredCertifications, certificationsLoading, filters, actionsInFlight } = useValues(certificationsLogic)
+    const {
+        filteredCertifications,
+        certificationsLoading,
+        filters,
+        actionsInFlight,
+        highlightedCertificationId,
+        highlightPending,
+    } = useValues(certificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setFilters,
         loadCertifications,
+        suggestionAccepted,
         openNewCertificationModal,
         certifyCertification,
         deprecateCertification,
         revokeCertification,
+        highlightCertification,
     } = useActions(certificationsLogic)
 
-    const confirmRevoke = (certification: DataCatalogCertificationApi): void => {
-        LemonDialog.open({
-            title: 'Revoke this certification?',
-            content: (
-                <div className="text-sm text-secondary">
-                    Revoking deletes the trust mark on {certification.target_name}. This cannot be undone.
-                </div>
-            ),
-            primaryButton: {
-                children: 'Revoke',
-                status: 'danger',
-                onClick: () => revokeCertification(certification.id),
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
-    }
+    useEffect(() => {
+        if (!highlightedCertificationId || highlightPending) {
+            return
+        }
+        document
+            .querySelector(`[data-row-key="${highlightedCertificationId}"]`)
+            ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, [highlightedCertificationId, highlightPending])
 
     const columns: LemonTableColumns<DataCatalogCertificationApi> = [
         {
             title: 'Target',
             key: 'target_name',
             render: (_, certification) => certification.target_name,
+            sorter: (a, b) => compareText(a.target_name, b.target_name),
         },
         {
             title: 'Type',
             key: 'target_type',
             render: (_, certification) => <LemonTag type="option">{certification.target_type}</LemonTag>,
+            sorter: (a, b) => compareText(a.target_type, b.target_type),
         },
         {
             title: 'Status',
             key: 'status',
             render: (_, certification) => {
-                const tag =
-                    certification.status === 'proposed' && certification.proposed_status === 'deprecated'
-                        ? { label: 'Deprecation proposed', type: 'warning' as const }
-                        : (STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const })
+                const tag = certificationStatusTag(certification)
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
+            sorter: (a, b) => compareText(a.status, b.status) || compareText(a.proposed_status, b.proposed_status),
         },
         {
             title: 'Notes',
             key: 'notes',
             render: (_, certification) => certification.notes || <span className="text-secondary">-</span>,
+            sorter: (a, b) => compareText(a.notes, b.notes),
         },
         {
             title: 'Certified by',
             key: 'certified_by',
             render: (_, certification) =>
                 certification.certified_by?.email || <span className="text-secondary">-</span>,
+            sorter: (a, b) => compareText(a.certified_by?.email, b.certified_by?.email),
         },
         {
             key: 'actions',
@@ -118,7 +129,11 @@ export function CertificationsTab(): JSX.Element {
                                     fullWidth
                                     status="danger"
                                     disabledReason={inFlight ? 'Working' : undefined}
-                                    onClick={() => confirmRevoke(certification)}
+                                    onClick={() =>
+                                        confirmRevokeCertification(certification, () =>
+                                            revokeCertification(certification.id)
+                                        )
+                                    }
                                 >
                                     Revoke
                                 </LemonButton>
@@ -132,6 +147,17 @@ export function CertificationsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
+                <SuggestedCertificationsTable
+                    onAccepted={() => suggestionAccepted()}
+                    onViewAccepted={(suggestion) => {
+                        const certificationId = suggestion.created_asset?.certification_id
+                        if (typeof certificationId === 'string') {
+                            highlightCertification(certificationId)
+                        }
+                    }}
+                />
+            )}
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
@@ -167,14 +193,20 @@ export function CertificationsTab(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                key={highlightedCertificationId ?? CERTIFICATIONS_TABLE_ID}
+                id={CERTIFICATIONS_TABLE_ID}
                 data-attr="data-catalog-certifications-table"
                 dataSource={filteredCertifications}
                 rowKey="id"
                 columns={columns}
                 loading={certificationsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: CERTIFICATIONS_PAGE_SIZE }}
+                rowClassName={(certification) =>
+                    certification.id === highlightedCertificationId ? 'bg-accent-highlight-secondary' : null
+                }
                 emptyState="No certifications match your filters."
                 nouns={['certification', 'certifications']}
+                onSort={(sorting) => reportCatalogTableSorted('certifications', sorting)}
             />
             <NewCertificationModal />
         </div>

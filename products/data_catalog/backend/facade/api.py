@@ -6,6 +6,9 @@ logic surface and model classes so the isolation boundary stays clean: presentat
 into ``logic`` or ``models`` directly.
 """
 
+from uuid import UUID
+
+from ..logic import metric_reads
 from ..logic.analytics import certification_target_name
 from ..logic.certifications import (
     certifications_for_team,
@@ -15,7 +18,15 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import run_metric
+from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
+from ..logic.metric_reads import (
+    get_metric_summary,
+    live_metric_ids,
+    live_metric_summaries,
+    metric_names_for_ids,
+    metric_reads_for_ids,
+)
+from ..logic.metric_search import SEARCH_DEFAULT_LIMIT, MetricSearchHit, MetricSearchResult, search_catalog
 from ..logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
@@ -23,38 +34,99 @@ from ..logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
     bulk_approve_metrics,
+    bulk_change_metric_owner,
     bulk_soft_delete_metrics,
     metrics_for_team,
+    metrics_visible_to_user,
     refresh_metric_from_insight,
     soft_delete_metric,
     update_metric,
     upsert_metric,
 )
+from ..logic.pending_review import (
+    PendingGroup,
+    PendingKind,
+    PendingReviewCounts,
+    TeamPendingReview,
+    build_team_pending_review,
+    pending_review_counts,
+)
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
-from ..logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
+from ..logic.usage_judge import AIConsentMissing
+from ..logic.usage_scan import ScanAlreadyRunning, ScanCooldown, start_usage_scan
+from ..logic.usage_snapshots import (
+    is_usage_enabled,
+    latest_usage_snapshot,
+    metric_usage,
+    usage_reader,
+    usage_snapshot_history,
+)
+from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
+from .contracts import (
+    HogQLMetricDefinition,
+    MetricListFilters,
+    MetricRead,
+    MetricSummary,
+    MetricUsage,
+    UsageSnapshotDetail,
+    UsageSnapshotSummary,
+)
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
+    "AIConsentMissing",
     "BULK_SKIP_NOT_FOUND",
+    "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
+    "MAX_METRIC_RUN_PAGES",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
+    "MetricSearchHit",
+    "MetricSearchResult",
+    "SEARCH_DEFAULT_LIMIT",
+    "search_catalog",
+    "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",
+    "MetricListFilters",
+    "MetricSummary",
+    "MetricRead",
+    "MetricUsage",
+    "ScanAlreadyRunning",
+    "ScanCooldown",
+    "UsageSnapshotDetail",
+    "UsageSnapshotSummary",
+    "metric_reads_for_ids",
+    "PendingGroup",
+    "PendingKind",
+    "PendingReviewCounts",
+    "TeamPendingReview",
+    "build_team_pending_review",
+    "pending_review_counts",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",
     "approve_metric",
     "approved_metric_names_for_team",
     "bulk_approve_metrics",
+    "bulk_change_metric_owner",
     "bulk_soft_delete_metrics",
     "certification_target_name",
     "certifications_for_team",
     "certify",
     "compute_drift",
     "deprecate",
+    "get_hogql_metric_definition",
+    "get_metric_summary",
+    "is_usage_enabled",
+    "latest_usage_snapshot",
+    "live_metric_ids",
+    "live_metric_summaries",
+    "metric_names_for_ids",
+    "metric_usage",
     "metrics_for_team",
+    "metrics_visible_to_user",
     "propose_certification",
     "propose_relationship",
     "refresh_metric_from_insight",
@@ -63,7 +135,15 @@ __all__ = [
     "revoke_certification",
     "run_metric",
     "soft_delete_metric",
+    "start_usage_scan",
     "update_metric",
     "upsert_metric",
+    "usage_reader",
+    "usage_snapshot_history",
     "validate_metric_definition",
 ]
+
+
+def get_hogql_metric_definition(team_id: int, metric_id: UUID) -> HogQLMetricDefinition | None:
+    metric = metric_reads.get_hogql_metric_definition(team_id, metric_id)
+    return metric

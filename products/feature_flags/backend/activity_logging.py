@@ -1,6 +1,7 @@
 from posthog.models.activity_logging.activity_log import Detail, Trigger, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.feature_flags.backend.facade.enums import SCHEDULED_CHANGE_JOB_TYPE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Lives here, not in api/feature_flag.py, so it can wire at AppConfig.ready() without dragging that
@@ -24,11 +25,14 @@ def handle_feature_flag_change(
     scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
     is_scheduled_change = scheduled_change_id is not None
 
-    # Create trigger info for scheduled changes
-    trigger = None
-    if is_scheduled_change:
+    # A caller that rewrites the flag as a side effect of another action (for example the
+    # experiment exposure freeze) sets _activity_trigger on the instance before the gated
+    # write, so the log entry can say what drove the rewrite instead of reading as a
+    # manual edit. An explicit caller trigger wins over the derived scheduled-change one.
+    trigger = getattr(after_update, "_activity_trigger", None)
+    if is_scheduled_change and trigger is None:
         trigger = Trigger(
-            job_type="scheduled_change",
+            job_type=SCHEDULED_CHANGE_JOB_TYPE,
             job_id=str(scheduled_change_id),
             payload={"scheduled_change_id": scheduled_change_id},
         )
@@ -54,5 +58,6 @@ def handle_feature_flag_change(
             changes=changes,
             name=after_update.key,
             trigger=trigger,
+            context=getattr(after_update, "_activity_context", None),
         ),
     )

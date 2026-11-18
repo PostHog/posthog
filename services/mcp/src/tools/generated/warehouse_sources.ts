@@ -2,60 +2,31 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ExternalDataSchemasCancelCreateParams,
-    ExternalDataSchemasDeleteDataDestroyParams,
-    ExternalDataSchemasIncrementalFieldsCreateBody,
-    ExternalDataSchemasIncrementalFieldsCreateParams,
-    ExternalDataSchemasListQueryParams,
-    ExternalDataSchemasPartialUpdateBody,
-    ExternalDataSchemasPartialUpdateParams,
-    ExternalDataSchemasReloadCreateParams,
-    ExternalDataSchemasResyncCreateParams,
-    ExternalDataSchemasRetrieveParams,
-    ExternalDataSourcesConnectLinkRetrieveQueryParams,
-    ExternalDataSourcesCreateBody,
-    ExternalDataSourcesCreateWebhookCreateBody,
-    ExternalDataSourcesCreateWebhookCreateParams,
-    ExternalDataSourcesDeleteWebhookCreateBody,
-    ExternalDataSourcesDeleteWebhookCreateParams,
-    ExternalDataSourcesDestroyParams,
-    ExternalDataSourcesListQueryParams,
-    ExternalDataSourcesPartialUpdateBody,
-    ExternalDataSourcesPartialUpdateParams,
-    ExternalDataSourcesRefreshSchemasCreateBody,
-    ExternalDataSourcesRefreshSchemasCreateParams,
-    ExternalDataSourcesReloadCreateBody,
-    ExternalDataSourcesReloadCreateParams,
-    ExternalDataSourcesRepairCdcCreateParams,
-    ExternalDataSourcesRetrieveParams,
-    ExternalDataSourcesSetupCreateBody,
-    ExternalDataSourcesStoredCredentialsListQueryParams,
-    ExternalDataSourcesUpdateWebhookInputsCreateBody,
-    ExternalDataSourcesUpdateWebhookInputsCreateParams,
-    ExternalDataSourcesWebhookInfoRetrieveParams,
-    ExternalDataSourcesWizardRetrieveQueryParams,
-} from '@/generated/warehouse_sources/api'
+import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
+import { castSyncFrequency, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
+const DataWarehouseSourceConnectLinkSchema = () => {
+    const ExternalDataSourcesConnectLinkRetrieveQueryParams =
+        orvalSchemas.ExternalDataSourcesConnectLinkRetrieveQueryParams()
+    return ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({ source_type: ExternalDataSourceTypeSchema })
+}
 
 const dataWarehouseSourceConnectLink = (): ToolBase<
-    typeof DataWarehouseSourceConnectLinkSchema,
+    ReturnType<typeof DataWarehouseSourceConnectLinkSchema>,
     Schemas.SourceConnectLink
 > => ({
     name: 'data-warehouse-source-connect-link',
-    schema: DataWarehouseSourceConnectLinkSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
+    schema: DataWarehouseSourceConnectLinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseSourceConnectLinkSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SourceConnectLink>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
             query: {
+                migration_item_id: params.migration_item_id,
                 source_type: params.source_type,
             },
         })
@@ -63,14 +34,18 @@ const dataWarehouseSourceConnectLink = (): ToolBase<
     },
 })
 
-const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
+const DataWarehouseSourceSetupSchema = () => {
+    const ExternalDataSourcesSetupCreateBody = orvalSchemas.ExternalDataSourcesSetupCreateBody()
+    return ExternalDataSourcesSetupCreateBody.extend({ source_type: ExternalDataSourceTypeSchema })
+}
 
-const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSchema, Schemas.SourceSetupResponse> => ({
+const dataWarehouseSourceSetup = (): ToolBase<
+    ReturnType<typeof DataWarehouseSourceSetupSchema>,
+    Schemas.SourceSetupResponse
+> => ({
     name: 'data-warehouse-source-setup',
-    schema: DataWarehouseSourceSetupSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
+    schema: DataWarehouseSourceSetupSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseSourceSetupSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
@@ -97,15 +72,19 @@ const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSch
     },
 })
 
-const DataWarehouseStoredCredentialsListSchema = ExternalDataSourcesStoredCredentialsListQueryParams
+const DataWarehouseStoredCredentialsListSchema = () => {
+    const ExternalDataSourcesStoredCredentialsListQueryParams =
+        orvalSchemas.ExternalDataSourcesStoredCredentialsListQueryParams()
+    return ExternalDataSourcesStoredCredentialsListQueryParams
+}
 
 const dataWarehouseStoredCredentialsList = (): ToolBase<
-    typeof DataWarehouseStoredCredentialsListSchema,
+    ReturnType<typeof DataWarehouseStoredCredentialsListSchema>,
     WithPostHogUrl<Schemas.SourceCredential[]>
 > => ({
     name: 'data-warehouse-stored-credentials-list',
-    schema: DataWarehouseStoredCredentialsListSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseStoredCredentialsListSchema>) => {
+    schema: DataWarehouseStoredCredentialsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseStoredCredentialsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SourceCredential[]>({
             method: 'GET',
@@ -119,12 +98,18 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
+const ExternalDataSchemasCancelSchema = () => {
+    const ExternalDataSchemasCancelCreateParams = orvalSchemas.ExternalDataSchemasCancelCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelSchema, unknown> => ({
+const externalDataSchemasCancel = (): ToolBase<ReturnType<typeof ExternalDataSchemasCancelSchema>, unknown> => ({
     name: 'external-data-schemas-cancel',
-    schema: ExternalDataSchemasCancelSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasCancelSchema>) => {
+    schema: ExternalDataSchemasCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasCancelSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -134,12 +119,21 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
     },
 })
 
-const ExternalDataSchemasDeleteDataSchema = ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
+const ExternalDataSchemasDeleteDataSchema = () => {
+    const ExternalDataSchemasDeleteDataDestroyParams = orvalSchemas.ExternalDataSchemasDeleteDataDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDeleteDataSchema, unknown> => ({
+const externalDataSchemasDeleteData = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasDeleteDataSchema>,
+    unknown
+> => ({
     name: 'external-data-schemas-delete-data',
-    schema: ExternalDataSchemasDeleteDataSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasDeleteDataSchema>) => {
+    schema: ExternalDataSchemasDeleteDataSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasDeleteDataSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -149,78 +143,113 @@ const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDel
     },
 })
 
-const ExternalDataSchemasIncrementalFieldsCreateSchema = ExternalDataSchemasIncrementalFieldsCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSchemasIncrementalFieldsCreateBody.shape)
+const ExternalDataSchemasDeleteHistoryTableSchema = () => {
+    const ExternalDataSchemasHistoryTableDestroyParams = orvalSchemas.ExternalDataSchemasHistoryTableDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasHistoryTableDestroyParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
-    typeof ExternalDataSchemasIncrementalFieldsCreateSchema,
+const externalDataSchemasDeleteHistoryTable = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>,
     unknown
 > => ({
-    name: 'external-data-schemas-incremental-fields-create',
-    schema: ExternalDataSchemasIncrementalFieldsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>) => {
+    name: 'external-data-schemas-delete-history-table',
+    schema: ExternalDataSchemasDeleteHistoryTableSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        if (params.sync_type !== undefined) {
-            body['sync_type'] = params.sync_type
-        }
-        if (params.incremental_field !== undefined) {
-            body['incremental_field'] = params.incremental_field
-        }
-        if (params.incremental_field_type !== undefined) {
-            body['incremental_field_type'] = params.incremental_field_type
-        }
-        if (params.incremental_field_lookback_seconds !== undefined) {
-            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
-        }
-        if (params.sync_frequency !== undefined) {
-            body['sync_frequency'] = params.sync_frequency
-        }
-        if (params.sync_time_of_day !== undefined) {
-            body['sync_time_of_day'] = params.sync_time_of_day
-        }
-        if (params.primary_key_columns !== undefined) {
-            body['primary_key_columns'] = params.primary_key_columns
-        }
-        if (params.cdc_table_mode !== undefined) {
-            body['cdc_table_mode'] = params.cdc_table_mode
-        }
-        if (params.enabled_columns !== undefined) {
-            body['enabled_columns'] = params.enabled_columns
-        }
-        if (params.row_filters !== undefined) {
-            body['row_filters'] = params.row_filters
-        }
-        if (params.api_version !== undefined) {
-            body['api_version'] = params.api_version
-        }
         const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
-            body,
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/history_table/`,
         })
         return result
     },
 })
 
-const ExternalDataSchemasListSchema = ExternalDataSchemasListQueryParams
+const ExternalDataSchemasDestinationsRetrieveSchema = () => {
+    const ExternalDataSchemasDestinationsRetrieveParams = orvalSchemas.ExternalDataSchemasDestinationsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasDestinationsRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSchemasDestinationsRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasDestinationsRetrieveSchema>,
+    Schemas.SchemaDestinations
+> => ({
+    name: 'external-data-schemas-destinations-retrieve',
+    schema: ExternalDataSchemasDestinationsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasDestinationsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SchemaDestinations>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/destinations/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSchemasIncrementalFieldsCreateSchema = () => {
+    const ExternalDataSchemasIncrementalFieldsCreateParams =
+        orvalSchemas.ExternalDataSchemasIncrementalFieldsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasIncrementalFieldsCreateParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>,
+    unknown
+> => ({
+    name: 'external-data-schemas-incremental-fields-create',
+    schema: ExternalDataSchemasIncrementalFieldsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSchemasListSchema = () => {
+    const ExternalDataSchemasListQueryParams = orvalSchemas.ExternalDataSchemasListQueryParams()
+    return ExternalDataSchemasListQueryParams.extend({
+        compact: ExternalDataSchemasListQueryParams.shape['compact']
+            .default(true)
+            .optional()
+            .describe(
+                'Return one short health row per table (id, name, source_id, should_sync, live_query_enabled, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
+            ),
+    })
+}
 
 const externalDataSchemasList = (): ToolBase<
-    typeof ExternalDataSchemasListSchema,
+    ReturnType<typeof ExternalDataSchemasListSchema>,
     WithPostHogUrl<Schemas.PaginatedExternalDataSchemaList>
 > => ({
     name: 'external-data-schemas-list',
-    schema: ExternalDataSchemasListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasListSchema>) => {
+    schema: ExternalDataSchemasListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExternalDataSchemaList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/`,
             query: {
+                compact: params.compact,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -236,21 +265,35 @@ const externalDataSchemasList = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasPartialUpdateBody.shape
-)
+const ExternalDataSchemasPartialUpdateSchema = () => {
+    const ExternalDataSchemasPartialUpdateBody = orvalSchemas.ExternalDataSchemasPartialUpdateBody()
+    const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
+            .extend(ExternalDataSchemasPartialUpdateBody.shape)
+            .extend({
+                sync_frequency: z
+                    .preprocess(castSyncFrequency, ExternalDataSchemasPartialUpdateBody.shape['sync_frequency'])
+                    .optional(),
+            })
+    )
+}
 
 const externalDataSchemasPartialUpdate = (): ToolBase<
-    typeof ExternalDataSchemasPartialUpdateSchema,
+    ReturnType<typeof ExternalDataSchemasPartialUpdateSchema>,
     Schemas.ExternalDataSchema
 > => ({
     name: 'external-data-schemas-partial-update',
-    schema: ExternalDataSchemasPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasPartialUpdateSchema>) => {
+    schema: ExternalDataSchemasPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.live_query_enabled !== undefined) {
+            body['live_query_enabled'] = params.live_query_enabled
         }
         if (params.sync_type !== undefined) {
             body['sync_type'] = params.sync_type
@@ -270,14 +313,26 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.sync_time_of_day !== undefined) {
             body['sync_time_of_day'] = params.sync_time_of_day
         }
+        if (params.full_refresh_interval_days !== undefined) {
+            body['full_refresh_interval_days'] = params.full_refresh_interval_days
+        }
+        if (params.full_refresh_time_of_day !== undefined) {
+            body['full_refresh_time_of_day'] = params.full_refresh_time_of_day
+        }
         if (params.primary_key_columns !== undefined) {
             body['primary_key_columns'] = params.primary_key_columns
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.copy_access_rules_to_history !== undefined) {
+            body['copy_access_rules_to_history'] = params.copy_access_rules_to_history
+        }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
@@ -294,12 +349,18 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasReloadSchema = ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
+const ExternalDataSchemasReloadSchema = () => {
+    const ExternalDataSchemasReloadCreateParams = orvalSchemas.ExternalDataSchemasReloadCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadSchema, unknown> => ({
+const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSchemasReloadSchema>, unknown> => ({
     name: 'external-data-schemas-reload',
-    schema: ExternalDataSchemasReloadSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasReloadSchema>) => {
+    schema: ExternalDataSchemasReloadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasReloadSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -309,12 +370,18 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
     },
 })
 
-const ExternalDataSchemasResyncSchema = ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
+const ExternalDataSchemasResyncSchema = () => {
+    const ExternalDataSchemasResyncCreateParams = orvalSchemas.ExternalDataSchemasResyncCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncSchema, unknown> => ({
+const externalDataSchemasResync = (): ToolBase<ReturnType<typeof ExternalDataSchemasResyncSchema>, unknown> => ({
     name: 'external-data-schemas-resync',
-    schema: ExternalDataSchemasResyncSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasResyncSchema>) => {
+    schema: ExternalDataSchemasResyncSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasResyncSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -324,15 +391,21 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
     },
 })
 
-const ExternalDataSchemasRetrieveSchema = ExternalDataSchemasRetrieveParams.omit({ project_id: true })
+const ExternalDataSchemasRetrieveSchema = () => {
+    const ExternalDataSchemasRetrieveParams = orvalSchemas.ExternalDataSchemasRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasRetrieveParams.omit({ project_id: true })
+    )
+}
 
 const externalDataSchemasRetrieve = (): ToolBase<
-    typeof ExternalDataSchemasRetrieveSchema,
+    ReturnType<typeof ExternalDataSchemasRetrieveSchema>,
     Schemas.ExternalDataSchema
 > => ({
     name: 'external-data-schemas-retrieve',
-    schema: ExternalDataSchemasRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasRetrieveSchema>) => {
+    schema: ExternalDataSchemasRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'GET',
@@ -342,23 +415,151 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z
-    .object({})
-    .extend({ source_type: ExternalDataSourceTypeSchema })
+const ExternalDataSourcesAddTableSchema = () => {
+    const ExternalDataSourcesAddTableCreateBody = orvalSchemas.ExternalDataSourcesAddTableCreateBody()
+    const ExternalDataSourcesAddTableCreateParams = orvalSchemas.ExternalDataSourcesAddTableCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesAddTableCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesAddTableCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesAddTable = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesAddTableSchema>,
+    Schemas.ExternalDataSchema
+> => ({
+    name: 'external-data-sources-add-table',
+    schema: ExternalDataSourcesAddTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesAddTableSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.file_format !== undefined) {
+            body['file_format'] = params.file_format
+        }
+        if (params.csv_allow_double_quotes !== undefined) {
+            body['csv_allow_double_quotes'] = params.csv_allow_double_quotes
+        }
+        const result = await context.api.request<Schemas.ExternalDataSchema>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/add_table/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesBulkUpdateSchemasSchema = () => {
+    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody()
+    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesBulkUpdateSchemasSchema>,
+    Schemas.ExternalDataSchema[]
+> => ({
+    name: 'external-data-sources-bulk-update-schemas',
+    schema: ExternalDataSourcesBulkUpdateSchemasSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesBulkUpdateSchemasSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.schemas !== undefined) {
+            body['schemas'] = params.schemas
+        }
+        const result = await context.api.request<Schemas.ExternalDataSchema[]>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/bulk_update_schemas/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesCdcStatusRetrieveSchema = () => {
+    const ExternalDataSourcesCdcStatusRetrieveParams = orvalSchemas.ExternalDataSourcesCdcStatusRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesCdcStatusRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesCdcStatusRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesCdcStatusRetrieveSchema>,
+    Schemas.CdcStatus
+> => ({
+    name: 'external-data-sources-cdc-status-retrieve',
+    schema: ExternalDataSourcesCdcStatusRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCdcStatusRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CdcStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/cdc_status/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () => {
+    const ExternalDataSourcesCheckCdcPrerequisitesCreateBody =
+        orvalSchemas.ExternalDataSourcesCheckCdcPrerequisitesCreateBody()
+    return ExternalDataSourcesCheckCdcPrerequisitesCreateBody.extend({
+        source_type: ExternalDataSourceTypeSchema,
+        payload: ExternalDataSourcePayloadSchema,
+    })
+}
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
-    typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
-    unknown
+    ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>,
+    Schemas.CdcPrerequisitesResponse
 > => ({
     name: 'external-data-sources-check-cdc-prerequisites-create',
-    schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>) => {
+    schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
         }
-        const result = await context.api.request<unknown>({
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.tables !== undefined) {
+            body['tables'] = params.tables
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
+        }
+        const result = await context.api.request<Schemas.CdcPrerequisitesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/check_cdc_prerequisites/`,
             body,
@@ -367,16 +568,18 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesConnectionsListSchema = z.object({})
+const ExternalDataSourcesConnectionsListSchema = () => z.object({})
 
 const externalDataSourcesConnectionsList = (): ToolBase<
-    typeof ExternalDataSourcesConnectionsListSchema,
+    ReturnType<typeof ExternalDataSourcesConnectionsListSchema>,
     WithPostHogUrl<Schemas.ExternalDataSourceConnectionOption[]>
 > => ({
     name: 'external-data-sources-connections-list',
-    schema: ExternalDataSourcesConnectionsListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+    schema: ExternalDataSourcesConnectionsListSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ExternalDataSourcesConnectionsListSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSourceConnectionOption[]>({
             method: 'GET',
@@ -386,18 +589,21 @@ const externalDataSourcesConnectionsList = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-    payload: ExternalDataSourcePayloadSchema,
-})
+const ExternalDataSourcesCreateSchema = () => {
+    const ExternalDataSourcesCreateBody = orvalSchemas.ExternalDataSourcesCreateBody()
+    return ExternalDataSourcesCreateBody.extend({
+        source_type: ExternalDataSourceTypeSchema,
+        payload: ExternalDataSourcePayloadSchema,
+    })
+}
 
 const externalDataSourcesCreate = (): ToolBase<
-    typeof ExternalDataSourcesCreateSchema,
+    ReturnType<typeof ExternalDataSourcesCreateSchema>,
     Schemas.ExternalDataSourceCreateResponse
 > => ({
     name: 'external-data-sources-create',
-    schema: ExternalDataSourcesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateSchema>) => {
+    schema: ExternalDataSourcesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
@@ -418,6 +624,9 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
         body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceCreateResponse>({
             method: 'POST',
@@ -428,110 +637,140 @@ const externalDataSourcesCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCreateWebhookCreateSchema = ExternalDataSourcesCreateWebhookCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesCreateWebhookCreateBody.shape)
+const ExternalDataSourcesCreateWebhookCreateSchema = () => {
+    const ExternalDataSourcesCreateWebhookCreateParams = orvalSchemas.ExternalDataSourcesCreateWebhookCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true })
+    )
+}
 
 const externalDataSourcesCreateWebhookCreate = (): ToolBase<
-    typeof ExternalDataSourcesCreateWebhookCreateSchema,
-    unknown
+    ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>,
+    Schemas.CreateWebhookResponse
 > => ({
     name: 'external-data-sources-create-webhook-create',
-    schema: ExternalDataSourcesCreateWebhookCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
+    schema: ExternalDataSourcesCreateWebhookCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.CreateWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
-            body,
         })
         return result
     },
 })
 
-const ExternalDataSourcesDeleteWebhookCreateSchema = ExternalDataSourcesDeleteWebhookCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesDeleteWebhookCreateBody.shape)
+const ExternalDataSourcesDeleteWebhookCreateSchema = () => {
+    const ExternalDataSourcesDeleteWebhookCreateParams = orvalSchemas.ExternalDataSourcesDeleteWebhookCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDeleteWebhookCreateParams.omit({ project_id: true })
+    )
+}
 
 const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
-    typeof ExternalDataSourcesDeleteWebhookCreateSchema,
-    unknown
+    ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>,
+    Schemas.DeleteWebhookResponse
 > => ({
     name: 'external-data-sources-delete-webhook-create',
-    schema: ExternalDataSourcesDeleteWebhookCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
+    schema: ExternalDataSourcesDeleteWebhookCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.DeleteWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/delete_webhook/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesDestinationsRetrieveSchema = () => {
+    const ExternalDataSourcesDestinationsRetrieveParams = orvalSchemas.ExternalDataSourcesDestinationsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDestinationsRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesDestinationsRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDestinationsRetrieveSchema>,
+    Schemas.SourceDestinations
+> => ({
+    name: 'external-data-sources-destinations-retrieve',
+    schema: ExternalDataSourcesDestinationsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDestinationsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceDestinations>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/destinations/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesDestinationsUpdateSchema = () => {
+    const ExternalDataSourcesDestinationsPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateBody()
+    const ExternalDataSourcesDestinationsPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDestinationsPartialUpdateParams.omit({ project_id: true })
+            .extend(ExternalDataSourcesDestinationsPartialUpdateBody.shape)
+            .extend({
+                destination_ids: ExternalDataSourcesDestinationsPartialUpdateBody.shape['destination_ids'].describe(
+                    'The full list of destination ids for this source, at least one. A destination left out is detached.'
+                ),
+            })
+    )
+}
+
+const externalDataSourcesDestinationsUpdate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDestinationsUpdateSchema>,
+    Schemas.SourceDestinations
+> => ({
+    name: 'external-data-sources-destinations-update',
+    schema: ExternalDataSourcesDestinationsUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDestinationsUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
+        const result = await context.api.request<Schemas.SourceDestinations>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/destinations/`,
             body,
         })
         return result
     },
 })
 
-const ExternalDataSourcesDestroySchema = ExternalDataSourcesDestroyParams.omit({ project_id: true })
+const ExternalDataSourcesDestroySchema = () => {
+    const ExternalDataSourcesDestroyParams = orvalSchemas.ExternalDataSourcesDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDestroyParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestroySchema, unknown> => ({
+const externalDataSourcesDestroy = (): ToolBase<ReturnType<typeof ExternalDataSourcesDestroySchema>, unknown> => ({
     name: 'external-data-sources-destroy',
-    schema: ExternalDataSourcesDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDestroySchema>) => {
+    schema: ExternalDataSourcesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -541,20 +780,142 @@ const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestro
     },
 })
 
-const ExternalDataSourcesListSchema = ExternalDataSourcesListQueryParams
+const ExternalDataSourcesDisableCdcCreateSchema = () => {
+    const ExternalDataSourcesDisableCdcCreateParams = orvalSchemas.ExternalDataSourcesDisableCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDisableCdcCreateParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesDisableCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDisableCdcCreateSchema>,
+    Schemas.CdcDisableResponse
+> => ({
+    name: 'external-data-sources-disable-cdc-create',
+    schema: ExternalDataSourcesDisableCdcCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDisableCdcCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CdcDisableResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/disable_cdc/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesDraftCustomManifestSchema = () => {
+    const ExternalDataSourcesDraftCustomManifestCreateBody =
+        orvalSchemas.ExternalDataSourcesDraftCustomManifestCreateBody()
+    return ExternalDataSourcesDraftCustomManifestCreateBody
+}
+
+const externalDataSourcesDraftCustomManifest = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>,
+    Schemas.DraftCustomManifestResponse
+> => ({
+    name: 'external-data-sources-draft-custom-manifest',
+    schema: ExternalDataSourcesDraftCustomManifestSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_name !== undefined) {
+            body['source_name'] = params.source_name
+        }
+        if (params.docs_url !== undefined) {
+            body['docs_url'] = params.docs_url
+        }
+        if (params.docs_text !== undefined) {
+            body['docs_text'] = params.docs_text
+        }
+        const result = await context.api.request<Schemas.DraftCustomManifestResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/draft_custom_manifest/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesEnableCdcCreateSchema = () => {
+    const ExternalDataSourcesEnableCdcCreateBody = orvalSchemas.ExternalDataSourcesEnableCdcCreateBody()
+    const ExternalDataSourcesEnableCdcCreateParams = orvalSchemas.ExternalDataSourcesEnableCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesEnableCdcCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesEnableCdcCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesEnableCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesEnableCdcCreateSchema>,
+    Schemas.CdcEnableResponse
+> => ({
+    name: 'external-data-sources-enable-cdc-create',
+    schema: ExternalDataSourcesEnableCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesEnableCdcCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
+        }
+        if (params.cdc_auto_drop_slot !== undefined) {
+            body['cdc_auto_drop_slot'] = params.cdc_auto_drop_slot
+        }
+        if (params.cdc_lag_warning_threshold_mb !== undefined) {
+            body['cdc_lag_warning_threshold_mb'] = params.cdc_lag_warning_threshold_mb
+        }
+        if (params.cdc_lag_critical_threshold_mb !== undefined) {
+            body['cdc_lag_critical_threshold_mb'] = params.cdc_lag_critical_threshold_mb
+        }
+        const result = await context.api.request<Schemas.CdcEnableResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/enable_cdc/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesListSchema = () => {
+    const ExternalDataSourcesListQueryParams = orvalSchemas.ExternalDataSourcesListQueryParams()
+    return ExternalDataSourcesListQueryParams.extend({
+        compact: ExternalDataSourcesListQueryParams.shape['compact']
+            .default(true)
+            .optional()
+            .describe(
+                'Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and full source configuration.'
+            ),
+    })
+}
 
 const externalDataSourcesList = (): ToolBase<
-    typeof ExternalDataSourcesListSchema,
+    ReturnType<typeof ExternalDataSourcesListSchema>,
     WithPostHogUrl<Schemas.PaginatedExternalDataSourceSerializersList>
 > => ({
     name: 'external-data-sources-list',
-    schema: ExternalDataSourcesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesListSchema>) => {
+    schema: ExternalDataSourcesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExternalDataSourceSerializersList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
             query: {
+                compact: params.compact,
+                include_schemas: params.include_schemas,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -564,17 +925,24 @@ const externalDataSourcesList = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesPartialUpdateSchema = ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSourcesPartialUpdateBody.shape
-)
+const ExternalDataSourcesPartialUpdateSchema = () => {
+    const ExternalDataSourcesPartialUpdateBody = orvalSchemas.ExternalDataSourcesPartialUpdateBody()
+    const ExternalDataSourcesPartialUpdateParams = orvalSchemas.ExternalDataSourcesPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesPartialUpdateBody.shape
+        )
+    )
+}
 
 const externalDataSourcesPartialUpdate = (): ToolBase<
-    typeof ExternalDataSourcesPartialUpdateSchema,
+    ReturnType<typeof ExternalDataSourcesPartialUpdateSchema>,
     Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-partial-update',
-    schema: ExternalDataSourcesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesPartialUpdateSchema>) => {
+    schema: ExternalDataSourcesPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -603,6 +971,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
         }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'PATCH',
@@ -613,14 +984,24 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesRefreshSchemasSchema = ExternalDataSourcesRefreshSchemasCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesRefreshSchemasCreateBody.shape)
+const ExternalDataSourcesRefreshSchemasSchema = () => {
+    const ExternalDataSourcesRefreshSchemasCreateBody = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateBody()
+    const ExternalDataSourcesRefreshSchemasCreateParams = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesRefreshSchemasCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesRefreshSchemasCreateBody.shape
+        )
+    )
+}
 
-const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSourcesRefreshSchemasSchema, unknown> => ({
+const externalDataSourcesRefreshSchemas = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRefreshSchemasSchema>,
+    unknown
+> => ({
     name: 'external-data-sources-refresh-schemas',
-    schema: ExternalDataSourcesRefreshSchemasSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRefreshSchemasSchema>) => {
+    schema: ExternalDataSourcesRefreshSchemasSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRefreshSchemasSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -644,14 +1025,21 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
     },
 })
 
-const ExternalDataSourcesReloadSchema = ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSourcesReloadCreateBody.shape
-)
+const ExternalDataSourcesReloadSchema = () => {
+    const ExternalDataSourcesReloadCreateBody = orvalSchemas.ExternalDataSourcesReloadCreateBody()
+    const ExternalDataSourcesReloadCreateParams = orvalSchemas.ExternalDataSourcesReloadCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesReloadCreateBody.shape
+        )
+    )
+}
 
-const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadSchema, unknown> => ({
+const externalDataSourcesReload = (): ToolBase<ReturnType<typeof ExternalDataSourcesReloadSchema>, unknown> => ({
     name: 'external-data-sources-reload',
-    schema: ExternalDataSourcesReloadSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesReloadSchema>) => {
+    schema: ExternalDataSourcesReloadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesReloadSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -675,12 +1063,21 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
-const ExternalDataSourcesRepairCdcCreateSchema = ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+const ExternalDataSourcesRepairCdcCreateSchema = () => {
+    const ExternalDataSourcesRepairCdcCreateParams = orvalSchemas.ExternalDataSourcesRepairCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+    )
+}
 
-const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourcesRepairCdcCreateSchema, unknown> => ({
+const externalDataSourcesRepairCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRepairCdcCreateSchema>,
+    unknown
+> => ({
     name: 'external-data-sources-repair-cdc-create',
-    schema: ExternalDataSourcesRepairCdcCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRepairCdcCreateSchema>) => {
+    schema: ExternalDataSourcesRepairCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRepairCdcCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -690,19 +1087,63 @@ const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourc
     },
 })
 
-const ExternalDataSourcesRetrieveSchema = ExternalDataSourcesRetrieveParams.omit({ project_id: true })
+const ExternalDataSourcesResumeCdcCreateSchema = () => {
+    const ExternalDataSourcesResumeCdcCreateParams = orvalSchemas.ExternalDataSourcesResumeCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesResumeCdcCreateParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesResumeCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesResumeCdcCreateSchema>,
+    Schemas.CdcResumeResponse
+> => ({
+    name: 'external-data-sources-resume-cdc-create',
+    schema: ExternalDataSourcesResumeCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesResumeCdcCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CdcResumeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/resume_cdc/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesRetrieveSchema = () => {
+    const ExternalDataSourcesRetrieveParams = orvalSchemas.ExternalDataSourcesRetrieveParams()
+    const ExternalDataSourcesRetrieveQueryParams = orvalSchemas.ExternalDataSourcesRetrieveQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesRetrieveParams.omit({ project_id: true })
+            .extend(ExternalDataSourcesRetrieveQueryParams.shape)
+            .extend({
+                compact: ExternalDataSourcesRetrieveQueryParams.shape['compact']
+                    .default(true)
+                    .optional()
+                    .describe(
+                        'Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and the full sync configuration of each table.'
+                    ),
+            })
+    )
+}
 
 const externalDataSourcesRetrieve = (): ToolBase<
-    typeof ExternalDataSourcesRetrieveSchema,
+    ReturnType<typeof ExternalDataSourcesRetrieveSchema>,
     Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-retrieve',
-    schema: ExternalDataSourcesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRetrieveSchema>) => {
+    schema: ExternalDataSourcesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                compact: params.compact,
+                include_schemas: params.include_schemas,
+            },
         })
         const filtered = omitResponseFields(result, [
             'schemas.*.table.columns',
@@ -712,47 +1153,123 @@ const externalDataSourcesRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesUpdateWebhookInputsCreateSchema = ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesUpdateWebhookInputsCreateBody.shape)
+const ExternalDataSourcesRevenueConfigUpdateSchema = () => {
+    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody()
+    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody.shape
+        )
+    )
+}
 
-const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
-    typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema,
-    unknown
+const externalDataSourcesRevenueConfigUpdate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>,
+    Schemas.ExternalDataSourceSerializers
 > => ({
-    name: 'external-data-sources-update-webhook-inputs-create',
-    schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
+    name: 'external-data-sources-revenue-config-update',
+    schema: ExternalDataSourcesRevenueConfigUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
         }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
+        if (params.include_invoiceless_charges !== undefined) {
+            body['include_invoiceless_charges'] = params.include_invoiceless_charges
         }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
+        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/revenue_analytics_config/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'source_type',
+            'prefix',
+            'revenue_analytics_config',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const ExternalDataSourcesUpdateCdcSettingsCreateSchema = () => {
+    const ExternalDataSourcesUpdateCdcSettingsCreateBody = orvalSchemas.ExternalDataSourcesUpdateCdcSettingsCreateBody()
+    const ExternalDataSourcesUpdateCdcSettingsCreateParams =
+        orvalSchemas.ExternalDataSourcesUpdateCdcSettingsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesUpdateCdcSettingsCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesUpdateCdcSettingsCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesUpdateCdcSettingsCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesUpdateCdcSettingsCreateSchema>,
+    Schemas.CdcUpdateSettingsResponse
+> => ({
+    name: 'external-data-sources-update-cdc-settings-create',
+    schema: ExternalDataSourcesUpdateCdcSettingsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesUpdateCdcSettingsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.cdc_auto_drop_slot !== undefined) {
+            body['cdc_auto_drop_slot'] = params.cdc_auto_drop_slot
         }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
+        if (params.cdc_lag_warning_threshold_mb !== undefined) {
+            body['cdc_lag_warning_threshold_mb'] = params.cdc_lag_warning_threshold_mb
         }
-        if (params.description !== undefined) {
-            body['description'] = params.description
+        if (params.cdc_lag_critical_threshold_mb !== undefined) {
+            body['cdc_lag_critical_threshold_mb'] = params.cdc_lag_critical_threshold_mb
         }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
+        const result = await context.api.request<Schemas.CdcUpdateSettingsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_cdc_settings/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesUpdateWebhookInputsCreateSchema = () => {
+    const ExternalDataSourcesUpdateWebhookInputsCreateBody =
+        orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateBody()
+    const ExternalDataSourcesUpdateWebhookInputsCreateParams =
+        orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesUpdateWebhookInputsCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>,
+    Schemas.UpdateWebhookInputsResponse
+> => ({
+    name: 'external-data-sources-update-webhook-inputs-create',
+    schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.inputs !== undefined) {
+            body['inputs'] = params.inputs
         }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.UpdateWebhookInputsResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_webhook_inputs/`,
             body,
@@ -761,19 +1278,26 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWebhookInfoRetrieveSchema = ExternalDataSourcesWebhookInfoRetrieveParams.omit({
-    project_id: true,
-})
+const ExternalDataSourcesWebhookInfoRetrieveSchema = () => {
+    const ExternalDataSourcesWebhookInfoRetrieveParams = orvalSchemas.ExternalDataSourcesWebhookInfoRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesWebhookInfoRetrieveParams.omit({ project_id: true })
+    )
+}
 
 const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
-    typeof ExternalDataSourcesWebhookInfoRetrieveSchema,
-    unknown
+    ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>,
+    Schemas.WebhookInfoResponse
 > => ({
     name: 'external-data-sources-webhook-info-retrieve',
-    schema: ExternalDataSourcesWebhookInfoRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>) => {
+    schema: ExternalDataSourcesWebhookInfoRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.WebhookInfoResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/webhook_info/`,
         })
@@ -781,22 +1305,28 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams.extend({
-    fields: z
-        .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
-        .min(1)
-        .optional()
-        .describe(
-            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-        ),
-})
+const ExternalDataSourcesWizardSchema = () => {
+    const ExternalDataSourcesWizardRetrieveQueryParams = orvalSchemas.ExternalDataSourcesWizardRetrieveQueryParams()
+    return ExternalDataSourcesWizardRetrieveQueryParams.extend({
+        fields: z
+            .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
 
-const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
+const externalDataSourcesWizard = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesWizardSchema>,
+    Schemas.SourceConfigMapResponse
+> => ({
     name: 'external-data-sources-wizard',
-    schema: ExternalDataSourcesWizardSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
+    schema: ExternalDataSourcesWizardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesWizardSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SourceConfigMapResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
             query: {
@@ -813,31 +1343,351 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
     },
 })
 
+const WarehouseMigrationConnectLinkSchema = () => {
+    const WarehouseMigrationsConnectLinkRetrieveQueryParams =
+        orvalSchemas.WarehouseMigrationsConnectLinkRetrieveQueryParams()
+    return WarehouseMigrationsConnectLinkRetrieveQueryParams
+}
+
+const warehouseMigrationConnectLink = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationConnectLinkSchema>,
+    Schemas.WarehouseMigrationConnectLink
+> => ({
+    name: 'warehouse-migration-connect-link',
+    schema: WarehouseMigrationConnectLinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationConnectLinkSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigrationConnectLink>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/connect_link/`,
+            query: {
+                provider: params.provider,
+            },
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationGetSchema = () => {
+    const WarehouseMigrationsRetrieveParams = orvalSchemas.WarehouseMigrationsRetrieveParams()
+    return WarehouseMigrationsRetrieveParams.omit({ project_id: true })
+}
+
+const warehouseMigrationGet = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationGetSchema>,
+    Schemas.WarehouseMigration
+> => ({
+    name: 'warehouse-migration-get',
+    schema: WarehouseMigrationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigration>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationItemApplySchema = () => {
+    const ExternalDataSourcesApplyMigrationItemCreateBody =
+        orvalSchemas.ExternalDataSourcesApplyMigrationItemCreateBody()
+    return ExternalDataSourcesApplyMigrationItemCreateBody
+}
+
+const warehouseMigrationItemApply = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemApplySchema>,
+    Schemas.ApplyMigrationItemResponse
+> => ({
+    name: 'warehouse-migration-item-apply',
+    schema: WarehouseMigrationItemApplySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemApplySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.credential_id !== undefined) {
+            body['credential_id'] = params.credential_id
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
+        if (params.table_overrides !== undefined) {
+            body['table_overrides'] = params.table_overrides
+        }
+        body['created_via'] = 'mcp'
+        const result = await context.api.request<Schemas.ApplyMigrationItemResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/apply_migration_item/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationItemSkipSchema = () => {
+    const WarehouseMigrationsItemsSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsSkipCreateParams()
+    return WarehouseMigrationsItemsSkipCreateParams.omit({ project_id: true })
+}
+
+const warehouseMigrationItemSkip = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemSkipSchema>,
+    Schemas.WarehouseMigrationItem
+> => ({
+    name: 'warehouse-migration-item-skip',
+    schema: WarehouseMigrationItemSkipSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemSkipSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigrationItem>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/skip/`,
+        })
+        const filtered = omitResponseFields(result, [
+            'proposal.schemas.*.disabled_columns',
+            'proposal.schemas.*.row_filters',
+            'proposal.schemas.*.alternative_names',
+            'proposal.prefill',
+            'created_by',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const WarehouseMigrationItemsListSchema = () => {
+    const WarehouseMigrationsItemsListParams = orvalSchemas.WarehouseMigrationsItemsListParams()
+    const WarehouseMigrationsItemsListQueryParams = orvalSchemas.WarehouseMigrationsItemsListQueryParams()
+    return WarehouseMigrationsItemsListParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsItemsListQueryParams.shape
+    )
+}
+
+const warehouseMigrationItemsList = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedWarehouseMigrationItemList>
+> => ({
+    name: 'warehouse-migration-items-list',
+    schema: WarehouseMigrationItemsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedWarehouseMigrationItemList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'proposal.schemas.*.disabled_columns',
+                    'proposal.schemas.*.row_filters',
+                    'proposal.schemas.*.alternative_names',
+                    'proposal.prefill',
+                    'created_by',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
+    },
+})
+
+const WarehouseMigrationItemsSkipSchema = () => {
+    const WarehouseMigrationsItemsBulkSkipCreateBody = orvalSchemas.WarehouseMigrationsItemsBulkSkipCreateBody()
+    const WarehouseMigrationsItemsBulkSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsBulkSkipCreateParams()
+    return WarehouseMigrationsItemsBulkSkipCreateParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsItemsBulkSkipCreateBody.shape
+    )
+}
+
+const warehouseMigrationItemsSkip = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemsSkipSchema>,
+    Schemas.WarehouseMigrationSkipItemsResponse
+> => ({
+    name: 'warehouse-migration-items-skip',
+    schema: WarehouseMigrationItemsSkipSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsSkipSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.item_ids !== undefined) {
+            body['item_ids'] = params.item_ids
+        }
+        if (params.keep_item_ids !== undefined) {
+            body['keep_item_ids'] = params.keep_item_ids
+        }
+        const result = await context.api.request<Schemas.WarehouseMigrationSkipItemsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/skip/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationRefreshSchema = () => {
+    const WarehouseMigrationsRefreshCreateParams = orvalSchemas.WarehouseMigrationsRefreshCreateParams()
+    return WarehouseMigrationsRefreshCreateParams.omit({ project_id: true })
+}
+
+const warehouseMigrationRefresh = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationRefreshSchema>,
+    Schemas.WarehouseMigration
+> => ({
+    name: 'warehouse-migration-refresh',
+    schema: WarehouseMigrationRefreshSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationRefreshSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigration>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/refresh/`,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationStartUploadSchema = () => {
+    const WarehouseMigrationsUploadCreateBody = orvalSchemas.WarehouseMigrationsUploadCreateBody()
+    return WarehouseMigrationsUploadCreateBody
+}
+
+const warehouseMigrationStartUpload = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationStartUploadSchema>,
+    Schemas.WarehouseMigration
+> => ({
+    name: 'warehouse-migration-start-upload',
+    schema: WarehouseMigrationStartUploadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationStartUploadSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.provider !== undefined) {
+            body['provider'] = params.provider
+        }
+        const result = await context.api.request<Schemas.WarehouseMigration>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/upload/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationUploadConnectionsSchema = () => {
+    const WarehouseMigrationsConnectionsCreateBody = orvalSchemas.WarehouseMigrationsConnectionsCreateBody()
+    const WarehouseMigrationsConnectionsCreateParams = orvalSchemas.WarehouseMigrationsConnectionsCreateParams()
+    return WarehouseMigrationsConnectionsCreateParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsConnectionsCreateBody.shape
+    )
+}
+
+const warehouseMigrationUploadConnections = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationUploadConnectionsSchema>,
+    Schemas.WarehouseMigrationUploadResponse
+> => ({
+    name: 'warehouse-migration-upload-connections',
+    schema: WarehouseMigrationUploadConnectionsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WarehouseMigrationUploadConnectionsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account !== undefined) {
+            body['account'] = params.account
+        }
+        if (params.destinations !== undefined) {
+            body['destinations'] = params.destinations
+        }
+        if (params.connections !== undefined) {
+            body['connections'] = params.connections
+        }
+        const result = await context.api.request<Schemas.WarehouseMigrationUploadResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/connections/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['items.*.proposal']) as typeof result
+        return filtered
+    },
+})
+
+const WarehouseMigrationsListSchema = () => {
+    const WarehouseMigrationsListQueryParams = orvalSchemas.WarehouseMigrationsListQueryParams()
+    return WarehouseMigrationsListQueryParams
+}
+
+const warehouseMigrationsList = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationsListSchema>,
+    Schemas.PaginatedWarehouseMigrationList
+> => ({
+    name: 'warehouse-migrations-list',
+    schema: WarehouseMigrationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedWarehouseMigrationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
     'data-warehouse-source-setup': dataWarehouseSourceSetup,
     'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
+    'external-data-schemas-delete-history-table': externalDataSchemasDeleteHistoryTable,
+    'external-data-schemas-destinations-retrieve': externalDataSchemasDestinationsRetrieve,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-list': externalDataSchemasList,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
     'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
+    'external-data-sources-add-table': externalDataSourcesAddTable,
+    'external-data-sources-bulk-update-schemas': externalDataSourcesBulkUpdateSchemas,
+    'external-data-sources-cdc-status-retrieve': externalDataSourcesCdcStatusRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
     'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
+    'external-data-sources-destinations-retrieve': externalDataSourcesDestinationsRetrieve,
+    'external-data-sources-destinations-update': externalDataSourcesDestinationsUpdate,
     'external-data-sources-destroy': externalDataSourcesDestroy,
+    'external-data-sources-disable-cdc-create': externalDataSourcesDisableCdcCreate,
+    'external-data-sources-draft-custom-manifest': externalDataSourcesDraftCustomManifest,
+    'external-data-sources-enable-cdc-create': externalDataSourcesEnableCdcCreate,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
     'external-data-sources-repair-cdc-create': externalDataSourcesRepairCdcCreate,
+    'external-data-sources-resume-cdc-create': externalDataSourcesResumeCdcCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
+    'external-data-sources-revenue-config-update': externalDataSourcesRevenueConfigUpdate,
+    'external-data-sources-update-cdc-settings-create': externalDataSourcesUpdateCdcSettingsCreate,
     'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,
     'external-data-sources-wizard': externalDataSourcesWizard,
+    'warehouse-migration-connect-link': warehouseMigrationConnectLink,
+    'warehouse-migration-get': warehouseMigrationGet,
+    'warehouse-migration-item-apply': warehouseMigrationItemApply,
+    'warehouse-migration-item-skip': warehouseMigrationItemSkip,
+    'warehouse-migration-items-list': warehouseMigrationItemsList,
+    'warehouse-migration-items-skip': warehouseMigrationItemsSkip,
+    'warehouse-migration-refresh': warehouseMigrationRefresh,
+    'warehouse-migration-start-upload': warehouseMigrationStartUpload,
+    'warehouse-migration-upload-connections': warehouseMigrationUploadConnections,
+    'warehouse-migrations-list': warehouseMigrationsList,
 }

@@ -1,16 +1,13 @@
-import React from 'react'
-
 import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
-import { buildInputSourceIndices } from '../extractSessionTurns'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../messageNormalization'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
-import { costContextFromProperties } from '../utils'
+import { costContextFromProperties, selectAiValue } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -34,7 +31,7 @@ export function ConversationDisplay({
             : eventProperties.$ai_input_state
     const rawOutput =
         eventName === '$ai_generation'
-            ? (eventProperties.$ai_output_choices ?? eventProperties.$ai_output)
+            ? selectAiValue(eventProperties.$ai_output_choices, eventProperties.$ai_output)
             : eventName === '$ai_embedding'
               ? 'Embedding vector generated'
               : eventProperties.$ai_output_state
@@ -58,8 +55,6 @@ export function ConversationDisplay({
     }
 
     const showPlaygroundButton = eventProperties.$ai_model && input
-
-    const inputSourceIndices = React.useMemo(() => buildInputSourceIndices(input, tools), [input, tools])
 
     return (
         <>
@@ -96,13 +91,16 @@ export function ConversationDisplay({
                 <ConversationMessagesDisplay
                     inputNormalized={normalizeMessages(input, 'user', tools).messages}
                     outputNormalized={normalizeMessages(output, 'assistant').messages}
-                    inputSourceIndices={inputSourceIndices}
                     errorData={eventProperties.$ai_error}
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}
+                    outputTokens={eventProperties.$ai_output_tokens}
+                    reasoningTokens={eventProperties.$ai_reasoning_tokens}
+                    textOutputTokens={eventProperties.$ai_text_output_tokens}
+                    stopReason={eventProperties.$ai_stop_reason}
                     bordered
                     traceId={eventProperties.$ai_trace_id}
-                    generationEventId={eventId}
+                    eventId={eventId}
                 />
             )}
         </>

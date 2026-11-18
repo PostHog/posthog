@@ -8,11 +8,13 @@ import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import type { Lifecycle } from './app'
 import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL } from './constants'
+import { InterviewRecruitment } from './interview-recruitment'
 import { register } from './metrics'
 import type { HonoCtx, RedisWithPing } from './types'
 
 const WELL_KNOWN_PREFIX = '/.well-known/oauth-protected-resource'
 const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
+const MUSE_CHALLENGE_TOKEN = '5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc'
 // Cap on Redis ping for readiness checks. Long enough to ride out a normal hop,
 // short enough that a tarpit doesn't block kubelet probes.
 const READYZ_REDIS_TIMEOUT_MS = 500
@@ -104,8 +106,26 @@ export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle:
     // URL pattern works on both runtimes.
     app.use('/ui-apps/*', serveStatic({ root: './public' }))
 
+    const interviews = new InterviewRecruitment(redis)
+    app.get('/interview/:id', async (c) => {
+        if (c.req.raw.method === 'HEAD') {
+            return c.body(null, 405)
+        }
+        c.header('Cache-Control', 'no-store')
+        c.header('Referrer-Policy', 'no-referrer')
+        try {
+            const url = await interviews.openBookingLink(c.req.param('id'))
+            return url ? c.redirect(url, 302) : c.notFound()
+        } catch {
+            return c.body(null, 503)
+        }
+    })
+
     app.get('/', (c) => c.redirect(MCP_DOCS_URL, 302) as unknown as Response)
     app.get('/.well-known/openai-apps-challenge', (c) => c.text(OPENAI_CHALLENGE_TOKEN))
+    app.get(`/.well-known/muse-challenge/${MUSE_CHALLENGE_TOKEN}`, (c) =>
+        c.text(`muse-challenge=${MUSE_CHALLENGE_TOKEN}`)
+    )
     app.get('/health', healthHandler)
     app.get('/healthz', healthHandler)
     app.get('/readyz', readyzHandler(redis, lifecycle))

@@ -26,15 +26,17 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     register_emit_signals_gate,
     register_engineering_analytics_view_sync,
     register_person_property_projection,
+    register_person_property_sync_progress_recorder,
     register_person_property_sync_recorder,
     register_person_property_sync_sources,
     register_revenue_view_sync,
+    register_saved_query_property_sources,
     run_revenue_view_sync,
     saved_query_binding,
     schema_binding,
 )
 
-from .contracts import RevenueViewSyncInput
+from .contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 __all__ = [
     "BINDING_KIND_SAVED_QUERY",
@@ -44,6 +46,7 @@ __all__ = [
     "EmitSignalsActivityInputs",
     "PersonPropertySourceProjection",
     "PersonPropertySyncActivityInputs",
+    "PersonPropertySyncProgress",
     "PersonPropertySyncRunRecord",
     "PersonPropertySyncSource",
     "RevenueViewSyncInput",
@@ -55,9 +58,11 @@ __all__ = [
     "register_emit_signals_gate",
     "register_engineering_analytics_view_sync",
     "register_person_property_projection",
+    "register_person_property_sync_progress_recorder",
     "register_person_property_sync_recorder",
     "register_person_property_sync_sources",
     "register_revenue_view_sync",
+    "register_saved_query_property_sources",
     "run_revenue_view_sync",
     "saved_query_binding",
     "schema_binding",

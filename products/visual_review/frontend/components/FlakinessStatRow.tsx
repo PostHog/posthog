@@ -38,7 +38,7 @@ const STATS: Array<{ value: FlakinessPreset; label: string; description: string 
     {
         value: 'quiet',
         label: 'Quiet',
-        description: 'Absorbed with room to spare, or nothing failing now',
+        description: 'Nothing failing now',
     },
     {
         value: 'quarantined',
@@ -58,10 +58,9 @@ interface FlakinessStatRowProps {
  * one wants.
  *
  * Together they have to cover every listed row. `quiet` is the catch-all that
- * makes that hold: it takes both `noisy` and `clean`, because a row can be
- * listed for history the rate span no longer counts and would otherwise show
- * in the totals while no tile could reach it. The State column still names the
- * precise state, so nothing is lost by grouping them here.
+ * makes that hold: it takes the `clean` rows, which are listed for a
+ * quarantine or for history the rate span no longer counts, and would
+ * otherwise show in the totals while no tile could reach them.
  *
  * There is still no "all snapshots" tile: that would repeat the Snapshots tab
  * and open thousands of rows with nothing to act on.

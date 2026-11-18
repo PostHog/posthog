@@ -13,16 +13,31 @@ export interface APIKeyTableRow {
     created_by?: {
         email: string
         first_name?: string
+        last_name?: string
     } | null
     last_used_at: string | null
     last_rolled_at: string | null
 }
 
-interface APIKeyTableProps<T extends APIKeyTableRow = APIKeyTableRow> {
+// "Jane D.": the last initial separates people who share a first name.
+export function formatCreatedBy(user: NonNullable<APIKeyTableRow['created_by']>): string {
+    const firstName = user.first_name?.trim()
+    if (!firstName) {
+        return user.email
+    }
+    const lastInitial = user.last_name?.trim().charAt(0)
+    return lastInitial ? `${firstName} ${lastInitial.toUpperCase()}.` : firstName
+}
+
+/** Either confirm a roll with the default dialog and call `onRoll`, or replace that dialog entirely. */
+type APIKeyTableRollProps<T> =
+    | { onRoll: (id: string) => void; openRollDialog?: never }
+    | { openRollDialog: (key: T) => void; onRoll?: never }
+
+type APIKeyTableProps<T extends APIKeyTableRow = APIKeyTableRow> = APIKeyTableRollProps<T> & {
     keys: T[]
     loading: boolean
     onEdit: (id: string) => void
-    onRoll: (id: string) => void
     onDelete: (id: string) => void
     noun: string
     showCreatedBy?: boolean
@@ -75,6 +90,7 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
     extraColumnsAfterScopes,
     rowClassName,
     deleteDescription = 'This action cannot be undone.',
+    openRollDialog,
 }: APIKeyTableProps<T>): JSX.Element {
     const labelColumn: LemonTableColumn<T, any> = {
         title: 'Label',
@@ -129,7 +145,13 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
         key: 'created_by',
         dataIndex: 'created_by',
         render: (_: any, key: T) =>
-            key.created_by ? `${key.created_by.first_name || key.created_by.email}` : 'Unknown',
+            key.created_by ? (
+                <Tooltip title={key.created_by.email}>
+                    <span>{formatCreatedBy(key.created_by)}</span>
+                </Tooltip>
+            ) : (
+                'Unknown'
+            ),
     }
 
     const lastUsedColumn: LemonTableColumn<T, any> = {
@@ -190,13 +212,17 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
                     {
                         label: 'Roll',
                         onClick: () => {
+                            if (openRollDialog) {
+                                openRollDialog(key)
+                                return
+                            }
                             LemonDialog.open({
                                 title: `Roll key "${key.label}"?`,
                                 description: 'This will generate a new key. The old key will immediately stop working.',
                                 primaryButton: {
                                     status: 'danger',
                                     children: 'Roll',
-                                    onClick: () => onRoll(key.id),
+                                    onClick: () => onRoll?.(key.id),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',

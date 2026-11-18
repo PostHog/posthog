@@ -1,10 +1,12 @@
+from typing import Any
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -28,6 +30,8 @@ MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
 MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND = "duckgres_service"
 MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+# The `connection_metadata` key of a source that the self-managed table migration created.
+MIGRATION_MARKER_KEY = "self_managed_migration"
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -36,7 +40,7 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     AccessMethod = ExternalDataSourceAccessMethod
     CreatedVia = ExternalDataSourceCreatedVia
     Status = ExternalDataSourceStatus
@@ -47,10 +51,12 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source_id = models.CharField(max_length=400)
     connection_id = models.CharField(max_length=400)
     destination_id = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
+    sync_frequency = models.CharField(
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY.value, blank=True
+    )
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
@@ -61,14 +67,17 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # encrypted at rest.
     api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    # The integration row with the source's credentials: a legacy int id or a UUID, in the string form of
+    # `IntegrationReference`. No foreign key, because the rows move to a separate credentials service.
+    credentials_integration_id = models.CharField(max_length=64, null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
     # How this source was created — e.g. web UI, direct API call, or MCP tool. Required for new rows
     # via the serializer; NULL on historical rows created before this field existed.
-    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
-    access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
+    created_via = models.CharField(max_length=20, choices=CreatedVia.choices, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE.value)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
     # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
     direct_query_enabled = models.BooleanField(default=False)
@@ -89,6 +98,38 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+        indexes = [
+            models.Index(
+                fields=["team", "credentials_integration_id"],
+                name="eds_team_credentials_int_idx",
+                condition=models.Q(credentials_integration_id__isnull=False),
+            ),
+        ]
+
+    def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
+        """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.
+
+        Several writers share the field: the API stores direct-query connection config, and the
+        schema-discovery pass and the backfill command store probed server versions. Each one holds
+        a row it read before a network round trip, so a plain read-modify-write drops whichever
+        write landed in between. Re-reading under the lock is what makes the merge safe, and the
+        lock covers only that re-read and the write, with no network call inside it.
+
+        ``of=("self",)`` keeps the lock on this row. The default manager joins
+        ``revenue_analytics_config``, and an unqualified ``FOR UPDATE`` would lock the joined rows
+        as well.
+
+        ``updated_at`` stays out of the write so a probe does not read as a customer edit.
+        """
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update(of=("self",)).get(pk=self.pk)
+            # The field is an unconstrained JSONField, so a non-mapping value is replaced rather
+            # than unpacked, which would raise.
+            existing = locked.connection_metadata if isinstance(locked.connection_metadata, dict) else {}
+            merged = {**existing, **metadata}
+            locked.connection_metadata = merged
+            locked.save(update_fields=["connection_metadata"])
+        self.connection_metadata = merged
 
     @property
     def is_direct_query(self) -> bool:
@@ -114,6 +155,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def is_system_managed(self) -> bool:
         metadata = self.connection_metadata
         return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @property
+    def is_self_managed_migration(self) -> bool:
+        """Whether the self-managed table migration created this source.
+
+        Such a source is rooted at a whole bucket, so discovery must not offer each folder as a table.
+        """
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and MIGRATION_MARKER_KEY in metadata
 
     @property
     def has_managed_warehouse_prefix(self) -> bool:
@@ -170,8 +220,14 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
 
     def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
-        job_inputs = self.job_inputs
-        if not isinstance(job_inputs, dict):
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model
+            SourceInputsStore,
+            UnreadableSourceInputsError,
+        )
+
+        try:
+            job_inputs = SourceInputsStore.load(self)
+        except UnreadableSourceInputsError:
             return False
 
         port = job_inputs.get("port")
@@ -223,17 +279,25 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def is_dynamic_managed_warehouse(self) -> bool:
-        metadata = self.connection_metadata
-        return (
-            self.is_managed_warehouse
-            and self.direct_query_enabled
-            and isinstance(metadata, dict)
-            and metadata.get("credential_kind") == MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
-            and isinstance(metadata.get("lifecycle_generation"), int)
-            and not isinstance(metadata.get("lifecycle_generation"), bool)
-            and metadata["lifecycle_generation"] >= 0
-            and self.job_inputs == {}
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model
+            SourceInputsStore,
+            UnreadableSourceInputsError,
         )
+
+        metadata = self.connection_metadata
+        try:
+            return (
+                self.is_managed_warehouse
+                and self.direct_query_enabled
+                and isinstance(metadata, dict)
+                and metadata.get("credential_kind") == MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+                and isinstance(metadata.get("lifecycle_generation"), int)
+                and not isinstance(metadata.get("lifecycle_generation"), bool)
+                and metadata["lifecycle_generation"] >= 0
+                and SourceInputsStore.load(self) == {}
+            )
+        except UnreadableSourceInputsError:
+            return False
 
     @property
     def managed_warehouse_sql_mode(self) -> ManagedWarehouseSQLMode:
@@ -295,7 +359,14 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
-        SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
+        # A plugin vendor that no longer imports has no hooks to run, and its row must still delete.
+        try:
+            source = SourceRegistry.get_source(self.source_type)
+        except ValueError as e:
+            capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
+        else:
+            source.cleanup_cdc_resources_on_deletion(self)
+            source.on_source_deleted(self)
 
     def reload_schemas(self):
         # temporalio at module scope would put the Temporal client on the django.setup() path —

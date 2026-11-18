@@ -14,7 +14,7 @@ const NONE: ReadonlySet<string> = new Set();
  * exactly like "never opened anything", which would bold every channel with
  * activity for the first frames of every boot.
  */
-export function useUnreadChannelIds(): ReadonlySet<string> {
+function useUnreadChannelIds(): ReadonlySet<string> {
   const { items } = useMentionActivity();
   const lastSeenByChannel = useChannelSeenStore((s) => s.lastSeenByChannel);
   const hasHydrated = useChannelSeenStore((s) => s.hasHydrated);

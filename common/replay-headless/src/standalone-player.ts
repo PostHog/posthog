@@ -1,33 +1,38 @@
 import { DataLoadError } from './data-loader'
 import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
+import { NavigationTimeline } from './navigation-timeline'
 import { PlaybackController } from './playback-controller'
-import { createReplayer } from './replayer-factory'
+import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
+import { createReplayers } from './replayer-factory'
 import type { PlayerConfig } from './types'
 import { ViewportScaler } from './viewport-scaler'
+import { WindowLabels } from './window-labels'
 
 async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
 
-    const setup = await createReplayer(config, contentEl, bridge)
-    if (!setup) {
+    const setup = await createReplayers(config, contentEl, bridge)
+    if (setup === 'no_snapshots' || setup === 'no_full_snapshot') {
+        // Blocks can still be landing when nothing loaded, so that stays retryable. Loaded snapshots without a full
+        // snapshot never gain one on a retry, and each attempt would render the same blank video.
+        const noFullSnapshot = setup === 'no_full_snapshot'
         bridge.setError({
             code: 'NO_SNAPSHOTS',
-            message: 'No snapshots after processing',
-            retryable: true,
+            message: noFullSnapshot ? 'No window has a full snapshot to render' : 'No snapshots after processing',
+            retryable: !noFullSnapshot,
         })
         bridge.signalEnded()
         return
     }
 
-    const { replayer, segments, firstTimestamp } = setup
+    const { windows, segments, firstTimestamp, windowUuidById } = setup
 
-    const footerHeight = config.showMetadataFooter ? 32 : 0
+    const footerHeight = config.showMetadataFooter ? METADATA_FOOTER_HEIGHT_PX : 0
     const scaler = new ViewportScaler(contentEl, footerHeight)
-    scaler.attachToReplayer(replayer)
 
     const controller = new PlaybackController(
-        replayer,
+        windows,
         segments,
         firstTimestamp,
         {
@@ -36,9 +41,20 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         },
         bridge
     )
+    for (const tab of windows) {
+        scaler.attachToReplayer(tab.replayer, () => controller.activeWindow === tab)
+    }
+    controller.onWindowChange((onScreen) => {
+        for (const tab of windows) {
+            tab.root.style.visibility = tab === onScreen ? 'visible' : 'hidden'
+        }
+        scaler.fitReplayer(onScreen.replayer)
+    })
 
+    const labels = new WindowLabels(windows, firstTimestamp)
+    new NavigationTimeline(controller, labels, windowUuidById).start()
     if (config.showMetadataFooter) {
-        const footer = new MetadataFooter(replayer, segments, firstTimestamp, controller, setup.initialURL)
+        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller, labels)
         footer.start()
     }
 

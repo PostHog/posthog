@@ -6,6 +6,42 @@ exposes to the rest of the codebase. No Django imports.
 """
 
 from dataclasses import dataclass, field
+from typing import Any, Literal
+
+
+@dataclass(frozen=True)
+class ConnectorTool:
+    """One tool a connected MCP server exposes to a member."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    # False when the server marks the tool destructive or its name reads as a write.
+    read_only: bool
+
+
+ConnectorCallStatus = Literal[
+    "ok",
+    "not_connected",
+    "needs_reauth",
+    "needs_approval",
+    "blocked",
+    "tool_missing",
+    "write_blocked",
+    "upstream_error",
+]
+
+
+@dataclass(frozen=True)
+class ConnectorCallOutcome:
+    """Result of one tool call made with a member's own connection."""
+
+    status: ConnectorCallStatus
+    content: tuple[dict[str, Any], ...] = ()
+    structured_content: Any = None
+    is_error: bool = False
+    detail: str = ""
+    approval_token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -22,3 +58,47 @@ class ActiveInstallation:
     # Set only for credentials delegated to a built-in agent. Kept out of reprs so the
     # short-lived bearer cannot accidentally land in logs.
     proxy_token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class UnconnectedTeamTool:
+    """A catalog server the team turned on that one member has no working connection to."""
+
+    template_id: str
+    name: str
+    # Only an OAuth server with a shared client connects from a link. An API key server needs the form on the MCP
+    # servers page, and a server that registers a client for each person needs the install flow there.
+    connects_with_oauth: bool
+
+
+UnmountedInstallationReason = Literal[
+    "needs_reconnect",
+    "teammate_needs_reconnect",
+    "server_disabled",
+    "revoked",
+    "not_selected",
+    "replaced_by_personal",
+    "not_shared",
+]
+
+
+@dataclass(frozen=True)
+class UnmountedInstallation:
+    """An enabled installation a sandbox run could reach but did not mount.
+
+    On a built-in agent run, `id` and `name` are the gateway server's, since any one working grant to a
+    server mounts it.
+    """
+
+    id: str
+    name: str
+    scope: str
+    reason: UnmountedInstallationReason
+
+
+@dataclass(frozen=True)
+class SandboxInstallations:
+    """What a sandbox run mounts from the MCP Store, and what it left out."""
+
+    mounted: tuple[ActiveInstallation, ...]
+    unmounted: tuple[UnmountedInstallation, ...] = ()

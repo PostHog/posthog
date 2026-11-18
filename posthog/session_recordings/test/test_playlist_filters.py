@@ -43,8 +43,7 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         assert query.experiment_exposure.variant == "test"
 
     def test_session_ids_survive_conversion(self):
-        # Dropped here, a playlist pinned to specific recordings would count and render every
-        # recording matching the rest of the filters.
+        # session_ids sits outside filter_group, so dropping it silently widens saved playlist counts.
         filters = _filters("AND", "AND", [])
         filters["session_ids"] = ["0190abc", "0191def"]
         query = convert_filters_to_recordings_query(filters)

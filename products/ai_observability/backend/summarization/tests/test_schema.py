@@ -15,9 +15,22 @@ class TestSummaryBullet:
         assert bullet.text == "User greeted the assistant"
         assert bullet.line_refs == "L5"
 
-    def test_line_refs_range(self):
-        bullet = SummaryBullet(text="Multi-turn conversation", line_refs="L10-15")
-        assert bullet.line_refs == "L10-15"
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("L45", "L45"),
+            ("L007", "L007"),
+            ("", ""),
+            ("L28-L31", "L28"),
+            ("L10-15", "L10"),
+            ("L5, L9, L12", "L5"),
+            ("l45", "L45"),
+            ("no specific line", ""),
+        ],
+    )
+    def test_line_refs_reduced_to_one_reference(self, raw, expected):
+        assert SummaryBullet(text="Multi-turn conversation", line_refs=raw).line_refs == expected
+        assert InterestingNote(text="Multi-turn conversation", line_refs=raw).line_refs == expected
 
     def test_missing_text_raises(self):
         with pytest.raises(ValidationError) as exc_info:

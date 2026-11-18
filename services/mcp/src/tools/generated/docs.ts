@@ -2,15 +2,18 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { DocsSearchBody } from '@/generated/docs/api'
+import * as orvalSchemas from '@/generated/docs/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DocsSearchSchema = DocsSearchBody
+const DocsSearchSchema = () => {
+    const DocsSearchBody = orvalSchemas.DocsSearchBody()
+    return DocsSearchBody
+}
 
-const docsSearch = (): ToolBase<typeof DocsSearchSchema, Schemas.DocsSearchResponse> => ({
+const docsSearch = (): ToolBase<ReturnType<typeof DocsSearchSchema>, Schemas.DocsSearchResponse> => ({
     name: 'docs-search',
-    schema: DocsSearchSchema,
-    handler: async (context: Context, params: z.infer<typeof DocsSearchSchema>) => {
+    schema: DocsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DocsSearchSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {

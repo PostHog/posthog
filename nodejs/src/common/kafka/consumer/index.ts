@@ -1,4 +1,4 @@
-import { Message, PartitionMetadata, TopicPartitionOffset } from 'node-rdkafka'
+import { Assignment, Message, PartitionMetadata, TopicPartitionOffset } from 'node-rdkafka'
 
 import { HealthCheckResult } from '~/types'
 
@@ -26,9 +26,13 @@ export const START_AT_LATEST = { ['auto.offset.reset' as keyof RdKafkaConsumerCo
  * implementations to support it.
  */
 export interface KafkaConsumerInterface {
-    connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>): Promise<void>
+    connect(
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>,
+        onPartitionsRevoked?: (revokedPartitions: Assignment[]) => Promise<void>
+    ): Promise<void>
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult
+    /** Throws once a background task returned from `eachBatch` has failed. */
     offsetsStore(offsets: TopicPartitionOffset[]): void
     /** Broker-side `[low, high]` offsets for a partition. `high` is the next offset to be produced. */
     queryWatermarkOffsets(topic: string, partition: number, timeout?: number): Promise<[number, number]>
@@ -50,6 +54,13 @@ export function createKafkaConsumer(
     if (defaultConfig.CONSUMER_USE_V2) {
         logger.info('🔁', 'kafka_consumer_factory_using_v2', { groupId: config.groupId, topic: config.topic })
         return new KafkaConsumerV2(config, rdKafkaConfig)
+    }
+    if (defaultConfig.CONSUMER_BATCH_SIZE_KB > 0) {
+        logger.warn('🔁', 'kafka_consumer_factory_batch_byte_bound_ignored_by_v1', {
+            groupId: config.groupId,
+            topic: config.topic,
+            batchSizeKb: defaultConfig.CONSUMER_BATCH_SIZE_KB,
+        })
     }
     return new KafkaConsumer(config, rdKafkaConfig)
 }

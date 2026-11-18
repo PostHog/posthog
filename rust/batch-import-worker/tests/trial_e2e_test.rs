@@ -183,7 +183,9 @@ impl TrialRun {
             secrets: JobSecrets::empty(),
             backoff_attempt: 0,
             backoff_until: None,
+            pending_commit: None,
             was_leased: false,
+            recovered_commit: None,
         };
 
         let prefix = format!("trial-e2e-test/team_{TEAM_ID}/job_{job_id}");

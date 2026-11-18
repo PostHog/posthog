@@ -30,10 +30,12 @@ export interface AnalyticsTracker {
   identifyUser(userId: string, properties?: UserIdentifyProperties): void;
   setUserGroups(user: AnalyticsUserGroups): void;
   resetUser(): void;
-  captureSurveyResponse(params: {
-    surveyId: string;
-    responses: Array<{ questionId: string; response: string }>;
-  }): void;
+  recordNavigationSettled(
+    durationMs: number,
+    route: string,
+    visibilityAtSettle: DocumentVisibilityState,
+  ): void;
+  getSessionId(): string | undefined;
 }
 
 export const ANALYTICS_TRACKER = Symbol.for("posthog.ui.AnalyticsTracker");
@@ -79,11 +81,18 @@ export function resetUser(): void {
   resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).resetUser();
 }
 
-export function captureSurveyResponse(params: {
-  surveyId: string;
-  responses: Array<{ questionId: string; response: string }>;
-}): void {
-  resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).captureSurveyResponse(
-    params,
+export function recordNavigationSettled(
+  durationMs: number,
+  route: string,
+  visibilityAtSettle: DocumentVisibilityState,
+): void {
+  resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).recordNavigationSettled(
+    durationMs,
+    route,
+    visibilityAtSettle,
   );
+}
+
+export function getAnalyticsSessionId(): string | undefined {
+  return resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).getSessionId();
 }

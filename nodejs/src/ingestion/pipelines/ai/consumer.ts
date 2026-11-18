@@ -16,8 +16,7 @@ import { PersonHogConfig } from '~/common/personhog'
 import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -50,6 +49,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
         | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
         | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
+        | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE'
         | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
         | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
         | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
@@ -58,6 +58,8 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
         | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
+        | 'TEAMS_PREFETCH_ENABLED'
+        | 'HOG_FUNCTIONS_PREFETCH_ENABLED'
         | 'AI_BLOB_S3_BUCKET'
         | 'AI_BLOB_S3_PREFIX'
         | 'AI_BLOB_S3_ENDPOINT'
@@ -127,7 +129,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     staticForceOverflowTokens: splitTokens(config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID),
                 })
             )
-            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
+            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres, { pipeline: 'ai' }))
             // Dedicated 'ai' keyspace so AI overflow never affects analytics.
             .add(
                 'overflowRedirectService',
@@ -135,6 +137,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                          localCacheMaxSize: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                           strategies: [
                               {
                                   ...eventRateStrategy(),
@@ -171,8 +174,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
         )
     }
-    const usageClient = createUsageIngestionClient(config, 'ai_events')
-    const usageTeamMatcher = usageReportTeamMatcher(config)
+    const createEventUsageBatch = createEventUsageBatchFactory(config, 'ai_events')
 
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
@@ -201,6 +203,8 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
+            teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: config.HOG_FUNCTIONS_PREFETCH_ENABLED,
             // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
             // failure can surface as an unhandled rejection and restart the worker.
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres, {
@@ -209,8 +213,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
-            createEventUsageBatch: () =>
-                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
+            createEventUsageBatch,
         })
     )
 }

@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * List batch import (managed migration) jobs across all teams. PostHog staff only.
  */
-export const ManagedMigrationsSupportListQueryParams = /* @__PURE__ */ zod.object({
+export const ManagedMigrationsSupportListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
@@ -26,6 +26,6 @@ export const ManagedMigrationsSupportListQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Get one batch import job with its raw worker state and import config. PostHog staff only.
  */
-export const ManagedMigrationsSupportRetrieveParams = /* @__PURE__ */ zod.object({
+export const ManagedMigrationsSupportRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch import.'),
 })

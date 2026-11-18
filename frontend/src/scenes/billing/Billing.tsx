@@ -8,7 +8,6 @@ import { useEffect } from 'react'
 
 import * as judge from '@posthog/brand/hoggies/png/judge'
 import * as star from '@posthog/brand/hoggies/png/star'
-import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -18,24 +17,23 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { toSentenceCase } from 'lib/utils/strings'
 import { couponLogic } from 'scenes/coupons/couponLogic'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'
-import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
-import { CodeSeatsSection } from './CodeSeatsSection'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
@@ -61,6 +59,9 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        billingManagedByPartnerNotice,
+        billingManagedByVercelNotice,
+        isBillingManagedByVercel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -76,7 +77,7 @@ export function Billing(): JSX.Element {
     })
 
     useEffect(() => {
-        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+        if (location.pathname === urls.organizationBilling()) {
             // View-only members can't see the Overview tab, so land them on Usage instead
             router.actions.replace(
                 urls.organizationBillingSection(canOnlyViewUsageAndSpend ? 'usage' : 'overview'),
@@ -84,7 +85,7 @@ export function Billing(): JSX.Element {
             )
             return
         }
-    }, [featureFlags, location.pathname, searchParams, canOnlyViewUsageAndSpend])
+    }, [location.pathname, searchParams, canOnlyViewUsageAndSpend])
 
     useEffect(() => {
         if (billing) {
@@ -164,6 +165,18 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {billingManagedByPartnerNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByPartnerNotice}
+                </LemonBanner>
+            )}
+
+            {billingManagedByVercelNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByVercelNotice}
+                </LemonBanner>
+            )}
+
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
@@ -190,7 +203,14 @@ export function Billing(): JSX.Element {
                     )}
                 >
                     {showBillingSummary && (
-                        <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>
+                        <div
+                            className={clsx('flex-1', {
+                                'flex-grow-0': showCreditCTAHero,
+                                // flex-1 sets a 0 basis, so with flex-grow-0 the summary gets only its min-content width and its text and button wrap.
+                                // The 20rem basis with no shrink keeps it at that width or wider, because the default min-width still holds the content width.
+                                '@3xl:shrink-0 @3xl:basis-80': showCreditCTAHero && billing?.has_active_subscription,
+                            })}
+                        >
                             <BillingSummary />
                         </div>
                     )}
@@ -256,7 +276,8 @@ export function Billing(): JSX.Element {
             )
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
+                        !isCompanionProduct(product) &&
+                        (!product.inclusion_only || product.addons.find((a) => !a.inclusion_only))
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>
@@ -264,34 +285,8 @@ export function Billing(): JSX.Element {
                     </div>
                 ))}
 
-            {featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
-                <div className="flex flex-wrap max-w-300 pb-8">
-                    <div className="border border-primary rounded w-full bg-surface-primary">
-                        <div className="border-b border-primary rounded-t p-4">
-                            <div className="flex gap-4 items-center justify-between">
-                                <div className="flex gap-x-2">
-                                    <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
-                                    <div>
-                                        <h3 className="font-bold mb-0">PostHog Desktop</h3>
-                                        <div>Manage existing PostHog Desktop seats.</div>
-                                    </div>
-                                </div>
-                                <LemonButton
-                                    icon={<IconDocument />}
-                                    size="small"
-                                    to="https://posthog.com/docs/posthog-desktop"
-                                    tooltip="Read the docs"
-                                />
-                            </div>
-                        </div>
-                        <div className="p-8">
-                            <CodeSeatsSection />
-                        </div>
-                    </div>
-                </div>
-            )}
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !isBillingManagedByVercel ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

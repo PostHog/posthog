@@ -1,7 +1,7 @@
 from datetime import timedelta
 
+import time_machine
 import unittest.mock
-from freezegun import freeze_time
 
 from django.db.models import Q
 from django.test import TestCase, override_settings
@@ -10,7 +10,7 @@ from django.utils import timezone
 import dagster
 
 from posthog.models import Organization, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthDeviceGrant, OAuthGrant, OAuthRefreshToken
 
 from products.growth.dags.oauth import (
     batch_delete_model,
@@ -35,7 +35,7 @@ class TestOAuthTokenCleanup(TestCase):
             algorithm="RS256",
         )
 
-    @freeze_time("2023-01-15 02:00:00")
+    @time_machine.travel("2023-01-15 02:00:00", tick=False)
     def test_oauth_cleanup_job_with_real_tokens(self):
         expired_time = timezone.now() - timedelta(days=95)  # Beyond retention period
         OAuthAccessToken.objects.create(
@@ -55,6 +55,13 @@ class TestOAuthTokenCleanup(TestCase):
             scope="read write",
         )
 
+        OAuthDeviceGrant.objects.create(
+            client_id="test_client_id", device_code="expired-device", user_code="BCDF-GHJK", expires=expired_time
+        )
+        pending_device_grant = OAuthDeviceGrant.objects.create(
+            client_id="test_client_id", device_code="pending-device", user_code="LMNP-QRST", expires=future_time
+        )
+
         initial_count = OAuthAccessToken.objects.count()
         self.assertEqual(initial_count, 2)
 
@@ -66,6 +73,7 @@ class TestOAuthTokenCleanup(TestCase):
         self.assertLess(final_count, initial_count)
 
         self.assertTrue(OAuthAccessToken.objects.filter(id=valid_token.id).exists())
+        self.assertEqual(list(OAuthDeviceGrant.objects.values_list("id", flat=True)), [pending_device_grant.id])
 
 
 class TestBatchDeleteFunctionality(TestCase):

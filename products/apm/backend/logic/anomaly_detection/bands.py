@@ -23,6 +23,8 @@ from typing import Protocol
 import numpy as np
 from scipy import stats
 
+from posthog.dataclasses import frozen
+
 from products.apm.backend.logic.anomaly_detection.types import Band
 
 TRIM_FRACTION = 0.1
@@ -34,6 +36,8 @@ NORMAL_Q1_IN_SIGMA = 0.674
 TUKEY_FENCE_K = 1.5
 # Sample variance within this ratio of the mean counts as "not overdispersed".
 OVERDISPERSION_TOLERANCE = 1.001
+ISOLATED_SPIKE_SIGMAS = 10.0
+MIN_SPIKE_BASELINE_SAMPLES = 5
 
 
 class BandModel(Protocol):
@@ -70,6 +74,13 @@ class PoissonBandModel:
         return Band(lower=lower, upper=upper, expected=mu)
 
 
+@frozen
+class _CountMoments:
+    mean: float
+    variance: float
+    expected: float
+
+
 class NegativeBinomialBandModel:
     """Poisson band inflated to the measured sample dispersion.
 
@@ -84,18 +95,57 @@ class NegativeBinomialBandModel:
         self.dispersion_floor = dispersion_floor
 
     def compute(self, samples: np.ndarray, observed: float, alpha: float) -> Band:
-        mu = _robust_rate(samples)
-        mu_eff = max(mu, self.rate_floor)
-        var = float(np.var(samples, ddof=1)) if samples.size >= 2 else mu_eff
-        var = max(var, mu_eff * self.dispersion_floor)
-        if var <= mu_eff * OVERDISPERSION_TOLERANCE:
+        moments = self._moments(samples)
+        mu_eff = max(moments.mean, self.rate_floor)
+        if moments.variance <= mu_eff * OVERDISPERSION_TOLERANCE:
             lower, upper = _poisson_interval(mu_eff, alpha)
         else:
-            r = mu_eff**2 / (var - mu_eff)
+            r = mu_eff**2 / (moments.variance - mu_eff)
             p = r / (r + mu_eff)
             lower = float(stats.nbinom.ppf(alpha, r, p))
             upper = float(stats.nbinom.ppf(1.0 - alpha, r, p))
-        return Band(lower=lower, upper=upper, expected=mu)
+        return Band(lower=lower, upper=upper, expected=moments.expected)
+
+    def _moments(self, samples: np.ndarray) -> _CountMoments:
+        if samples.size >= MIN_SPIKE_BASELINE_SAMPLES:
+            ordered = np.sort(samples)
+            rest = ordered[:-1]
+            rest_mean = float(np.mean(rest))
+            rest_variance = float(np.var(rest, ddof=1))
+            poisson_variance = max(rest_mean, self.rate_floor) * self.dispersion_floor
+            if rest_variance <= poisson_variance * OVERDISPERSION_TOLERANCE and ordered[
+                -1
+            ] > rest_mean + ISOLATED_SPIKE_SIGMAS * np.sqrt(poisson_variance):
+                samples = rest
+        mu = float(np.mean(samples))
+        mu_eff = max(mu, self.rate_floor)
+        variance = float(np.var(samples, ddof=1)) if samples.size >= 2 else mu_eff
+        return _CountMoments(
+            mean=mu, variance=max(variance, mu_eff * self.dispersion_floor), expected=_robust_rate(samples)
+        )
+
+    def compute_many(self, samples: list[np.ndarray], alpha: float) -> list[Band]:
+        if not samples:
+            return []
+        moments = [self._moments(sample) for sample in samples]
+        means = np.array([moment.mean for moment in moments])
+        effective_means = np.maximum(means, self.rate_floor)
+        variances = np.array([moment.variance for moment in moments])
+        overdispersed = variances > effective_means * OVERDISPERSION_TOLERANCE
+        lower = np.empty(len(samples))
+        upper = np.empty(len(samples))
+        poisson_means = effective_means[~overdispersed]
+        lower[~overdispersed] = stats.poisson.ppf(alpha, poisson_means)
+        upper[~overdispersed] = stats.poisson.ppf(1.0 - alpha, poisson_means)
+        nb_means = effective_means[overdispersed]
+        shapes = nb_means**2 / (variances[overdispersed] - nb_means)
+        probabilities = shapes / (shapes + nb_means)
+        lower[overdispersed] = stats.nbinom.ppf(alpha, shapes, probabilities)
+        upper[overdispersed] = stats.nbinom.ppf(1.0 - alpha, shapes, probabilities)
+        return [
+            Band(lower=float(low), upper=float(high), expected=moment.expected)
+            for low, high, moment in zip(lower, upper, moments, strict=True)
+        ]
 
 
 class _RegistryBandModel:

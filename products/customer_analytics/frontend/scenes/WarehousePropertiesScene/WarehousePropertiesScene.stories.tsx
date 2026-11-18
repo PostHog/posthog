@@ -31,6 +31,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a1',
             definition: '01890000-0000-0000-0000-000000000001',
@@ -82,6 +83,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a2',
             definition: '01890000-0000-0000-0000-000000000002',
@@ -114,6 +116,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a3',
             definition: '01890000-0000-0000-0000-000000000003',
@@ -145,6 +148,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         // View-backed: bound to a materialized view rather than an imported table, so it carries a
         // saved_query and no warehouse source to link through.
         source: {

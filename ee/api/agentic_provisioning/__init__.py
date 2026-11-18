@@ -1,1 +1,1 @@
-"""Agentic provisioning API: partner-facing account, resource, and wizard endpoints."""
+"""Agentic provisioning API: partner-facing account and resource endpoints."""

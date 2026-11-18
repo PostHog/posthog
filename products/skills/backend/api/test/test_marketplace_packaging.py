@@ -20,7 +20,6 @@ from products.skills.backend.marketplace.packaging import (
     parse_skill_zip,
     render_frontmatter,
     render_skill_md,
-    validate_for_export,
 )
 
 # These tests are intentionally DB-free — the packaging core takes plain dataclasses.
@@ -40,6 +39,14 @@ def _skill(**overrides) -> SkillExport:
     }
     base.update(overrides)
     return SkillExport(**base)
+
+
+def _zip_with(files: dict[str, str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path, content in files.items():
+            archive.writestr(path, content)
+    return buffer.getvalue()
 
 
 class TestFrontmatter:
@@ -77,18 +84,6 @@ class TestFrontmatter:
         out = render_skill_md(_skill())
         assert "---\n" in out
         assert out.rstrip().endswith("Do the thing.")
-
-
-class TestExportValidation:
-    def test_description_over_spec_limit_is_flagged(self):
-        problems = validate_for_export(_skill(description="x" * 1025))
-        assert any("1024" in p for p in problems)
-
-    def test_empty_description_is_flagged(self):
-        assert any("non-empty" in p for p in validate_for_export(_skill(description="   ")))
-
-    def test_clean_skill_has_no_problems(self):
-        assert validate_for_export(_skill()) == []
 
 
 class TestSkillTreeAndZip:
@@ -183,16 +178,22 @@ class TestZipImport:
         assert "version" not in parsed.metadata
         assert parsed.metadata.get("author") == "posthog"
 
-    def test_zip_without_skill_md_raises(self):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as archive:
-            archive.writestr("nope/readme.txt", "x")
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(b"not a zip", id="non_zip"),
+            pytest.param(_zip_with({"nope/readme.txt": "x"}), id="no_skill_md"),
+            pytest.param(
+                _zip_with(
+                    {"deep/SKILL.md": f"---\nname: deep\ndescription: d\nx: {'[' * 5000}{']' * 5000}\n---\nbody\n"}
+                ),
+                id="deeply_nested_frontmatter",
+            ),
+        ],
+    )
+    def test_invalid_archive_raises_import_error(self, payload):
         with pytest.raises(SkillImportError):
-            parse_skill_zip(buffer.getvalue())
-
-    def test_non_zip_raises(self):
-        with pytest.raises(SkillImportError):
-            parse_skill_zip(b"not a zip")
+            parse_skill_zip(payload)
 
 
 class TestGitTreeSafety:

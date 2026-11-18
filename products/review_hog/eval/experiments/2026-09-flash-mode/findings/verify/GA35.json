@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA35",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "This is a request for more documentation, not a defect. The code works as intended, and the intent is already written down in AGENTS.md and in the code.\n- products/stamphog/AGENTS.md:101-102 says the webhook path \"re-reviews only on synchronize / reopen / base retarget\". That list is closed, so it already tells a reader that ready_for_review starts no re-review.\n- products/stamphog/AGENTS.md:94-96 says the draft prerequisite is relaxed on purpose because \"the verdict must exist at Inbox triage time, while the PR is still a draft\". That is the reason the draft-time approval is left standing.\n- products/stamphog/backend/tasks/tasks.py:144-162: the `_inbox_rereview_carve_out` docstring says a ready_for_review flip alone does not invalidate the draft-time verdict.\n- tools/pr-approval-agent/review_pr.py:586-590: the `_check_prerequisites` comment says the same thing.\n- products/stamphog/backend/temporal/activities.py:384: a comment says actions that do not move the head SHA, such as ready_for_review, bail early.\nThe finding only claims that a future agent \"could\" read the missing sentence as a bug. Nothing in the code triggers that.",
+            "refutation": "The premise is that the contract leaves the ready_for_review no-op unstated. The AGENTS.md bullet names every action that triggers a re-review, and ready_for_review is not one of them. The earlier bullet explains why the review happens while the PR is still a draft. Both code sites that could be \"fixed\" carry comments saying the behavior is deliberate (tasks.py:162 and review_pr.py:586-588). Adding one more sentence is a style preference, and it would repeat safeguards that already exist. The runtime behavior has no defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/AGENTS.md:100-102 already says the webhook path \"re-reviews only on synchronize / reopen / base retarget\". The word \"only\" already rules out a re-review on a ready_for_review flip. The code writes down the reason: the docstring at products/stamphog/backend/tasks/tasks.py:162 says a \"ready_for_review flip alone doesn't invalidate the draft-time verdict\". A test pins the behavior: products/stamphog/backend/tests/test_tasks.py:836 has the case ({\"action\": \"ready_for_review\", \"draft\": False}, 0, ...), named \"ready_for_review_keeps_the_draft_verdict\" at line 844, with a comment at line 852 that explains it. The retraction path also leaves the approval alone: products/stamphog/backend/temporal/activities.py:384 bails out on actions that keep the head SHA, such as `ready_for_review`.",
+            "refutation": "The feared regression cannot slip in unnoticed. Suppose a future agent adds a re-review or a retraction on ready_for_review. The parameterized test ready_for_review_keeps_the_draft_verdict (test_tasks.py:836-852) fails, and the tasks.py:162 docstring already says the behavior is deliberate. The AGENTS.md bullet already limits re-reviews to three named actions, so adding the sentence only repeats what the doc, docstring and test already say. It asks for more words in the docs and fixes no defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The finding asks for an extra sentence in a doc. It does not point to a code defect, and nothing in production can trigger a failure from it. The code already does the right thing when a draft is marked ready for review:\n- products/stamphog/AGENTS.md:100-105 says the webhook path \"re-reviews only on synchronize / reopen / base retarget\". The word \"only\" already rules out `ready_for_review` as a re-review trigger.\n- tools/pr-approval-agent/review_pr.py:587-590 has a comment saying the draft review is deliberate: the approval granted on the draft takes effect when the PR flips to ready.\n- products/stamphog/backend/tasks/tasks.py:162 has a docstring saying a ready_for_review flip alone does not invalidate the draft-time verdict.\n- products/stamphog/backend/tests/test_tasks.py:836,844,852 has a parametrized test case named \"ready_for_review_keeps_the_draft_verdict\" (`{\"action\": \"ready_for_review\", \"draft\": False}` expects no re-review). If a future agent \"fixes\" this by adding a re-review or retracting the approval, that test fails in CI.",
+            "refutation": "The finding worries that a future agent will treat the missing ready_for_review handling as a bug. Three things already guard against that:\n- The AGENTS.md bullet says \"only\" and lists the exact actions.\n- There are explicit why-comments at review_pr.py:587-589 and tasks.py:162.\n- A named test case, test_tasks.py:844, locks the behavior in.\n\nThe finding admits the intent is already written down in the engine and in the docstring. Adding the sentence would duplicate a safeguard and is a matter of style. Nothing wrong happens in production."
+        }
+    ]
+}

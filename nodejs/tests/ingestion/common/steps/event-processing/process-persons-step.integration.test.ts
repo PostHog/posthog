@@ -23,6 +23,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import {
@@ -51,15 +52,14 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
-        PERSON_MERGE_EVENTS_ENABLED: false,
-        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
-        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSON_MERGE_NOT_APPLIED_WAIT_MS: 0,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+        FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: '',
         EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
     }
 
@@ -708,6 +708,30 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
         })
 
+        it('bootstraps a missing target from the triggering pair, not the first planned pair', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            // anon-2 has no person row, and anon-1's event was dropped before
+            // the person step, so anon-2's event triggers the fold.
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            await runIdentifies([identifyEvent('anon-2', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('executed')
+            // The merged property blob is batch-deferred; only moves and
+            // deletes commit inside the fold transaction.
+            await personsStore.flush()
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            // The trigger's pair had no persons on either side, so the
+            // bootstrap creates the target on user-1's deterministic uuid and
+            // the fold merges anon-1's person into it; bootstrapping anon-1's
+            // pair instead would leave anon-1's person as the survivor.
+            expect(persons[0].uuid).toBe(uuidFromDistinctId(teamId, 'user-1'))
+            expect(persons[0].properties).toEqual(expect.objectContaining({ a: 1 }))
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
+        })
+
         it('folded adds for distinct ids without a person get version 1', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
             const plan = planFor('user-1', 'anon-1', 'anon-2')
@@ -791,7 +815,9 @@ describe('createProcessPersonsStep', () => {
         it('abandons the fold when sources changed between fetch and transaction', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
             await createPersonWithProps('user-1', {})
-            const plan = planFor('user-1', 'anon-1')
+            // Two pairs so the folded path runs; a single-pair plan merges
+            // through the sequential path and never needs the count check.
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
 
             // Simulate a concurrent merge emptying the source between the
             // locked fetch and the transaction's count.
@@ -805,6 +831,92 @@ describe('createProcessPersonsStep', () => {
             expect(persons).toHaveLength(1)
             const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
             expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
+        })
+    })
+
+    // The person repair tooling (`person_consistency fold` and `merge`) sends these events and relies on these outcomes.
+    describe('merge outcomes the person repair tooling relies on', () => {
+        it.each([
+            ['$identify', { $anon_distinct_id: 'a-moved' }],
+            ['$merge_dangerously', { alias: 'a-moved' }],
+        ])(
+            '%s whose two ids already share a person marks it identified and applies $set_once',
+            async (event, extra) => {
+                const person = await createPersonWithDistinctIds('b-own', 'a-moved')
+                expect(person.is_identified).toBe(false)
+
+                const step = createProcessPersonsStep(options, personOutputs)
+                const result = await step(
+                    createInput({
+                        normalizedEvent: {
+                            ...pluginEvent,
+                            event,
+                            distinct_id: 'b-own',
+                            properties: { ...extra, $set_once: { plan: 'pro' } },
+                        },
+                    })
+                )
+                expect(isOkResult(result)).toBe(true)
+                await personsStore.flush()
+
+                const persons = await fetchPostgresPersons(infra.postgres, teamId)
+                expect(persons).toHaveLength(1)
+                expect(persons[0].uuid).toBe(person.uuid)
+                expect(persons[0].is_identified).toBe(true)
+                expect(persons[0].properties).toMatchObject({ plan: 'pro' })
+                expect((await fetchDistinctIdValues(infra.postgres, persons[0])).sort()).toEqual(['a-moved', 'b-own'])
+            }
+        )
+
+        it('$merge_dangerously folds an older identified source into the survivor with the earlier created_at', async () => {
+            const olderCreatedAt = DateTime.fromISO('2024-01-01T00:00:00Z', { zone: 'utc' })
+            const source = await personRepository.createPerson(
+                olderCreatedAt,
+                { email: 'old@example.com', plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId: 'a-ghost' }
+            )
+            const survivor = await personRepository.createPerson(
+                DateTime.fromISO('2026-09-01T00:00:00Z', { zone: 'utc' }),
+                { email: 'new@example.com' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                new UUIDT().toString(),
+                { distinctId: 'b-own' }
+            )
+            if (!source.success || !survivor.success) {
+                throw new Error('setup failed')
+            }
+
+            const step = createProcessPersonsStep(options, personOutputs)
+            const result = await step(
+                createInput({
+                    normalizedEvent: {
+                        ...pluginEvent,
+                        event: '$merge_dangerously',
+                        distinct_id: 'b-own',
+                        properties: { alias: 'a-ghost' },
+                    },
+                })
+            )
+            expect(isOkResult(result)).toBe(true)
+            await personsStore.flush()
+
+            const live = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(live).toHaveLength(1)
+            expect(live[0].uuid).toBe(survivor.person.uuid)
+            expect(live[0].is_identified).toBe(true)
+            expect(live[0].created_at.toISO()).toBe(olderCreatedAt.toISO())
+            expect(live[0].properties).toMatchObject({ email: 'new@example.com', plan: 'pro' })
+            expect((await fetchDistinctIdValues(infra.postgres, live[0])).sort()).toEqual(['a-ghost', 'b-own'])
         })
     })
 })

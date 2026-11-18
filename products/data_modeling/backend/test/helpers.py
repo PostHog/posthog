@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from unittest import mock
 
@@ -13,6 +14,10 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 def table_node(team, dag: DAG, name: str, properties: dict) -> Node:
     return Node.objects.create(team=team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
+
+
+def metric_node(team, dag: DAG, name: str) -> Node:
+    return Node.objects.create(team=team, dag=dag, name=name, type=NodeType.METRIC, metric_id=uuid4())
 
 
 def saved_query_node(team, dag: DAG, name: str, node_type: str) -> Node:

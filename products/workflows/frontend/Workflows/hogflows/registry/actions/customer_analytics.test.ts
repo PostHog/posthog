@@ -26,6 +26,21 @@ describe('customer analytics action registry', () => {
         expect(getCategory().featureFlag).toBe(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
     })
 
+    it.each([
+        [false, false, false],
+        [false, true, false],
+        [true, false, false],
+        [true, true, true],
+    ])('shows Create task with CSP %s and tasks %s: %s', (cspEnabled, tasksEnabled, visible) => {
+        const categories = getRegisteredActionNodeCategories({
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: cspEnabled,
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: tasksEnabled,
+        })
+        const nodes = categories.flatMap((category) => category.nodes)
+        expect(nodes.some((node) => node.name === 'Create task')).toBe(visible)
+        expect(nodes.some((node) => node.name === 'Get account')).toBe(cspEnabled)
+    })
+
     it('wires the Get account node to its hog function template', () => {
         const node = getCategory().nodes.find((n) => n.name === 'Get account')
         expect(node).toMatchObject({

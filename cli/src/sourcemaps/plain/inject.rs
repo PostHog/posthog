@@ -5,10 +5,13 @@ use walkdir::DirEntry;
 use crate::{
     api::releases::Release,
     invocation_context::context,
-    sourcemaps::inject::{inject_impl, EventReleaseSource, InjectArgs},
+    sourcemaps::{
+        inject::{inject_impl, EventReleaseSource, InjectArgs},
+        source_pairs::SourcePair,
+    },
 };
 
-pub fn inject(args: &InjectArgs, existing_release: Option<&Release>) -> Result<()> {
+pub fn inject(args: &InjectArgs, existing_release: Option<&Release>) -> Result<Vec<SourcePair>> {
     context().capture_command_invoked("sourcemap_inject");
     args.validate()?;
     inject_impl(

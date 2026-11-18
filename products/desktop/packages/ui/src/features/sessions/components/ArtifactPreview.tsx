@@ -16,7 +16,7 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { TaskRun, TaskRunArtifact } from "@posthog/shared";
 import {
   getAuthIdentity,
@@ -28,6 +28,7 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { PostHogObjectPage } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   type ReactElement,
   useCallback,
@@ -36,6 +37,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { commentAgentContext, withScreenshot } from "../commentAgentContext";
+import { sendCommentToAgent } from "../sendCommentToAgent";
 import { ArtifactEditView } from "./ArtifactEditView";
 import {
   ArtifactPreviewContent,
@@ -154,7 +157,7 @@ export function ArtifactPreview({
       : runId;
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
-  const [imageError, setImageError] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   const [imageCommenting, setImageCommenting] = useState(false);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const {
@@ -333,19 +336,16 @@ export function ArtifactPreview({
     ) : null;
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
-  if (isError || imageError) return <ArtifactPreviewError />;
+  if (isError || mediaError) return <ArtifactPreviewError />;
 
   if (isPostHogObjectPreview(previewData)) {
     return (
       <PostHogObjectPage
         metadata={liveReferenceMetadata ?? previewData.metadata}
         fallbackName={name}
+        taskId={taskId}
       />
     );
   }
@@ -394,10 +394,21 @@ export function ArtifactPreview({
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}
+      sendCommentToAgent={(anchor, content, screenshot) =>
+        sendCommentToAgent({
+          taskId,
+          comment: content,
+          context: withScreenshot(
+            commentAgentContext(anchor, { kind: "artifact", name }),
+            screenshot,
+          ),
+          surface: "artifact",
+        })
+      }
       onResolutionsChange={onResolutionsChange}
       imageCommenting={imageCommenting}
       setImageCommenting={setImageCommenting}
-      onImageError={() => setImageError(true)}
+      onMediaError={() => setMediaError(true)}
       editableKind={editing.editableKind}
       artifactResult={artifactResult}
     />

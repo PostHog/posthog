@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from .ports import DJANGO_LIVE_PORT, LLM_GATEWAY_PORT, MCP_PORT
+from .ports import AI_GATEWAY_PORT, DJANGO_LIVE_PORT, MCP_PORT
 from .tunnels import TailscaleFunnel, funnel_preflight_error
 
 logger = logging.getLogger(__name__)
@@ -201,9 +201,9 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             raise PreflightError("The Docker daemon is not reachable. Start Docker and retry.")
 
     def start(self, stack: ExitStack) -> None:
-        # Verify posthog-sandbox-base is fresh (rebuilding when @posthog/agent published a
-        # newer version or the Dockerfile changed) before any case grabs a sandbox, so a
-        # stale image can't break the whole run. Imported here because it pulls in Django.
+        # Verify posthog-sandbox-base is fresh (rebuilding when the Dockerfile or its
+        # agent pin changed) before any case grabs a sandbox, so a stale image can't
+        # break the whole run. Imported here because it pulls in Django.
         from products.tasks.backend.logic.services.docker_sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
             ensure_fresh_base_image,
             ensure_template_image,
@@ -219,11 +219,14 @@ class DockerProviderStrategy(SandboxProviderStrategy):
         ensure_template_image(SandboxTemplate.NOTEBOOK_BASE)
 
     def settings_overrides(self) -> dict[str, Any]:
-        # Docker containers reach the host via host.docker.internal.
+        # Docker containers reach the host via host.docker.internal. The gateway URL is the
+        # exception: the worker on the host mints run tokens through it, and DockerSandbox
+        # rewrites localhost to host.docker.internal in the container's env.
         return {
             "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": f"http://host.docker.internal:{DJANGO_LIVE_PORT}",
-            "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{LLM_GATEWAY_PORT}",
+            "SANDBOX_AI_GATEWAY_URL": f"http://localhost:{AI_GATEWAY_PORT}",
+            "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{AI_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
         }
 
@@ -293,7 +296,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         tunnels = TailscaleFunnel(
             {
                 "django": DJANGO_LIVE_PORT,
-                "gateway": LLM_GATEWAY_PORT,
+                "gateway": AI_GATEWAY_PORT,
                 "mcp": MCP_PORT,
             }
         )
@@ -307,6 +310,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         return {
             "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": self._tunnels.url_for("django"),
+            "SANDBOX_AI_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_LLM_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}/mcp",
         }

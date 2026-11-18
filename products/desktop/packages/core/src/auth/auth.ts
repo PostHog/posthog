@@ -7,16 +7,27 @@ import {
 import {
   type BackoffOptions,
   type CloudRegion,
+  getBackoffDelay,
   getCloudUrlFromRegion,
+  isCredentialOriginAllowed,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
   sleepWithBackoff,
   TypedEventEmitter,
   withTimeout,
 } from "@posthog/shared";
-import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import {
+  inject,
+  injectable,
+  optional,
+  postConstruct,
+  preDestroy,
+} from "inversify";
+import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -101,7 +112,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private initializePromise: Promise<void> | null = null;
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private desktopAccessRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private desktopAccessGrant: {
+    epoch: number;
+    cloudRegion: CloudRegion;
+    projectId: number;
+  } | null = null;
   private sessionGeneration = 0;
+  private sessionEpoch = 0;
   // A refresh already refused, keyed to the session generation so every teardown
   // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
   private refusedRefresh: {
@@ -129,6 +147,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     private readonly logger: RootLogger,
     @inject(AUTH_TOKEN_OVERRIDE)
     private readonly tokenOverride: string | null,
+    @inject(AUTH_FETCH_EXTRA_ORIGINS)
+    @optional()
+    private readonly extraFetchOrigins: readonly string[] | undefined = [],
+    @inject(AUTH_FETCH)
+    @optional()
+    private readonly fetchImpl: FetchLike = (input, init) => fetch(input, init),
   ) {
     super();
   }
@@ -142,6 +166,55 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   getState(): AuthState {
     return { ...this.state };
+  }
+  reportDesktopAccessBlocked(projectId: number, access: unknown): void {
+    if (this.state.currentProjectId !== projectId) return;
+    const parsed = desktopAccessResponseSchema.safeParse(access);
+    if (!parsed.success || parsed.data.allowed) return;
+    this.desktopAccessGrant = null;
+    this.updateState({
+      desktopAccess: {
+        projectId,
+        status: "blocked",
+        reason: parsed.data.reason,
+      },
+    });
+  }
+  getCachedAccountKey(): string | null {
+    return this.session?.accountKey ?? null;
+  }
+  /**
+   * Changes with every sign-in, including one that replaces a live session
+   * without signing out first; token refreshes keep it. Null when signed out.
+   */
+  getSessionEpoch(): number | null {
+    return this.session ? this.sessionEpoch : null;
+  }
+  async getAccountKey(): Promise<string | null> {
+    const generation = this.sessionGeneration;
+    const { apiHost } = await this.getValidAccessToken();
+    if (generation !== this.sessionGeneration) return null;
+    const session = this.session;
+    if (session?.accountKey && !this.tokenOverride) {
+      return JSON.stringify([apiHost, session.accountKey]);
+    }
+    const response = await this.authenticatedFetch(
+      this.fetchImpl,
+      `${apiHost}/api/users/@me/`,
+      {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if ([408, 429, 500, 502, 503, 504].includes(response.status)) {
+      throw new Error("Cannot check your account. Try again.");
+    }
+    if (!response.ok) return null;
+    const user = z
+      .object({ uuid: z.string() })
+      .safeParse(await response.json());
+    if (generation !== this.sessionGeneration) return null;
+    return user.success ? JSON.stringify([apiHost, user.data.uuid]) : null;
   }
   async login(region: CloudRegion): Promise<AuthState> {
     this.sessionGeneration += 1;
@@ -238,6 +311,18 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     init: RequestInit = {},
   ): Promise<Response> {
     const initialAuth = await this.getValidAccessToken();
+    const url = typeof input === "string" ? input : input.url;
+    if (
+      !isCredentialOriginAllowed(
+        url,
+        initialAuth.apiHost,
+        this.extraFetchOrigins ?? [],
+      )
+    ) {
+      throw new Error(
+        `Refusing to send PostHog credentials to ${safeOrigin(url)}`,
+      );
+    }
     let response = await this.executeAuthenticatedFetch(
       fetchImpl,
       input,
@@ -445,7 +530,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async patchCurrentOrganization(orgId: string): Promise<void> {
     const { apiHost } = await this.getValidAccessToken();
     const response = await this.authenticatedFetch(
-      fetch,
+      this.fetchImpl,
       `${apiHost}/api/users/@me/`,
       {
         method: "PATCH",
@@ -944,7 +1029,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       teamIds.map(async (teamId) => {
         try {
           const res = await this.executeAuthenticatedFetch(
-            fetch,
+            this.fetchImpl,
             `${apiHost}/api/projects/${teamId}/`,
             {},
             accessToken,
@@ -1052,7 +1137,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const apiHost = getCloudUrlFromRegion(cloudRegion);
     try {
       const res = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         `${apiHost}/api/organizations/${orgId}/`,
         {},
         accessToken,
@@ -1098,11 +1183,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
     });
-    await this.syncAuthenticatedSession(session, sessionGeneration);
+    await this.syncAuthenticatedSession(session, sessionGeneration, true);
   }
   private async syncAuthenticatedSession(
     session: InMemorySession,
     sessionGeneration: number,
+    signIn = false,
   ): Promise<boolean> {
     if (this.sessionGeneration !== sessionGeneration) {
       return false;
@@ -1127,7 +1213,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
-    const desktopAccess = this.carryDesktopAccessInto(session);
+    const desktopAccess = this.carryDesktopAccessInto(session, signIn);
+    if (signIn) this.sessionEpoch += 1;
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1222,7 +1309,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }> {
     try {
       const response = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         `${getCloudUrlFromRegion(cloudRegion)}/api/users/@me/`,
         {},
         accessToken,
@@ -1285,6 +1372,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       | "sessionEndReason"
     > = {},
   ): void {
+    this.clearDesktopAccessRetryTimer();
+    this.desktopAccessGrant = null;
     this.updateState({
       status: "anonymous",
       bootstrapComplete: partial.bootstrapComplete ?? true,
@@ -1305,7 +1394,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
 
   // Resetting to "checking" on every refresh would unmount the whole app.
-  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+  private carryDesktopAccessInto(
+    session: InMemorySession,
+    signIn = false,
+  ): DesktopAccess {
     const previous = this.state.desktopAccess;
     const previousAccountKey = this.session?.accountKey ?? null;
     // A failed `/api/users/@me/` lookup leaves accountKey null on either
@@ -1317,7 +1409,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       session.accountKey !== null &&
       session.accountKey !== previousAccountKey;
     const sameIdentity =
-      !accountChanged && previous.projectId === session.currentProjectId;
+      !signIn &&
+      !accountChanged &&
+      previous.projectId === session.currentProjectId;
     if (
       sameIdentity &&
       (previous.status === "allowed" || previous.status === "blocked")
@@ -1333,8 +1427,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
+    retryAttempt = 0,
   ): Promise<void> {
-    const desktopAccess = await this.checkDesktopAccess(session);
+    if (retryAttempt === 0) this.clearDesktopAccessRetryTimer();
+    const epoch = this.sessionEpoch;
+    const { access: desktopAccess, retryable } =
+      await this.checkDesktopAccess(session);
     if (this.session !== session) {
       // The session rotated while the check was in flight. The result is
       // scoped to (account, project): when the rotation kept both and nothing
@@ -1353,6 +1451,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         current.accountKey !== session.accountKey;
       const stillAnswers =
         current !== null &&
+        this.sessionEpoch === epoch &&
         !accountChanged &&
         current.currentProjectId === session.currentProjectId &&
         desktopAccess.status === "allowed" &&
@@ -1360,26 +1459,97 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         this.state.desktopAccess.projectId === session.currentProjectId;
       if (!stillAnswers) return;
     }
+    const grant = this.desktopAccessGrant;
+    if (
+      retryable &&
+      grant !== null &&
+      grant.epoch === epoch &&
+      this.sessionEpoch === epoch &&
+      grant.cloudRegion === session.cloudRegion &&
+      grant.projectId === desktopAccess.projectId &&
+      this.state.desktopAccess.status === "allowed" &&
+      this.state.desktopAccess.projectId === desktopAccess.projectId
+    ) {
+      this.scheduleDesktopAccessRetry(session, retryAttempt);
+      return;
+    }
+    this.desktopAccessGrant =
+      desktopAccess.status === "allowed" && desktopAccess.projectId !== null
+        ? {
+            epoch,
+            cloudRegion: session.cloudRegion,
+            projectId: desktopAccess.projectId,
+          }
+        : null;
     this.updateState({ desktopAccess });
+  }
+
+  private scheduleDesktopAccessRetry(
+    session: InMemorySession,
+    attempt: number,
+  ): void {
+    this.clearDesktopAccessRetryTimer();
+    if (attempt >= AuthService.DESKTOP_ACCESS_RETRY_MAX_ATTEMPTS) {
+      this.logger.warn("Desktop access recheck kept failing, keeping access", {
+        projectId: session.currentProjectId,
+        attempts: attempt,
+      });
+      return;
+    }
+    const delayMs = getBackoffDelay(
+      attempt,
+      AuthService.DESKTOP_ACCESS_RETRY_BACKOFF,
+    );
+    this.desktopAccessRetryTimer = setTimeout(() => {
+      this.desktopAccessRetryTimer = null;
+      if (
+        this.session !== session ||
+        this.state.desktopAccess.status !== "allowed"
+      ) {
+        return;
+      }
+      void this.ensureValidSession().then(
+        (validSession) => {
+          if (validSession !== session || this.session !== session) return;
+          return this.updateDesktopAccessFromSession(session, attempt + 1);
+        },
+        (error) => {
+          this.logger.warn("Desktop access retry could not refresh session", {
+            error,
+          });
+        },
+      );
+    }, delayMs);
+  }
+
+  private clearDesktopAccessRetryTimer(): void {
+    if (this.desktopAccessRetryTimer) {
+      clearTimeout(this.desktopAccessRetryTimer);
+      this.desktopAccessRetryTimer = null;
+    }
   }
 
   private async checkDesktopAccess(
     session: InMemorySession,
-  ): Promise<DesktopAccess> {
+  ): Promise<{ access: DesktopAccess; retryable: boolean }> {
     const projectId = session.currentProjectId;
+    const failure = (retryable: boolean) => ({
+      access: { projectId, status: "error", reason: null } as const,
+      retryable,
+    });
     if (projectId === null) {
-      return { projectId, status: "error", reason: null };
+      return failure(false);
     }
 
     if (!this.connectivity.getStatus().isOnline) {
-      return { projectId, status: "error", reason: null };
+      return failure(true);
     }
 
     const url = `${getCloudUrlFromRegion(session.cloudRegion)}/api/projects/${projectId}/desktop/access/`;
 
     try {
       const response = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         url,
         {},
         session.accessToken,
@@ -1391,27 +1561,33 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         );
         if (result.success) {
           if (result.data.allowed) {
-            return { projectId, status: "allowed", reason: null };
+            return {
+              access: { projectId, status: "allowed", reason: null },
+              retryable: false,
+            };
           }
           return {
-            projectId,
-            status: "blocked",
-            reason: result.data.reason,
+            access: {
+              projectId,
+              status: "blocked",
+              reason: result.data.reason,
+            },
+            retryable: false,
           };
         }
         this.logger.warn("Desktop access response was invalid", {
           status: response.status,
         });
-      } else {
-        this.logger.warn("Desktop access check returned non-OK status", {
-          status: response.status,
-        });
+        return failure(false);
       }
+      this.logger.warn("Desktop access check returned non-OK status", {
+        status: response.status,
+      });
+      return failure(response.status === 429 || response.status >= 500);
     } catch (error) {
       this.logger.warn("Desktop access check request failed", { error });
+      return failure(true);
     }
-
-    return { projectId, status: "error", reason: null };
   }
   private static readonly REFRESH_MAX_ATTEMPTS = 3;
   private static readonly ORG_FETCH_MAX_ATTEMPTS = 3;
@@ -1419,6 +1595,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private static readonly REFRESH_BACKOFF: BackoffOptions = {
     initialDelayMs: 1_000,
     maxDelayMs: 5_000,
+    multiplier: 2,
+  };
+  private static readonly DESKTOP_ACCESS_RETRY_MAX_ATTEMPTS = 6;
+  private static readonly DESKTOP_ACCESS_RETRY_BACKOFF: BackoffOptions = {
+    initialDelayMs: 1_000,
+    maxDelayMs: 30_000,
     multiplier: 2,
   };
   private recoveryPromise: Promise<void> | null = null;
@@ -1440,6 +1622,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   @preDestroy()
   shutdown(): void {
     this.clearImpersonationExpiryTimer();
+    this.clearDesktopAccessRetryTimer();
     this.connectivityUnsubscribe?.();
     this.connectivityUnsubscribe = null;
     this.resumeUnsubscribe?.();
@@ -1487,6 +1670,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async resolveStoredSession(): Promise<StoredSessionInput | null> {
     const stored = this.authSession.getCurrent();
     if (!stored) return null;
+    // A stale scope version means the stored refresh token was granted under
+    // permissions the app no longer requests. Refusing it here, at the one
+    // place every session-refresh path resolves the stored token, stops a
+    // caller that skips the explicit reauth checks (doInitialize,
+    // attemptSessionRecovery) from resurrecting the old-scope session behind
+    // the reauth prompt's back.
+    if (stored.scopeVersion < OAUTH_SCOPE_VERSION) return null;
 
     const refreshToken = await this.cipher.decrypt(
       stored.refreshTokenEncrypted,
@@ -1645,5 +1835,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       ...partial,
     };
     this.emit(AuthServiceEvent.StateChanged, this.getState());
+  }
+}
+
+function safeOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "an invalid URL";
   }
 }

@@ -7,7 +7,7 @@ import { lowercaseFirstLetter } from 'lib/utils/strings'
 
 import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'
-import { CostContext, formatLLMCost, hasCostBreakdown } from '../utils'
+import { CostContext, aiTokenCount, formatLLMCost, hasCostBreakdown } from '../utils'
 
 export function MetadataHeader({
     inputTokens,
@@ -23,10 +23,11 @@ export function MetadataHeader({
     timeToFirstToken,
     isStreaming,
 }: {
-    inputTokens?: number
-    outputTokens?: number
-    cacheReadTokens?: number
-    cacheWriteTokens?: number
+    /** Token props read leniently, so a string or `{ total, … }` count still renders its tag. */
+    inputTokens?: unknown
+    outputTokens?: unknown
+    cacheReadTokens?: unknown
+    cacheWriteTokens?: unknown
     costContext?: CostContext
     model?: string
     latency?: number
@@ -36,6 +37,11 @@ export function MetadataHeader({
     timeToFirstToken?: number
     isStreaming?: boolean
 }): JSX.Element {
+    const inputTokenCount = aiTokenCount(inputTokens)
+    const outputTokenCount = aiTokenCount(outputTokens)
+    const cacheReadTokenCount = aiTokenCount(cacheReadTokens)
+    const cacheWriteTokenCount = aiTokenCount(cacheWriteTokens)
+
     return (
         <div className={clsx('flex flex-wrap gap-2', className)}>
             {isError && <LemonTag type="danger">Error</LemonTag>}
@@ -56,27 +62,27 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {timestamp && <MetadataTag label="Timestamp">{dayjs(timestamp).format('MMM D, YYYY h:mm A')}</MetadataTag>}
-            {typeof inputTokens === 'number' && typeof outputTokens === 'number' && (
+            {inputTokenCount !== null && outputTokenCount !== null && (
                 <MetadataTag
                     label="Token usage"
                     tooltipContent="Input and output tokens consumed by this generation call."
                 >
-                    {`${inputTokens} prompt tokens → ${outputTokens} completion tokens (∑ ${
-                        inputTokens + outputTokens
+                    {`${inputTokenCount} prompt tokens → ${outputTokenCount} completion tokens (∑ ${
+                        inputTokenCount + outputTokenCount
                     })`}
                 </MetadataTag>
             )}
-            {typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && (
+            {cacheReadTokenCount !== null && cacheReadTokenCount > 0 && (
                 <MetadataTag
                     label="Cache read"
                     tooltipContent="Prompt tokens served from the provider's cache (cheaper, faster)."
-                >{`${cacheReadTokens} cache read tokens`}</MetadataTag>
+                >{`${cacheReadTokenCount} cache read tokens`}</MetadataTag>
             )}
-            {typeof cacheWriteTokens === 'number' && cacheWriteTokens > 0 && (
+            {cacheWriteTokenCount !== null && cacheWriteTokenCount > 0 && (
                 <MetadataTag
                     label="Cache write"
                     tooltipContent="Prompt tokens written to the provider's cache for reuse on subsequent calls."
-                >{`${cacheWriteTokens} cache write tokens`}</MetadataTag>
+                >{`${cacheWriteTokenCount} cache write tokens`}</MetadataTag>
             )}
             {typeof model === 'string' && model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>

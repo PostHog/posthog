@@ -2,9 +2,10 @@ import datetime
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -12,8 +13,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_property_definition import exclude_virtual_properties
-from posthog.models import ActivityLog, EventProperty, Tag
+from posthog.models import ActivityLog, Tag
 
+from products.event_definitions.backend.models import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.models.license import License, LicenseManager
@@ -43,11 +45,26 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
                 property_type="not an allowed option",
             )
 
-    def test_retrieve_existing_property_definition(self):
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, None, "event", None),
+            ("group", PropertyDefinition.Type.GROUP, 1, "group", 1),
+        ]
+    )
+    def test_retrieve_existing_property_definition(
+        self,
+        _name: str,
+        definition_type: int,
+        group_type_index: Optional[int],
+        expected_type: str,
+        expected_group_type_index: Optional[int],
+    ):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", type=definition_type, group_type_index=group_type_index
+        )
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
         property.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
@@ -56,6 +73,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["name"], "enterprise property")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], ["deprecated"])
+        self.assertEqual(response_data["type"], expected_type)
+        self.assertEqual(response_data["group_type_index"], expected_group_type_index)
 
     def test_retrieve_create_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -309,7 +328,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_can_get_property_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -328,7 +347,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise property"]
         assert len(matches) == 1
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_verify_then_unverify(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -366,7 +385,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_hidden_property_behavior(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -409,7 +428,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["hidden"] is False
         assert response.json()["verified"] is False
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_marking_hidden_removes_verified_status(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -433,7 +452,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert property.hidden is True
         assert property.verified is False
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -446,7 +465,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {"verified": True},
@@ -459,7 +478,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
-        with freeze_time("2021-10-26T22:09:14.252Z"):
+        with time_machine.travel("2021-10-26T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {"verified": True},
@@ -473,7 +492,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         # updated_at automatically updates on every patch request
         assert response.json()["updated_at"] == "2021-10-26T22:09:14.252000Z"
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -487,7 +506,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {
@@ -501,6 +520,26 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
+
+    def test_list_filters_stay_unambiguous_when_both_tables_have_the_columns(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="billing_plan_tier", verified=True)
+        with connection.cursor() as cursor:
+            # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute(
+                "ALTER TABLE posthog_propertydefinition ADD COLUMN IF NOT EXISTS description text,"
+                " ADD COLUMN IF NOT EXISTS verified boolean, ADD COLUMN IF NOT EXISTS hidden boolean"
+            )
+
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?verified=true&exclude_hidden=true&search=billing_plan_tier"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["billing_plan_tier"]
 
     def test_list_property_definitions_verified_ordering(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

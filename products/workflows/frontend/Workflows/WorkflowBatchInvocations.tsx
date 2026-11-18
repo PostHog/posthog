@@ -20,6 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
 
+import { BatchRunLog } from './BatchRunLog'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
 import {
@@ -37,6 +38,7 @@ const HedgehogGreek = pngHoggie(greekPng)
 
 const STATUS_TAG_TYPE: Record<HogFlowBatchJob['status'], 'success' | 'danger' | 'warning' | 'default'> = {
     completed: 'success',
+    partially_failed: 'warning',
     failed: 'danger',
     cancelled: 'default',
     waiting: 'warning',
@@ -60,7 +62,7 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
                 <strong className="truncate">{job.id}</strong>
                 <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>
                     {/* The stored enum value is 'cancelled'; display American spelling. */}
-                    {job.status === 'cancelled' ? 'canceled' : job.status}
+                    {job.status === 'cancelled' ? 'canceled' : job.status.replace('_', ' ')}
                 </LemonTag>
             </div>
             <div className="flex items-center gap-2">
@@ -108,6 +110,11 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
     )
 }
 
+/**
+ * The table below lists one row per person the run reached. Anything the run itself recorded,
+ * such as an audience cut short at the batch limit, belongs to the run and to no person, so it
+ * has no row there. The run log above the table carries those entries.
+ */
 function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
@@ -123,6 +130,7 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
                 />
             </div>
+            <BatchRunLog jobId={job.id} createdAt={job.created_at} />
             <div className="flex flex-col gap-2">
                 <HogInvocations
                     id={hogFlowId}
@@ -154,7 +162,9 @@ function UpcomingOccurrences(): JSX.Element | null {
         return computePreviewOccurrences(scheduleState, currentSchedule.starts_at, currentSchedule.timezone)
     }, [scheduleState, currentSchedule])
 
-    const summary = scheduleState ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null) : null
+    const summary = scheduleState
+        ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null, currentSchedule?.timezone)
+        : null
     const timezone = currentSchedule?.timezone
     const hasFutureOccurrences = occurrences.some((d) => fakeUtcToReal(d, timezone).isAfter(dayjs()))
 

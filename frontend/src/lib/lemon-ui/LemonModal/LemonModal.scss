@@ -1,3 +1,8 @@
+// Locks page scroll where the body is the scroller. No scrollbar-gutter: it would shift the app sideways.
+body.ReactModal__Body--open {
+    overflow: hidden;
+}
+
 .LemonModal__overlay {
     position: fixed;
     inset: 0;
@@ -40,6 +45,9 @@
 
     // Always give toasts some space at the bottom
     max-height: calc(100vh - 60px - 2rem);
+
+    // dvh excludes the mobile browser toolbar; 100vh above is the fallback.
+    max-height: calc(100dvh - 60px - 2rem);
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
@@ -86,6 +94,9 @@
         flex: 1;
         flex-direction: column;
         overflow-y: hidden;
+
+        // `simple` modals scroll here instead of in .LemonModal__content.
+        overscroll-behavior: contain;
     }
 
     .LemonModal__content {
@@ -95,6 +106,14 @@
         &.LemonModal__content--embedded {
             padding: 0;
         }
+    }
+
+    // Contain the scroll chain only on the outermost content, which is the section that scrolls.
+    // A nested content section has no height limit, so it is a scroll container that cannot scroll,
+    // and containment there stops the wheel at that section instead of passing it to the section
+    // above. The page behind the modal stays still because .LemonModal__layout also contains it.
+    .LemonModal__layout > .LemonModal__content {
+        overscroll-behavior: contain;
     }
 
     .LemonModal__container {

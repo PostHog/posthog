@@ -3,17 +3,17 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconNotification } from '@posthog/icons'
 
+import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notificationsMenuLogic'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
-    const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
-    const { setActivePanelIdentifier, showLayoutPanel, closePanel } = useActions(panelLayoutLogic)
+    const { isNotificationsPanelActive } = useValues(notificationsMenuLogic)
+    const { toggleNotificationsPanel } = useActions(notificationsMenuLogic)
     const { inAppUnreadCount } = useValues(sidePanelNotificationsLogic)
     const [badgePulse, setBadgePulse] = useState(false)
     const prevCountRef = useRef(inAppUnreadCount)
@@ -27,17 +27,6 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
         }
     }, [inAppUnreadCount])
 
-    const isActive = isLayoutPanelVisible && activePanelIdentifier === 'Notifications'
-
-    const handleClick = (): void => {
-        if (isActive) {
-            closePanel()
-        } else {
-            setActivePanelIdentifier('Notifications')
-            showLayoutPanel(true)
-        }
-    }
-
     return (
         <ButtonPrimitive
             tooltip={iconOnly ? 'Notifications' : undefined}
@@ -45,8 +34,8 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
             tooltipCloseDelayMs={0}
             iconOnly={iconOnly}
             menuItem={!iconOnly}
-            active={isActive}
-            onClick={handleClick}
+            active={isNotificationsPanelActive}
+            onClick={() => toggleNotificationsPanel('bell')}
             className="group"
             data-attr="notifications-menu-button"
         >

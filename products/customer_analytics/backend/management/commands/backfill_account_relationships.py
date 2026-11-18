@@ -16,10 +16,10 @@ Idempotent. Run once per environment, with --dry-run first:
 from typing import Any
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
 from posthog.models import User
 
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
@@ -99,21 +99,23 @@ class Command(BaseCommand):
             if definition is None:
                 continue
             # The relationships table has been authoritative since the cutover deploy, so only
-            # fill gaps and never overwrite an assignment made after it. The check runs under
-            # assign's definition lock, or a concurrent assign landing between check and assign
-            # would be replaced by the stale JSON holder.
-            with transaction.atomic():
-                AccountRelationshipDefinition.objects.for_team(team_id).select_for_update().get(id=definition.id)
-                if _has_active_holder(team_id, account, definition):
-                    continue
+            # fill gaps and never overwrite an assignment made after it. A role customer
+            # analytics manages is refused by the relationship service, because its emptiness
+            # is a reviewed decision.
+            if _has_active_holder(team_id, account, definition):
+                continue
+            try:
                 relationships_logic.assign(
                     team_id=team_id,
                     account=account,
                     definition=definition,
                     user=user,
-                    created_by=None,
+                    actor=relationships_logic.Actor(source=AccountRelationshipSource.MIGRATION),
                     emit_event=False,
+                    replace_active=False,
                 )
+            except (relationships_logic.RelationshipOccupiedError, relationships_logic.ManagedRolePolicyError):
+                continue
             assigned += 1
         return assigned
 

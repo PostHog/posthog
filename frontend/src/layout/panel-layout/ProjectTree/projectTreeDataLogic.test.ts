@@ -1,12 +1,21 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { customProductsLogic } from './customProductsLogic'
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
@@ -22,9 +31,11 @@ describe('projectTreeDataLogic', () => {
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] })
 
         initKeaTests()
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.clearActivePanelIdentifier()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadUnfiledItemsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
         jest.clearAllMocks()
     })
 
@@ -33,25 +44,244 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows only the products the user added, with nothing injected alongside them', () => {
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            {
-                id: 'abc',
-                product_path: 'Session replay',
-                enabled: true,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-            },
+    it('follows the home folder after it moves', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
+        logic.actions.loadFolderSuccess(
+            'Research',
+            [{ id: 'home', path: 'Research/My work', type: 'folder' }],
+            false,
+            0
+        )
+        expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+    })
+
+    it.each([
+        { name: 'nothing when both lists show it', shortcut: true, rootFolder: true, reloads: [] },
+        {
+            name: 'the shortcuts when its shortcut is missing',
+            shortcut: false,
+            rootFolder: true,
+            reloads: ['shortcuts'],
+        },
+        { name: 'the root folder when its parent is missing', shortcut: true, rootFolder: false, reloads: ['root'] },
+        {
+            name: 'both lists for a new home folder',
+            shortcut: false,
+            rootFolder: false,
+            reloads: ['shortcuts', 'root'],
+        },
+    ])('after the home folder loads, reloads $name', async ({ shortcut, rootFolder, reloads }) => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadShortcutsSuccess(
+            shortcut ? [{ id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' }] : []
+        )
+        logic.actions.loadFolderSuccess(
+            '',
+            rootFolder ? [{ id: 'users', path: 'Users', type: 'folder' }] : [],
+            false,
+            rootFolder ? 1 : 0
+        )
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads.includes('shortcuts') ? 1 : 0)
+        expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
+    })
+
+    it('checks each list once its own boot load ends', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadFolderStart('')
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+
+        logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
+        'renders a starred nested folder with %s contents',
+        (state) => {
+            const folder = 'Research/Ideas'
+            logic.actions.loadShortcutsSuccess([{ id: 'star-folder', path: 'Ideas', type: 'folder', ref: folder }])
+            logic.actions.loadFolderSuccess(
+                folder,
+                state === 'populated' ? [{ id: 'note', path: `${folder}/Notes`, type: 'notebook', ref: 'notes' }] : [],
+                state === 'has-more',
+                0
+            )
+            if (state === 'loading') {
+                logic.actions.loadFolderStart(folder)
+            }
+
+            const [starredFolder] = logic.values.getShortcutTreeItems('', false)
+            expect(starredFolder.id).toBe('shortcuts://Ideas')
+            expect(starredFolder.children).toHaveLength(1)
+            expect(starredFolder.children?.[0]).toMatchObject(
+                state === 'loaded'
+                    ? { name: 'Empty folder', type: 'empty-folder', disableSelect: true }
+                    : state === 'loading'
+                      ? { name: 'Loading...', type: 'loading-indicator' }
+                      : state === 'has-more'
+                        ? { name: 'Load more...' }
+                        : { name: 'Notes', record: { path: `${folder}/Notes` } }
+            )
+        }
+    )
+
+    it.each<[string, string[], string[]]>([
+        ['its flag is off', [], ['Models', 'SQL editor']],
+        ['its flag is on', [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION], ['ELT', 'Models', 'SQL editor']],
+        [
+            'both catalog flags hide Models',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            ['SQL editor'],
+        ],
+        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['Models', 'SQL editor']],
+    ])('shows starred products by their flags when %s', (_case, enabledFlags, expectedNames) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
+            { id: 'star-models', path: 'Models', type: 'product', href: urls.models() },
+            { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
         ])
 
-        const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
+        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(expectedNames)
+        expect(logic.values.shortcutData).toHaveLength(3)
+    })
 
-        expect(paths).toEqual(['Session replay'])
+    it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/Alex/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+            { id: 'star-custom', path: 'Pinned work', type: 'folder', ref: 'Users/Alex' },
+            { id: 'star-sibling', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+        ])
+        const updatedShortcuts = [
+            { id: 'star-home', path: 'My work', type: 'folder', ref: 'Users/My work' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/My work/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+            { id: 'star-custom', path: 'Pinned work', type: 'folder', ref: 'Users/My work' },
+            { id: 'star-sibling', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+        ]
+        jest.mocked(api.fileSystemShortcuts.list).mockResolvedValue({ count: 5, results: updatedShortcuts })
+        await expectLogic(logic, () => {
+            logic.actions.movedItem({ id: 'home', path: 'Users/Alex', type: 'folder' }, 'Users/Alex', 'Users/My work')
+        }).toFinishAllListeners()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalled()
+        expect(logic.values.shortcutData).toEqual(updatedShortcuts)
+    })
+
+    it('loads shortcuts past the first page', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const firstPage = [
+            { id: 'star-1', path: 'Notes', type: 'notebook', ref: 'notes' },
+            { id: 'star-2', path: 'Revenue', type: 'insight', ref: 'revenue' },
+        ]
+        const secondPage = [{ id: 'star-3', path: 'Stripe (stripe_)', type: 'data_source', ref: 'source-1' }]
+        jest.mocked(api.fileSystemShortcuts.list).mockImplementation(async (params) =>
+            params?.offset === firstPage.length
+                ? { count: 3, next: null, results: secondPage }
+                : { count: 3, next: 'next-page', results: firstPage }
+        )
+
+        await expectLogic(logic, () => logic.actions.loadShortcuts()).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-1', 'star-2', 'star-3'])
+    })
+
+    it.each([
+        { listedLocally: true, created: false },
+        { listedLocally: false, created: false },
+        { listedLocally: false, created: true },
+    ])('lists a star once and counts it as added only when created (%o)', async ({ listedLocally, created }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
+        logic.actions.loadShortcutsSuccess(listedLocally ? [existing] : [])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: existing, created })
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+        expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
+            created ? 1 : 0
+        )
+    })
+
+    it.each([
+        { type: 'dashboard', path: 'Weekly KPIs', itemName: 'Weekly KPIs' },
+        { type: 'person', path: 'ada@example.com', itemName: undefined },
+        { type: 'trace', path: 'GET /users/ada@example.com', itemName: undefined },
+    ])('leaves customer record names out of star telemetry ($type)', async ({ type, path, itemName }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const star = { id: 'star-1', path, type, href: '/somewhere' }
+        logic.actions.loadShortcutsSuccess([])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: star, created: true })
+        jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue(undefined as any)
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'item', path, type, href: '/somewhere' })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.deleteShortcut('star-1')
+        }).toFinishAllListeners()
+
+        const starEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('navbar starred item'))
+        expect(starEvents).toEqual([
+            ['navbar starred item added', { item_type: type, item_name: itemName }],
+            ['navbar starred item removed', { item_type: type, item_name: itemName }],
+        ])
+    })
+
+    it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
+        const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        logic.actions.createSavedItem({ id: 'note', type: 'notebook', ref: 'note1', path: 'Research/Notes' })
+        logic.actions.setStarredNavigationRef({ type: 'notebook', ref: 'note1' }, '/notebooks/note1')
+        router.actions.push('/project/997/notebooks/note1')
+
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, explicit)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe(explicit ? 'project/note' : '')
+        expect(projectTree.values.expandedFolders.includes('project://Research')).toBe(explicit)
+
+        router.actions.push('/project/997/notebooks/note2')
+        expect(logic.values.starredNavigationRef).toBeNull()
+        router.actions.push('/project/997/notebooks/note1')
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, false)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe('project/note')
+        projectTree.unmount()
+    })
+
+    it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
+
+        const dataRootWithoutFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithoutFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(false)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true })
+
+        const dataRootWithFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(true)
     })
 
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
-
         await expectLogic(logic, () => {
             logic.actions.loadUnfiledItems()
         })
@@ -60,6 +290,195 @@ describe('projectTreeDataLogic', () => {
 
         expect(api.fileSystem.list).not.toHaveBeenCalled()
     })
+
+    it('reconciles unfiled items when the project tree becomes active', async () => {
+        const rootlessTree = projectTreeLogic({ key: 'project-tree' })
+        rootlessTree.mount()
+
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: true })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+        rootlessTree.unmount()
+    })
+
+    it('does not reconcile unfiled items when the project tree is hidden', () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+
+        projectTree.mount()
+
+        expect(api.fileSystem.unfiled).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('reconciles unfiled items when a non-panel project tree opens', async () => {
+        const projectTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+    })
+
+    it('does not load Unfiled after the root folder loads in a hidden project tree', async () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        projectTree.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.clearAllMocks()
+
+        logic.actions.loadFolderSuccess('', [], false, 0)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('shares pending item lookups across tree mounts and navigation callbacks', async () => {
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({ type: 'insight', ref: 'insight1' })
+        let resolveItem!: () => void
+        jest.mocked(api.fileSystem.list).mockImplementation((params) =>
+            params?.ref
+                ? new Promise((resolve) => {
+                      resolveItem = () =>
+                          resolve({
+                              count: 1,
+                              users: [],
+                              results: [{ id: 'file1', ref: 'insight1', type: 'insight', path: 'Reports/Insight' }],
+                          })
+                  })
+                : Promise.resolve({ count: 0, results: [], users: [] })
+        )
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        const pickerTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+        projectTree.mount()
+        pickerTree.mount()
+        projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        resolveItem()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(logic.values.viableItems).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })]))
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        }).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 0, results: [], users: [] })
+        await expectLogic(logic, () => logic.actions.syncTypeAndRef('insight', 'insight1')).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(2)
+        pickerTree.unmount()
+        projectTree.unmount()
+    })
+
+    it('loads current insight metadata when a file consumer opens and follows navigation', async () => {
+        const currentItem = jest
+            .spyOn(projectTreeDataLogic.selectors, 'projectTreeRef')
+            .mockReturnValue({ type: 'insight', ref: 'insight1' })
+        const consumer = sceneFileLogic()
+        consumer.mount()
+        await expectLogic(consumer).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(consumer, () =>
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
+        ).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
+        consumer.unmount()
+    })
+
+    it('defers ancestor folder loading until Files opens and follows the latest insight', async () => {
+        const currentItem = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+            type: 'insight',
+            ref: 'insight1',
+        })
+        jest.mocked(api.fileSystem.list).mockImplementation(async (params) => ({
+            count: params?.ref ? 1 : 0,
+            users: [],
+            results: params?.ref
+                ? [
+                      {
+                          id: String(params.ref),
+                          ref: String(params.ref),
+                          type: 'insight',
+                          path: params.ref === 'insight1' ? 'Unfiled/Insights/First insight' : 'Reports/Latest insight',
+                      },
+                  ]
+                : [],
+        }))
+        const projectTree = projectTreeLogic({ key: 'project-tree' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight1' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        expect(logic.values.sortedItems).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })])
+        )
+
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))
+
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ parent: 'Reports', depth: 2, limit: 101, offset: 0 })
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        projectTree.unmount()
+    })
+
+    it.each(['already-open', 'folder-picker', 'explicit-reveal'] as const)(
+        'loads ancestor folders for %s',
+        async (mode) => {
+            jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+                type: 'insight',
+                ref: 'insight1',
+            })
+            logic.actions.createSavedItem({
+                id: 'file1',
+                type: 'insight',
+                ref: 'insight1',
+                path: 'Unfiled/Insights/Insight',
+            })
+            if (mode === 'already-open') {
+                panelLayoutLogic.mount()
+                panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+            }
+            const projectTree = projectTreeLogic({
+                key: mode === 'folder-picker' ? 'folder-select' : 'project-tree',
+                root: 'project://',
+            })
+            projectTree.mount()
+            await expectLogic(projectTree).toFinishAllListeners()
+            if (mode === 'explicit-reveal') {
+                expect(api.fileSystem.list).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ parent: 'Unfiled/Insights' })
+                )
+                await expectLogic(projectTree, () => {
+                    projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' })
+                }).toFinishAllListeners()
+            }
+            expect(api.fileSystem.list).toHaveBeenCalledWith({
+                parent: 'Unfiled/Insights',
+                depth: 3,
+                limit: 101,
+                offset: 0,
+            })
+            projectTree.unmount()
+        }
+    )
 
     it('loads unfiled folders when the count response reports items', async () => {
         logic.actions.createSavedItem({ id: 'saved-insight', path: 'Unfiled/Insights/Saved insight', type: 'insight' })
@@ -87,6 +506,34 @@ describe('projectTreeDataLogic', () => {
             offset: 0,
         })
     })
+
+    it.each(['notebook', 'folder'])(
+        'moves the underlying %s from a shortcut even when its parent has not been loaded',
+        async (type) => {
+            const item = { id: 'real-file', type, ref: 'notes-ref', path: 'Research/Notes' }
+            const shortcut = {
+                id: 'star-note',
+                type,
+                path: 'Pinned notes',
+                ref: type === 'folder' ? item.path : item.ref,
+            }
+            const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({ ...item, path: 'Users/Alex/Notes' })
+            const createShortcut = jest.spyOn(api.fileSystemShortcuts, 'create')
+            jest.spyOn(api.fileSystem, 'count').mockResolvedValue({ count: 1, entries: [item], has_more: false })
+            jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 1, results: [item], users: [] })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveShortcutToFolder(shortcut, 'Users/Alex', 'test')
+            }).toFinishAllListeners()
+
+            expect(api.fileSystem.list).toHaveBeenCalledWith(
+                type === 'folder' ? { type: 'folder', path: 'Research/Notes' } : { type: 'notebook', ref: 'notes-ref' }
+            )
+            expect(move).toHaveBeenCalledWith('real-file', 'Users/Alex/Notes')
+            expect(createShortcut).not.toHaveBeenCalled()
+            expect(logic.values.viableItems).toContainEqual({ ...item, path: 'Users/Alex/Notes' })
+        }
+    )
 
     it('reports a bulk move once, with an undo that reverts every item', async () => {
         const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)

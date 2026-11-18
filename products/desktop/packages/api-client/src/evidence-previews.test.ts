@@ -18,6 +18,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -84,7 +85,6 @@ describe("evidence preview shaping", () => {
         significant: true,
       },
     ],
-    significance_code: "significant",
     is_cached: true,
     last_refresh: new Date().toISOString(),
   } as unknown as Schemas.ExperimentQueryResponse;
@@ -253,29 +253,84 @@ describe("evidence preview shaping", () => {
     expect(results.secondaryMetrics[0].state).toBe("ready");
   });
 
-  it("shows outcomes while marking low-exposure results as insufficient", () => {
-    const insufficientResponse = {
+  it.each([
+    {
+      method: "frequentist",
+      statistics: { confidence_interval: null, p_value: null },
+    },
+    {
+      method: "bayesian",
+      statistics: { credible_interval: null, chance_to_win: null },
+    },
+  ])(
+    "shows outcomes while marking low-exposure $method results as insufficient",
+    ({ method, statistics }) => {
+      const insufficientResponse = {
+        ...readyMetricResponse,
+        variant_results: [
+          {
+            key: "test",
+            method,
+            number_of_samples: 40,
+            sum: 6,
+            sum_squares: 6,
+            significant: null,
+            validation_failures: ["not-enough-exposures"],
+            ...statistics,
+          },
+        ],
+      } as unknown as Schemas.ExperimentQueryResponse;
+      const results = shapeExperimentResults(
+        experimentWithMetrics(),
+        exposureResponse,
+        [{ response: insufficientResponse }],
+        [{ response: insufficientResponse }],
+      );
+
+      expect(results.state).toBe("insufficient_data");
+      expect(results.primaryMetrics[0]).toMatchObject({
+        state: "insufficient_data",
+        variants: [
+          expect.any(Object),
+          expect.objectContaining({
+            outcome: "6 · 15.0%",
+            pValue: null,
+            chanceToWin: null,
+            significance: "insufficient_data",
+          }),
+        ],
+      });
+    },
+  );
+
+  it("shows a Bayesian result's chance to win instead of a p-value", () => {
+    const bayesianResponse = {
       ...readyMetricResponse,
-      significance_code: "not_enough_exposure",
-      significant: false,
+      variant_results: [
+        {
+          key: "test",
+          method: "bayesian",
+          number_of_samples: 1000,
+          sum: 125,
+          sum_squares: 125,
+          credible_interval: [0.05, 0.45],
+          chance_to_win: 0.97,
+          significant: true,
+        },
+      ],
     } as unknown as Schemas.ExperimentQueryResponse;
     const results = shapeExperimentResults(
       experimentWithMetrics(),
       exposureResponse,
-      [{ response: insufficientResponse }],
-      [{ response: insufficientResponse }],
+      [{ response: bayesianResponse }],
+      [],
     );
 
-    expect(results.state).toBe("insufficient_data");
-    expect(results.primaryMetrics[0]).toMatchObject({
-      state: "insufficient_data",
-      variants: [
-        expect.any(Object),
-        expect.objectContaining({
-          outcome: "125 · 12.5%",
-          significance: "insufficient_data",
-        }),
-      ],
+    expect(results.primaryMetrics[0].variants[1]).toMatchObject({
+      interval: "+5.00% to +45.0%",
+      pValue: null,
+      chanceToWin: "97.0%",
+      significance: "significant",
     });
   });
 
@@ -302,7 +357,6 @@ describe("evidence preview shaping", () => {
       title: "Configuration",
       fields: expect.arrayContaining([
         { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "1 condition" },
       ]),
     });
   });
@@ -329,15 +383,19 @@ describe("evidence preview shaping", () => {
       },
     } as unknown as Schemas.FeatureFlag);
 
-    expect(preview.sections).toContainEqual({
-      title: "Release conditions",
-      fields: [
-        {
-          label: "Set 1",
-          value: "plan exact pro · 25% rollout · Variant: test",
-        },
-      ],
-    });
+    expect(preview.flagAudience?.rules).toEqual([
+      expect.objectContaining({
+        conditions: [
+          {
+            subject: "plan",
+            operator: "is",
+            values: [{ label: "pro" }],
+          },
+        ],
+        share: 25,
+        result: { kind: "variant", key: "test" },
+      }),
+    ]);
   });
 
   it("shows a disabled flag without a name as just the state", () => {
@@ -404,7 +462,7 @@ describe("evidence preview shaping", () => {
       name: "TypeError in CouponValidator",
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
-    } as Schemas.ErrorTrackingIssueFull);
+    } as Schemas.ErrorTrackingIssueRead);
     expect(preview.detail).toMatch(/^First seen Jan 3/);
     expect(preview.status).toEqual({
       label: "Pending release",
@@ -607,37 +665,41 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
-  it("renders negated criteria as their negative meaning", () => {
-    const sections = cohortCriteriaSection({
-      properties: {
-        type: "AND",
-        values: [
-          {
-            type: "AND",
-            values: [
-              {
-                type: "behavioral",
-                value: "performed_event",
-                key: "checkout",
-                negation: true,
-              },
-              {
-                type: "cohort",
-                value: "Power users",
-                negation: true,
-              },
-              {
-                type: "person",
-                key: "email",
-                operator: "icontains",
-                value: "@example.com",
-                negation: true,
-              },
-            ],
-          },
-        ],
+  it("renders negated criteria and resolved cohort names", () => {
+    const sections = cohortCriteriaSection(
+      {
+        properties: {
+          type: "AND",
+          values: [
+            {
+              type: "AND",
+              values: [
+                {
+                  type: "behavioral",
+                  value: "performed_event",
+                  key: "checkout",
+                  negation: true,
+                },
+                {
+                  type: "cohort",
+                  value: 42,
+                  negation: true,
+                },
+                { type: "cohort", value: 77 },
+                {
+                  type: "person",
+                  key: "email",
+                  operator: "icontains",
+                  value: "@example.com",
+                  negation: true,
+                },
+              ],
+            },
+          ],
+        },
       },
-    });
+      new Map([["42", "Power users"]]),
+    );
     expect(sections).toEqual([
       {
         title: "Membership criteria",
@@ -645,7 +707,7 @@ describe("evidence preview shaping", () => {
           {
             label: "Criteria",
             value:
-              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+              "Did not complete checkout and Is not in cohort Power users and Is in cohort 77 and email does not contain @example.com",
           },
         ],
       },
@@ -792,6 +854,29 @@ describe("evidence preview shaping", () => {
     expect(preview.title).toBe("Ticket #841");
   });
 
+  it("summarizes an Inbox report separately from a support ticket", () => {
+    const preview = shapeInboxReportPreview({
+      id: "rep-1",
+      title: "Checkout latency increased",
+      summary: "Requests became slower after the latest release.",
+      status: "pending_input",
+      priority: "P2",
+      signal_count: 4,
+      total_weight: 4,
+      artefact_count: 2,
+      source_products: ["error_tracking"],
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    });
+
+    expect(preview).toMatchObject({
+      title: "Checkout latency increased",
+      detail: "Requests became slower after the latest release.",
+      status: { label: "Pending input", tone: "caution" },
+      facts: ["P2", "4 signals", "Error tracking"],
+    });
+  });
+
   it("identifies a person by name or email and carries the uuid for links", () => {
     expect(
       shapePersonPreview({
@@ -875,7 +960,17 @@ describe("evidence preview shaping", () => {
         detail: "Enabled · Old rollout",
         facts: ["100% rollout"],
       },
-      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      {
+        status: "stale",
+        reason: "Rolled out to 100% for at least 30 days",
+        reason_states_rollout: false,
+        rollout: {
+          effectively_full_rollout: true,
+          has_targeting_conditions: false,
+          max_rollout_percentage: 100,
+          is_multivariate: false,
+        },
+      },
       [
         ["2024-01-01", 900000],
         ["2024-01-02", 1200000],
@@ -943,6 +1038,37 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("describes who sees a running survey from its targeting flag and display conditions", () => {
+    const preview = shapeSurveyPreview({
+      id: "srv-12",
+      name: "Checkout survey",
+      start_date: "2026-08-01T00:00:00Z",
+      targeting_flag: {
+        key: "survey-targeting-checkout",
+        filters: {
+          groups: [
+            {
+              properties: [{ key: "plan", operator: "exact", value: "pro" }],
+              rollout_percentage: 25,
+            },
+          ],
+        },
+      },
+      conditions: { url: "/checkout", urlMatchType: "icontains" },
+    } as unknown as Schemas.Survey);
+
+    expect(preview.flagAudience?.headline).toBe(
+      "Shown to 25% of people matching one condition.",
+    );
+    expect(preview.displayConditions).toEqual([
+      {
+        subject: "URL",
+        operator: "contains",
+        values: [{ label: "/checkout" }],
+      },
+    ]);
+  });
+
   it("describes a survey that has not started as a draft", () => {
     const preview = shapeSurveyPreview({
       id: "srv-11",
@@ -951,6 +1077,7 @@ describe("evidence preview shaping", () => {
     expect(preview).toMatchObject({
       title: "Checkout survey",
       status: { label: "Draft", tone: "neutral" },
+      flagAudience: { headline: "Not shown to anyone." },
     });
   });
 });

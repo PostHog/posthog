@@ -24,3 +24,6 @@ export interface StepProps {
 export interface StepsProps {
     children: ReactNode
 }
+
+/** CodeBlock tab language that renders markdown prose with clickable links instead of highlighted code. */
+export const PROSE_LANGUAGE = 'prose'

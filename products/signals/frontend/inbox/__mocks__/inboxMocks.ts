@@ -3,7 +3,11 @@
 // three tab types (reports / pull requests / runs), suggested-reviewer ("for
 // you") reports, conventional-commit titles, and varying agent-run volume.
 
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { SignalNode } from 'scenes/debug/signals/types'
+
+import type { SignalReportAssigneeApi, _UserApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../types'
 
@@ -16,14 +20,14 @@ function nextId(): string {
 }
 
 export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+    const id = overrides.id ?? nextId()
     return {
-        id: nextId(),
+        id,
         title: 'Untitled report',
         summary: null,
         status: SignalReportStatus.READY,
         total_weight: 1.0,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         artefact_count: 0,
@@ -33,6 +37,29 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
         already_addressed: null,
         source_products: [],
         implementation_pr_url: null,
+        assignee: null,
+        pull_requests: overrides.implementation_pr_url
+            ? [
+                  {
+                      id: nextId(),
+                      url: overrides.implementation_pr_url,
+                      state:
+                          overrides.implementation_pr_state ??
+                          (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
+                      merged: overrides.implementation_pr_merged ?? false,
+                      review_decision: null,
+                      merged_at: null,
+                      claim_id: null,
+                      attached_at: BASE_DATE,
+                      attached_by: {
+                          kind: 'task',
+                          user: null,
+                          agent: null,
+                          task_id: `${id}-task-impl`,
+                      },
+                  },
+              ]
+            : [],
         ...overrides,
     }
 }
@@ -49,7 +76,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 3.4,
         signal_count: 12,
-        relevant_user_count: 47,
         source_products: ['error_tracking'],
         is_suggested_reviewer: true,
     }),
@@ -62,7 +88,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 5.8,
         signal_count: 31,
-        relevant_user_count: 118,
         source_products: ['error_tracking', 'session_replay'],
     }),
     makeReport({
@@ -74,7 +99,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 2.1,
         signal_count: 8,
-        relevant_user_count: 23,
         source_products: ['session_replay'],
         is_suggested_reviewer: true,
     }),
@@ -87,7 +111,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 1.6,
         signal_count: 5,
-        relevant_user_count: 210,
         source_products: ['session_replay', 'llm_analytics'],
     }),
     makeReport({
@@ -99,7 +122,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: null,
         total_weight: 0.9,
         signal_count: 3,
-        relevant_user_count: 14,
         source_products: ['session_replay'],
     }),
     makeReport({
@@ -110,12 +132,47 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'not_actionable',
         total_weight: 1.2,
         signal_count: 6,
-        relevant_user_count: 9,
         source_products: ['zendesk'],
     }),
 ]
 
 // ── Pull requests tab ───────────────────────────────────────────────────────
+
+type ClaimUser = Pick<_UserApi, 'id' | 'uuid' | 'first_name' | 'email'>
+
+export function userClaim(user: ClaimUser): SignalReportAssigneeApi {
+    const person = { ...user, last_name: '' }
+    return {
+        claim_id: null,
+        kind: 'user',
+        user: person,
+        task_id: null,
+        agent: null,
+        claimed_at: BASE_DATE,
+        responsible_user: person,
+    }
+}
+
+export function agentClaim(user: ClaimUser, agent: string): SignalReportAssigneeApi {
+    return { ...userClaim(user), kind: 'agent', agent }
+}
+
+export const myClaim = userClaim(MOCK_DEFAULT_USER)
+export const myAgentClaim = agentClaim(MOCK_DEFAULT_USER, 'claude-code')
+export const teammateClaim = userClaim({
+    id: 2,
+    uuid: 'teammate-uuid',
+    first_name: 'Robin',
+    email: 'robin@example.com',
+})
+
+// The Reports tab rows with one claimed by the current user, one by their agent, and one by a teammate.
+const CLAIMS_BY_ROW: (SignalReportAssigneeApi | null)[] = [myClaim, teammateClaim, null, myAgentClaim]
+
+export const claimedReports: SignalReport[] = reportTabReports.map((report, index) => ({
+    ...report,
+    assignee: CLAIMS_BY_ROW[index] ?? null,
+}))
 
 export const pullRequestReports: SignalReport[] = [
     makeReport({
@@ -128,6 +185,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
         is_suggested_reviewer: true,
     }),
     makeReport({
@@ -140,6 +198,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 31,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+        implementation_pr_state: 'open',
     }),
     makeReport({
         title: 'perf(dashboards): paginate cohort filter resolution',
@@ -218,6 +277,7 @@ const finishedRuns: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
     }),
     makeReport({
         title: 'Investigate webhook delivery failures',
@@ -248,9 +308,31 @@ export const allReports: SignalReport[] = [...reportTabReports, ...pullRequestRe
 
 // ── Detail-endpoint payloads ────────────────────────────────────────────────
 
+/** Answers `POST signals/reports/source_metadata/` from the given reports, as the inbox list loads its source line. */
+export function mockSourceMetadata(
+    reports: SignalReport[]
+): ({ request }: { request: Request }) => Promise<[number, { reports: object[] }]> {
+    return async ({ request }) => {
+        const { report_ids } = (await request.json()) as { report_ids: string[] }
+        const byId = new Map(reports.map((report) => [report.id, report]))
+        return [
+            200,
+            {
+                reports: report_ids.map((id) => ({
+                    id,
+                    source_products: byId.get(id)?.source_products ?? [],
+                    scout_name: byId.get(id)?.scout_name ?? null,
+                })),
+            },
+        ]
+    }
+}
+
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content: [
             'User clicked **Submit** with an empty recipient row; the request returned `500` from `/api/invites`.',
             'Session shows three retries of the same failing checkout call before the user gave up.',
@@ -385,6 +467,16 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             created_at: BASE_DATE,
             created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
         },
+        {
+            id: `${reportId}-impl-decision`,
+            type: 'implementation_decision',
+            content: {
+                supersede: true,
+                reason: 'The crash is in the serializer, not the form, so the fix moves to the API layer.',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
+        },
     ]
     return { results, count: results.length }
 }
@@ -437,7 +529,7 @@ export function mockTaskRun(taskId: string, runId: string): any {
 }
 
 /**
- * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * A single-message agent run log as JSONL — what the `/runs/:runId/log_entries` endpoint returns (one
  * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
  * bubble instead of the "conversation backing run not found" error.
  */

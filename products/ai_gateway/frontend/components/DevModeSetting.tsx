@@ -1,0 +1,232 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { TZLabel } from 'lib/components/TZLabel'
+
+import type { DevTokenApi } from '../generated/api.schemas'
+import { DURATION_PRESETS, devModeLogic, formatDuration } from '../logics/devModeLogic'
+
+const STATUS_TAG: Record<DevTokenApi['status'], { label: string; type: 'success' | 'muted' | 'danger' }> = {
+    live: { label: 'Live', type: 'success' },
+    expired: { label: 'Expired', type: 'muted' },
+    revoked: { label: 'Revoked', type: 'danger' },
+}
+
+export function DevModeSetting(): JSX.Element {
+    const {
+        usage,
+        usageLoading,
+        minted,
+        mintedLoading,
+        refusal,
+        remainingUsd,
+        canMint,
+        cliRequest,
+        liveTokenCount,
+        revoking,
+        capUsd,
+        ttlSeconds,
+        pickError,
+    } = useValues(devModeLogic)
+    const { mint, revokeToken, authorizeCli, dismissCliRequest, setCapUsd, setTtlSeconds } = useActions(devModeLogic)
+
+    if (refusal && !usage) {
+        return <LemonBanner type="warning">{refusal}</LemonBanner>
+    }
+
+    const durationOptions = DURATION_PRESETS.filter(
+        (preset) => !usage || (preset.seconds >= usage.ttl_min_seconds && preset.seconds <= usage.ttl_max_seconds)
+    ).map((preset) => ({ value: preset.seconds, label: preset.label }))
+    if (ttlSeconds !== null && !durationOptions.some((option) => option.value === ttlSeconds)) {
+        durationOptions.push({ value: ttlSeconds, label: formatDuration(ttlSeconds) })
+    }
+    const pickedSummary =
+        capUsd !== null && ttlSeconds !== null ? `$${capUsd.toFixed(2)} for ${formatDuration(ttlSeconds)}` : null
+    const disabledReason =
+        usageLoading && !usage
+            ? 'Loading'
+            : pickError
+              ? pickError
+              : !canMint
+                ? `This token needs $${capUsd?.toFixed(2)} of your $${usage?.daily_cap_usd} limit, and $${remainingUsd?.toFixed(2)} is left.${liveTokenCount > 0 ? " Revoke a live token to get back what it hasn't spent." : ''}`
+                : undefined
+
+    return (
+        <div className="flex flex-col gap-4">
+            {cliRequest ? (
+                <LemonBanner type="info" data-attr="ai-gateway-dev-mode-cli-request">
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            <code>hogli gateway:token</code> is asking for a token
+                            {pickedSummary ? ` (${pickedSummary}, change it below)` : ''}. Approve only if you just ran
+                            that command.
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={authorizeCli}
+                                disabledReason={disabledReason}
+                            >
+                                Approve
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={dismissCliRequest}>
+                                Deny
+                            </LemonButton>
+                        </div>
+                    </div>
+                </LemonBanner>
+            ) : null}
+
+            <p className="mb-0">
+                Pick how much a token can spend (${usage?.token_cap_min_usd ?? '…'} to ${usage?.token_cap_usd ?? '…'})
+                and how long it lasts (up to {usage ? formatDuration(usage.ttl_max_seconds) : '…'}).
+            </p>
+
+            <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold" htmlFor="ai-gateway-dev-mode-cap">
+                        Spend limit
+                    </label>
+                    <LemonInput
+                        id="ai-gateway-dev-mode-cap"
+                        type="number"
+                        prefix={<span>$</span>}
+                        min={usage ? Number(usage.token_cap_min_usd) : undefined}
+                        max={usage ? Number(usage.token_cap_usd) : undefined}
+                        step={1}
+                        value={capUsd ?? undefined}
+                        onChange={(value) => setCapUsd(value ?? null)}
+                        className="w-32"
+                        data-attr="ai-gateway-dev-mode-cap"
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold" htmlFor="ai-gateway-dev-mode-ttl">
+                        Expires after
+                    </label>
+                    <LemonSelect
+                        id="ai-gateway-dev-mode-ttl"
+                        value={ttlSeconds}
+                        options={durationOptions}
+                        onChange={(value) => value !== null && setTtlSeconds(value)}
+                        data-attr="ai-gateway-dev-mode-ttl"
+                    />
+                </div>
+                <LemonButton
+                    type="primary"
+                    onClick={mint}
+                    loading={mintedLoading}
+                    disabledReason={disabledReason}
+                    data-attr="ai-gateway-dev-mode-mint"
+                >
+                    Create token
+                </LemonButton>
+                {usage ? (
+                    <span className="text-secondary">
+                        <span translate="no">
+                            ${remainingUsd?.toFixed(2)} of ${usage.daily_cap_usd}
+                        </span>{' '}
+                        left. Tokens count against it until they expire, and for at least 24 hours.
+                    </span>
+                ) : null}
+            </div>
+
+            {minted ? (
+                <div className="flex flex-col gap-2">
+                    <LemonBanner type="success">Copy this token now. It won't be shown again.</LemonBanner>
+                    <CodeSnippet className="ph-no-capture" language={Language.Text} wrap thing="token">
+                        {minted.token}
+                    </CodeSnippet>
+                </div>
+            ) : null}
+
+            <LemonTable<DevTokenApi>
+                dataSource={usage?.tokens ?? []}
+                loading={usageLoading}
+                emptyState="No unexpired tokens, and none created in the last 24 hours"
+                columns={[
+                    {
+                        title: 'Created',
+                        key: 'created_at',
+                        render: (_, token) => <TZLabel time={token.created_at} />,
+                    },
+                    {
+                        title: 'Expires',
+                        key: 'expires_at',
+                        render: (_, token) => (token.expires_at ? <TZLabel time={token.expires_at} /> : null),
+                    },
+                    {
+                        title: 'Status',
+                        key: 'status',
+                        render: (_, token) => (
+                            <LemonTag type={STATUS_TAG[token.status].type}>{STATUS_TAG[token.status].label}</LemonTag>
+                        ),
+                    },
+                    {
+                        title: 'Source',
+                        key: 'client',
+                        render: (_, token) => <LemonTag>{token.client === 'cli' ? 'CLI' : 'Web'}</LemonTag>,
+                    },
+                    {
+                        title: 'Spend limit',
+                        key: 'cap_usd',
+                        render: (_, token) => <span translate="no">${token.cap_usd}</span>,
+                    },
+                    {
+                        title: 'Left',
+                        key: 'remaining_usd',
+                        tooltip: 'Budget left on a live token, net of requests still in flight.',
+                        render: (_, token) =>
+                            token.status !== 'live' ? null : token.remaining_usd != null ? (
+                                <span translate="no">${Number(token.remaining_usd).toFixed(4)}</span>
+                            ) : (
+                                <span className="text-secondary">Unknown</span>
+                            ),
+                    },
+                    {
+                        title: 'Spent',
+                        key: 'spent_usd',
+                        tooltip: 'What a revoked token spent. This is what it counts against your limit.',
+                        render: (_, token) =>
+                            token.spent_usd != null ? (
+                                <span translate="no">${Number(token.spent_usd).toFixed(4)}</span>
+                            ) : null,
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: (_, token) =>
+                            token.status === 'live' ? (
+                                <LemonButton
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => revokeToken(token.id)}
+                                    loading={revoking?.id === token.id}
+                                    disabledReason={revoking ? 'Revoking' : undefined}
+                                >
+                                    Revoke
+                                </LemonButton>
+                            ) : null,
+                    },
+                ]}
+            />
+            {liveTokenCount > 1 ? (
+                <div>
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
+                        size="small"
+                        onClick={() => revokeToken(null)}
+                        loading={revoking?.id === null}
+                        disabledReason={revoking ? 'Revoking' : undefined}
+                    >
+                        Revoke all
+                    </LemonButton>
+                </div>
+            ) : null}
+        </div>
+    )
+}

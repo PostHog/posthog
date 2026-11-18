@@ -1,0 +1,6 @@
+{
+    "id": "VA11",
+    "real": true,
+    "source": "reused-KA4",
+    "reasoning": "Identical claim already verified as real in the sol experiment (KA4, is_real=true, high confidence). Confirmed against the frozen tree: _resolve_assigned_reviewer returns one user — task creator if among resolved, else resolved[0] (receivers.py:206-207) — and both legs gate Stamphog on only that user's stamphog_review_inbox_prs: the save-path trigger (receivers.py:111-126) and the webhook resolver resolve_stamphog_acting_reviewer (receivers.py:151-156). A later assigned reviewer with the toggle on is never consulted, contradicting the PR's 'any assigned reviewer opted in' contract and the 'No reviewer currently has stamphog inbox reviews enabled' dismissal copy. KA4 rated it should_fix (fail-closed miss), not must_fix, but real."
+}

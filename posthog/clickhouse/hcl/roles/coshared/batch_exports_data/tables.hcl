@@ -6,7 +6,7 @@ database "posthog" {
   table "sharded_events_recent" {
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
-    ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"
+    ttl          = "toDate(inserted_at) + toIntervalDay(9)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"

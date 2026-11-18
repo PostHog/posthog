@@ -1,10 +1,9 @@
 """Salesforce stripe/billing enrichment workflow.
 
-Pushes Stripe customer data (customer id + billing address) and internal
-``billing_customer.name`` onto Salesforce Account records. Runs daily with a
-Redis-backed high-water mark so only rows that changed in the duckgres DWH since
-the last successful run are touched. The first run (or any run after watermark
-eviction) performs a full backfill.
+Pushes Stripe customer data (customer id + billing address) onto Salesforce
+Account records. Runs daily with a Redis-backed high-water mark so only rows
+that changed in the duckgres DWH since the last successful run are touched. The
+first run (or any run after watermark eviction) performs a full backfill.
 """
 
 import json
@@ -169,7 +168,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
 
     Matching Account rows are looked up by ``Posthog_Org_ID__c`` — the same join
     key the usage enrichment workflow uses. Rows with no matching account are
-    counted and skipped
+    counted and skipped, and so are rows with no Stripe data to push.
     """
     async with Heartbeater() as heartbeater:
         close_old_connections()
@@ -226,11 +225,14 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
 
         skipped_no_account = sum(1 for org_id in all_org_ids if org_id not in org_to_account_id)
 
-        update_records = [
+        prepared_records = [
             prepare_stripe_update_record(org_to_account_id[org_id], signals_by_org[org_id])
             for org_id in all_org_ids
             if org_id in org_to_account_id
         ]
+        # An Id-only record changes no field, but patching it still touches the Account and runs its automation.
+        update_records = [record for record in prepared_records if len(record) > 1]
+        skipped_no_stripe_data = len(prepared_records) - len(update_records)
 
         errors: list[str] = []
         updated = 0
@@ -252,6 +254,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
             rows_fetched=len(signals_rows),
             updated=updated,
             skipped_no_account=skipped_no_account,
+            skipped_no_stripe_data=skipped_no_stripe_data,
             error_count=len(errors),
         )
 
@@ -267,7 +270,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
 
 @workflow.defn(name="salesforce-stripe-enrichment")
 class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
-    """Incrementally push Stripe + billing customer data to Salesforce Accounts."""
+    """Incrementally push Stripe customer ids and billing addresses to Salesforce Accounts."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> StripeEnrichmentInputs:

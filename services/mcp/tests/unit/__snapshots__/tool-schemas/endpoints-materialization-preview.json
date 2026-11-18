@@ -22,6 +22,7 @@
             "type": "string"
         },
         "version": {
+            "description": "Endpoint version to preview. Defaults to the current version.",
             "type": "number"
         }
     },

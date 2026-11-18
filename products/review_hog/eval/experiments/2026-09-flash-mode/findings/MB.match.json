@@ -1,0 +1,57 @@
+{
+    "MB1": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Pipeline allegedly permits a human-authored draft through gates keyed only on self_driving, exactly cluster 6's missing coupling to pr.author_is_bot rather than cluster 5's prompt-provenance claim."
+    },
+    "MB2": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Checking only the canonical reviewer's toggle ignores another assigned reviewer's opt-in, exactly cluster 57 rather than cluster 11's reviewer-identity drift between deliveries."
+    },
+    "MB3": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Self-driving runs still compute and render author familiarity through both entrypoints, matching cluster 4 rather than cluster 74's distinct ownership-membership block."
+    },
+    "MB4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "A failed initial Celery publish is caught without durable retry and can permanently lose the review, exactly cluster 58 rather than cluster 54's claim that the exception escapes into the save path."
+    },
+    "MB5": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "has_reviewable_repo_config omits provider=github although process_inbox_pr_review requires it, exactly the provider-capability mismatch in cluster 18."
+    },
+    "MB6": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims that _inbox_rereview_carve_out should stop all reviews after a PR becomes ready; cluster 35 instead concerns inaccurate draft provenance wording, and cluster 6 concerns engine-side bot-author validation."
+    },
+    "MB7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "The documentation-anchored claim identifies process_inbox_pr_review stamping supplied provenance without positive task linkage or bot verification, exactly cluster 2's receiver-leg trust boundary."
+    },
+    "MB8": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "The initial task allegedly grants self-driving provenance to an unrelated PR without verifying task identity, bot authorship, or native head, matching cluster 2 rather than cluster 63's facade-only fork-safety precondition."
+    },
+    "MB9": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "The receiver swallows a failed initial task submission with no guaranteed resubmission or pending record, exactly cluster 58's permanently lost initial review."
+    },
+    "MB10": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Exhausting the initial task's three retries without persistent reconciliation permanently drops the review, an explicitly included failure mechanism in cluster 58."
+    },
+    "MB11": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Every repeated receiver job calls get_pr before the head-based deduplication check, exactly cluster 9's redundant GitHub fetch cost rather than a duplicate-run concurrency claim."
+    }
+}

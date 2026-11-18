@@ -1,0 +1,62 @@
+{
+    "SB1": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "SB2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 16,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "SB3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "SB4": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "SB5": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "SB6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 57,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "SB7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "SB8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "SB9": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 31,
+        "source": "verified-3-skeptics:2/3"
+    },
+    "SB10": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 73,
+        "source": "verified-3-skeptics:2/3"
+    }
+}

@@ -1,9 +1,6 @@
 """Workflow and activity registration lists for the canvas build Temporal worker.
 
-Stable import target for the worker wiring:
-``from products.canvas.backend.temporal.registry import WORKFLOWS, ACTIVITIES``.
-Imported directly (like ``backend.tasks`` for Celery) because canvas is not an
-isolated product yet; once it is, this moves behind ``facade/temporal.py``.
+Core reaches these through ``facade/temporal.py``.
 """
 
 from __future__ import annotations

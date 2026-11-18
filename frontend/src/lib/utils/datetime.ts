@@ -259,6 +259,27 @@ export function formatLocalizedDate(): string {
     return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
 }
 
+const localizedTimeFormats = new Map<string, string>()
+
+/** Wall-clock time format for the browser locale: 12-hour with AM/PM, or 24-hour. */
+export function formatLocalizedTime(): string {
+    const localLang = navigator.language || document.documentElement.lang || 'en-US'
+    // resolving the hour cycle costs tens of microseconds, and replay re-renders these labels every second
+    let format = localizedTimeFormats.get(localLang)
+    if (format === undefined) {
+        try {
+            // Intl knows the hour cycle of every locale, so no locale list has to be maintained here
+            const { hourCycle } = new Intl.DateTimeFormat(localLang, { hour: 'numeric' }).resolvedOptions()
+            format = hourCycle === 'h11' || hourCycle === 'h12' ? 'h:mm:ss A' : 'HH:mm:ss'
+        } catch {
+            // Intl rejects a malformed language tag, and 24-hour is the safe reading everywhere
+            format = 'HH:mm:ss'
+        }
+        localizedTimeFormats.set(localLang, format)
+    }
+    return format
+}
+
 /** Parse a date string into a Dayjs in the given timezone, browser-tz-independent.
  *
  * - Strings without explicit timezone info ("2026-03-08", "2026-03-08 14:00:00")

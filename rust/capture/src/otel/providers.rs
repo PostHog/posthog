@@ -25,28 +25,37 @@ fn classify_by_key(
         .unwrap_or("$ai_span")
 }
 
+/// Maps the standard OTel GenAI `gen_ai.operation.name` value to a PostHog event
+/// type. Shared so the Vercel provider can reuse it for AI SDK 7 spans.
+fn classify_gen_ai_operation(op: &str) -> &'static str {
+    match op {
+        "chat" => "$ai_generation",
+        "embeddings" => "$ai_embedding",
+        _ => "$ai_span",
+    }
+}
+
 /// OpenAI-style semantic conventions (`gen_ai.*`).
 const GEN_AI: SupportedProvider = SupportedProvider {
     prefixes: &["gen_ai."],
-    classify: |attrs| {
-        classify_by_key(attrs, "gen_ai.operation.name", |op| match op {
-            "chat" => "$ai_generation",
-            "embeddings" => "$ai_embedding",
-            _ => "$ai_span",
-        })
-    },
+    classify: |attrs| classify_by_key(attrs, "gen_ai.operation.name", classify_gen_ai_operation),
 };
 
 /// Vercel AI SDK (`ai.*`) and Eve (`eve.*`). Eve root turn spans can omit
 /// `ai.*` attributes, so its namespace must be accepted by the same provider.
 const VERCEL_AI: SupportedProvider = SupportedProvider {
     prefixes: &["ai.", "eve."],
-    classify: |attrs| {
-        classify_by_key(attrs, "ai.operationId", |op_id| match op_id {
+    classify: |attrs| match attrs.get("ai.operationId").and_then(|v| v.as_str()) {
+        Some(op_id) => match op_id {
             s if s.ends_with(".doGenerate") || s.ends_with(".doStream") => "$ai_generation",
             s if s == "ai.embed.doEmbed" || s == "ai.embedMany.doEmbed" => "$ai_embedding",
             _ => "$ai_span",
-        })
+        },
+        // AI SDK 7's gen_ai-native integration emits standard gen_ai.* semconv
+        // plus supplemental ai.usage.* details, but no ai.operationId. Those ai.*
+        // keys make this provider match first, so classify by the standard
+        // operation name instead of defaulting the span to $ai_span.
+        None => classify_by_key(attrs, "gen_ai.operation.name", classify_gen_ai_operation),
     },
 };
 
@@ -68,11 +77,12 @@ const TRACELOOP: SupportedProvider = SupportedProvider {
     },
 };
 
-/// Pydantic AI SDK (`pydantic_ai.*`). No specific event types — all spans
-/// default to `$ai_span`.
+/// Pydantic AI SDK (`pydantic_ai.*`). Agent runs are `$ai_span`, but newer
+/// versions also put `pydantic_ai.cache.*` on chat spans, so classify by the
+/// standard operation name like the plain `gen_ai.*` provider does.
 const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     prefixes: &["pydantic_ai."],
-    classify: |_| "$ai_span",
+    classify: |attrs| classify_by_key(attrs, "gen_ai.operation.name", classify_gen_ai_operation),
 };
 
 /// Providers are matched in order — first prefix match wins. More specific
@@ -213,6 +223,35 @@ mod tests {
     }
 
     #[test]
+    fn test_ai_sdk_7_gen_ai_native_spans_classify_by_operation_name() {
+        // AI SDK 7's @ai-sdk/otel integration emits standard gen_ai.* semconv
+        // plus supplemental ai.usage.* details, but no ai.operationId. The
+        // ai.usage.* keys make VERCEL_AI match first, so it must fall back to
+        // gen_ai.operation.name. Operations that are not inference stay
+        // $ai_span, or a tool-call span becomes a second priced generation.
+        for (operation, expected) in [
+            ("chat", "$ai_generation"),
+            ("embeddings", "$ai_embedding"),
+            ("execute_tool", "$ai_span"),
+        ] {
+            let mut attrs = serde_json::Map::new();
+            attrs.insert(
+                "gen_ai.operation.name".to_string(),
+                Value::String(operation.to_string()),
+            );
+            attrs.insert(
+                "ai.usage.outputTokenDetails.reasoningTokens".to_string(),
+                Value::Number(5.into()),
+            );
+            assert_eq!(
+                get_event_name(&attrs),
+                Some(expected),
+                "gen_ai.operation.name={operation}"
+            );
+        }
+    }
+
+    #[test]
     fn test_supported_provider_prefix_defaults_to_ai_span() {
         assert_eq!(
             get_event_name(&attrs_with("gen_ai.request.model", "gpt-4")),
@@ -230,6 +269,20 @@ mod tests {
             get_event_name(&attrs_with("traceloop.workflow.name", "my-workflow")),
             Some("$ai_span")
         );
+    }
+
+    #[test]
+    fn test_pydantic_ai_spans_classify_by_operation_name() {
+        let mut chat = attrs_with("gen_ai.operation.name", "chat");
+        chat.insert("pydantic_ai.cache.hit_ratio".to_string(), Value::from(0.5));
+        assert_eq!(get_event_name(&chat), Some("$ai_generation"));
+
+        let mut agent_run = attrs_with("gen_ai.operation.name", "invoke_agent");
+        agent_run.insert(
+            "pydantic_ai.all_messages".to_string(),
+            Value::String("[]".to_string()),
+        );
+        assert_eq!(get_event_name(&agent_run), Some("$ai_span"));
     }
 
     #[test]

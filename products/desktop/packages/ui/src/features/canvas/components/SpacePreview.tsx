@@ -1,6 +1,5 @@
-import { CrownSimpleIcon, GitBranchIcon } from "@phosphor-icons/react";
+import { GitBranchIcon } from "@phosphor-icons/react";
 import {
-  AvatarGroup,
   Item,
   ItemActions,
   ItemContent,
@@ -8,20 +7,16 @@ import {
   ItemGroup,
   ItemSeparator,
   ItemTitle,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from "@posthog/quill";
+import { formatRelativeAge } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
-import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   type ChannelActionItem,
   ChannelActionList,
 } from "@posthog/ui/features/canvas/components/channelActions";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useSpaceOverview } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 
 /** What the card is about: the space that is being pointed at. */
@@ -34,9 +29,6 @@ export interface SpacePreviewPayload {
   actions: ChannelActionItem[];
 }
 
-/** Matches the rows' own tooltip delay, so the card doesn't feel slower. */
-const TOOLTIP_DELAY_MS = 200;
-
 /**
  * How many faces the group shows. Past this the stack stops reading as people
  * and starts reading as texture, and the card is a glance.
@@ -46,78 +38,11 @@ const MAX_PEOPLE = 5;
 /** Repos past this are counted rather than named — the card has one line. */
 const MAX_REPOS = 3;
 
-/**
- * One person in the space, as their avatar. The creator wears a crown, because
- * "who made this" is the one thing about a space's people the space itself
- * knows — everyone else in the stack is there for having run something lately.
- */
-function Person({ user, isCreator }: { user: UserBasic; isCreator: boolean }) {
-  const name = userDisplayName(user);
-  const label = isCreator ? `${name} created this space` : name;
-  return (
-    <Tooltip disableHoverablePopup>
-      <TooltipTrigger
-        render={
-          // `flex`, not `block`: quill's avatar is an inline-flex box, so a
-          // block wrapper adds the line box's descender space under it and the
-          // avatar rides at the top of a taller container — enough to knock one
-          // face out of line with its neighbours.
-          <span
-            aria-label={label}
-            role="img"
-            className="relative flex shrink-0"
-          >
-            <UserAvatar size="xs" user={user} />
-            {isCreator && (
-              // Top-left rather than top-right: the stack tucks each face
-              // behind the one after it, so the creator's right corner is
-              // under its neighbour and a crown there is a sliver of gold
-              // nobody can read. Its left corner is the one nothing covers.
-              <span className="-top-1 -left-1 absolute rounded-full bg-background p-px">
-                <CrownSimpleIcon
-                  size={9}
-                  weight="fill"
-                  className="block text-primary"
-                />
-              </span>
-            )}
-          </span>
-        }
-      />
-      <TooltipContent side="top" className="pointer-events-none select-none">
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-/**
- * The space's people, stacked so each face tucks behind the one after it —
- * which is what `reverse` gives, and why the creator's crown sits on the left
- * corner of its avatar rather than the right.
- */
-function SpacePeople({
-  people,
-  creatorUuid,
-}: {
-  people: UserBasic[];
-  creatorUuid: string | undefined;
-}) {
-  if (people.length === 0) return null;
-  return (
-    <TooltipProvider delay={TOOLTIP_DELAY_MS}>
-      <AvatarGroup stacked reverse size="xs">
-        {people.map((user) => (
-          <Person
-            key={user.uuid}
-            user={user}
-            isCreator={user.uuid === creatorUuid}
-          />
-        ))}
-      </AvatarGroup>
-    </TooltipProvider>
-  );
-}
+const SPACE_KIND: Record<Channel["channelType"], string> = {
+  public: "Space",
+  private: "Private space",
+  personal: "Personal space",
+};
 
 /** A counted signal, drawn as the dot the row shows for it plus the words. */
 function CountSignal({
@@ -218,13 +143,18 @@ function SpaceSignals({
 export function SpacePreviewContent({
   payload,
   people,
+  liveUuids,
   total,
+  lastActivityAt,
   onAction,
 }: {
   payload: SpacePreviewPayload;
   people: UserBasic[];
+  /** Of `people`, whoever is working right now — their faces pulse. */
+  liveUuids?: ReadonlySet<string>;
   /** Sessions in the space, or `null` while the page hasn't arrived. */
   total: number | null;
+  lastActivityAt: string | null;
   onAction: () => void;
 }) {
   const { channel, unreadSessions, blockedSessions, actions } = payload;
@@ -237,7 +167,9 @@ export function SpacePreviewContent({
           {/* The row's own mark rides with the name rather than in a gutter of
               its own: a quiet space has no mark, and a column that is empty on
               most cards is an indent nothing pays for. */}
-          <ItemTitle className="flex items-center gap-2 break-words">
+          {/* `wrap-anywhere` for the reason a session's card takes it, which
+              `ChannelItemPreview` spells out. */}
+          <ItemTitle className="wrap-anywhere flex items-center gap-2">
             {hasAttention && (
               <span
                 aria-hidden
@@ -248,21 +180,32 @@ export function SpacePreviewContent({
                 }}
               />
             )}
-            {channel.name}
+            <span className="min-w-0 font-bold">{channel.name}</span>
           </ItemTitle>
           <ItemDescription>
             {/* No count until the page lands: "0 sessions" on a space that has
                 them is a wrong answer, and the card is about to have a right
                 one. */}
-            {total == null
-              ? "Space"
-              : `Space \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`}
+            <span className="block">
+              {SPACE_KIND[channel.channelType]}
+              {total != null &&
+                ` \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`}
+            </span>
+            {lastActivityAt && (
+              <span className="block">
+                Active {formatRelativeAge(lastActivityAt)}
+              </span>
+            )}
           </ItemDescription>
         </ItemContent>
         {/* Top-aligned: the people belong to the space's name, not to the
             block of text under it. */}
         <ItemActions className="self-start">
-          <SpacePeople people={people} creatorUuid={channel.createdBy?.uuid} />
+          <PresenceAvatars
+            people={people}
+            liveUuids={liveUuids}
+            leadUuid={channel.createdBy?.uuid}
+          />
         </ItemActions>
       </Item>
       <SpaceSignals
@@ -302,7 +245,9 @@ export function SpacePreview({
     <SpacePreviewContent
       payload={payload}
       people={overview.people}
+      liveUuids={overview.liveUuids}
       total={overview.total}
+      lastActivityAt={overview.lastActivityAt}
       onAction={onAction}
     />
   );

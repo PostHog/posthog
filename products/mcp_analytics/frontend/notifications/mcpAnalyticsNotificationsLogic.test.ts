@@ -87,6 +87,19 @@ describe('mcpAnalyticsNotificationsLogic', () => {
         expect(listSpy.mock.calls[0][0]).not.toHaveProperty('full')
     })
 
+    it('groups notifications by use case and keeps unclassified ones', async () => {
+        const toolError = makeNotification('a')
+        const other = makeNotification('b', {
+            filters: { events: [{ id: '$mcp_missing_capability', type: 'events' }] },
+        })
+        listSpy.mockReset().mockResolvedValue({ count: 2, next: null, previous: null, results: [toolError, other] })
+
+        await expectLogic(logic, () => logic.actions.loadNotifications()).toFinishAllListeners()
+
+        expect(logic.values.notificationsByUseCase['tool-error']).toEqual([toolError])
+        expect(logic.values.unclassifiedNotifications).toEqual([other])
+    })
+
     it('keeps the fetched rows and warns when the list is truncated', async () => {
         const notifications = [makeNotification('a'), makeNotification('b')]
         listSpy.mockReset().mockResolvedValue({

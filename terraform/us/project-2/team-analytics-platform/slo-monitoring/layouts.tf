@@ -22,6 +22,15 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
         })
       },
       {
+        insight_id = posthog_insight.slo_regression.id
+        layouts_json = jsonencode({
+          sm = {
+            h = 4, i = "regression", w = 12, x = 0, y = 6
+            minH = 2, minW = 2, moved = false, static = false
+          }
+        })
+      },
+      {
         text_body = "**Success rate** is a 28-day rolling window showing the percentage of successful operations. **Burn rate** shows how fast you're consuming your error budget on a logarithmic scale — the Budget rate line marks sustainable consumption, crossing 100x burn indicates an active incident. **Duration** shows p50/p95/p99 operation latency in seconds."
         layouts_json = jsonencode({
           sm = {
@@ -33,7 +42,7 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
     ],
     # Per-operation sections: header + burn rate (left) + duration (right) per region.
     # Each section: header (h=1) + N regions * row_height (h=3).
-    # Base y = 6 (after success rate h=5 + text h=1).
+    # Base y = 10 (after success rate h=5 + text h=1 + regression table h=4).
     # NOTE: y offset formula assumes all operations have the same number of regions.
     flatten([
       for op_idx, op_key in sort(keys(local.slo_operations)) : concat(
@@ -43,7 +52,7 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
           layouts_json = jsonencode({
             sm = {
               h = 1, i = "header_${op_key}", w = 12, x = 0,
-              y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3)
+              y = 10 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3)
               minH = 1, minW = 1, moved = false, static = false
             }
           })
@@ -55,7 +64,7 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
             layouts_json = jsonencode({
               sm = {
                 h = 3, i = "burn_${op_key}_${lower(region)}", w = 6, x = 0,
-                y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
+                y = 10 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
                 minH = 2, minW = 2, moved = false, static = false
               }
             })
@@ -68,7 +77,7 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
             layouts_json = jsonencode({
               sm = {
                 h = 3, i = "dur_${op_key}_${lower(region)}", w = 6, x = 6,
-                y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
+                y = 10 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
                 minH = 2, minW = 2, moved = false, static = false
               }
             })

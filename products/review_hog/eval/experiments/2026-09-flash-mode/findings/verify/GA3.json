@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA3",
+    "cluster": null,
+    "is_real": true,
+    "severity": "consider",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "tach.toml:623-625 says the review_hog -> products.stamphog dependency is \"Facade-only (enforced by stamphog's [[interfaces]] block)\". But stamphog's interface block at tach.toml:1098-1105 exposes both `backend\\.facade.*` and `backend\\.presentation\\.views.*` for `products.stamphog`. Tach checks that block the same way for every module that depends on stamphog, so review_hog is also allowed to import `products.stamphog.backend.presentation.views.*`. The config does not enforce facade-only. Tracing review_hog's current imports shows they do stay on the facade today: receivers.py:53 imports facade.inbox_hooks, receivers.py:222 imports facade.api, and api/settings.py:16 imports facade.api. The only non-facade import is in a test, test_settings_api.py:10 (backend.models), which tach normally does not check. So nothing is broken now. The comment just claims more than the config enforces, and a later import of the presentation views would pass tach without a warning.",
+            "refutation": "I tried to show the enforcement claim holds. I looked for a narrower interface block just for review_hog, or any per-consumer expose restriction, and found none. The only stamphog [[interfaces]] block (tach.toml:1098-1105) also exposes presentation.views. The refutation fails on the comment's accuracy. It does hold on impact: every current production import is facade-only, so no defect ships. This is a misleading comment or config mismatch, which makes it minor (consider)."
+        },
+        {
+            "evidence": "tach.toml:623-625 (worktree frozen-75215) has the comment \"Facade-only (enforced by stamphog's [[interfaces]] block)\" above the `products.stamphog` dependency of `products.review_hog`. The stamphog interface block at tach.toml:1098-1106 exposes both `backend\\.facade.*` and `backend\\.presentation\\.views.*`. So the finding is right that tach would also let review_hog import stamphog's presentation views. Every production import of stamphog in review_hog goes through the facade: receivers.py:53 (`facade.inbox_hooks`), receivers.py:222 (`facade.api`) and api/settings.py:16 (`facade.api`). There is no presentation import today. The interface block still stops imports of models and logic. The extra `presentation.views` entry matches the usual pattern of exposing views for URL routing.",
+            "refutation": "The finding is only about how exact a code comment is. It changes no runtime behavior and has no reachable trigger. The config stops real boundary leaks into models and logic. Allowing `presentation.views` only matters if someone later imports views from review_hog, and that import would be obvious in review. All current imports use the facade (receivers.py:53, receivers.py:222, api/settings.py:16). At most, the comment wording should be tightened. Under the rubric that is a wording preference, not a defect, so I judge it not real.",
+            "is_real": false,
+            "severity": null
+        },
+        {
+            "evidence": "The facts in the finding are correct. In `tach.toml`, lines 623-625 of the worktree, the new comment above `\"products.stamphog\"` in review_hog's `depends_on` says \"Facade-only (enforced by stamphog's [[interfaces]] block)\". But the `[[interfaces]]` block for `products.stamphog` (`tach.toml:1098-1105`) exposes both `backend\\\\.facade.*` and `backend\\\\.presentation\\\\.views.*`. So tach would also let review_hog import stamphog's presentation views, and the comment claims more than the config enforces. Today review_hog's backend code imports stamphog only through the facade: `receivers.py:53`, `receivers.py:222` and `api/settings.py:16`. The one exception is a test, `products/review_hog/backend/tests/test_settings_api.py:10`, which imports `products.stamphog.backend.models` directly. Nothing imports stamphog presentation code today.",
+            "is_real": true,
+            "severity": "consider",
+            "refutation": "My refutation attempt: the `[[interfaces]]` block does enforce most of the claim. It blocks imports of stamphog models, logic and other internals, and only lets the views through beside the facade. Other products commonly expose views this way for URL routing. On angle 3 (can this be hit in production), there is no runtime trigger. This is a comment in a static lint config. No shipped behavior changes, and today no code crosses into stamphog's presentation layer. The comment is still wrong about how strict the enforcement is, so the finding is real. It is only a minor documentation problem, with no correctness, security or data-loss impact, so `consider` is the right severity."
+        }
+    ]
+}

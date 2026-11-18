@@ -1,7 +1,6 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
-
 import { NodeKind } from '~/queries/schema/schema-general'
-import { EntityTypes } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
@@ -11,13 +10,7 @@ function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTr
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
-        action: {
-            id: '$pageview',
-            type: EntityTypes.EVENTS,
-            order: 0,
-            name: '$pageview',
-            days: ['2024-06-10', '2024-06-11', '2024-06-12'],
-        },
+        order: 0,
         label: '$pageview',
         count: 10,
         aggregated_value: 10,

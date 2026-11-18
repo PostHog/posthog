@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { AppContext, SidePanelTab } from '~/types'
@@ -11,6 +13,7 @@ import {
     SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
     SupportFormFields,
     supportLogic,
+    warnIfMessageTooLong,
 } from './supportLogic'
 import * as SupportModal from './SupportModal'
 
@@ -180,17 +183,21 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBe('t1')
         })
 
-        it('appends exception context to the message so it survives on the ticket', async () => {
+        it.each([
+            ['exception', { exception_event: { uuid: 'exc-1', event: '$exception' } }, 'Exception:'],
+            [
+                'ticket',
+                { ticket_context: 'Email sending tier increase request' },
+                'Email sending tier increase request',
+            ],
+        ])('appends %s context to the message so it survives on the ticket', async (_name, extra, expected) => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
             conversationsMock(sendMessage)
 
-            await logic.asyncActions.submitSupportTicket({
-                ...FORM_FIELDS,
-                exception_event: { uuid: 'exc-1', event: '$exception' },
-            })
+            await logic.asyncActions.submitSupportTicket({ ...FORM_FIELDS, ...extra })
 
             expect(sendMessage.mock.calls[0][0]).toContain('Help!')
-            expect(sendMessage.mock.calls[0][0]).toContain('Exception:')
+            expect(sendMessage.mock.calls[0][0]).toContain(expected)
         })
 
         it('accepts a submission with no topic or severity, since the form no longer collects them', async () => {
@@ -415,6 +422,20 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBeNull()
             expect(sendFailures()).toHaveLength(1)
             expect(sendFailures()[0][1]).toMatchObject({ reason: 'invalid_email' })
+        })
+    })
+
+    describe('warnIfMessageTooLong', () => {
+        it('offers the email fallback on the too-long toast, like the other send-failure paths', () => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+
+            const blocked = warnIfMessageTooLong('a'.repeat(CONVERSATIONS_MESSAGE_MAX_LENGTH + 1))
+
+            expect(blocked).toBe(true)
+            expect(errorToast).toHaveBeenCalledTimes(1)
+            expect(errorToast.mock.calls[0][1]).toMatchObject({ button: EMAIL_SUPPORT_BUTTON })
+
+            errorToast.mockRestore()
         })
     })
 })

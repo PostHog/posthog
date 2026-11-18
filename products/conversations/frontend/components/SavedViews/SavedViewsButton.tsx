@@ -3,15 +3,21 @@ import { useActions, useValues } from 'kea'
 import { IconBookmark, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { SavedViewsModal } from './SavedViewsModal'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
     const { favoriteViews, viewsLoading } = useValues(ticketViewsLogic({ id }))
-    const { openModal, loadView, loadViews } = useActions(ticketViewsLogic({ id }))
+    const { openModal, openSaveModal, loadView, loadViews } = useActions(ticketViewsLogic({ id }))
     const { activeView } = useValues(supportTicketsSceneLogic)
     const { resetFilters } = useActions(supportTicketsSceneLogic)
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     return (
         <>
@@ -34,7 +40,15 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                               ],
                     },
                     {
-                        items: [{ label: 'All saved views', onClick: openModal }],
+                        items: [
+                            {
+                                label: 'Save current view',
+                                onClick: openSaveModal,
+                                disabledReason: editDisabledReason,
+                                'data-attr': 'tickets-save-current-view',
+                            },
+                            { label: 'All saved views', onClick: openModal },
+                        ],
                     },
                 ]}
             >

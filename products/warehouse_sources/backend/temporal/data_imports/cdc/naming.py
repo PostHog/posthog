@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
+# Every extraction run carries the schedule's workflow id, which is built from this prefix (see
+# _get_cdc_extraction_schedule_id). A table's scheduled sync uses the schema id instead.
+CDC_EXTRACTION_WORKFLOW_ID_PREFIX = "cdc-extraction-"
+
 
 def cdc_qualified_table_name(schema: ExternalDataSchema, default_schema: str | None) -> str:
     """Resolve a CDC schema row to its source-qualified `schema.table` name.

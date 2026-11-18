@@ -62,6 +62,16 @@ describe('logsRetentionFormLogic', () => {
 
         expect(buildRetentionFormDefaults(rule).retention_days).toEqual(14)
     })
+
+    it('keeps a stored custom period that is a whole number of months', () => {
+        const rule = {
+            name: 'half a year',
+            enabled: true,
+            config: { retention_days: 180, filter_group: { type: 'AND', values: [] } },
+        } as unknown as LogsRetentionRuleApi
+
+        expect(buildRetentionFormDefaults(rule).retention_days).toEqual(180)
+    })
 })
 
 /** Poll until `predicate` holds, yielding to timers/microtasks so kea listeners and loaders run. */
@@ -75,6 +85,33 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 10000): Promise<v
     }
     await new Promise((resolve) => setTimeout(resolve, 20))
 }
+
+describe('logsRetentionFormLogic validation', () => {
+    let logic: ReturnType<typeof logsRetentionFormLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = logsRetentionFormLogic({ rule: null })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    it.each([0, 75])('reports an error for a retention period of %i days instead of saving it', async (days) => {
+        logic.actions.setRetentionFormValues(form({ retention_days: days }))
+        await expectLogic(logic, () => {
+            logic.actions.submitRetentionForm()
+        }).toDispatchActions(['submitRetentionFormFailure'])
+        expect(logic.values.retentionFormErrors.retention_days).toEqual(expect.stringContaining('whole number'))
+    })
+
+    it('accepts a custom whole-month period', () => {
+        logic.actions.setRetentionFormValues(form({ retention_days: 180 }))
+        expect(logic.values.retentionFormValidationErrors.retention_days).toBeUndefined()
+    })
+})
 
 describe('logsRetentionFormLogic name suggestion', () => {
     const EMPTY_GROUP = { type: FilterLogicalOperator.And, values: [] }

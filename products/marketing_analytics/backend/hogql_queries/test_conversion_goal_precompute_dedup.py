@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -55,8 +56,16 @@ class TestConversionGoalPrecomputeDedup(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self._clean()
+        # Reads are precompute-only (they never build inline). These tests warm and read in-process with
+        # no separate warmer, so treat the in-test ensures as a producer to materialize the windows first.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._clean()
         super().tearDown()
 

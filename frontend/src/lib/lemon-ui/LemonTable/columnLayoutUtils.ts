@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 // Pure column-layout helpers used by LemonTable internals. Kept separate from
 // columnUtils.tsx, whose column factories render TZLabel/ProfilePicture and would
 // otherwise drag that graph (including eventUsageLogic and the taxonomy JSON) into
@@ -75,6 +77,17 @@ export function getStickyColumnInfo<T extends Record<string, any>>(
 }
 
 /**
+ * The maximum width for the cells of a resizable column. A `<col>` width is only a hint: when the
+ * table sizes itself intrinsically, the widest cell can make the column wider than that hint. The
+ * cap holds the column at the width a person drags it to, and the content crops instead.
+ */
+export function getColumnWidthCap<T extends Record<string, any>>(
+    column: LemonTableColumn<T, any>
+): string | number | undefined {
+    return column.resizable && column.width ? column.width : undefined
+}
+
+/**
  * Determine the column's key, using `dataIndex` as fallback.
  * If `obligationReason` is specified, will throw an error if the key can't be determined.
  */
@@ -87,4 +100,38 @@ export function determineColumnKey(column: LemonTableColumn<any, any>, obligatio
         throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
+}
+
+export interface VirtualColumnWindow {
+    startIndex: number
+    endIndex: number
+    paddingLeft: number
+    paddingRight: number
+    stickyFirstColumn: boolean
+}
+
+export function virtualColumnIndex(index: number, window: VirtualColumnWindow): number {
+    return window.stickyFirstColumn && index === 0 ? 0 : window.startIndex + index - Number(window.stickyFirstColumn)
+}
+
+export function windowHeaderRow(
+    row: { title: ReactNode; colSpan: number }[],
+    window?: VirtualColumnWindow
+): { title: ReactNode; colSpan: number; columnIndex: number }[] {
+    let columnIndex = 0
+    return row.flatMap((cell) => {
+        const start = columnIndex
+        columnIndex += cell.colSpan
+        if (!window) {
+            return [{ ...cell, columnIndex: start }]
+        }
+        const visibleStart = Math.max(start, window.startIndex)
+        const visibleEnd = Math.min(columnIndex, window.endIndex)
+        return [
+            ...(window.stickyFirstColumn && start === 0 ? [{ ...cell, colSpan: 1, columnIndex: 0 }] : []),
+            ...(visibleEnd > visibleStart
+                ? [{ ...cell, colSpan: visibleEnd - visibleStart, columnIndex: visibleStart }]
+                : []),
+        ]
+    })
 }

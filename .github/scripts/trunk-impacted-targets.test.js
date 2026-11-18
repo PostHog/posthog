@@ -16,6 +16,10 @@ const path = require('node:path')
 
 const {
     computeTargets,
+    jsLockfileNodeLanes,
+    loadNodeLaneMap,
+    NODE_LANES,
+    NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
     parseRustAffectedCrates,
@@ -26,6 +30,8 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
@@ -39,6 +45,7 @@ const {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
+    stripJsonComments,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
@@ -126,16 +133,11 @@ test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
         // Runs in backend, frontend, nodejs, and rust CI alike.
         'bin/download-mmdb',
-        // The stack every suite tests against, the rust integration suites
-        // included.
-        'docker-compose.base.yml',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot shadow of an action every workflow uses, the toolchain, the
-        // service configs the stack mounts, and the markdownlint config every
-        // tree's prose obeys.
+        // Depot mirror of an action every workflow uses, the toolchain, and the
+        // markdownlint config every tree's prose obeys.
         '.depot/actions/pnpm-install/action.yml',
         '.flox/env/manifest.toml',
-        'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
         '.config/.markdownlint-cli2.jsonc',
         // A workflow nobody has placed in a domain keeps the old radius.
@@ -179,7 +181,7 @@ test('the tach graph claims the python lanes rather than every lane', () => {
 // Only the root files narrow: a product's own manifests keep the product's lanes.
 test('a lockfile claims its own toolchain rather than every lane', () => {
     for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']) {
-        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT), file)
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['tsconfig.json'], CONTEXT), file)
     }
     for (const file of ['uv.lock', 'pyproject.toml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
@@ -210,13 +212,21 @@ test('a proto claims the consumers that generate from it rather than every lane'
         assert.equal(targets.includes(target), false, target)
     }
 
+    // A stub tree claims its consumer's lane whichever top-level directory
+    // holds it: packages/ reads as frontend unless a rule says otherwise.
     const generatedDirs = [
-        'posthog/personhog_client/proto/generated',
-        'nodejs/src/common/generated/personhog',
-        'rust/personhog-proto',
+        ['packages/personhog-proto', 'py:core'],
+        ['nodejs/src/common/generated/personhog', 'node:ingestion'],
+        ['rust/personhog-proto', 'rust:crate:personhog-proto'],
     ]
-    for (const dir of generatedDirs) {
+    for (const [dir, lane] of generatedDirs) {
         assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
+        const stubTargets = computeTargets([`${dir}/stub`], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['personhog-proto'],
+        })
+        assert.equal(stubTargets.includes(lane), true, `${dir} claims ${lane}`)
+        assert.equal(stubTargets.includes('fe:core'), false, `${dir} claims no frontend lane`)
     }
 })
 
@@ -337,7 +347,7 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
-        ['posthog/personhog_client/proto/generated', PYTHON],
+        ['packages/personhog-proto', PYTHON],
         ['nodejs/src/common/generated', NODE],
     ]
     for (const [root, domain] of stubRoots) {
@@ -371,7 +381,7 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
 // serializes against Rust, and a backend one no longer serializes against the
 // frontend.
 test('a language-scoped tripwire claims only that language', () => {
-    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     assert.equal(javascript.includes('fe:core'), true)
     assert.equal(javascript.includes('fe:product:alpha'), true)
     assert.equal(javascript.includes('node:ingestion'), true)
@@ -439,13 +449,32 @@ test('the generated frontend product artifacts claim only the frontend lanes', (
 // story the workflows tell: a tool's own settings can only fail the code that
 // tool reads, so they no longer serialize a PR against the whole repo.
 test('single-language root configuration claims that language', () => {
-    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     for (const file of ['postcss.config.js', '.stylelintrc.js', '.stylelintignore', '.kearc', 'posthog.json']) {
         assert.deepEqual(computeTargets([file], CONTEXT), javascript, file)
     }
     const python = computeTargets(['mypy.ini'], CONTEXT)
-    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml', 'unit.json.tpl']) {
+    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), python, file)
+    }
+})
+
+test('the root oxc configs claim the JS lanes except node', () => {
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
+    for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+})
+
+test('the root oxc configs keep ignoring nodejs', () => {
+    for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
+        const config = JSON.parse(stripJsonComments(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8')))
+        const ignored = (config.ignorePatterns || []).map((pattern) => pattern.replace(/\/(\*\*)?$/, ''))
+        assert.equal(ignored.includes('nodejs'), true, `${file} must ignore nodejs/`)
     }
 })
 
@@ -453,7 +482,7 @@ test('single-language root configuration claims that language', () => {
 // suite runs on. The narrowing above stops here: these keep the full set, but
 // by decision rather than for want of a rule.
 test('stack and image configuration at the root stays universal', () => {
-    for (const file of ['.env.development', '.env.services', '.envrc', 'otel-collector-config.dev.yaml']) {
+    for (const file of ['.env.development', '.env.services', '.envrc']) {
         assert.equal(tripwireDomain(file), UNIVERSAL, file)
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
     }
@@ -466,7 +495,8 @@ test('stack and image configuration at the root stays universal', () => {
 test('ownership data shares one lane instead of every lane', () => {
     for (const file of [
         'owners.yaml',
-        'tools/owners/posthog_owners/matcher.py',
+        'packages/owners-yaml/owners_yaml/matcher.py',
+        'tools/owners/owners_yaml/matcher.py',
         '.github/CODEOWNERS',
         '.github/owners.yaml',
     ]) {
@@ -492,11 +522,13 @@ test('the quarantine list claims the fullstack lanes and no rust crate', () => {
 
 // paths-filter decides which jobs run inside a single run's own diff, so no
 // run's outcome depends on it jointly with another queue entry. Its own CI and
-// its .depot shadow share the lane.
+// its .depot mirror share the lane.
 test('the paths-filter action and its CI share the ci-tooling lane', () => {
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
+        '.github/actions/shared-image-releases/src/inspect.ts',
+        '.github/actions/shared-image-releases/dist/index.js',
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {
@@ -508,7 +540,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 // and depot.json is billing and cache routing that fails its own PR's builds
 // alone.
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
-    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(
+        computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
+        computeTargets(['tsconfig.json'], CONTEXT)
+    )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
 
@@ -543,19 +578,37 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     for (const file of [
-        '.github/workflows/ci-backend.yml',
+        '.github/workflows/ci-frontend.yml',
+        '.github/workflows/ci-storybook.yml',
+        '.github/workflows/ci-storybook-update-test-timing.yml',
+    ]) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+    for (const file of ['.github/workflows/ci-nodejs.yml', '.github/workflows/ci-nodejs-container.yml']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            computeTargets(['Dockerfile.ml-mirror-image-scrub'], CONTEXT),
+            file
+        )
+    }
+    for (const file of [
+        '.depot/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        '.github/workflows/ci-clickhouse-util-udfs.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',
         '.github/scripts/test_optimize_test_durations.py',
         '.github/scripts/check-idor-model-coverage.py',
+        // Only ci-backend's events_json leg reads the native-schema test list.
+        '.github/new-events-schema-targets.txt',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
     }
@@ -567,7 +620,7 @@ test('a single-language workflow claims that language rather than everything', (
 test('a full-stack suite claims both language families and no rust crate', () => {
     for (const file of [
         '.github/workflows/ci-e2e-playwright.yml',
-        '.github/workflows/ci-hog.yml',
+        '.github/workflows/ci-hoglang.yml',
         '.github/workflows/container-images-ci.yml',
         '.github/workflows/cd-sandbox-base-image.yml',
         '.github/workflows/ci-recording-rasterizer-container.yml',
@@ -725,20 +778,9 @@ test('the schema codegen scripts claim the product-surface lanes', () => {
     )
 })
 
-// A Depot shadow is kept apples-to-apples with its canonical by the
-// shadow-drift check and posts non-blocking statuses, so it can only affect
-// what the canonical affects. The narrowing direction is the guard: a shadow
-// of something no rule has placed must stay on the .github blanket rather
-// than fall through unclaimed.
-test('a depot shadow resolves through its canonical workflow rules', () => {
-    assert.deepEqual(
-        computeTargets(['.depot/workflows/ci-backend.yml'], CONTEXT),
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT)
-    )
-    assert.deepEqual(
-        computeTargets(['.depot/workflows/ci-backend-update-test-timing.yml'], CONTEXT),
-        computeTargets(['mypy.ini'], CONTEXT)
-    )
+// A Depot action mirror resolves through its canonical action, and a Depot workflow no rule
+// has placed stays on its own blanket rather than falling through unclaimed.
+test('depot mirrors and unplaced depot workflows resolve to everything', () => {
     assert.deepEqual(computeTargets(['.depot/actions/pnpm-install/action.yml'], CONTEXT), EVERYTHING)
     assert.deepEqual(computeTargets(['.depot/workflows/some-new-shadow.yml'], CONTEXT), EVERYTHING)
     // Shadow markdown is prose like any other.
@@ -758,6 +800,13 @@ test('desktop workflows claim the desktop product lanes and widen without the pr
         assert.deepEqual(computeTargets([file], withDesktop), ['fe:product:desktop', 'py:product:desktop'], file)
     }
     assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
+})
+
+test('the agent workspace shares the desktop lanes and takes the frontend lanes without the product', () => {
+    const withDesktop = { ...CONTEXT, products: [...CONTEXT.products, 'desktop'] }
+    const agentFile = 'packages/agent/packages/agent/src/index.ts'
+    assert.deepEqual(computeTargets([agentFile], withDesktop), ['fe:product:desktop', 'py:product:desktop'])
+    assert.deepEqual(computeTargets([agentFile], CONTEXT), computeTargets(['packages/quill/src/index.ts'], CONTEXT))
 })
 
 // The Proto CI workflow gates buf lint and the stub drift checks over every
@@ -797,13 +846,376 @@ test('the agent-skills workflow claims both language families', () => {
     assert.equal(targets.includes('agents'), false)
     assert.equal(targets.includes('py:core'), true)
     assert.equal(targets.includes('fe:core'), true)
-    assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(targets, computeTargets(['mypy.ini', 'tsconfig.json'], CONTEXT))
 })
 
-test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
-    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
+test('the ml-mirror sidecar image and its workflow stay on the node lanes', () => {
+    for (const file of [
+        '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
+        'Dockerfile.ml-mirror-image-scrub',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), [...NODE_LANES].sort(), file)
     }
+})
+
+const [RASTERIZER_LANE, RASTERIZER_DIR] = NODE_SUB_LANES.find(([lane]) => lane === 'node:recording-rasterizer')
+const [CDP_LANE] = NODE_SUB_LANES.find(([lane]) => lane === 'node:cdp')
+const ALL_NODE_LANES = [...NODE_LANES].sort()
+
+const NODE_CONTEXT = {
+    ...CONTEXT,
+    nodeLaneMap: {
+        fileLanes: new Map([
+            ['nodejs/src/cdp/hog-executor.ts', new Set([CDP_LANE])],
+            ['nodejs/src/cdp/types.ts', new Set([CDP_LANE, 'node:ingestion'])],
+            ['nodejs/src/ingestion/pipelines/step.ts', new Set(['node:ingestion'])],
+            [`${RASTERIZER_DIR}/capture/player.ts`, new Set([RASTERIZER_LANE])],
+        ]),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['@posthog/hogvm', new Set([CDP_LANE, 'node:ingestion'])],
+        ]),
+    },
+    nodeWorkspaceDependencies: new Map([
+        ['common/hogvm/typescript', new Set(['@posthog/hogvm'])],
+        ['common/replay-headless', new Set(['@posthog/replay-headless'])],
+        ['common/replay-shared', new Set(['@posthog/replay-headless'])],
+    ]),
+}
+
+test('a nodejs file claims every node lane whose imports reach it', () => {
+    const cases = [
+        ['nodejs/src/cdp/hog-executor.ts', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/cdp/types.ts', NODE_CONTEXT, [CDP_LANE, 'node:ingestion'].sort()],
+        ['nodejs/src/ingestion/pipelines/step.ts', NODE_CONTEXT, ['node:ingestion']],
+        [`${RASTERIZER_DIR}/capture/player.ts`, NODE_CONTEXT, [RASTERIZER_LANE]],
+        ['nodejs/src/cdp/not-imported-yet.json', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/servers/cdp-api-server.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/index.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/types/ambient.d.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/package.json', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/tests/helpers/kafka.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/cdp/hog-executor.ts', CONTEXT, ALL_NODE_LANES],
+    ]
+    for (const [file, context, expected] of cases) {
+        assert.deepEqual(computeTargets([file], context), expected, file)
+    }
+    const deleted = 'nodejs/src/cdp/gone.ts'
+    assert.deepEqual(computeTargets([deleted], { ...NODE_CONTEXT, deletedFiles: new Set([deleted]) }), ALL_NODE_LANES)
+})
+
+test('a workspace package nodejs links claims the node lanes that import it', () => {
+    const nodeLanesOf = (file, context) =>
+        computeTargets([file], context).filter((target) => target.startsWith('node:'))
+    assert.deepEqual(
+        nodeLanesOf('common/hogvm/typescript/src/execute.ts', NODE_CONTEXT),
+        [CDP_LANE, 'node:ingestion'].sort()
+    )
+    assert.equal(computeTargets(['common/hogvm/typescript/src/execute.ts'], NODE_CONTEXT).includes('py:core'), true)
+    assert.deepEqual(nodeLanesOf('common/replay-shared/src/index.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/replay-headless/src/player.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/src/execute.ts', CONTEXT), ALL_NODE_LANES)
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/README.md', NODE_CONTEXT), [])
+})
+
+function writeTree(files) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'node-lanes-'))
+    for (const [file, text] of Object.entries(files)) {
+        fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), text)
+    }
+    return root
+}
+
+test('the node lane map follows imports in both directions and fails closed', () => {
+    const tree = {
+        'nodejs/src/common/config.ts': "import { Kafka } from 'kafka-client'\nimport { brokers } from './kafka'\n",
+        'nodejs/src/common/kafka.ts': 'export const brokers = []\n',
+        'nodejs/src/common/types.ts': "import type { HogFunction } from '../cdp/types'\nexport type T = HogFunction\n",
+        'nodejs/src/cdp/types.ts': 'export type HogFunction = {}\n',
+        'nodejs/src/cdp/executor.ts':
+            "import { config } from '~/common/config'\nimport { exec } from '@posthog/hogvm'\n",
+        'nodejs/src/ingestion/step.ts': "import type { T } from '~/common/types'\nimport fs from 'node:fs'\n",
+        'nodejs/src/cdp/executor.test.ts': "import { seed } from '~/tests/helpers/seed'\n",
+        'nodejs/tests/helpers/seed.ts': "import { rows } from '~/ingestion/rows'\n",
+        'nodejs/src/ingestion/rows.ts': 'export const rows = []\n',
+        [`${RASTERIZER_DIR}/player.ts`]: "import { Player } from '@posthog/replay-headless/protocol'\n",
+        [`${RASTERIZER_DIR}/__tests__/guard.test.ts`]: "const script = `require('./missing-in-child-process')`\n",
+        'nodejs/src/servers/cdp-server.ts':
+            "import { run } from '../cdp/executor'\nimport express from 'ultimate-express'\n",
+        'nodejs/src/ingestion/errors.ts': [
+            "throw new Error(`could not load from '${lib}'`)",
+            "logger.warn('Imported from \\'Cymbal is down.\\'')",
+            "const query = `SELECT * from '${trigger.table_name}'`",
+        ].join('\n'),
+    }
+    const map = loadNodeLaneMap(writeTree(tree))
+    const lanesOf = (file) => [...(map.fileLanes.get(file) || [])].sort()
+    assert.deepEqual(lanesOf('nodejs/src/cdp/executor.ts'), [CDP_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/cdp/types.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/config.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/kafka.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/step.ts'), ['node:ingestion'])
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/rows.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf(`${RASTERIZER_DIR}/player.ts`), [RASTERIZER_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/servers/cdp-server.ts'), [])
+    assert.deepEqual([...map.packageLanes.get('@posthog/replay-headless')], [RASTERIZER_LANE])
+    assert.deepEqual([...map.packageLanes.get('@posthog/hogvm')], [CDP_LANE])
+    assert.deepEqual([...map.packageLanes.get('kafka-client')].sort(), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual([...map.packageLanes.get('ultimate-express')].sort(), ALL_NODE_LANES)
+    assert.deepEqual([...map.packageLanes.keys()].sort(), [
+        '@posthog/hogvm',
+        '@posthog/replay-headless',
+        'kafka-client',
+        'ultimate-express',
+    ])
+
+    assert.equal(
+        loadNodeLaneMap(writeTree({ ...tree, 'nodejs/src/ingestion/broken.ts': "import { x } from './nowhere'\n" })),
+        null
+    )
+})
+
+function lockfile({ rootDeps, nodeDeps, headlessDeps, snapshots, packages, overrides = '' }) {
+    return [
+        "lockfileVersion: '9.0'",
+        '',
+        'settings:',
+        '  autoInstallPeers: true',
+        '',
+        overrides,
+        'importers:',
+        '',
+        '  .:',
+        '    devDependencies:',
+        rootDeps,
+        '',
+        '  nodejs:',
+        '    dependencies:',
+        "      '@posthog/replay-headless':",
+        '        specifier: workspace:*',
+        '        version: link:../common/replay-headless',
+        '      tiny-lib:',
+        '        specifier: link:../packages/tiny-lib',
+        '        version: link:../packages/tiny-lib',
+        nodeDeps,
+        '',
+        '  common/replay-headless:',
+        '    dependencies:',
+        headlessDeps,
+        '',
+        'packages:',
+        '',
+        packages,
+        '',
+        'snapshots:',
+        '',
+        snapshots,
+        '',
+    ].join('\n')
+}
+
+function lockfileWith({
+    sdk = '1.0.0',
+    shim = '1.0.0',
+    runner = '1.0.0',
+    pad = '1.0.0',
+    tool = '1.0.0',
+    rootKafka = '3.0.0',
+    overrides,
+} = {}) {
+    const entry = (name, version) => [
+        `  ${name}@${version}:`,
+        `    resolution: {integrity: sha512-${name}${version}}`,
+        '',
+    ]
+    return lockfile({
+        overrides,
+        rootDeps: [
+            ['left-pad', pad],
+            ['build-tool', tool],
+            ['kafka-client', rootKafka],
+        ]
+            .flatMap(([name, version]) => [
+                `      ${name}:`,
+                `        specifier: ^${version}`,
+                `        version: ${version}`,
+            ])
+            .join('\n'),
+        nodeDeps: [
+            '      kafka-client:',
+            '        specifier: ^2.0.0',
+            '        version: 2.0.0',
+            '    devDependencies:',
+            '      test-runner:',
+            '        specifier: ^1.0.0',
+            `        version: ${runner}`,
+        ].join('\n'),
+        headlessDeps: ['      browser-sdk:', '        specifier: catalog:', `        version: ${sdk}`].join('\n'),
+        packages: [
+            ...entry('browser-sdk', sdk),
+            ...entry('kafka-client', '2.0.0'),
+            ...entry('kafka-client', rootKafka),
+            ...entry('shim', shim),
+            ...entry('test-runner', runner),
+            ...entry('left-pad', pad),
+            ...entry('build-tool', tool),
+        ].join('\n'),
+        snapshots: [
+            `  browser-sdk@${sdk}: {}`,
+            '',
+            '  kafka-client@2.0.0:',
+            '    dependencies:',
+            `      shim: ${shim}`,
+            '',
+            `  kafka-client@${rootKafka}: {}`,
+            '',
+            `  shim@${shim}: {}`,
+            '',
+            `  test-runner@${runner}: {}`,
+            '',
+            `  left-pad@${pad}: {}`,
+            '',
+            `  build-tool@${tool}: {}`,
+        ].join('\n'),
+    })
+}
+
+const WORKSPACE = [
+    'packages:',
+    '    - nodejs',
+    '    - common/*',
+    '    - packages/*',
+    'catalog:',
+    '    browser-sdk: ^1.0.0',
+].join('\n')
+
+test('a JS lockfile change claims the node lanes whose dependencies it moved', () => {
+    const base = lockfileWith()
+    const nodeLaneMap = {
+        fileLanes: new Map(),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['kafka-client', new Set([CDP_LANE, 'node:ingestion'])],
+            ['left-pad', new Set([CDP_LANE])],
+        ]),
+    }
+    const cases = [
+        [
+            'a root dependency a lane imports without declaring it',
+            lockfileWith({ pad: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE],
+        ],
+        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
+        ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
+        [
+            'a bump only replay-headless resolves',
+            lockfileWith({ sdk: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [RASTERIZER_LANE],
+        ],
+        [
+            'a transitive dependency of a package two lanes import',
+            lockfileWith({ shim: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE, 'node:ingestion'],
+        ],
+        ['a dependency no lane imports', lockfileWith({ runner: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        ['a bump with no node lane map', lockfileWith({ sdk: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        [
+            'a new override',
+            lockfileWith({ overrides: 'overrides:\n  shim: 1.0.0\n' }),
+            WORKSPACE,
+            nodeLaneMap,
+            ALL_NODE_LANES,
+        ],
+        [
+            'a workspace change outside the catalog',
+            base,
+            WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
+            nodeLaneMap,
+            ALL_NODE_LANES,
+        ],
+        ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), nodeLaneMap, []],
+        ['a snapshot the walk cannot find', base.replace('  shim@1.0.0: {}', ''), WORKSPACE, nodeLaneMap, null],
+    ]
+    for (const [label, headLockfile, headWorkspace, map, expected] of cases) {
+        const reached = jsLockfileNodeLanes({
+            baseLockfile: base,
+            headLockfile,
+            baseWorkspace: WORKSPACE,
+            headWorkspace,
+            nodeLaneMap: map,
+        })
+        assert.deepEqual(reached && [...reached].sort(), expected && [...expected].sort(), label)
+    }
+    assert.equal(
+        jsLockfileNodeLanes({
+            baseLockfile: null,
+            headLockfile: base,
+            baseWorkspace: WORKSPACE,
+            headWorkspace: WORKSPACE,
+            nodeLaneMap,
+        }),
+        null
+    )
+})
+
+test('a JS lockfile lane keeps only the node lanes the lockfile reached', () => {
+    const nodeLanesOf = (files, context) =>
+        computeTargets(files, context).filter((target) => target.startsWith('node:'))
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+        const narrowed = computeTargets([file], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: () => new Set([RASTERIZER_LANE]),
+        })
+        assert.deepEqual(
+            narrowed.filter((target) => target.startsWith('node:')),
+            [RASTERIZER_LANE],
+            file
+        )
+        assert.equal(narrowed.includes('fe:core'), true, file)
+        for (const [label, answer] of [
+            ['null', () => null],
+            ['absent', undefined],
+        ]) {
+            assert.deepEqual(
+                nodeLanesOf([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: answer }),
+                ALL_NODE_LANES,
+                `${file} ${label}`
+            )
+        }
+    }
+    assert.deepEqual(
+        nodeLanesOf(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: () => new Set(),
+        }),
+        ['node:ingestion']
+    )
+    assert.deepEqual(
+        nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: () => new Set() }),
+        ALL_NODE_LANES
+    )
+
+    let reads = 0
+    const lazy = {
+        ...NODE_CONTEXT,
+        jsLockfileNodeLanes: () => {
+            reads++
+            return new Set([RASTERIZER_LANE])
+        },
+    }
+    computeTargets(['nodejs/src/ingestion/pipelines/step.ts', 'frontend/src/scenes/App.tsx'], lazy)
+    assert.equal(reads, 0)
+    assert.deepEqual(nodeLanesOf(['pnpm-lock.yaml', 'pnpm-workspace.yaml'], lazy), [RASTERIZER_LANE])
+    assert.equal(reads, 2)
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
@@ -816,7 +1228,7 @@ test('a semgrep rule claims the lanes of the languages it declares', () => {
     )
     assert.deepEqual(
         computeTargets(['.semgrep/rules/devex/ts-rule.yaml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
+        computeTargets(['tsconfig.json'], CONTEXT)
     )
     // A rule spanning languages with no single lane mapping, and a rule file
     // the context never resolved, both keep the old radius.
@@ -972,7 +1384,7 @@ test('an incomplete context falls back to the ALL sentinel', () => {
 
 test('tripwire domains are reported for telemetry', () => {
     assert.equal(tripwireDomain('hogli.yaml'), UNIVERSAL)
-    assert.equal(tripwireDomain('.oxlintrc.json'), JAVASCRIPT)
+    assert.equal(tripwireDomain('tsconfig.json'), JAVASCRIPT)
     assert.equal(tripwireDomain('mypy.ini'), PYTHON)
     assert.equal(tripwireDomain('.github/workflows/ci-rust.yml'), RUST)
     assert.equal(tripwireDomain('.github/pull_request_template.md'), null)
@@ -1039,6 +1451,7 @@ test('editor and agent configuration shares one lane', () => {
         '.trunk/trunk.yaml',
         '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
+        '.coderabbit.yaml',
         '.cursorignore',
         '.editorconfig',
         '.gitattributes',
@@ -1503,6 +1916,169 @@ test('the cascade names direct importers and stops before the next hop', () => {
     ])
 })
 
+// A vendor imports only the SDK, so the SDK is its one direct importer edge and
+// core sits a hop beyond it. If a reader below loses the vendor lane, a change
+// that can break a vendor merges in parallel with one, which is the failure
+// lanes exist to prevent. If core gains it, every vendor PR queues behind core
+// PRs again and the queue runs the full backend suite for it.
+test('a warehouse source vendor claims only the vendor lane, which every vendor reader shares', () => {
+    const vendorLane = 'py:warehouse-source-vendors'
+    const registry = 'products/warehouse_sources/backend/facade/credential_kinds.py'
+    const context = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'warehouse_sources'],
+        warehouseSourceRegistryFiles: new Set([registry]),
+    }
+    const vendorDir = 'products/warehouse_sources/sources/acme'
+    assert.deepEqual(
+        computeTargets(
+            [
+                `${vendorDir}/source.py`,
+                `${vendorDir}/icon.png`,
+                `${vendorDir}/tests/test_acme.py`,
+                `${vendorDir}/README.md`,
+                registry,
+            ],
+            context
+        ),
+        [vendorLane]
+    )
+
+    const readers = [
+        'products/warehouse_sources/sources/sdk/source.py',
+        'products/warehouse_sources/sources/conftest.py',
+        'products/warehouse_sources/backend/facade/api.py',
+        'products/conftest.py',
+        'posthog/test/repo_invariants/test_dataclass_defaults.py',
+        'mypy.ini',
+        'bin/download-mmdb',
+    ]
+    for (const file of readers) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), true, file)
+    }
+    // The SDK and the plugin root import core, so they also keep the product
+    // lane that core PRs overlap.
+    for (const file of readers.slice(0, 2)) {
+        assert.equal(computeTargets([file], context).includes('py:product:warehouse_sources'), true, file)
+    }
+    assert.equal(allKnownTargets(context).includes(vendorLane), true)
+    for (const file of ['posthog/models/user.py', 'products/alpha/backend/api.py']) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), false, file)
+    }
+
+    // A core module the SDK imports claims the vendor lane on top of its own.
+    const sdkImport = 'posthog/integrations/__init__.py'
+    const withSdkImports = { ...context, warehouseSourceSdkImports: new Set([sdkImport]) }
+    const sdkImportTargets = computeTargets([sdkImport], withSdkImports)
+    assert.equal(sdkImportTargets.includes(vendorLane), true)
+    assert.equal(sdkImportTargets.includes('py:core'), true)
+    assert.equal(computeTargets(['posthog/models/user.py'], withSdkImports).includes(vendorLane), false)
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-imports-'))
+    try {
+        const write = (file, text) => {
+            fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+            fs.writeFileSync(path.join(root, file), text)
+        }
+        write(
+            'products/warehouse_sources/sources/sdk/__init__.py',
+            [
+                'from posthog.integrations import IntegrationKind',
+                'from posthog.security.url_validation import (',
+                '    is_url_allowed,',
+                ')',
+                'from products.warehouse_sources.backend.facade import api',
+                'from dlt.common import json',
+                '',
+            ].join('\n')
+        )
+        // Every vendor test collects the root and products/ conftest files too.
+        // The second import names a module, not a symbol, inside a function.
+        write(
+            'conftest.py',
+            [
+                'from posthog.test.junit import set_junit_report_location',
+                'from posthog import redis',
+                'def pytest_configure(config):',
+                '    from posthog.test import authentication_checks  # noqa: PLC0415',
+                '',
+            ].join('\n')
+        )
+        write('products/conftest.py', 'from posthog.conftest import *  # noqa: F403\n')
+        write(sdkImport, '')
+        write('posthog/conftest.py', '')
+        write('posthog/redis.py', '')
+        write('posthog/test/__init__.py', '')
+        write('posthog/test/authentication_checks.py', '')
+        write('posthog/test/junit.py', '')
+        write('posthog/security/url_validation.py', '')
+        write('products/warehouse_sources/backend/facade/api.py', '')
+        assert.deepEqual([...loadWarehouseSourceSdkImports(root)].sort(), [
+            'posthog/conftest.py',
+            sdkImport,
+            'posthog/redis.py',
+            'posthog/security/url_validation.py',
+            'posthog/test/__init__.py',
+            'posthog/test/authentication_checks.py',
+            'posthog/test/junit.py',
+        ])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+
+    // The registry set comes from the selector, which ci-scripts.yml checks out.
+    // The registries themselves are not in that checkout.
+    const registries = loadWarehouseSourceRegistryFiles(REPO_ROOT)
+    assert.ok(registries.size > 0)
+    for (const file of registries) {
+        assert.ok(file.startsWith('products/warehouse_sources/'), file)
+    }
+
+    assert.equal(computeTargets([`${vendorDir}/source.py`], CONTEXT).includes(vendorLane), false)
+    assert.equal(allKnownTargets(CONTEXT).includes(vendorLane), false)
+})
+
+// Files that no check of a vendor PR reads, and whose own suites load no vendor.
+// Each keeps the lanes it claimed before except the vendor lane. If one of them
+// claims the vendor lane again, vendor PRs wait behind it for nothing. If one
+// loses its own lane, it merges in parallel with the PRs it can break.
+test('files no vendor check reads keep their own lanes but not the vendor lane', () => {
+    const vendorLane = 'py:warehouse-source-vendors'
+    const context = { ...CONTEXT, products: [...CONTEXT.products, 'warehouse_sources'] }
+    const cases = [
+        // Suites that run Python but load no vendor.
+        ['.github/workflows/ci-dagster.yml', 'py:core'],
+        ['.github/workflows/build-hogql-parser.yml', 'py:core'],
+        ['.github/scripts/check-idor-model-coverage.py', 'py:product:warehouse_sources'],
+        ['.github/new-events-schema-targets.txt', 'py:core'],
+        // The docker services, which the warehouse sources job runs without.
+        ['docker-compose.base.yml', 'fe:core'],
+        ['docker/clickhouse/config.d/default.xml', 'node:ingestion'],
+        ['otel-collector-config.dev.yaml', 'py:core'],
+        // A ledger of imports between products, which a vendor cannot make.
+        ['products/model_crossing_uses_baseline.txt', 'py:product:warehouse_sources'],
+        // Release, bot, and local-only files.
+        ['.github/workflows/release-toolbar-extension.yml', 'deploy'],
+        ['.github/workflows/renovate-dashboard-digest.yml', 'repo-automation'],
+        ['.github/scripts/eng-analytics-weekly-digest.test.mjs', 'repo-automation'],
+        ['bin/devbox-worktree-hook', 'dev-env'],
+    ]
+    for (const [file, lane] of cases) {
+        const targets = computeTargets([file], context)
+        assert.equal(targets.includes(vendorLane), false, file)
+        assert.equal(targets.includes(lane), true, `${file} should keep ${lane}`)
+    }
+    assert.deepEqual(
+        computeTargets(['docker-compose.base.yml'], context),
+        allKnownTargets(context).filter((lane) => lane !== vendorLane)
+    )
+    // The vendor checks read the products/ ruff config, the database routing
+    // that Django setup loads, and the conftest every vendor test collects.
+    for (const file of ['products/ruff.toml', 'products/db_routing.yaml', 'products/conftest.py']) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), true, file)
+    }
+})
+
 // The base CONTEXT keeps an empty tach graph, so no product is declared in it.
 // A product `tach check` does not constrain has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
@@ -1607,6 +2183,13 @@ test('an unavailable tach graph widens backend changes instead of narrowing', ()
 test('core changes expand to every leaf target in their own domain', () => {
     const backend = computeTargets(['posthog/models/team.py'], CONTEXT)
     assert.deepEqual(backend, ['py:core', 'py:product:alpha', 'py:product:beta', 'py:product:gamma'])
+    for (const file of [
+        'posthog/user_scripts/json_drop_keys_udf_x86_64',
+        'clickhouse-udfs/util/cmd/json_drop_keys_udf/main.go',
+        'clickhouse-udfs/util/go.mod',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), backend, file)
+    }
 
     const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
     assert.deepEqual(frontend, ['fe:core', 'fe:product:alpha', 'fe:product:beta', 'fe:product:gamma'])
@@ -1806,6 +2389,7 @@ test('test-selection scripts claim the lanes of the suite they select for', () =
         'tools/snob_backend_test_selection_shadow.py',
         'tools/test_selection_verdict.py',
         'tools/dagster_test_selection.py',
+        'tools/warehouse_sources_vendor_selection.py',
         'tools/testmon_high_fanout_files.txt',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
@@ -1827,7 +2411,8 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['packages/owners-yaml/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['tools/owners/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the
@@ -1910,3 +2495,29 @@ test('playwright changes overlap the frontend domain', () => {
         true
     )
 })
+
+for (const writable of [true, false]) {
+    test(`the CLI preserves targets when the telemetry output is ${writable ? 'writable' : 'unwritable'}`, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-telemetry-'))
+        try {
+            const telemetryFile = path.join(root, writable ? 'properties.json' : 'missing/properties.json')
+            const output = execFileSync(process.execPath, [path.join(__dirname, 'trunk-impacted-targets.js')], {
+                input: 'README.md\n',
+                env: { ...process.env, PATH: '', LANE_TELEMETRY_FILE: telemetryFile },
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+            })
+            assert.deepEqual(JSON.parse(output), ['prose'])
+            if (writable) {
+                const properties = JSON.parse(fs.readFileSync(telemetryFile, 'utf8'))
+                assert.equal(properties.is_prose, true)
+                assert.equal(properties.changed_file_count, 1)
+                assert.equal(properties.cross_lane, false)
+            } else {
+                assert.equal(fs.existsSync(telemetryFile), false)
+            }
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+}

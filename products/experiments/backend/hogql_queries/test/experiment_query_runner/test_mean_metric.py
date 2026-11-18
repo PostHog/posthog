@@ -1,11 +1,19 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 
-from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+import time_machine
+from posthog.test.base import (
+    _create_event,
+    _create_flag_evaluations,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -22,6 +30,8 @@ from posthog.test.test_journeys import journeys_for
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -34,7 +44,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_property_sum_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -133,7 +143,79 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-10T12:00:00Z")
+    # Before EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so the default exposure reads $feature_flag_called.
+    @time_machine.travel("2026-08-20T12:00:00Z", tick=False)
+    def test_counts_only_the_exposure_copies_when_flag_calls_are_only_in_flag_evaluations(
+        self, _name, use_precomputation
+    ):
+        self._setup_precomputation_test(use_precomputation)
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.start_date = timezone.now() - timedelta(days=2)
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        called_at = timezone.now() - timedelta(days=1)
+        exposure_copies = 8
+        for variant, purchasers in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                distinct_id = f"user_{variant}_{i}"
+                person = _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_flag_evaluations(
+                    self.team.pk,
+                    feature_flag.key,
+                    timestamp=called_at,
+                    distinct_id=distinct_id,
+                    person_id=person.uuid,
+                    response=variant,
+                )
+                if i < exposure_copies:
+                    _create_event(
+                        team=self.team,
+                        event="$experiment_exposure",
+                        distinct_id=distinct_id,
+                        timestamp=called_at,
+                        properties={"$feature_flag": feature_flag.key, "$feature_flag_response": variant},
+                    )
+                if i < purchasers:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=called_at + timedelta(minutes=1),
+                    )
+        flush_persons_and_events()
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+        ):
+            result = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                    team=self.team,
+                ).calculate(),
+            )
+
+        assert result.is_precomputed == use_precomputation
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        assert (result.baseline.number_of_samples, result.baseline.sum) == (exposure_copies, 6)
+        assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (exposure_copies, 8)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_conversion_window_anchored_on_first_exposure(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -297,12 +379,12 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         # Re-run right after the user matures, then again after the re-exposure. The
         # matured user's value must not grow just because the flag was re-evaluated.
-        with freeze_time("2020-01-04T00:00:00Z"):
+        with time_machine.travel("2020-01-04T00:00:00Z", tick=False):
             early = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
             )
-        with freeze_time("2020-01-07T00:00:00Z"):
+        with time_machine.travel("2020-01-07T00:00:00Z", tick=False):
             late = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
@@ -319,7 +401,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_for_sum_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -420,7 +502,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_for_count_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -523,7 +605,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_unique_sessions_math_type(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -606,6 +688,9 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.baseline is not None
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
@@ -628,7 +713,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("avg_precomputed", True, ExperimentMetricMathType.AVG, 35, 130),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_property_aggregation_metric(
         self, name, use_precomputation, math_type, expected_control_sum, expected_test_sum
@@ -717,7 +802,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_with_ignore_zeros(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -827,7 +912,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_count_unique_property_values_via_hogql(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -922,7 +1007,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1040,7 +1125,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_hogql_count_metric_with_winsorization(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1173,7 +1258,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_threshold_sum_metric_counts_users_crossing(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1230,7 +1315,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_threshold_is_inclusive_and_zero_for_users_without_events(self):
         """A user whose sum exactly equals the threshold crosses; a user with no events does not."""
         feature_flag = self.create_feature_flag()
@@ -1267,7 +1352,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(result.variant_results[0].sum, 1)
         self.assertEqual(result.variant_results[0].number_of_samples, 2)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_threshold_count_metric_counts_users_with_enough_events(self):
         """With TOTAL math the per-user value is the event count; threshold compares against it."""
         feature_flag = self.create_feature_flag()

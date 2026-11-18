@@ -34,7 +34,7 @@ export const Default: Story = {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-                    <AlertDialogClose render={<Button variant="destructive" />}>Delete project</AlertDialogClose>
+                    <AlertDialogClose render={<Button variant="destructive-outline" />}>Delete project</AlertDialogClose>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -57,7 +57,7 @@ export const NoPointerDismissal: Story = {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-                    <AlertDialogClose render={<Button variant="destructive" />}>Revoke key</AlertDialogClose>
+                    <AlertDialogClose render={<Button variant="destructive-outline" />}>Revoke key</AlertDialogClose>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

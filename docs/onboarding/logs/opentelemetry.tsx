@@ -26,7 +26,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Environment variables',
                                 code: dedent`
-                                    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="<ph_client_api_host>/otlp/v1/logs"
+                                    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="<ph_client_api_host>/i/v1/logs"
                                     OTEL_EXPORTER_OTLP_LOGS_HEADERS="Authorization=Bearer <ph_project_token>"
                                     OTEL_SERVICE_NAME="my-app"
                                 `,
@@ -46,7 +46,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                                     exporters:
                                       otlphttp/posthog:
-                                        logs_endpoint: "<ph_client_api_host>/otlp/v1/logs"
+                                        logs_endpoint: "<ph_client_api_host>/i/v1/logs"
                                         headers:
                                           Authorization: "Bearer <ph_project_token>"
 

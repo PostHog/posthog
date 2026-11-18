@@ -33,7 +33,10 @@ async def create_review_hog_finding_outcomes_schedule(client: Client) -> None:
             id=SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )
 

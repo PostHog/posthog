@@ -18,13 +18,6 @@ export function setRouter(instance: typeof RouterInstance): void {
   routerInstance = instance;
 }
 
-export function getRouter(): typeof RouterInstance {
-  if (!routerInstance) {
-    throw new Error("Router accessed before initialization");
-  }
-  return routerInstance;
-}
-
 // Nullable accessor for imperative navigation helpers that must not throw when
 // the router isn't mounted yet (early boot, unit tests). In the running app the
 // instance is always set before these fire; callers treat null as "no router,

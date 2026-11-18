@@ -45,6 +45,9 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
         case 'DateTime':
             return isValidClickHouseDateTime(value)
 
+        case 'Array':
+            return Array.isArray(value)
+
         case 'Object':
             return typeof value === 'object'
 

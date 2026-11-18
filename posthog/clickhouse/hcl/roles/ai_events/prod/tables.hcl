@@ -37,10 +37,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_ai_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_ai_events_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_ai_events_json"
+      group_name           = "clickhouse_ai_events_ws"
+      format               = "JSONEachRow"
       num_consumers        = 16
       max_block_size       = 5000
       skip_broken_messages = 100

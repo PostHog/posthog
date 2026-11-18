@@ -58,6 +58,29 @@ class TestFixCounterSeries(SimpleTestCase):
                     ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, writer={writer}"
 
 
+class TestSweepFailureCounterSeries(SimpleTestCase):
+    def test_every_label_combination_is_pre_created_at_import(self) -> None:
+        for cache_type in ("flags", "team_metadata", "flag_definitions"):
+            for reason in ("dependency_unavailable", "data_error", "unknown"):
+                assert (
+                    REGISTRY.get_sample_value(
+                        "posthog_hypercache_verify_errors_total",
+                        {"cache_type": cache_type, "reason": reason},
+                    )
+                    is not None
+                ), f"series not pre-created: cache_type={cache_type}, reason={reason}"
+
+            for issue_type in ("cache_miss", "cache_mismatch", "expiry_missing"):
+                for reason in ("update_fn_returned_false", "dependency_unavailable", "data_error", "unknown"):
+                    assert (
+                        REGISTRY.get_sample_value(
+                            "posthog_hypercache_verify_fix_failures_total",
+                            {"cache_type": cache_type, "issue_type": issue_type, "reason": reason},
+                        )
+                        is not None
+                    ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, reason={reason}"
+
+
 class TestIncompleteRunsCounterSeries(SimpleTestCase):
     def test_every_label_pair_is_pre_created_at_import(self) -> None:
         for cache_type in ("flags", "team_metadata", "flag_definitions"):
@@ -72,7 +95,7 @@ class TestIncompleteRunsCounterSeries(SimpleTestCase):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
+class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_flags_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = VerificationResult()
@@ -182,7 +205,7 @@ class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL=None)
-class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
+class TestVerifyAndFixFlagsCacheTaskDisabled(SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_flags_cache_task()
@@ -191,7 +214,7 @@ class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
+class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_team_metadata_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = VerificationResult()
@@ -245,7 +268,7 @@ class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL=None)
-class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
+class TestVerifyAndFixTeamMetadataCacheTaskDisabled(SimpleTestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_team_metadata_cache_task()

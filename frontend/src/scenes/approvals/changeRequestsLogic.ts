@@ -165,8 +165,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                         params.action_key = props.actionKey
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/change_requests?${toParams(params)}`
+                        `api/projects/${values.currentTeamId}/change_requests?${toParams(params)}`
                     )
                     return response.results || []
                 },
@@ -206,8 +207,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     listeners(({ actions, values }) => ({
         approveRequest: async ({ id }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsApproveCreate() from 'products/platform_features/frontend/generated/api' instead.
                 const response = await api.create(
-                    `api/environments/${values.currentTeamId}/change_requests/${id}/approve/`,
+                    `api/projects/${values.currentTeamId}/change_requests/${id}/approve/`,
                     {}
                 )
 
@@ -231,7 +233,8 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
 
         rejectRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/reject/`, { reason })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsRejectCreate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/reject/`, { reason })
                 lemonToast.success('Change request rejected')
                 actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))
             } catch (error: any) {
@@ -241,7 +244,8 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
 
         cancelRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/cancel/`, { reason })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. changeRequestsCancelCreate() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/cancel/`, { reason })
                 lemonToast.success('Change request canceled')
                 // Optimistically remove the canceled CR so the banner disappears immediately
                 actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))

@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA19",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:329-354 does call _llm_review for denied gates, but this is also the ordinary engine's behavior at review_pr.py:250-252; _llm_review intentionally enforces REFUSED after the explanation regardless of the model at 780-785. More decisively, the suggested pending-migration helper is not effective for the stated real classification: review_pr.py:429-459 passes deny_categories into assign_tier; gates.py:685-686 makes any nonempty deny list T2-never, and review_pr.py:697-698 fails the tier gate. _only_pending_migration_check at review_pr.py:272-275 returns False whenever any gate other than deny-list failed. A PR denied for migrations therefore fails that predicate in the Action too. Simply calling it in review_local cannot skip this case.",
+            "refutation": "I first traced whether a normal pending-migration PR would take the claimed Action short circuit, and whether deterministic denial already prevents approval. It does prevent approval, and the Action short-circuit premise is contradicted by the tier assignment: migrations implies T2-never, so the helper rejects the scenario before checking migration status. Both paths then use the model to explain a refusal. No supported input demonstrates the proposed missing-call regression, and the current code explicitly supports LLM explanations for gate denials. Fixing the unreachable helper or changing that explanation policy is separate work; the cited flag/call-site claim does not establish a new reachable defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The proposed Action-parity short circuit does not fire for this state even in the Action path. /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:272-276 requires deny_categories exactly ['migrations'] and no failed gate except deny-list. But _classify passes those deny categories to assign_tier at :429-438; gates.py:685-686 assigns T2-never whenever deny_categories is nonempty, and review_pr.py:697-698 makes the tier gate fail. Consequently _only_pending_migration_check returns False for the normal pending-migration classification, so merely calling it from review_local would not change the reported LLM work. Both pipelines deliberately render LLM explanations for gate denials, and review_pr.py:780-785 forces the final refusal regardless of the model's answer.",
+            "refutation": "First traced the suggested callee and the full deterministic gate state rather than assuming the omitted call was an effective safeguard. The tier-gate condition above disproves that causal premise. Also checked the alleged full review budget: reviewer.py:306-319 uses the quick five-turn, low-effort path whenever gates deny, and :515-516 constrains the verdict. test_review_pr.py:381-406 exercises a denied PR through the refusing reviewer as expected behavior. A migration-specific early explanation could be an optimization, but this flag change neither removes a functioning migration safety check nor enables approval, and the proposed missing-call fix is ineffective."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "review_local.run does call the LLM after deterministic denials (tools/pr-approval-agent/review_local.py:329-354), but so does Pipeline.run when _only_pending_migration_check is false (review_pr.py:228-252). For the claimed pending migration PR, _classify passes deny_categories=['migrations'] into assign_tier at review_pr.py:402-403,429-438. assign_tier returns T2-never for any nonempty deny list at gates.py:685-686, and the tier gate fails at review_pr.py:697-698. _only_pending_migration_check explicitly returns false if any failed gate is not deny-list (review_pr.py:272-275). Therefore adding the proposed helper does not short-circuit this production shape, and the asserted Action/offline difference is not established.",
+            "refutation": "I tried the claimed reference behavior rather than assuming its helper name implied a working fast path. The pending migration also fails the tier gate, so the existing helper rejects it and the Action performs the same LLM review. This is the general intentional architecture in which deterministic gates remain authoritative while the LLM supplies review context; gate denial still forces REFUSED after any model result/error at review_pr.py:780-785. A change to the underlying pending-migration helper or general refusal review policy could be a separate proposal, but the cited new flag/missing call does not prove this claimed regression or savings."
+        }
+    ]
+}

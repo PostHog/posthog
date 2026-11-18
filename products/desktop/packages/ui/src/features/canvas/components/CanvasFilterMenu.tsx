@@ -1,4 +1,3 @@
-import { FunnelSimple as FunnelSimpleIcon } from "@phosphor-icons/react";
 import {
   type CanvasListSettings,
   DEFAULT_CANVAS_LIST_GROUPING,
@@ -7,18 +6,9 @@ import {
   hasCustomizedCanvasList,
 } from "@posthog/core/canvas/canvasListService";
 import {
-  Button,
-  cn,
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from "@posthog/quill";
 import { CanvasFilterMultiSelectSubmenu } from "@posthog/ui/features/canvas/components/CanvasFilterMultiSelectSubmenu";
 import {
@@ -27,6 +17,11 @@ import {
   summarizeCreatorSelection,
   summarizeSpaceSelection,
 } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
+import {
+  FilterClearItem,
+  FilterMenuTrigger,
+  FilterRadioSubMenu,
+} from "@posthog/ui/primitives/FilterMenu";
 import type { ReactElement } from "react";
 
 const SORT_OPTIONS: readonly CanvasFilterOption<CanvasListSettings["sort"]>[] =
@@ -42,54 +37,6 @@ const GROUPING_OPTIONS: readonly CanvasFilterOption<
   { value: "space", label: "Space" },
   { value: "date", label: "Date" },
 ];
-
-function RadioSubmenu<Value extends string>({
-  label,
-  options,
-  value,
-  defaultValue,
-  onChange,
-}: {
-  label: string;
-  options: readonly CanvasFilterOption<Value>[];
-  value: Value;
-  defaultValue: Value;
-  onChange: (value: Value) => void;
-}): ReactElement {
-  const selected =
-    options.find((option) => option.value === value)?.label ?? "None";
-
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
-        <span>{label}</span>
-        <span
-          title={selected}
-          className={cn(
-            "min-w-0 flex-1 truncate pl-4 text-right",
-            value === defaultValue
-              ? "text-muted-foreground/80"
-              : "text-primary",
-          )}
-        >
-          {selected}
-        </span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => onChange(nextValue as Value)}
-        >
-          {options.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value}>
-              {option.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
-}
 
 export function CanvasFilterMenu({
   spaceOptions,
@@ -112,24 +59,11 @@ export function CanvasFilterMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label="Filter canvases"
-            data-attr="canvas-list-filter"
-            className="relative"
-          >
-            <FunnelSimpleIcon />
-            {active && (
-              <span
-                aria-hidden
-                className="absolute top-0 right-0 size-1.5 rounded-full bg-primary"
-              />
-            )}
-          </Button>
-        }
+      <FilterMenuTrigger
+        active={active}
+        label="Filter canvases"
+        dataAttr="canvas-list-filter"
+        size="icon-xs"
       />
       <DropdownMenuContent
         align="end"
@@ -138,14 +72,14 @@ export function CanvasFilterMenu({
         className="w-64"
         aria-label="Filter canvases"
       >
-        <RadioSubmenu
+        <FilterRadioSubMenu
           label="Group by"
           options={GROUPING_OPTIONS}
           value={settings.grouping}
           defaultValue={DEFAULT_CANVAS_LIST_GROUPING}
           onChange={(grouping) => updateSetting("grouping", grouping)}
         />
-        <RadioSubmenu
+        <FilterRadioSubMenu
           label="Sort by"
           options={SORT_OPTIONS}
           value={settings.sort}
@@ -178,18 +112,11 @@ export function CanvasFilterMenu({
           emptyLabel="No users found."
           disabled={createdByDisabled}
         />
-        {active && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-attr="clear-canvas-list-filters"
-              variant="destructive"
-              onClick={() => onChange(DEFAULT_CANVAS_LIST_SETTINGS)}
-            >
-              Clear filters
-            </DropdownMenuItem>
-          </>
-        )}
+        <FilterClearItem
+          active={active}
+          dataAttr="clear-canvas-list-filters"
+          onClear={() => onChange(DEFAULT_CANVAS_LIST_SETTINGS)}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );

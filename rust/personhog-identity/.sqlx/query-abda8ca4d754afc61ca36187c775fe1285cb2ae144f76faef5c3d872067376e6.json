@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_complete' */ \n            UPDATE lifecycle_op_person_tmp SET status = $2, mark_active = false\n            WHERE op_id = $1 AND role = $3 AND status = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abda8ca4d754afc61ca36187c775fe1285cb2ae144f76faef5c3d872067376e6"
+}

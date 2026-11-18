@@ -73,3 +73,43 @@ export const WithWarning: Story = {
         ),
     },
 }
+
+export const AdPerformanceMetrics: Story = {
+    args: {
+        labelFromKey: (key) => key,
+        emptyMessage: '-',
+        className: 'grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]',
+        items: [
+            {
+                key: 'Cost',
+                value: 12450,
+                previous: 11800,
+                changeFromPreviousPct: 6,
+                kind: 'currency',
+                isIncreaseBad: true,
+            },
+            {
+                key: 'Cost per reported conversions',
+                value: 52,
+                previous: 66.67,
+                changeFromPreviousPct: -22,
+                kind: 'currency',
+                isIncreaseBad: true,
+            },
+            { key: 'Clicks', value: 8300, previous: 7500, changeFromPreviousPct: 11, kind: 'unit' },
+            { key: 'Cost per conversion', value: undefined, kind: 'currency' },
+            { key: 'Reported conversions', value: 'N/A', previous: 'N/A', kind: 'unit' },
+        ],
+    },
+}
+
+export const AdPerformanceMetricsNarrow: Story = {
+    ...AdPerformanceMetrics,
+    decorators: [
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}

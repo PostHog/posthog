@@ -49,6 +49,15 @@ export function AlertErrorBanner({ alert }: { alert: AlertType }): JSX.Element |
         return null
     }
 
+    if (error.code === 'invalid_configuration') {
+        return (
+            <LemonBanner type="error" data-attr="alert-error-banner">
+                <strong>Alert disabled.</strong> {error.message} Fix the alert or insight settings, then turn the alert
+                back on.
+            </LemonBanner>
+        )
+    }
+
     if (error.code !== 'email_unavailable') {
         return (
             <LemonBanner type="error" data-attr="alert-error-banner">

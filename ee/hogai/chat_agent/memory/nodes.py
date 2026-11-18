@@ -302,7 +302,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 await core_memory.aappend_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None, answers_left=None)
+        return PartialAssistantState(onboarding_question=None)
 
     @property
     def _model(self):
@@ -365,10 +365,9 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1-mini",
-            temperature=0.3,
+            model="gpt-6-luna",
+            reasoning_effort="low",
             disable_streaming=True,
-            stop_sequences=["[Done]"],
             user=self._user,
             team=self._team,
         )

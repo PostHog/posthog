@@ -6,8 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"),
-        ("conversations", "0023_ticket_sla_due_at_index"),
         ("posthog", "1031_team_data_attributes_allow_blank"),
     ]
 

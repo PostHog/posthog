@@ -3,17 +3,86 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Returns the events retention period that every project without its own period uses, the default period while none is set, and the periods an organization admin can set.
+ * @summary Get the organization's events retention period
+ */
+export const OrganizationEventsRetentionRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention period
+ */
+export const OrganizationEventsRetentionUpdateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OrganizationEventsRetentionUpdateBody = () => zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
+/**
+ * Counts the events that the next monthly cleanup deletes if the organization keeps events for retention_months, summed over the projects without their own period. Organization admins only.
+ * @summary Count the events the organization's period would delete
+ */
+export const OrganizationEventsRetentionDeletionCountParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const organizationEventsRetentionDeletionCountQueryRetentionMonthsMax = 1200
+
+export const OrganizationEventsRetentionDeletionCountQueryParams = () => zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .max(organizationEventsRetentionDeletionCountQueryRetentionMonthsMax)
+        .describe('The period in months to count for, at most 1200. Only events older than this period are counted.'),
+})
 
 /**
  * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
  * they occurred on, ordered by count. Defaults to all three event types; narrow with the
  * include parameter.
  */
-export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ElementsStatsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21,7 +90,7 @@ export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ElementsStatsRetrieveQueryParams = () => zod.object({
     data_attributes: zod
         .string()
         .optional()
@@ -51,20 +120,81 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https:\/\/example.com\/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https:\/\/example.com\/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, and element property filter types.'
         ),
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
 
 /**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
+ * Returns how far back events stay queryable for this project, the periods set for the project and its organization, the periods an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
+ * @summary Get the events retention period for a project
  */
-export const InsightsListParams = /* @__PURE__ */ zod.object({
+export const EventsRetentionRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention period for a project
+ */
+export const EventsRetentionUpdateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventsRetentionUpdateBody = () => zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
+/**
+ * Counts the project's events that the next monthly cleanup deletes if the project keeps events for retention_months. Organization admins only.
+ * @summary Count the events a project's period would delete
+ */
+export const EventsRetentionDeletionCountParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventsRetentionDeletionCountQueryRetentionMonthsMax = 1200
+
+export const EventsRetentionDeletionCountQueryParams = () => zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .max(eventsRetentionDeletionCountQueryRetentionMonthsMax)
+        .describe('The period in months to count for, at most 1200. Only events older than this period are counted.'),
+})
+
+export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -74,7 +204,7 @@ export const InsightsListParams = /* @__PURE__ */ zod.object({
 
 export const insightsListQueryRefreshDefault = `force_cache`
 
-export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsListQueryParams = () => zod.object({
     basic: zod.boolean().optional().describe('Return basic insight metadata only (no results, faster).'),
     created_by: zod
         .string()
@@ -104,6 +234,13 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.'),
+    display: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.'
+        ),
+    exclude_bi: zod.boolean().optional().describe('Exclude Business intelligence worksheets from the insight list.'),
     favorited: zod
         .boolean()
         .optional()
@@ -116,10 +253,10 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     insight: zod
-        .enum(['FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
+        .enum(['BI', 'FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
         .describe(
-            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.'
+            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.'
         ),
     last_viewed_date_from: zod
         .string()
@@ -131,6 +268,12 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.'
+        ),
     refresh: zod
         .enum([
             'async',
@@ -170,15 +313,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsCreateParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -186,7 +321,7 @@ export const InsightsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     include_dashboards: zod
         .boolean()
@@ -205,7 +340,7 @@ export const insightsCreateBodyOrderMax = 2147483647
 
 export const insightsCreateBodyDescriptionMax = 400
 
-export const InsightsCreateBody = /* @__PURE__ */ zod
+export const InsightsCreateBody = () => zod
     .object({
         name: zod.string().max(insightsCreateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsCreateBodyDerivedNameMax).nullish(),
@@ -224,15 +359,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -245,7 +372,7 @@ export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
 
-export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -287,15 +414,7 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -306,7 +425,7 @@ export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     include_dashboards: zod
         .boolean()
@@ -325,7 +444,7 @@ export const insightsPartialUpdateBodyOrderMax = 2147483647
 
 export const insightsPartialUpdateBodyDescriptionMax = 400
 
-export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
+export const InsightsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(insightsPartialUpdateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsPartialUpdateBodyDerivedNameMax).nullish(),
@@ -347,7 +466,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -358,14 +477,14 @@ export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
 /**
  * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
  */
-export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this insight.'),
     project_id: zod
         .string()
@@ -374,7 +493,7 @@ export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -383,7 +502,7 @@ export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
-export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -391,7 +510,7 @@ export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -400,7 +519,7 @@ export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object
 /**
  * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
  */
-export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -408,7 +527,7 @@ export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveQueryParams = () => zod.object({
     days: zod
         .number()
         .optional()

@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "channel_id": {
+            "default": "",
+            "description": "Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.",
+            "type": "string"
+        },
+        "force_refresh": {
+            "default": false,
+            "description": "Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.",
+            "type": "boolean"
+        },
         "id": {
             "description": "A unique integer value identifying this integration.",
             "type": "number"

@@ -5,8 +5,8 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
@@ -37,6 +37,10 @@ export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boo
                 virtualized
                 onChange={([newTimezone]): void => {
                     // This is a string for a single-mode select, but typing is poor
+                    // Backspace on an empty input clears the selection, but a time zone is always required
+                    if (!newTimezone) {
+                        return
+                    }
                     if (!preflight?.available_timezones) {
                         throw new Error('No timezones are available')
                     }

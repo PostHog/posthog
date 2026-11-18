@@ -1,20 +1,23 @@
 import { useActions } from 'kea'
 
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
 import { ExposureCriteriaModal } from '~/scenes/experiments/ExperimentView/ExposureCriteria'
-import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
+import type { Experiment } from '~/types'
+
+import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import {
     METRIC_CONTEXTS,
     MetricContext,
     experimentMetricModalLogic,
-} from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
-import { MetricSourceModal } from '~/scenes/experiments/Metrics/MetricSourceModal'
-import { SharedMetricModal } from '~/scenes/experiments/Metrics/SharedMetricModal'
-import { sharedMetricModalLogic } from '~/scenes/experiments/Metrics/sharedMetricModalLogic'
-import type { Experiment } from '~/types'
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'
+import { SharedMetricModal } from 'products/experiments/frontend/modals/SharedMetricModal/SharedMetricModal'
+import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
+import type { MetricDataSources } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { EmptyMetricsPanel } from './EmptyMetricsPanel'
 import { MetricList } from './MetricList'
@@ -26,6 +29,8 @@ export type MetricsPanelProps = {
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
     onSaveExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => void
+    /** Which data sources the metrics read, shared metrics included. */
+    metricDataSources: MetricDataSources
     compact?: boolean
 }
 
@@ -44,13 +49,14 @@ export const MetricsPanel = ({
     onDeleteMetric,
     onSaveSharedMetrics,
     onSaveExposureCriteria,
+    metricDataSources,
     compact,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // we need this value to calculate the recent activity on the metrics list
-    const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
+    const filterTestAccounts = resolveFilterTestAccounts(experiment.exposure_criteria)
 
     const primaryMetrics = [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary]
     const secondaryMetrics = [
@@ -68,7 +74,8 @@ export const MetricsPanel = ({
             )}
 
             {primaryMetrics.length === 0 && secondaryMetrics.length === 0 ? (
-                <EmptyMetricsPanel />
+                // In compact mode (the wizard) the step heading's tooltip carries this help text
+                <EmptyMetricsPanel showHelpText={!compact} />
             ) : (
                 <div className="space-y-6">
                     <MetricList
@@ -86,7 +93,7 @@ export const MetricsPanel = ({
                 </div>
             )}
 
-            <MetricSourceModal />
+            <MetricSourceModal experiment={experiment} />
             <ExperimentMetricModal
                 experiment={experiment}
                 exposureCriteria={experiment.exposure_criteria}
@@ -108,7 +115,7 @@ export const MetricsPanel = ({
                     closeSharedMetricModal()
                 }}
             />
-            <ExposureCriteriaModal onSave={onSaveExposureCriteria} />
+            <ExposureCriteriaModal onSave={onSaveExposureCriteria} metricDataSources={metricDataSources} />
         </div>
     )
 }
