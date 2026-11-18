@@ -131,21 +131,39 @@ describe('marketingAnalyticsPrecomputeLogic', () => {
         expect(logic.values.notReady).toBe(false)
     })
 
-    it('starts a fresh budget when the query changes', async () => {
+    it.each([
+        { name: 'starts a fresh budget when the query changes', key: 'marketing-overview', cached: false },
+        {
+            name: 'starts a fresh budget when a dashboard hands results for a new query',
+            key: 'dashboard-marketing-overview',
+            cached: true,
+        },
+    ])('$name', async ({ key, cached }) => {
         mockedQuery.mockImplementation(async (_query, _methodOptions, refresh) => {
             if (refresh === 'force_blocking') {
                 rechecks += 1
             }
             return notReadyResponse
         })
-        const logic = mount('-30d')
+        const tileProps = (dateFrom: string): DataNodeLogicProps => ({
+            key,
+            query: aggregatedQuery(dateFrom),
+            ...(cached ? { cachedResults: { ...notReadyResponse } } : {}),
+        })
+        dataNodeLogic(tileProps('-30d')).mount()
+        const logic = marketingAnalyticsPrecomputeLogic(tileProps('-30d'))
+        logic.mount()
         await jest.advanceTimersByTimeAsync(PRECOMPUTE_POLL_INTERVAL_MS * (PRECOMPUTE_MAX_POLLS + 5))
         expect(logic.values.autoRefreshing).toBe(false)
+        const spentRechecks = rechecks
 
-        dataNodeLogic({ key: 'marketing-overview', query: aggregatedQuery('-90d') })
+        dataNodeLogic(tileProps('-90d'))
+        marketingAnalyticsPrecomputeLogic(tileProps('-90d'))
         await jest.advanceTimersByTimeAsync(0)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values).toMatchObject({ notReady: true, autoRefreshing: true, polls: 0 })
+        await jest.advanceTimersByTimeAsync(PRECOMPUTE_POLL_INTERVAL_MS)
+        expect(rechecks).toBe(spentRechecks + 1)
     })
 })

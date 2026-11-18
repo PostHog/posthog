@@ -11,6 +11,7 @@ import {
     listeners,
     path,
     props,
+    propsChanged,
     reducers,
     selectors,
     sharedListeners,
@@ -20,6 +21,7 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { AnyResponseType, RefreshType } from '~/queries/schema/schema-general'
 
 import type {
@@ -214,6 +216,9 @@ export interface marketingAnalyticsPrecomputeLogicActions {
     recheck: () => {
         value: true
     }
+    resetPollBudget: () => {
+        value: true
+    }
     resetPrecomputeState: () => {
         value: true
     }
@@ -285,6 +290,7 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
         actions({
             scheduleRecheck: true,
             recheck: true,
+            resetPollBudget: true,
             resetPrecomputeState: true,
             setNotReady: (notReady: boolean) => ({ notReady }),
         }),
@@ -293,6 +299,7 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                 0,
                 {
                     recheck: (state) => state + 1,
+                    resetPollBudget: () => 0,
                     resetPrecomputeState: () => 0,
                     loadDataSuccess: (state, { response }) => (isNotReady(response) ? state : 0),
                     setResponseSuccess: (state, { response }) => (isNotReady(response) ? state : 0),
@@ -380,6 +387,14 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                 actions.scheduleRecheck()
             },
         })),
+        propsChanged(({ actions, cache, props }, oldProps) => {
+            // Dashboards hand a new query's cachedResults without a load, so nothing else resets a spent budget.
+            if (!compareDataNodeQuery(props.query, oldProps.query, { ignoreVisualizationOnlyChanges: true })) {
+                cache.polls = 0
+                actions.resetPollBudget()
+                actions.scheduleRecheck()
+            }
+        }),
         afterMount(({ actions, values }) => {
             // The tile may have loaded before this logic mounted, as a dashboard tile does from cachedResults. Its
             // warm may already be done, so the first re-read goes out now instead of after an interval.
