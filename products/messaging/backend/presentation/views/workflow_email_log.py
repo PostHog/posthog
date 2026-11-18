@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.scopes.catalog import APIScopeObject
 
 from products.messaging.backend.facade.contracts import EmailDeliveryStatus, WorkflowEmailSend
 from products.messaging.backend.facade.transactional_email_log import ACTIVITY_WINDOW_DAYS
@@ -114,6 +115,12 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _workflow_access(self) -> WorkflowViewAccess:
         return get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
 
+    def _require_access(self, *resources: APIScopeObject) -> None:
+        # Session users skip API scopes, and access control checks only the hog_flow scope_object.
+        for resource in resources:
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You need access to {resource} data to see workflow email recipients.")
+
     def _invocation_id(self, pk: str | None) -> UUID:
         try:
             return UUID(str(pk))
@@ -124,6 +131,7 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=WorkflowEmailListQuerySerializer,
         responses={
             200: OpenApiResponse(response=WorkflowEmailListSerializer),
+            403: OpenApiResponse(description="The user has no access to persons."),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="List a workflow's email sends",
@@ -131,6 +139,7 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         description=f"List the emails one workflow or broadcast sent, newest first. {ENGAGEMENT_NOTE}",
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        self._require_access("person")
         query = request.validated_query_data
         with query_concurrency_slots(self.team):
             page = list_workflow_emails(
@@ -160,12 +169,14 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[INVOCATION_PARAMETER],
         responses={
             200: OpenApiResponse(response=WorkflowEmailDetailSerializer),
+            403: OpenApiResponse(description="The user has no access to persons."),
             404: OpenApiResponse(description="The project has no such send, or the user may not view its workflow."),
         },
         summary="Get a workflow email send",
         description=f"Get one email a workflow sent, with its delivery timeline. {ENGAGEMENT_NOTE}",
     )
     def retrieve(self, request: ValidatedRequest, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
+        self._require_access("person")
         invocation_id = self._invocation_id(pk)
         with query_concurrency_slots(self.team):
             detail = get_workflow_email(
@@ -199,11 +210,8 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"])
     def activity(self, request: ValidatedRequest, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
+        self._require_access("person", "query")
         invocation_id = self._invocation_id(pk)
-        # Session users skip API scopes, and access control checks only the hog_flow scope_object.
-        for resource in ("person", "query"):
-            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
-                raise PermissionDenied(f"You need access to {resource} data to see what the recipient did.")
         with query_concurrency_slots(self.team):
             activity = get_workflow_email_activity(
                 self.team,

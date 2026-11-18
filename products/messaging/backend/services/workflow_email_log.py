@@ -40,8 +40,9 @@ FOLLOW_UP_EVENTS = {
 EVENT_KINDS = {**SEND_EVENTS, **FOLLOW_UP_EVENTS}
 # Opens and clicks after this aren't shown, the same week the recipient's activity covers.
 FOLLOW_UP_WINDOW = timedelta(days=ACTIVITY_WINDOW_DAYS)
-# How long after a run starts it may still send an email, so how far a lookup by run reaches.
-MAX_RUN_DAYS = 90
+# How far back a lookup reaches when the run id carries no usable start time.
+FALLBACK_LOOKBACK_DAYS = 90
+_OLDEST_RUN = timedelta(days=365 * 5)
 DEFAULT_LIST_DAYS = 7
 _CLOCK_SKEW = timedelta(minutes=5)
 
@@ -72,7 +73,8 @@ def _query(team: Team, user: User | None, query: str, placeholders: dict[str, as
 
 def _follow_ups(
     team: Team, user: User | None, invocation_ids: list[str], start: datetime, end: datetime
-) -> dict[_SendKey, set[EmailLogEventKind]]:
+) -> dict[_SendKey, dict[EmailLogEventKind, datetime]]:
+    """When each kind of follow-up first happened, per send."""
     if not invocation_ids:
         return {}
     # Broadcast engagement names the batch job as its workflow, so follow-ups are matched by run, not workflow.
@@ -80,12 +82,12 @@ def _follow_ups(
         team,
         user,
         """
-        SELECT properties.$workflow_invocation_id, properties.$workflow_action_id, groupUniqArray(event)
+        SELECT properties.$workflow_invocation_id, properties.$workflow_action_id, event, min(timestamp)
         FROM events
         WHERE event IN {events}
           AND timestamp >= {start} AND timestamp < {end}
           AND properties.$workflow_invocation_id IN {invocation_ids}
-        GROUP BY properties.$workflow_invocation_id, properties.$workflow_action_id
+        GROUP BY properties.$workflow_invocation_id, properties.$workflow_action_id, event
         """,
         {
             "events": ast.Constant(value=list(FOLLOW_UP_EVENTS)),
@@ -95,10 +97,15 @@ def _follow_ups(
         },
         "workflow_email_follow_ups",
     )
-    return {
-        _SendKey(invocation_id=str(inv), action_id=str(act or "")): {FOLLOW_UP_EVENTS[event] for event in events}
-        for inv, act, events in rows
-    }
+    first_seen: dict[_SendKey, dict[EmailLogEventKind, datetime]] = {}
+    for inv, act, event, first_at in rows:
+        key = _SendKey(invocation_id=str(inv), action_id=str(act or ""))
+        first_seen.setdefault(key, {})[FOLLOW_UP_EVENTS[event]] = first_at
+    return first_seen
+
+
+def _within_window(first_seen: dict[EmailLogEventKind, datetime], sent_at: datetime) -> set[EmailLogEventKind]:
+    return {kind for kind, at in first_seen.items() if at < sent_at + FOLLOW_UP_WINDOW}
 
 
 def _status(send_kind: EmailLogEventKind, follow_ups: set[EmailLogEventKind]) -> EmailDeliveryStatus:
@@ -186,7 +193,12 @@ def list_workflow_emails(
     )
     return WorkflowEmailPage(
         sends=[
-            _send(row, follow_ups.get(_SendKey(invocation_id=str(row[0]), action_id=str(row[1] or "")), set()))
+            _send(
+                row,
+                _within_window(
+                    follow_ups.get(_SendKey(invocation_id=str(row[0]), action_id=str(row[1] or "")), {}), row[6]
+                ),
+            )
             for row in shown
         ],
         has_more=len(rows) > limit,
@@ -196,10 +208,12 @@ def list_workflow_emails(
 
 def _run_window(invocation_id: UUID, now: datetime) -> _Window:
     # Run ids are UUIDT or UUIDv7, both of which start with the creation time in milliseconds.
-    started = datetime.fromtimestamp((invocation_id.int >> 80) / 1000, tz=UTC)
-    if not now - timedelta(days=365 * 5) < started < now + _CLOCK_SKEW:
-        started = now - timedelta(days=MAX_RUN_DAYS)
-    return _Window(start=started - _CLOCK_SKEW, end=min(started + timedelta(days=MAX_RUN_DAYS), now + _CLOCK_SKEW))
+    # A run can wait on delay steps for longer than a year, so the window runs until now.
+    started_ms = invocation_id.int >> 80
+    if not (now - _OLDEST_RUN).timestamp() * 1000 < started_ms < (now + _CLOCK_SKEW).timestamp() * 1000:
+        return _Window(start=now - timedelta(days=FALLBACK_LOOKBACK_DAYS), end=now + _CLOCK_SKEW)
+    started = datetime.fromtimestamp(started_ms / 1000, tz=UTC)
+    return _Window(start=started - _CLOCK_SKEW, end=now + _CLOCK_SKEW)
 
 
 def get_workflow_email(
@@ -244,6 +258,10 @@ def get_workflow_email(
     if access is not None and not access.allows(str(row[2] or "")):
         return None
     sent_at = row[6]
+    follow_ups_end = min(sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)
+    first_seen = _follow_ups(team, user, [str(invocation_id)], sent_at, follow_ups_end).get(
+        _SendKey(invocation_id=str(invocation_id), action_id=action_id), {}
+    )
     follow_ups = _query(
         team,
         user,
@@ -261,7 +279,7 @@ def get_workflow_email(
             **placeholders,
             "events": ast.Constant(value=list(FOLLOW_UP_EVENTS)),
             "start": ast.Constant(value=sent_at),
-            "end": ast.Constant(value=min(sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)),
+            "end": ast.Constant(value=follow_ups_end),
         },
         "workflow_email_timeline",
     )
@@ -276,7 +294,7 @@ def get_workflow_email(
             for event, timestamp, bounce_type in follow_ups
         ),
     ]
-    return WorkflowEmailDetail(send=_send(row, {event.kind for event in timeline[1:]}), timeline=timeline)
+    return WorkflowEmailDetail(send=_send(row, set(first_seen)), timeline=timeline)
 
 
 def get_workflow_email_activity(

@@ -70,15 +70,21 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._email_event("bounced", run_id, "nudge", nudge_at + timedelta(seconds=5))
         other_workflow = str(create_workflow_for_test(team_id=self.team.id, name="Other").id)
         self._email_event("sent", self._run_id(run_started), "welcome", welcome_at, workflow_id=other_workflow)
+        older_run = self._run_id(NOW - timedelta(days=20))
+        self._email_event("sent", older_run, "welcome", NOW - timedelta(days=20))
+        self._email_event("link_clicked", older_run, "welcome", NOW - timedelta(days=10))
         flush_persons_and_events()
 
-        response = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+        response = self.client.get(
+            self._url(), {"workflow_id": self.workflow_id, "date_from": (NOW - timedelta(days=30)).isoformat()}
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert [(s["action_id"], s["status"], s["opened"], s["clicked"]) for s in body["results"]] == [
             ("nudge", "bounced", False, False),
             ("welcome", "delivered", True, True),
+            ("welcome", "sent", False, False),
         ]
         assert (body["has_more"], body["engagement_events_enabled"]) == (False, True)
 
@@ -92,12 +98,13 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def test_shows_a_send_with_its_timeline_and_what_the_recipient_did(self):
         create_person(team=self.team, distinct_ids=["jane", "jane-anonymous"])
-        run_started = NOW - timedelta(days=3)
-        run_id = self._run_id(run_started)
-        sent_at = run_started + timedelta(hours=2)
+        run_id = self._run_id(NOW - timedelta(days=200))
+        sent_at = NOW - timedelta(days=3)
         self._email_event("sent", run_id, "welcome", sent_at)
         self._email_event("delivered", run_id, "welcome", sent_at + timedelta(seconds=5))
-        self._email_event("opened", run_id, "welcome", sent_at + timedelta(minutes=3))
+        for second in range(100):
+            self._email_event("opened", run_id, "welcome", sent_at + timedelta(minutes=3, seconds=second))
+        self._email_event("link_clicked", run_id, "welcome", sent_at + timedelta(minutes=5))
         self._email_event("sent", run_id, "nudge", sent_at + timedelta(minutes=10))
         for event, distinct_id, offset in [
             ("$pageview", "jane-anonymous", -timedelta(hours=1)),
@@ -117,23 +124,31 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
         assert detail.status_code == status.HTTP_200_OK, detail.json()
-        assert [e["kind"] for e in detail.json()["timeline"]] == ["sent", "delivered", "opened"]
-        assert detail.json()["subject"] == "Hello from welcome"
+        assert [e["kind"] for e in detail.json()["timeline"]] == ["sent", "delivered", *["opened"] * 99]
+        assert (detail.json()["subject"], detail.json()["clicked"]) == ("Hello from welcome", True)
         assert activity.status_code == status.HTTP_200_OK, activity.json()
         body = activity.json()
         assert datetime.fromisoformat(body["sent_at"]) == sent_at
         assert [e["event"] for e in body["before"]] == ["$pageview"]
         assert [e["event"] for e in body["after"]] == ["$pageview", "upgraded_plan"]
 
+    def test_a_run_id_without_a_plausible_start_time_is_not_found(self):
+        run_id = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+
+        assert (detail.status_code, activity.status_code) == (status.HTTP_404_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+
     @parameterized.expand(
         [
-            ("another_projects_send", "other_team", status.HTTP_404_NOT_FOUND),
-            ("a_workflow_the_user_cannot_view", "hog_flow", status.HTTP_404_NOT_FOUND),
-            ("no_person_access", "person", status.HTTP_403_FORBIDDEN),
-            ("no_query_access", "query", status.HTTP_403_FORBIDDEN),
+            ("another_projects_send", "other_team", (200, 404, 404)),
+            ("a_workflow_the_user_cannot_view", "hog_flow", (404, 404, 404)),
+            ("no_person_access", "person", (403, 403, 403)),
+            ("no_query_access", "query", (200, 200, 403)),
         ]
     )
-    def test_hides_what_the_user_cannot_see(self, _name, denied, activity_status):
+    def test_hides_what_the_user_cannot_see(self, _name, denied, expected_statuses):
         run_id = self._run_id(NOW - timedelta(hours=1))
         other_team = Team.objects.create(organization=self.organization)
         self._email_event(
@@ -160,7 +175,4 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
         activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
-        visible = denied in ("person", "query")
-        assert listed.status_code == (status.HTTP_200_OK if denied != "hog_flow" else status.HTTP_404_NOT_FOUND)
-        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
-        assert activity.status_code == activity_status
+        assert (listed.status_code, detail.status_code, activity.status_code) == expected_statuses
