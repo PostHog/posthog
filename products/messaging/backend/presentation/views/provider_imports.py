@@ -79,7 +79,7 @@ class ImportProviderOptionSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="What the person does once the import has finished, in order."
     )
     settings = ImportSettingOptionSerializer(
-        many=True, help_text="Choices to make before starting an import, such as a region. Often empty."
+        many=True, help_text="Choices to make before starting an import, such as Mailgun's region. Often empty."
     )
 
 
@@ -161,12 +161,12 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.",
     )
     settings = serializers.DictField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.",
+        help_text="Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`.",
     )
 
 
@@ -177,7 +177,8 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
+    Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+    unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
