@@ -167,22 +167,34 @@ def visible_suggestions(
     return visible, access
 
 
-def actionable_open_count(
+@frozen
+class OpenCounts:
+    assigned_to_viewer: int
+    unassigned: int
+
+
+NO_OPEN_SUGGESTIONS = OpenCounts(assigned_to_viewer=0, unassigned=0)
+
+
+def actionable_open_counts(
     team: "Team",
     user: "User",
     kinds: frozenset[WarehouseSuggestionKind],
     subject_kinds: frozenset[WarehouseSuggestionSubjectKind],
-) -> int:
-    """How many surfaced, proposed suggestions of `kinds` on `subject_kinds` `user` can act on."""
+) -> OpenCounts:
+    """How many surfaced, proposed suggestions of `kinds` on `subject_kinds` `user` can act on, by assignee."""
     if not is_warehouse_suggestions_enabled(team):
-        return 0
+        return NO_OPEN_SUGGESTIONS
     visible, access = visible_suggestions(
         team.pk,
         UserAccessControl(user, team),
         status=WarehouseSuggestionStatus.PROPOSED,
         subject_kinds=SubjectKinds(readable=subject_kinds, actionable=subject_kinds),
     )
-    return sum(1 for suggestion in visible.filter(kind__in=kinds) if access.can_act_on(suggestion))
+    assignee_ids = [
+        suggestion.assignee_id for suggestion in visible.filter(kind__in=kinds) if access.can_act_on(suggestion)
+    ]
+    return OpenCounts(assigned_to_viewer=assignee_ids.count(user.pk), unassigned=assignee_ids.count(None))
 
 
 def subject_access(
