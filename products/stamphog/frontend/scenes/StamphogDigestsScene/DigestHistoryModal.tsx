@@ -1,24 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-
-import { StamphogTabs } from '../../components/StamphogTabs'
 import { DigestRunApi } from '../../generated/api.schemas'
+import { stamphogSceneLogic } from '../StamphogScene/stamphogSceneLogic'
 import { digestDestinationLabel, digestRunHasDetails, digestStatusDisplay } from './digestDisplay'
 import { DigestRunDetails } from './DigestRunDetails'
 import { DIGESTS_PAGE_SIZE, stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
-
-export const scene: SceneExport = {
-    component: StamphogDigestsScene,
-    logic: stamphogDigestsSceneLogic,
-}
 
 function DigestsTable(): JSX.Element {
     const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page } =
@@ -92,24 +83,42 @@ function DigestsTable(): JSX.Element {
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),
             }}
-            emptyState="No digests yet. Stamphog posts one per audience on its digest schedule."
+            emptyState="No digests yet."
             data-attr="stamphog-digests-table"
         />
     )
 }
 
-export function StamphogDigestsScene(): JSX.Element {
+export function DigestHistoryModal(): JSX.Element {
+    const { repoConfigs, repoConfigsLoading, digestHistoryOpen } = useValues(stamphogSceneLogic)
+    const { closeDigestHistory } = useActions(stamphogSceneLogic)
+    // Nothing posts while no repository is in the digest, so the history says it is paused.
+    const paused = !repoConfigsLoading && !repoConfigs.some((repo) => repo.digest_enabled)
+
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Digests"
-                description="Every digest Stamphog posted, and where it went."
-                resourceType={{ type: 'stamphog' }}
-            />
-            <StamphogTabs activeKey="digests" />
-            <DigestsTable />
-        </SceneContent>
+        <LemonModal
+            isOpen={digestHistoryOpen}
+            onClose={closeDigestHistory}
+            title={
+                <span className="flex flex-wrap items-center gap-2">
+                    Digest history
+                    {paused && (
+                        <LemonTag type="muted" size="small">
+                            Paused
+                        </LemonTag>
+                    )}
+                </span>
+            }
+            description={
+                paused
+                    ? 'Each Slack post of the merged pull requests that auto-approval approved. No repository is in the digest, so nothing is posted.'
+                    : 'Each Slack post of the merged pull requests that auto-approval approved.'
+            }
+            width={960}
+            data-attr="stamphog-digest-history-modal"
+        >
+            {/* Mounted only while open, so the digests load and the view event fires when someone looks. */}
+            {digestHistoryOpen && <DigestsTable />}
+        </LemonModal>
     )
 }
-
-export default StamphogDigestsScene
