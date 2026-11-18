@@ -53,7 +53,7 @@ A count that stays inside its index's columns never reads the wide rows.
 A count that names one more column reads every row in the window in full, and loses the whole benefit.
 
 - `mention_filter` in `brand.py` reads `cited` and `names_brand` only.
-  `test_set_level_reads_never_load_the_answer_text` fails when the overview or the prompt list starts to read `answer_text`.
+  `test_set_level_reads_never_load_the_wide_columns` fails when the overview or the prompt list starts to read `answer_text`.
 - Do not add `prompt_text`, `answer_text` or a JSON column to an index.
   Postgres refuses an index row above about 2.7 KB, a prompt can be 2,000 characters, and a refused index row fails the insert of the check.
 - Check a new set-level query with `EXPLAIN (ANALYZE, BUFFERS)` on data of production shape.
