@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { ServiceHealthApi } from './generated/api.schemas'
@@ -9,14 +9,23 @@ import { Sparkline } from './Sparkline'
 import { TelemetryLinks } from './TelemetryLinks'
 
 export function ServicesTab(): JSX.Element {
-    const { services, servicesHealthLoading, hasLoadError, resolvedEnvironment, timeRange, attentionCount } =
-        useValues(applicationObservabilityLogic)
-    const { showServiceEndpoints } = useActions(applicationObservabilityLogic)
+    const {
+        services,
+        filteredServices,
+        search,
+        servicesHealthLoading,
+        hasLoadError,
+        resolvedEnvironment,
+        timeRange,
+        attentionCount,
+    } = useValues(applicationObservabilityLogic)
+    const { showServiceEndpoints, setSearch } = useActions(applicationObservabilityLogic)
 
     const columns: LemonTableColumns<ServiceHealthApi> = [
         {
             title: 'Service',
             key: 'service_name',
+            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => <span className="font-semibold">{row.service_name}</span>,
         },
         ...healthColumns<ServiceHealthApi>(),
@@ -58,15 +67,26 @@ export function ServicesTab(): JSX.Element {
                     <LemonBanner type={attentionCount > 0 ? 'warning' : 'success'}>{attentionMessage}</LemonBanner>
                 )
             )}
+            <LemonInput
+                type="search"
+                size="small"
+                className="max-w-80"
+                placeholder="Search services"
+                value={search}
+                onChange={setSearch}
+                data-attr="apm-services-search"
+            />
             <LemonTable
                 columns={columns}
-                dataSource={services}
+                dataSource={filteredServices}
                 rowKey="service_name"
                 loading={servicesHealthLoading}
                 emptyState={
                     hasLoadError
                         ? "Couldn't load service health. Check your connection and try again."
-                        : 'No spans in this environment and time range. Send traces to see services here.'
+                        : services.length > 0
+                          ? `No services match "${search}".`
+                          : 'No spans in this environment and time range. Send traces to see services here.'
                 }
                 data-attr="apm-services-table"
             />

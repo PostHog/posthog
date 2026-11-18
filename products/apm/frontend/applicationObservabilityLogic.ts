@@ -15,6 +15,7 @@ import type {
     ServiceUsageApi,
     ServiceUsageResponseApi,
 } from './generated/api.schemas'
+import { matchesSearch } from './healthDisplay'
 import { ServiceGraph, buildServiceGraph, layoutServiceGraph } from './serviceMap'
 
 export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
@@ -90,8 +91,11 @@ export interface applicationObservabilityLogicValues {
     endpointsService: string | null
     environment: string | null
     environments: string[]
+    filteredEndpoints: EndpointHealthApi[]
+    filteredServices: ServiceHealthApi[]
     hasLoadError: boolean
     resolvedEnvironment: string
+    search: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
     serviceMap: ServiceMapResponseApi | null
@@ -198,6 +202,9 @@ export interface applicationObservabilityLogicActions {
     setEnvironment: (environment: string | null) => {
         environment: string | null
     }
+    setSearch: (search: string) => {
+        search: string
+    }
     setSelectedMapService: (service: string | null) => {
         service: string | null
     }
@@ -219,6 +226,8 @@ export interface applicationObservabilityLogicMeta {
         environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
         resolvedEnvironment: (environment: string | null, servicesHealth: ServicesHealthResponseApi | null) => string
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
+        filteredServices: (services: ServiceHealthApi[], search: string) => ServiceHealthApi[]
+        filteredEndpoints: (endpoints: EndpointHealthApi[], search: string) => EndpointHealthApi[]
         selectedMapService: (
             serviceMapLayout: ServiceGraph | null,
             selectedMapServiceName: string | null
@@ -251,6 +260,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
         setSelectedMapService: (service: string | null) => ({ service }),
+        setSearch: (search: string) => ({ search }),
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
         // `includeServices` is false for changes that only affect the active tab's own data.
         requestReload: (includeServices: boolean = true) => ({ includeServices }),
@@ -259,6 +269,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     reducers({
         environment: [null as string | null, { setEnvironment: (_, { environment }) => environment }],
         timeRange: ['-1h' as TimeRange, { setTimeRange: (_, { timeRange }) => timeRange }],
+        search: ['', { setSearch: (_, { search }) => search }],
         tab: [
             'services' as ApplicationObservabilityTab,
             { setTab: (_, { tab }) => tab, showServiceEndpoints: () => 'endpoints' },
@@ -417,6 +428,17 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             (s) => [s.endpointsHealth],
             (endpointsHealth: EndpointsHealthResponseApi | null): EndpointHealthApi[] => endpointsHealth?.results ?? [],
         ],
+        // Narrows the loaded rows in the browser, so typing never reloads.
+        filteredServices: [
+            (s) => [s.services, s.search],
+            (services: ServiceHealthApi[], search: string): ServiceHealthApi[] =>
+                services.filter((row) => matchesSearch(search, row.service_name)),
+        ],
+        filteredEndpoints: [
+            (s) => [s.endpoints, s.search],
+            (endpoints: EndpointHealthApi[], search: string): EndpointHealthApi[] =>
+                endpoints.filter((row) => matchesSearch(search, row.endpoint, row.service_name)),
+        ],
         selectedMapService: [
             (s) => [s.serviceMapLayout, s.selectedMapServiceName],
             (serviceMapLayout: ServiceGraph | null, selectedMapServiceName: string | null): ServiceHealthApi | null =>
@@ -447,6 +469,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
+                ...(values.search ? { search: values.search } : {}),
             },
         ]
         return {
@@ -455,6 +478,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             setTab: toUrl,
             setEndpointsService: toUrl,
             showServiceEndpoints: toUrl,
+            // Replaces the history entry, so Back skips each keystroke.
+            setSearch: () => [...toUrl(), undefined, { replace: true }],
         }
     }),
 
@@ -467,6 +492,11 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            // The router parses a numeric value such as `?search=500` into a number.
+            const search = searchParams.search != null ? String(searchParams.search) : ''
+            if (search !== values.search) {
+                actions.setSearch(search)
+            }
             if (service !== values.endpointsService) {
                 actions.setEndpointsService(service)
             }
