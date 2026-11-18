@@ -36,6 +36,7 @@ describe('emailImpactLogic', () => {
     let onRequest: () => void
 
     beforeEach(() => {
+        localStorage.clear()
         requestedFrom = []
         requestedParams = []
         answer = [200, IMPACT]
@@ -64,11 +65,9 @@ describe('emailImpactLogic', () => {
         expect(requestedFrom).toEqual([String(ENVIRONMENT.id)])
         expect(logic.values.impact).toEqual(IMPACT)
         expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
-        expect(capture).toHaveBeenCalledWith('transactional email impact loaded', {
-            has_event: false,
-            days: 30,
-            has_untracked_sends: false,
-        })
+        expect(capture.mock.calls.filter(([name]) => name === 'transactional email impact loaded')).toEqual([
+            ['transactional email impact loaded', { has_event: false, days: 30, has_untracked_sends: false }],
+        ])
     })
 
     it('loads once the team arrives when the tab mounts first', async () => {

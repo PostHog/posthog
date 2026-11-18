@@ -29,8 +29,15 @@ describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
 
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
-            get: { '/api/projects/:team_id/transactional_email_log/impact/': () => answer },
+            get: {
+                '/api/projects/:team_id/transactional_email_log/impact/': ({ request }) => {
+                    const [status, body] = answer
+                    const named = new URL(request.url).searchParams.get('event')
+                    return [status, named ? body : { ...(body as object), after_click: null, without_click: null }]
+                },
+            },
         })
         initKeaTests()
     })
@@ -85,6 +92,7 @@ describe('ImpactFunnelCard', () => {
                 ...IMPACT,
                 opened: 0,
                 clicked: 0,
+                not_clicked: 9,
                 untracked: 10,
                 after_click: { sends: 0, converted: 0 },
                 without_click: { sends: 9, converted: 3 },
