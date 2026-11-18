@@ -15,6 +15,10 @@ MAX_EMBEDDING_TEXT_LENGTH = 8_000
 # Hourly sync: once a run has read this many distinct intents it stops at the next hour boundary, and the
 # next run resumes there. An hour is always read whole, so the budget bounds a catch-up without dropping intents.
 MAX_INTENTS_PER_SYNC = 200_000
+# Conversation ids kept per (hour, intent, tool) bucket. The sync worker holds every bucket of a run in memory,
+# and one intent sent from many sessions would otherwise grow a single bucket without bound. A bucket above the
+# cap undercounts its conversations; its call count stays exact.
+MAX_CONVERSATIONS_PER_BUCKET = 1_000
 # Seen-hash lookups go to ClickHouse in chunks this size. The vector table is sorted by cityHash64(document_id)
 # within each day, and an hour's hashes spread over every granule, so each chunk reads the team's whole retention
 # window: one chunk per page of distinct intents keeps it to one read per page. 50k hashes are ~3.4 MB of SQL,

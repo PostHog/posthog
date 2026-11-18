@@ -1,14 +1,14 @@
 """Reads for the intent topics pipeline: distinct intents from events, and which ones already have vectors."""
 
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -18,6 +18,7 @@ from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.mcp_analytics.backend.hogql_queries.base import CONVERSATION_ID_SQL, EFFECTIVE_TOOL_SQL
 from products.mcp_analytics.backend.intent_hash import INTENT_HASH_HOGQL, INTENT_PROPERTY
 from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -25,6 +26,7 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_PRODUCT,
     EMBEDDING_RETENTION_DAYS,
     HASH_CHUNK_SIZE,
+    MAX_CONVERSATIONS_PER_BUCKET,
 )
 
 
@@ -268,3 +270,105 @@ def fetch_seen_hashes(team: Team, hashes: Sequence[str], *, now: datetime) -> se
         )
         seen.update(row[0] for row in response.results)
     return seen
+
+
+@dataclass(frozen=True)
+class HourlyCalls:
+    hour: datetime
+    hash: str
+    tool: str
+    calls: int
+    # cityHash64 of each distinct conversation id, so the rollups can count conversations without double counting.
+    # At most MAX_CONVERSATIONS_PER_BUCKET ids, so a bucket above the cap undercounts its conversations.
+    conversations: tuple[int, ...]
+
+
+_HOURLY_CALLS_SQL = f"""
+SELECT
+    toStartOfHour(timestamp) AS hour,
+    {INTENT_HASH_HOGQL} AS intent_hash,
+    ifNull({EFFECTIVE_TOOL_SQL}, '') AS tool,
+    count() AS calls,
+    arraySort(groupUniqArray({{conversation_cap}})(cityHash64({CONVERSATION_ID_SQL}))) AS conversations
+FROM events
+WHERE event = '$mcp_tool_call'
+  AND timestamp >= {{since}}
+  AND timestamp < {{until}}
+  AND notEmpty(toString(properties.{INTENT_PROPERTY}))
+GROUP BY hour, intent_hash, tool
+HAVING {{after}}
+ORDER BY hour, intent_hash, tool
+LIMIT {{page_size}}
+"""
+
+# Rows after the last row of the previous page, in the ORDER BY of the query above.
+_AFTER_KEY_SQL = """
+hour > {hour}
+OR (hour = {hour} AND (intent_hash > {intent_hash} OR (intent_hash = {intent_hash} AND tool > {tool})))
+"""
+
+
+def start_of_hour(moment: datetime) -> datetime:
+    return moment.replace(minute=0, second=0, microsecond=0)
+
+
+def iter_hourly_call_pages(
+    team: Team,
+    *,
+    since: datetime,
+    until: datetime,
+    page_size: int = MAX_SELECT_RETURNED_ROWS,
+    conversation_cap: int = MAX_CONVERSATIONS_PER_BUCKET,
+) -> Iterator[list[HourlyCalls]]:
+    """Pages of calls and conversations per (hour, intent text, tool) for the complete hours that overlap [since, until).
+
+    Pages are yielded rather than collected, so the worker holds one page at a time however many tools an
+    intent is called with. Every row is a whole bucket, so each page can be written as soon as it is read.
+
+    The rollup replaces a whole hourly bucket on every write, so a partial hour would overwrite a complete
+    one. The window therefore widens to the start of the first hour and stops at the start of the last.
+    """
+    since, until = start_of_hour(since), start_of_hour(until)
+    after: ast.Expr = ast.Constant(value=True)
+    while since < until:
+        query = parse_select(
+            _HOURLY_CALLS_SQL,
+            placeholders={
+                "since": ast.Constant(value=since),
+                "until": ast.Constant(value=until),
+                "page_size": ast.Constant(value=page_size),
+                "conversation_cap": ast.Constant(value=conversation_cap),
+                "after": after,
+            },
+        )
+        # Hour keys must be UTC: the daily rebuild groups them into days, and project-local hours break
+        # at fractional offsets such as +05:30.
+        page = (
+            execute_hogql_query(
+                query=query,
+                team=team,
+                workload=Workload.OFFLINE,
+                modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+                settings=_COMPLETE_RESULTS_SETTINGS,
+            ).results
+            or []
+        )
+        rows = [
+            HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), conversations=tuple(row[4]))
+            for row in page
+        ]
+        if rows:
+            yield rows
+        if len(page) < page_size:
+            break
+        # Each page starts at the hour of the last row, so the hours before it are not read again.
+        last = rows[-1]
+        since = last.hour if last.hour.tzinfo else last.hour.replace(tzinfo=UTC)
+        after = parse_expr(
+            _AFTER_KEY_SQL,
+            placeholders={
+                "hour": ast.Constant(value=since),
+                "intent_hash": ast.Constant(value=last.hash),
+                "tool": ast.Constant(value=last.tool),
+            },
+        )

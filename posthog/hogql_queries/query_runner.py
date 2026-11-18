@@ -2,8 +2,8 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Sequence
-from contextlib import ExitStack, suppress
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property, wraps
@@ -11,6 +11,7 @@ from time import perf_counter
 from types import UnionType
 from typing import (
     Any,
+    ClassVar,
     Generic,
     Literal,
     NamedTuple,
@@ -81,9 +82,12 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
+    MCPIntentMapQuery,
+    MCPIntentTopicsQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
+    MCPSimilarToolsQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -93,6 +97,7 @@ from posthog.schema import (
     MCPToolDescriptionsQuery,
     MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
+    MCPToolIntentProfileQuery,
     MCPToolNeighborsQuery,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
@@ -136,7 +141,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, reading_product_internal_tables
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -721,6 +726,10 @@ RunnableQueryNode = Union[
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
     MCPMissingCapabilitiesQuery,
+    MCPIntentTopicsQuery,
+    MCPToolIntentProfileQuery,
+    MCPSimilarToolsQuery,
+    MCPIntentMapQuery,
 ]
 
 
@@ -1600,6 +1609,50 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPIntentTopicsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentTopicsQueryRunner
+
+        return MCPIntentTopicsQueryRunner(
+            query=cast(MCPIntentTopicsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolIntentProfileQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolIntentProfileQueryRunner
+
+        return MCPToolIntentProfileQueryRunner(
+            query=cast(MCPToolIntentProfileQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPSimilarToolsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPSimilarToolsQueryRunner
+
+        return MCPSimilarToolsQueryRunner(
+            query=cast(MCPSimilarToolsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPIntentMapQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentMapQueryRunner
+
+        return MCPIntentMapQueryRunner(
+            query=cast(MCPIntentMapQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "MCPToolNeighborsQuery":
         from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
 
@@ -2151,15 +2204,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         self._shared_database = self._create_database(timings=self.timings, trigger="shared")
         return self._shared_database
 
+    # Product-internal tables are left out of every database unless the runner is one of the few
+    # product queries that reads them.
+    reads_product_internal_tables: ClassVar[bool] = False
+
     def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
-        return Database.create_for(
-            team=self.team,
-            user=self.user,
-            user_access_control=self.user_access_control,
-            modifiers=self.modifiers,
-            timings=timings,
-            trigger=trigger,
-        )
+        with reading_product_internal_tables() if self.reads_product_internal_tables else nullcontext():
+            return Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                timings=timings,
+                trigger=trigger,
+            )
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
@@ -2395,10 +2453,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.store_result(
-                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
-                    target_age=cached_response.cache_target_age,
-                )
+                with self._guard_cache_write() as allowed:
+                    if allowed:
+                        cache_manager.store_result(
+                            response=self._cache_entry_with_freshness(cached_response.model_dump()),
+                            target_age=cached_response.cache_target_age,
+                        )
 
             if not self._is_cached_result_stale(cached_response):
                 count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
@@ -3153,14 +3213,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             stored = False
             if cacheable:
-                with self.timings.measure("cache_write"):
-                    stored = cache_manager.store_result(
-                        response=self._cache_entry_with_freshness(fresh_response_dict),
-                        # This would be a possible place to decide to not ever keep this cache warm
-                        # Example: Not for super quickly calculated insights
-                        # Set target_age to None in that case
-                        target_age=target_age,
-                    )
+                with self.timings.measure("cache_write"), self._guard_cache_write() as allowed:
+                    if allowed:
+                        stored = cache_manager.store_result(
+                            response=self._cache_entry_with_freshness(fresh_response_dict),
+                            # This would be a possible place to decide to not ever keep this cache warm
+                            # Example: Not for super quickly calculated insights
+                            # Set target_age to None in that case
+                            target_age=target_age,
+                        )
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
@@ -3560,6 +3621,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
+
+    @contextmanager
+    def _guard_cache_write(self) -> Iterator[bool]:
+        """Wraps every cache write. A runner can hold a lock for the write or yield False to skip it."""
+        yield True
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.

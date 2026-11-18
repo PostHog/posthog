@@ -100,12 +100,16 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
 - `sharded_mcp_intent_assignments` — team deletion, through `delete_team_only_tables`. Its rows hold a copy of `$mcp_intent` text keyed by `(team_id, intent_hash)`, with no person id or event uuid, so only the team arm can name them. Every table in `TEAM_ONLY_TABLES` in `posthog/dags/deletes.py` is swept and counted, and a table that does not exist on any shard yet is skipped.
+- `sharded_mcp_intent_calls_hourly` and `sharded_mcp_intent_topic_daily` — team deletion, through `delete_team_only_tables`, as for `sharded_mcp_intent_assignments`. They are the intent topic rollups: tool names, intent and conversation hashes, topic ids and call counts per team, with no person id or event uuid.
 
 Intent-topic runs register before reading source events or writing derived data.
 `intent_topics.invalidation.freeze_writes` closes admission for the parent project and its environments under the same PostgreSQL row lock.
 New sync runs use bounded ad-hoc inference followed by synchronous inserts into the model table on the main cluster.
 They stop scheduling work before the activity timeout and resume partially processed hours without advancing past missing vectors.
 Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
+Hourly and daily rollup inserts also wait for distributed delivery, disable asynchronous buffering, and require the same replica quorum as assignment writes.
+Quorum waits time out after 60 seconds; tests and local development disable quorum on their single-node ClickHouse.
+This confirms write completion but does not prove that every replica has completed a later deletion.
 Session summaries, project digests and legacy snapshot activities also register before reading sources, and complete only after their database and cache writes finish.
 Snapshot activities join embedding tasks before completion; a failed cache write or cancelled activity leaves its registration pending.
 `has_pending_registered_writers` checks only these registrations. Historical workers, queued embedding output, response-cache fills and physical derivative cleanup still need separate coverage.

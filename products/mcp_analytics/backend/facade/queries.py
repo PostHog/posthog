@@ -11,6 +11,12 @@ from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallsAndErrorsQueryRunner,
 )
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.intent_topics import (
+    MCPIntentMapQueryRunner,
+    MCPIntentTopicsQueryRunner,
+    MCPSimilarToolsQueryRunner,
+    MCPToolIntentProfileQueryRunner,
+)
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.hogql_queries.model_breakdown import MCPModelBreakdownQueryRunner
 from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown import (
@@ -37,6 +43,10 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
 __all__ = [
     "MCPDashboardQueryRunner",
     "MCPHarnessBreakdownQueryRunner",
+    "MCPIntentMapQueryRunner",
+    "MCPIntentTopicsQueryRunner",
+    "MCPSimilarToolsQueryRunner",
+    "MCPToolIntentProfileQueryRunner",
     "MCPModelBreakdownQueryRunner",
     "MCPProtocolVersionBreakdownQueryRunner",
     "MCPToolCallBreakdownQueryRunner",
