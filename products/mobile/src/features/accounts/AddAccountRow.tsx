@@ -9,19 +9,11 @@ import { iconSizes, type } from '@/ui/tokens'
 interface AddAccountRowProps {
     onPress: () => void
     disabled?: boolean
-    /** Secondary label color, for the one-account Project card where adding an account is not the main task. */
-    quiet?: boolean
     style?: StyleProp<ViewStyle>
     testID: string
 }
 
-export function AddAccountRow({
-    onPress,
-    disabled = false,
-    quiet = false,
-    style,
-    testID,
-}: AddAccountRowProps): ReactElement {
+export function AddAccountRow({ onPress, disabled = false, style, testID }: AddAccountRowProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     return (
@@ -37,7 +29,7 @@ export function AddAccountRow({
             <View style={styles.plus}>
                 <PlusIcon size={iconSizes.inline} color={colors.secondary} />
             </View>
-            <Text style={[styles.label, quiet && styles.quiet, disabled && styles.disabled]}>Add account</Text>
+            <Text style={[styles.label, disabled && styles.disabled]}>Add account</Text>
         </Pressable44>
     )
 }
@@ -62,9 +54,6 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.body,
         color: colors.ink,
         flex: 1,
-    },
-    quiet: {
-        color: colors.secondary,
     },
     disabled: {
         color: colors.disabled,

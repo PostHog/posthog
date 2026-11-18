@@ -3,7 +3,7 @@ import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-nati
 import { type AuthProject, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { DEMO_PROJECT_NAME } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
-import { AddAccountRow } from '@/features/accounts/AddAccountRow'
+import { AddAccountButton } from '@/features/accounts/AddAccountButton'
 import { accountLabel } from '@/features/accounts/accountLabel'
 import { useAccountSwitch } from '@/features/accounts/useAccountSwitch'
 import { useOpenAddAccount } from '@/features/accounts/useOpenAddAccount'
@@ -14,14 +14,13 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { useLiquidGlass } from '@/ui/useLiquidGlass'
-import { usePickerCardHeight, usePickerCardStyle } from '@/ui/usePickerCardStyle'
+import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { AccountSection } from './AccountSection'
 import { ProjectGroups } from './ProjectGroups'
 import { ProjectRow } from './ProjectRow'
-import { MIN_HEIGHT_WITH_FOOTER, projectCardLayout } from './projectCardLayout'
 import { accountSections, filterProjects, groupByOrganization } from './projectList'
 
 interface ProjectSheetProps {
@@ -33,6 +32,8 @@ interface ProjectSheetProps {
 // Demo mode has no account, so the sheet lists the one sample project and keeps it selected.
 const DEMO_PROJECT: AuthProject = { id: 0, name: DEMO_PROJECT_NAME, organizationId: 'demo', organizationName: '' }
 const DEMO_PROJECTS = [DEMO_PROJECT]
+const CLOSE_SIZE = 44
+const ACTIONS_GAP = 8
 
 /**
  * The project switcher. With two or more accounts on the phone it lists every account's projects under the account,
@@ -44,6 +45,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const { colors, scheme } = useTheme(glass)
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
+    const compact = windowHeight < 480
     const top = topOffset(insets, 120)
     const demo = useDemoMode((state) => state.enabled)
     const accounts = useAuthStore((state) => state.accounts)
@@ -54,17 +56,15 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const accountError = useAuthStore((state) => state.accountError)
     const reloadAccount = useAuthStore((state) => state.reloadAccount)
     const [query, setQuery] = useState('')
+    const [actionsWidth, setActionsWidth] = useState<number | null>(null)
     const accountSwitch = useAccountSwitch('nav_menu')
     const openAddAccount = useOpenAddAccount()
     const multi = !demo && accounts.length >= 2
-    const cardMinHeight = demo ? 320 : Math.max(320, MIN_HEIGHT_WITH_FOOTER)
     // With several accounts the card reaches down to the bottom edge, so more than one account header stays in view.
     const cardHeight = multi
-        ? Math.max(cardMinHeight, windowHeight - top - bottomOffset(insets, 40))
-        : Math.max(cardMinHeight, Math.round((windowHeight - top) * 0.52))
+        ? Math.max(320, windowHeight - top - bottomOffset(insets, 40))
+        : Math.max(320, Math.round((windowHeight - top) * 0.52))
     const cardStyle = usePickerCardStyle(top, cardHeight)
-    const fittedHeight = usePickerCardHeight(top, cardHeight)
-    const { compact, footerPinned } = projectCardLayout(fittedHeight, windowHeight, !demo)
 
     useEffect(() => {
         if (!visible) {
@@ -131,18 +131,8 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                 {retry}
             </View>
         ) : null
-    const addRow = demo ? null : (
-        <>
-            <View style={[styles.addDivider, footerPinned && styles.addDividerPinned]} />
-            <AddAccountRow
-                onPress={() => addAccount()}
-                disabled={switching}
-                quiet={!multi}
-                style={[styles.addRow, compact && styles.addRowCompact]}
-                testID="project-sheet-add-account"
-            />
-        </>
-    )
+    // The compact title row shares its line with the search field, so it has no room for the label.
+    const addAccountRoom = compact ? 0 : actionsWidth === null ? null : actionsWidth - CLOSE_SIZE - ACTIONS_GAP
 
     let content: ReactNode
     if (multi) {
@@ -220,16 +210,32 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
             glass={glass}
         >
             <View style={compact ? styles.controlsCompact : undefined}>
-                <View style={[styles.header, compact && styles.headerCompact]}>
-                    <Text style={styles.title}>Project</Text>
-                    <Pressable44
-                        onPress={onClose}
-                        accessibilityLabel="Close"
-                        pressedBackground={colors.hairline}
-                        style={styles.close}
+                <View style={styles.header}>
+                    <Text style={styles.title} numberOfLines={1}>
+                        Project
+                    </Text>
+                    <View
+                        style={[styles.headerActions, !compact && styles.headerActionsFill]}
+                        onLayout={(event) => setActionsWidth(event.nativeEvent.layout.width)}
+                        testID="project-sheet-header-actions"
                     >
-                        <CloseIcon size={iconSizes.control} />
-                    </Pressable44>
+                        {demo ? null : (
+                            <AddAccountButton
+                                onPress={() => addAccount()}
+                                disabled={switching}
+                                room={addAccountRoom}
+                                testID="project-sheet-add-account"
+                            />
+                        )}
+                        <Pressable44
+                            onPress={onClose}
+                            accessibilityLabel="Close"
+                            pressedBackground={colors.hairline}
+                            style={styles.close}
+                        >
+                            <CloseIcon size={iconSizes.control} />
+                        </Pressable44>
+                    </View>
                 </View>
                 <View style={[styles.search, compact && styles.searchCompact]}>
                     <SearchIcon size={iconSizes.control} />
@@ -251,14 +257,12 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                 </View>
             </View>
             <ScrollView
-                style={[styles.list, compact && { marginTop: 2 }, footerPinned && styles.listAboveFooter]}
+                style={[styles.list, compact && { marginTop: 2 }]}
                 keyboardShouldPersistTaps="handled"
                 testID="project-sheet-list"
             >
                 {content}
-                {footerPinned ? null : addRow}
             </ScrollView>
-            {footerPinned ? addRow : null}
         </FloatingCard>
     )
 }
@@ -271,9 +275,6 @@ const useStyles = createStyles(({ colors }) => ({
     controlsCompact: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-    },
-    headerCompact: {
         gap: 12,
     },
     searchCompact: {
@@ -291,16 +292,29 @@ const useStyles = createStyles(({ colors }) => ({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        gap: 12,
     },
     title: {
         ...type.sheetTitle,
         color: colors.ink,
+        flexShrink: 1,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: ACTIONS_GAP,
+    },
+    // Takes the rest of the row, so its measured width is the room for Add account whatever the button shows.
+    // The minimum keeps the plus and the close button whole when large text widens the title.
+    headerActionsFill: {
+        flex: 1,
+        justifyContent: 'flex-end',
+        minWidth: CLOSE_SIZE * 2 + ACTIONS_GAP,
     },
     close: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
+        width: CLOSE_SIZE,
+        height: CLOSE_SIZE,
+        borderRadius: CLOSE_SIZE / 2,
         backgroundColor: colors.sunken,
         alignItems: 'center',
         justifyContent: 'center',
@@ -328,33 +342,11 @@ const useStyles = createStyles(({ colors }) => ({
         flexGrow: 0,
         flexShrink: 1,
     },
-    // Keeps Add account at the bottom of the card, so it does not move while a search filters the list.
-    listAboveFooter: {
-        flexGrow: 1,
-    },
     sectionDivider: {
         marginTop: 10,
         paddingTop: 4,
         borderTopWidth: 1,
         borderTopColor: colors.hairline,
-    },
-    addDivider: {
-        height: 1,
-        backgroundColor: colors.hairline,
-        marginTop: 10,
-        marginBottom: 2,
-        marginHorizontal: 4,
-    },
-    addDividerPinned: {
-        marginTop: 0,
-    },
-    addRow: {
-        minHeight: 56,
-        paddingHorizontal: 4,
-        borderRadius: radii.card,
-    },
-    addRowCompact: {
-        minHeight: 44,
     },
     loading: {
         paddingVertical: 20,

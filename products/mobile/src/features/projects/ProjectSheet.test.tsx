@@ -1,11 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react-native'
 import { isLiquidGlassAvailable } from 'expo-glass-effect'
-import { Dimensions } from 'react-native'
+import type { ReactElement, ReactNode } from 'react'
 
 import { AccountNeedsSignInError, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { EU_ACCOUNT, SELF_HOSTED_ACCOUNT, US_ACCOUNT } from '@/features/accounts/testAccounts'
+import { setAnalyticsClient } from '@/lib/analytics'
 import { OverlayHost } from '@/ui/OverlayPortal'
+import { SceneDimensionsContext } from '@/ui/sceneDimensions'
 
 import { ProjectSheet } from './ProjectSheet'
 
@@ -18,12 +20,7 @@ jest.mock(
     'react-native-safe-area-context',
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
-let mockKeyboardHeight = 0
-jest.mock('react-native-keyboard-controller', () => ({
-    ...jest.requireActual('react-native-keyboard-controller/jest'),
-    useKeyboardState: <T,>(select: (state: { isVisible: boolean; height: number }) => T): T =>
-        select({ isVisible: mockKeyboardHeight > 0, height: mockKeyboardHeight }),
-}))
+jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 const mockPush = jest.fn()
 jest.mock('expo-router', () => ({
     ...jest.requireActual('expo-router'),
@@ -51,11 +48,27 @@ function signIn(accounts: StoredAccount[], overrides: Partial<ReturnType<typeof 
     })
 }
 
-function renderSheet(): { onClose: jest.Mock; onSelect: jest.Mock } {
+function renderSheet(scene?: { width: number; height: number }): { onClose: jest.Mock; onSelect: jest.Mock } {
     const onClose = jest.fn()
     const onSelect = jest.fn()
-    render(<ProjectSheet visible onClose={onClose} onSelect={onSelect} />, { wrapper: OverlayHost })
+    const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+        <SceneDimensionsContext.Provider value={scene ?? null}>
+            <OverlayHost>{children}</OverlayHost>
+        </SceneDimensionsContext.Provider>
+    )
+    render(<ProjectSheet visible onClose={onClose} onSelect={onSelect} />, { wrapper })
     return { onClose, onSelect }
+}
+
+function layout(testID: string, width: number): void {
+    fireEvent(screen.getByTestId(testID), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width, height: 44 } } })
+}
+
+function expectAddAccountInHeader(): void {
+    expect(
+        within(screen.getByTestId('project-sheet-header-actions')).getByTestId('project-sheet-add-account')
+    ).toBeTruthy()
+    expect(within(screen.getByTestId('project-sheet-list')).queryByText('Add account')).toBeNull()
 }
 
 describe('ProjectSheet', () => {
@@ -67,7 +80,7 @@ describe('ProjectSheet', () => {
             useDemoMode.setState({ enabled: false })
         })
         mockPush.mockReset()
-        mockKeyboardHeight = 0
+        setAnalyticsClient(null)
         jest.mocked(isLiquidGlassAvailable).mockReturnValue(false)
     })
 
@@ -84,38 +97,75 @@ describe('ProjectSheet', () => {
         expect(screen.getByTestId('project-sheet-1')).toBeChecked()
     })
 
-    test.each<
-        [string, 'below the list' | 'in the list' | 'hidden', { demo: boolean; roomAboveKeyboard: number | null }]
-    >([
-        ['outside demo', 'below the list', { demo: false, roomAboveKeyboard: null }],
-        ['with the keyboard up and no room for a footer', 'in the list', { demo: false, roomAboveKeyboard: 150 }],
-        ['in demo mode', 'hidden', { demo: true, roomAboveKeyboard: null }],
-    ])('with one account %s, lists projects as before, with Add account %s', (_name, placement, setup) => {
-        if (setup.roomAboveKeyboard !== null) {
-            mockKeyboardHeight = Dimensions.get('window').height - setup.roomAboveKeyboard
-        }
-        act(() => {
-            signIn([US_ACCOUNT])
-            useDemoMode.setState({ enabled: setup.demo })
-        })
-        const { onClose } = renderSheet()
+    test.each([false, true])(
+        'with one account (demo %s) lists projects as before, with Add account in the title row only outside demo',
+        (demo) => {
+            const capture = jest.fn()
+            setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+            act(() => {
+                signIn([US_ACCOUNT])
+                useDemoMode.setState({ enabled: demo })
+            })
+            const { onClose } = renderSheet()
 
-        expect(screen.queryByTestId('project-sheet-account-active')).toBeNull()
-        if (placement === 'hidden') {
-            expect(screen.queryByTestId('project-sheet-add-account')).toBeNull()
-            return
+            expect(screen.queryByTestId('project-sheet-account-active')).toBeNull()
+            if (demo) {
+                expect(screen.queryByTestId('project-sheet-add-account')).toBeNull()
+                return
+            }
+            expect(screen.getByTestId('project-sheet-1')).toBeChecked()
+            expect(screen.getByTestId('project-sheet-3')).toBeTruthy()
+            expectAddAccountInHeader()
+            fireEvent.press(screen.getByTestId('project-sheet-add-account'))
+            expect(onClose).toHaveBeenCalled()
+            expect(mockPush).toHaveBeenCalledWith({ pathname: '/sign-in', params: { mode: 'add' } })
+            expect(capture).toHaveBeenCalledWith('mobile_account_add_started', {
+                from: 'project_card',
+                reauth: false,
+                account_count: 1,
+            })
         }
-        expect(screen.getByTestId('project-sheet-1')).toBeChecked()
-        expect(screen.getByTestId('project-sheet-3')).toBeTruthy()
-        expect(
-            within(screen.getByTestId('project-sheet-list')).queryByTestId('project-sheet-add-account') !== null
-        ).toBe(placement === 'in the list')
-        fireEvent.press(screen.getByTestId('project-sheet-add-account'))
-        expect(onClose).toHaveBeenCalled()
-        expect(mockPush).toHaveBeenCalledWith({ pathname: '/sign-in', params: { mode: 'add' } })
+    )
+
+    test.each<[string, StoredAccount[], Partial<ReturnType<typeof useAuthStore.getState>>, string]>([
+        ['one account and a search that matches nothing', [US_ACCOUNT], {}, 'no such project'],
+        ['two accounts and a search that matches nothing', [US_ACCOUNT, EU_ACCOUNT], {}, 'no such project'],
+        ['projects that are still loading', [US_ACCOUNT], { projects: [], accountLoading: true }, ''],
+        ['projects that failed to load', [US_ACCOUNT], { projects: [], accountError: 'Network error.' }, ''],
+        ['an account with no projects', [US_ACCOUNT], { projects: [] }, ''],
+    ])(
+        'with %s, Add account stays in the title row and the list has no Add account row',
+        (_name, accounts, state, search) => {
+            act(() => signIn(accounts, state))
+            renderSheet()
+            if (search) {
+                fireEvent.changeText(screen.getByTestId('project-search'), search)
+            }
+
+            expectAddAccountInHeader()
+        }
+    )
+
+    test.each<[string, { scene?: { width: number; height: number }; actions?: number; labeled?: number }, boolean]>([
+        ['before the title row is measured, shows the label', {}, true],
+        ['when the label fits the title row, shows it', { actions: 300, labeled: 140 }, true],
+        ['when the label does not fit the title row, shows only the plus', { actions: 150, labeled: 140 }, false],
+        ['in the compact layout, shows only the plus', { scene: { width: 800, height: 400 } }, false],
+    ])('Add account %s', (_name, { scene, actions, labeled }, labelShown) => {
+        act(() => signIn([US_ACCOUNT]))
+        renderSheet(scene)
+        if (actions !== undefined && labeled !== undefined) {
+            layout('project-sheet-header-actions', actions)
+            layout('project-sheet-add-account', labeled)
+        }
+
+        const button = screen.getByTestId('project-sheet-add-account')
+        expect(within(button).queryByText('Add account') !== null).toBe(labelShown)
+        expect(button).toHaveAccessibleName('Add account')
+        expect(button.props.accessibilityRole).toBe('button')
     })
 
-    test('a project of another account switches to it, and blocks every row until the switch settles', async () => {
+    test('a project of another account switches to it, and blocks every row and Add account until the switch settles', async () => {
         let finish: () => void = () => undefined
         const switchAccount = jest.fn(
             () =>
@@ -134,8 +184,10 @@ describe('ProjectSheet', () => {
 
         fireEvent.press(screen.getByTestId('project-sheet-eu-account-1'))
         fireEvent.press(screen.getByTestId('project-sheet-2'))
+        fireEvent.press(screen.getByTestId('project-sheet-add-account'))
         expect(switchAccount).toHaveBeenCalledTimes(1)
         expect(onSelect).not.toHaveBeenCalled()
+        expect(mockPush).not.toHaveBeenCalled()
 
         await act(async () => finish())
         expect(screen.queryByTestId('project-sheet-eu-account-1-switching')).toBeNull()
@@ -160,7 +212,7 @@ describe('ProjectSheet', () => {
         }
     })
 
-    test('an account whose session ended lists no projects, offers sign-in, and a search says it was skipped and keeps Add account', () => {
+    test('an account whose session ended lists no projects, offers sign-in, and a search says it was skipped', () => {
         act(() => signIn([US_ACCOUNT, SELF_HOSTED_ACCOUNT]))
         renderSheet()
         expect(screen.getByText('Session ended')).toBeTruthy()
@@ -173,8 +225,6 @@ describe('ProjectSheet', () => {
         expect(screen.getByTestId('project-sheet-skipped')).toHaveTextContent(
             'Projects in maya@example.org show after you sign in again.'
         )
-        expect(screen.getByTestId('project-sheet-add-account')).toBeTruthy()
-        expect(within(screen.getByTestId('project-sheet-list')).queryByTestId('project-sheet-add-account')).toBeNull()
 
         fireEvent.changeText(screen.getByTestId('project-search'), '')
         fireEvent.press(screen.getByTestId('project-sheet-account-self-hosted-account-sign-in'))
