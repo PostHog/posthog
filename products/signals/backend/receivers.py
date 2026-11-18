@@ -26,7 +26,6 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -407,6 +406,46 @@ def schedule_github_writeback_on_status_change(
     )
 
 
+def _became_ready_on_this_save(
+    instance: SignalReport, *, created: bool, update_fields: set[str] | None, prior_status: str | None
+) -> bool:
+    if instance.status != SignalReport.Status.READY:
+        return False
+    if created:
+        return True
+    if update_fields is not None and "status" not in update_fields:
+        return False
+    return prior_status is not None and prior_status != SignalReport.Status.READY
+
+
+@receiver(post_save, sender=SignalReport)
+def emit_report_ready_internal_event(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send `$signals_report_ready` to CDP destinations once per transition into READY."""
+    if not _became_ready_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id, report_id = instance.team_id, str(instance.id)
+    known_source_products = getattr(instance, "_known_source_products", None)
+
+    def _emit() -> None:
+        from products.signals.backend.tasks import emit_report_ready_event_task  # noqa: PLC0415
+
+        # A hook outside an atomic block runs inside save(), so an error here must not reach the caller.
+        try:
+            emit_report_ready_event_task.delay(team_id, report_id, known_source_products)
+        except Exception:
+            logger.exception("signals.report_ready_event_failed", team_id=team_id, report_id=report_id)
+
+    transaction.on_commit(_emit, robust=True)
+
+
 def _pr_close_reason(
     instance: SignalReport,
     *,
@@ -502,6 +541,37 @@ def close_pr_when_report_dismissed(
             actor_user_id=actor_user_id,
         )
     )
+
+
+@receiver(post_save, sender=SignalReport)
+def release_claim_when_report_dismissed(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Release the active claim when a report is dismissed.
+
+    A claim left on a dismissed report shows the report as work in progress and keeps it in its
+    owner's claimed list. The release only appends to the work log, so the claim history stays.
+    Resolved, closed, and Monitoring reports keep their claim, because linking a late open pull
+    request moves them back to ready, and the owner must still hold the work then.
+    """
+    if instance.status != SignalReport.Status.SUPPRESSED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    from products.signals.backend.report_assignments import (
+        release_claim,  # noqa: PLC0415 - keeps the GitHub integration off Django startup
+    )
+    from products.signals.backend.report_claims import get_active_claim  # noqa: PLC0415 - same
+
+    claim = get_active_claim(team_id=instance.team_id, report_id=str(instance.id))
+    if claim is not None:
+        release_claim(claim, _transition_actor(instance) or ArtefactAttribution.system())
 
 
 @receiver(post_save, sender=SignalReport)
@@ -877,7 +947,7 @@ def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
 def _sync_report_inbox_sort_cache(instance: SignalReportArtefact) -> None:
     if instance.type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
         refresh_report_priority_rank(team_id=instance.team_id, report_id=instance.report_id)
-    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE or instance.type in EDIT_ARTEFACT_TYPES:
+    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE:
         refresh_report_ranking_cache(team_id=instance.team_id, report_id=instance.report_id)
 
 

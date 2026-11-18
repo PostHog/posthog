@@ -3,9 +3,10 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.resend._config import ResendSourceConfig
 from products.warehouse_sources.sources.resend.oauth import ResendIntegrationAuth, resolve_resend_oauth_token
 from products.warehouse_sources.sources.resend.resend import (
+    ResendProbeResult,
     ResendResumeConfig,
+    probe_credentials,
     resend_source,
-    validate_credentials as validate_resend_credentials,
 )
 from products.warehouse_sources.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
@@ -30,6 +31,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     SourceSchema,
     detect,
+    unreachable_vendor_message,
 )
 
 
@@ -211,11 +213,20 @@ Either way, the connection needs **full access** so the following resources can 
                     return False, friendly
             return False, raw
 
-        if validate_resend_credentials(token):
+        result = probe_credentials(token)
+        if result is ResendProbeResult.OK:
             return True, None
 
         if config.auth_method.selection == "oauth":
             return False, "Your Resend connection is invalid or expired. Please reconnect it."
+        if result is ResendProbeResult.RESTRICTED_KEY:
+            return (
+                False,
+                "Your Resend API key can only send emails. Create a key with full access in your Resend dashboard, "
+                "then enter it here.",
+            )
+        if result is ResendProbeResult.UNREACHABLE:
+            return False, unreachable_vendor_message("Resend")
         return (
             False,
             "Resend rejected the API key. Generate a new API key in your Resend dashboard, then enter it here.",

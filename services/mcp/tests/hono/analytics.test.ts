@@ -129,6 +129,21 @@ describe('Hono MCP analytics contexts', () => {
         }
     )
 
+    it.each([
+        { name: 'saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: true }, expected: 'lookup' },
+        { name: 'no saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: false }, expected: 'empty' },
+        { name: 'failed catalog read', tools: ['metric-list'], metricCatalog: undefined, expected: 'unknown' },
+        { name: 'no metric-list tool', tools: ['user-get'], metricCatalog: undefined, expected: undefined },
+    ])('records the metric catalog mode: $name', async ({ tools, metricCatalog, expected }) => {
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({ allTools: tools.map((name) => ({ name })) as any, metricCatalog })
+        )
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.metric_catalog_mode).toBe(expected)
+    })
+
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
@@ -315,11 +330,16 @@ describe('Hono MCP analytics contexts', () => {
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }
         await trackToolCall('render-ui', 12, false, makeState(), undefined, {
-            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+            response: {
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { tool_name: 'survey-get', 'com.posthog.mcp/app_data': appData },
+                _meta: { 'com.posthog.mcp/app_data': appData },
+            },
         })
 
         expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
             content: [{ type: 'text', text: 'ok' }],
+            structuredContent: { tool_name: 'survey-get' },
             _meta: {},
         })
     })
@@ -773,6 +793,21 @@ describe('Hono MCP analytics contexts', () => {
                 { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
                 false,
             ],
+            ['starting a provider import', 'provider-imports-create', { api_key: 're_key' }, false],
+            ['reading a provider import', 'provider-imports-get', { id: 'run' }, false],
+            ['listing provider imports', 'provider-imports-list', {}, false],
+            [
+                'reading a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-get {"id":"run"}' },
+                false,
+            ],
+            [
+                'a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-create {"provider":"resend","api_key":"re_key"}' },
+                false,
+            ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
             [
                 'an email send through exec',
@@ -932,7 +967,7 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackSkillInvoked', () => {
         it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
-            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            'captures %s reads with skill_read_kind and the file path so file-only consumption still counts',
             async (readKind) => {
                 await trackSkillInvoked(makeState(), {
                     source: 'posthog',
@@ -949,6 +984,12 @@ describe('Hono MCP analytics contexts', () => {
                         skill_read_kind: readKind,
                     },
                 })
+                const properties = mockCapture.mock.calls[0]![0].properties
+                if (readKind === 'skill') {
+                    expect(properties).not.toHaveProperty('skill_file_path')
+                } else {
+                    expect(properties.skill_file_path).toBe('references/functions.md')
+                }
             }
         )
     })

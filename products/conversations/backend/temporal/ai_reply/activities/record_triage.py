@@ -81,6 +81,8 @@ def _capture_run_completed(input: RecordTriageInput) -> None:
                 "run_id": run_id,
                 "ai_triage_result": patch.get("result"),
                 "ai_triage_status": patch.get("status"),
+                "published": patch.get("published"),
+                "threat_type": patch.get("threat_type"),
                 "ticket_type": patch.get("ticket_type"),
                 "attempts": patch.get("attempts"),
                 "ai_trace_id": patch.get("ai_trace_id"),

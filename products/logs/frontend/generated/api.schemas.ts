@@ -785,9 +785,10 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface LogsAlertDestinationConfigApi {
+    /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
     hog_function_ids: string[]
     /**
-     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
      * @nullable
      */
     id: string | null
@@ -1088,6 +1089,28 @@ export interface LogsAlertCreateDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
+export interface LogsAlertCreatedDestinationResponseApi {
+    hog_function_ids: string[]
+    /**
+     * The new destination's ID on the alerts platform, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+     * @nullable
+     */
+    id: string | null
+}
+
+export interface LogsAlertCustomizeDestinationApi {
+    /**
+     * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
+     * @nullable
+     */
+    destination_id?: string | null
+    /**
+     * The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions.
+     * @maxItems 100
+     */
+    hog_function_ids?: string[]
+}
+
 export interface LogsAlertDestinationResponseApi {
     hog_function_ids: string[]
 }
@@ -1100,6 +1123,20 @@ export interface LogsAlertDeleteDestinationApi {
      * @maxItems 100
      */
     destination_ids?: string[]
+}
+
+export interface LogsAlertResetDestinationApi {
+    /**
+     * Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
+export interface LogsAlertResetDestinationResponseApi {
+    /** The destination's new ID on the alerts platform, which now sends it. */
+    id: string
 }
 
 /**
@@ -2908,9 +2945,40 @@ export interface _LogsQueryBodyApi {
     sessionId?: string
 }
 
+/**
+ * * `initial_load` - initial_load
+ * * `filter_change` - filter_change
+ * * `filters_restored` - filters_restored
+ * * `sort_change` - sort_change
+ * * `column_change` - column_change
+ * * `scope_change` - scope_change
+ * * `refresh` - refresh
+ */
+export type LogsQueryTriggerEnumApi = (typeof LogsQueryTriggerEnumApi)[keyof typeof LogsQueryTriggerEnumApi]
+
+export const LogsQueryTriggerEnumApi = {
+    InitialLoad: 'initial_load',
+    FilterChange: 'filter_change',
+    FiltersRestored: 'filters_restored',
+    SortChange: 'sort_change',
+    ColumnChange: 'column_change',
+    ScopeChange: 'scope_change',
+    Refresh: 'refresh',
+} as const
+
 export interface _LogsQueryRequestApi {
     /** The logs query to execute. */
     query: _LogsQueryBodyApi
+    /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+     *
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh */
+    trigger?: LogsQueryTriggerEnumApi
 }
 
 /**
@@ -3434,6 +3502,24 @@ export interface _LogsServicesResponseApi {
     source?: LogsServicesSourceEnumApi
     /** Prefilled follow-up calls for problem services. */
     next?: _LogsNextStepApi[]
+}
+
+export interface LogsSigningSecretApi {
+    /**
+     * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
 }
 
 /**

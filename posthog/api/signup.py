@@ -47,6 +47,7 @@ from posthog.helpers.oauth_pending_connection import (
     read_pending_oauth_connection,
 )
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
     InviteExpiredException,
     Organization,
@@ -99,11 +100,13 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> bool:
+    """Send a verification code, or log the user in when none is needed. Returns whether a code went out."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         email_verification_code_verifier.send_code(user)
-    else:
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return True
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return False
 
 
 def requested_next_url(request) -> str | None:
@@ -137,6 +140,8 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
 
 
 class SignupSerializer(serializers.Serializer):
+    _inbox_provider: InboxProvider | None = None
+
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
@@ -398,7 +403,9 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        inbox_lookup = InboxProviderLookup.start(user.email)
+        if verify_email_or_login(request, user):
+            self._inbox_provider = inbox_lookup.result()
 
         return user
 
@@ -433,6 +440,7 @@ class SignupSerializer(serializers.Serializer):
         next_url = requested_next_url(self.context.get("request"))
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["inbox_provider"] = self._inbox_provider
         return data
 
 

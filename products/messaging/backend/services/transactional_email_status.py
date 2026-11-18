@@ -8,9 +8,12 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import events_route_scope
 
 from products.messaging.backend.facade.contracts import EmailDeliveryStatus, EmailStatus
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS, EMAIL_STATUS_TABLE
@@ -98,6 +101,7 @@ def queued_at(message_id: UUID) -> datetime | None:
     return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
 
 
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     """The send's status, or None when no send of this team has this ID or its first status has not arrived."""
     created_at = message_created_at(team_id, message_id, Workload.OFFLINE)

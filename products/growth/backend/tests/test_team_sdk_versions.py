@@ -1,7 +1,13 @@
 import datetime as dt
 
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -9,6 +15,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.event.new_events_schema import use_new_events_schema
+
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
 from products.growth.backend.models import SdkVersionsDaily
 from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions, get_sdk_versions_for_team
@@ -139,3 +149,63 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
 
         assert result is not None
         assert len(result["web"]) == 150
+
+    @parameterized.expand(
+        [
+            ("events_with_fork", FlagEvaluationsMode.EVENTS, True, True, True),
+            ("read_flag_evaluations_with_fork", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True, True),
+            # On the native JSON events table, SDK versions read flag calls only from flag_evaluations.
+            # A call that only events holds is not counted there.
+            (
+                "read_flag_evaluations_without_fork",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                False,
+                {False: True, True: False},
+            ),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True, True),
+            (
+                "flag_evaluations_only_with_older_events_copy",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                True,
+                True,
+            ),
+        ]
+    )
+    def test_counts_each_flag_call_once(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        call_in_events: bool,
+        call_in_flag_evaluations: bool,
+        finds_flag_call: bool | dict[bool, bool],
+    ) -> None:
+        if isinstance(finds_flag_call, dict):
+            finds_flag_call = finds_flag_call[use_new_events_schema(self.team.id)]
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        sdk = {"$lib": "posthog-python", "$lib_version": "6.0.0"}
+        now = dt.datetime.now(dt.UTC)
+        if call_in_events:
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="user",
+                timestamp=now,
+                properties={**sdk, "$feature_flag": "beta"},
+            )
+        self._web_event("1.0.0", now)
+        if call_in_flag_evaluations:
+            _create_flag_evaluations(self.team.id, "beta", timestamp=now, properties=sdk)
+
+        result = get_sdk_versions_for_team(self.team.id)
+
+        assert result is not None
+        expected = {"web": [("1.0.0", 1)]}
+        if finds_flag_call:
+            expected["posthog-python"] = [("6.0.0", 1)]
+        assert {
+            lib: [(entry["lib_version"], entry["count"]) for entry in entries] for lib, entries in result.items()
+        } == expected

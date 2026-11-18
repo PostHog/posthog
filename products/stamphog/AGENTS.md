@@ -179,12 +179,28 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## Bot admission (the other exception to the bot-author refusal)
+
+A repo's `.stamphog/policy.yml` may name bots under `bot_authors`, each as `{name, login, id}`.
+The server reads that list from the default branch only (`logic/bot_admission.py`, cached briefly, absence included), so a PR cannot admit its own author.
+Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and any action that starts a review except `labeled`, because no label requests these reviews.
+A draft stays skipped before admission is considered.
+An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
+The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
+An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+Neither does a `sibling_files` companion, because the publisher did not name it.
+That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
+A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
+Removing the policy entry is enough to stop reviews.
+The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
 ## The manual trigger (the one exception to label mode)
 
-`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
+`request_manual_review` (`POST code_review/approvals/runs/` and the `code-review-approvals-runs-create` MCP tool) queues a review because a project member asked for it.
 The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
 Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
-The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
+The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
@@ -237,7 +253,7 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
 ## Trust boundaries
 
 - Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
-  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  `trigger_label`) need the `manager` level on the `code_review_approval` resource, on an update or a create alike. Turning reviews
   **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
   a manager paused; that is the requested self-serve direction. A supplied value counts even when it
   matches the stored one, because the view's snapshot of the row is stale by the time the facade
@@ -333,6 +349,13 @@ refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving P
 race with CI. It can't reuse `Pipeline._only_pending_attestations`: that method disqualifies on
 any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
 T2-never with it, so it answers False for every PR it exists to catch.
+
+The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
+Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
+A run that no report can wake, an inbox run or one at the per-head cap, does not poll.
+A check that fails after an approval dismisses nothing, so that approval stands until the next head change.
 
 ## Temporal specifics
 

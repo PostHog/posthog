@@ -246,7 +246,7 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -2140,13 +2140,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return Database.create_for(
-                team=self.team,
-                user=self.user,
-                user_access_control=self.user_access_control,
-                modifiers=self.modifiers,
-                trigger="shared_kill_switch",
-            )
+            return self._create_database(trigger="shared_kill_switch")
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -2154,15 +2148,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             with self._shared_database_build_lock:
                 if self._shared_database is None:
                     with self.timings.measure("build_shared_database"):
-                        self._shared_database = Database.create_for(
-                            team=self.team,
-                            user=self.user,
-                            user_access_control=self.user_access_control,
-                            modifiers=self.modifiers,
-                            timings=self.timings,
-                            trigger="shared",
-                        )
+                        self._shared_database = self._create_database(timings=self.timings, trigger="shared")
         return self._shared_database
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            user_access_control=self.user_access_control,
+            modifiers=self.modifiers,
+            timings=timings,
+            trigger=trigger,
+        )
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
@@ -2263,7 +2260,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_json_with_events_schema(self) -> dict[str, Any]:
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+        if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
             return with_pinned_events_route(query_json, self.modifiers)
         return query_json
 
@@ -2403,7 +2400,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     target_age=cached_response.cache_target_age,
                 )
 
-            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
+            if not self._is_cached_result_stale(cached_response):
                 count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
@@ -2433,7 +2430,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                if self._is_cached_result_stale(cached_response, lazy=True):
                     self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED, user)
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
@@ -2906,7 +2903,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             last_refresh = last_refresh_from_cached_result(results)
             cache_tracking_props = {
-                "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
+                "is_cache_stale": self._is_cached_result_stale(results),
                 "calculation_trigger": results.calculation_trigger,
                 "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
                 if last_refresh
@@ -3550,6 +3547,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if last_refresh is None:
             return True
         return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _is_cached_result_stale(self, cached: GenericCachedQueryResponse, lazy: bool = False) -> bool:
+        if self._is_transient_result(cached):
+            return True
+        return self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached), lazy=lazy)
+
+    def _is_transient_result(self, cached: GenericCachedQueryResponse) -> bool:
+        # A transient result is still stored, so single-flight followers can read the leader's entry, but no
+        # later request is served it as fresh.
+        return False
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}

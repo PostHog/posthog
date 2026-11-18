@@ -301,6 +301,52 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('metric catalog gating', () => {
+        const formatter = new InstructionsFormatter()
+        const surfaces = [
+            {
+                surface: 'tools instructions',
+                render: (ctx: InstructionsContext) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                surface: 'exec command reference',
+                render: (ctx: InstructionsContext) => formatter.buildExecCommandReference(ctx),
+            },
+            {
+                surface: 'Claude exec command reference',
+                render: (ctx: InstructionsContext) => formatter.buildClaudeExecCommandReference(ctx),
+            },
+        ]
+
+        it.each(
+            surfaces.flatMap(({ surface, render }) => [
+                { surface, render, name: 'unread catalog', catalog: undefined, empty: false },
+                { surface, render, name: 'saved metrics', catalog: { hasMetrics: true }, empty: false },
+                { surface, render, name: 'no saved metrics', catalog: { hasMetrics: false }, empty: true },
+            ])
+        )('$surface: $name', ({ surface, render, catalog, empty }) => {
+            const result = render({ ...fullCtx, metricCatalog: catalog })
+
+            expect(/`metric-list` first|call metric-list|with `metric-list` before/.test(result)).toBe(!empty)
+            expect(
+                result.includes(
+                    'This project has no saved metrics, so skip `metric-list`, even where a skill says to call it first.'
+                )
+            ).toBe(empty)
+            const offersToSave = surface !== 'Claude exec command reference' || empty
+            expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
+            if (empty) {
+                expect(result).toContain('"governed catalog consulted: no match"')
+                expect(result).toContain(
+                    'If you save one in this session or switch projects, use `metric-list` from then on.'
+                )
+            }
+            expect(result.includes('Run `learn analytics` before writing SQL or joins')).toBe(
+                surface === 'Claude exec command reference'
+            )
+        })
+    })
+
     describe('replay vision guidance', () => {
         const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
         it.each([
@@ -316,6 +362,26 @@ describe('InstructionsFormatter', () => {
             ]) {
                 expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
                 expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
+    describe('endpoints routing guidance', () => {
+        it.each([
+            { name: 'endpoint-create', extra: ['endpoint-create'], expected: true },
+            { name: 'no endpoint tools', extra: [], expected: false },
+        ])('routes code use cases to endpoints only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [
+                ...realisticTools.filter(({ name }) => name !== 'endpoint-create'),
+                ...extra.map((name) => ({ name, category: 'Endpoints' })),
+            ]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('Create it with `endpoint-create` only after they agree')).toBe(expected)
+                expect(rendered.includes('{endpoints_routing}')).toBe(false)
             }
         })
     })

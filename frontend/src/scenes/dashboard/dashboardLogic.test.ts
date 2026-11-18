@@ -784,6 +784,69 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 
+        it.each([
+            { name: 'in bands', groupDisplay: 'sections' as const, openTab: null },
+            { name: 'in tabs, with the open tab kept open', groupDisplay: 'tabs' as const, openTab: 'target' },
+        ])('saves a tile group moved below the group after it $name', async ({ groupDisplay, openTab }) => {
+            groupTiles({})
+            dashboards[5] = {
+                ...dashboards[5],
+                customization: { group_display: groupDisplay },
+                user_access_level: 'editor' as DashboardType['user_access_level'],
+            }
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/dashboards/5/': async ({ request }) => {
+                        const payload = (await request.json()) as { tiles?: Partial<DashboardTile>[] }
+                        return [
+                            200,
+                            {
+                                ...dashboards[5],
+                                tiles: dashboards[5].tiles.map((tile) => ({
+                                    ...tile,
+                                    ...payload.tiles?.find((entry) => entry.id === tile.id),
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+            await mountDashboard()
+            logic.actions.updateContainerWidth(1200, 12)
+
+            await expectLogic(logic, () => logic.actions.moveTileGroup('target', 'down'))
+                .toDispatchActions(['stageLayouts', 'saveLayoutOrColorsSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                'group-other',
+                'group-target',
+            ])
+            expect(logic.values.activeTileGroupTab).toEqual(openTab)
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        it('does not move a tile group while tiles still stream in', async () => {
+            groupTiles({})
+            dashboards[5] = { ...dashboards[5], user_access_level: 'editor' as DashboardType['user_access_level'] }
+            await mountDashboard()
+            logic.actions.updateContainerWidth(1200, 12)
+            const streamTiles = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            const onMessage = streamTiles.mock.calls[0][2]
+            onMessage({ type: 'metadata', dashboard: { ...dashboards[5], tiles: [] } })
+            dashboards[5].tiles.forEach((tile, order) => onMessage({ type: 'tile', tile, order }))
+
+            await expectLogic(logic, () => logic.actions.moveTileGroup('target', 'down')).toFinishAllListeners()
+
+            expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                'group-target',
+                'group-other',
+            ])
+        })
+
         describe('moving a tile between tile groups', () => {
             interface PendingSave {
                 tileIds: number[]
@@ -1171,7 +1234,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer opens it',
                     open: () => logic.actions.selectTileGroupTab('group-target'),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 1,
                 },
@@ -1185,7 +1248,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer follows a link to it',
                     open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 0,
                 },
@@ -1207,8 +1270,8 @@ describe('dashboardLogic', () => {
                     await expectLogic(logic, open).toFinishAllListeners()
 
                     expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
-                        'tiles-ungrouped',
                         'group-target',
+                        'tiles-ungrouped',
                     ])
                     expect(logic.values.activeTileGroupTab).toEqual('target')
                     expect(router.values.searchParams.tab).toEqual('group-target')
@@ -1246,6 +1309,7 @@ describe('dashboardLogic', () => {
                         customization: { group_display: 'tabs' },
                         tiles: [...leftTiles, targetTile],
                     }
+                    router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' })
                     await mountDashboard()
                     refreshInsight.mockClear()
                     const finishLoads: (() => void)[] = []

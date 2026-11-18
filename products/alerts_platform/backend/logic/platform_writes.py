@@ -7,7 +7,7 @@ and the next check reads back. Writing the copy here would fork it, so those are
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -21,7 +21,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
-    MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     Grouping,
     GroupingMode,
@@ -42,6 +41,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
+    destination_handoff,
     platform_lifecycle,
     platform_reads,
     rule_metadata,
@@ -83,8 +83,8 @@ def _validated(
         ("evaluation_periods", edit.evaluation_periods),
         ("datapoints_to_alarm", edit.datapoints_to_alarm),
     ):
-        if not 1 <= value <= MAX_EVALUATION_PERIODS:
-            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
+        if not 1 <= value <= spec.max_evaluation_periods:
+            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {spec.max_evaluation_periods}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
@@ -169,13 +169,15 @@ def update_configuration(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     source_checked: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
     result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
 
     For an alert with no source row, `cadence` writes its schedule as `update_owned_copy` writes a
     copy's, and its kind's `native_edit_guard` refuses what the source's API alone may change. A
-    source whose own API checked the edit sets `source_checked` to skip the guard.
+    source whose own API checked the edit sets `source_checked` to skip the guard. Such an alert can
+    instead take `check_interval_minutes`, one of the cadences its kind offers a native create.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -189,14 +191,6 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
-        if snooze_changed and legacy_configuration_id is not None:
-            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
-            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
-        if cadence is not None and legacy_configuration_id is not None:
-            # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
-            raise InvalidPlatformAlertEdit(
-                "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
-            )
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
@@ -204,6 +198,19 @@ def update_configuration(
             if mirror is not None and legacy_configuration_id is not None
             else None
         )
+        # A mirror that finds no row means the source deleted it, and the copy alone is the alert.
+        has_source_row = legacy_configuration_id is not None and (mirror is None or write_source is not None)
+        if snooze_changed and has_source_row:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
+        if (cadence is not None or check_interval_minutes is not None) and has_source_row:
+            # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
+            raise InvalidPlatformAlertEdit(
+                "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
+            )
+        native = spec.native if spec is not None else None
+        if check_interval_minutes is not None:
+            check_interval_minutes = _native_check_interval(native, check_interval_minutes)
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
@@ -216,6 +223,8 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
+        # Labels pick the routes, so an edit to them can move a firing between receivers.
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(
             configuration,
             change,
@@ -223,7 +232,7 @@ def update_configuration(
             snoozing=snoozing,
             admit=True,
             guard=guard,
-            check_interval_minutes=cadence.check_interval_minutes if cadence is not None else None,
+            check_interval_minutes=cadence.check_interval_minutes if cadence is not None else check_interval_minutes,
         )
         # After the edit, whose enable would reset the due time the cadence sets, and before the snooze,
         # whose deferred due time the cadence would otherwise overwrite.
@@ -232,11 +241,19 @@ def update_configuration(
                 platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
             except ValueError as error:
                 raise InvalidPlatformAlertEdit("check_interval_minutes", str(error)) from error
+        elif check_interval_minutes is not None and native is not None:
+            platform_lifecycle.write_native_cadence(
+                configuration,
+                check_interval_minutes=check_interval_minutes,
+                recurrence_unit=(native.check_intervals or {}).get(check_interval_minutes),
+                now=now,
+            )
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,
@@ -271,7 +288,7 @@ def create_configuration(
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
-        check_interval_minutes = _native_check_interval(spec.native, validated)
+        check_interval_minutes = _native_check_interval(spec.native, validated.check_interval_minutes)
         recurrence_unit = (spec.native.check_intervals or {}).get(check_interval_minutes)
         with transaction.atomic():
             _admit(
@@ -308,11 +325,10 @@ def create_configuration(
     return view
 
 
-def _native_check_interval(native: NativeAlertLifecycle, edit: PlatformAlertConfigurationEdit) -> int:
-    requested = edit.check_interval_minutes
-    if requested is None:
+def _native_check_interval(native: NativeAlertLifecycle | None, requested: int | None) -> int:
+    if native is not None and requested is None:
         return native.check_interval_minutes
-    if native.check_intervals is None:
+    if native is None or native.check_intervals is None or requested is None:
         raise InvalidPlatformAlertEdit("check_interval_minutes", "Alerts of this type have one fixed cadence.")
     if requested not in native.check_intervals:
         allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))
@@ -433,6 +449,7 @@ def update_owned_copy(
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if cadence is not None:
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
@@ -445,6 +462,7 @@ def update_owned_copy(
             )
             configuration.first_enabled_at = first_enabled_at
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,
@@ -640,12 +658,55 @@ def match_first_enabled_at(
     `first_enabled_of` maps the given source row ids to when each row was first turned on. A row never
     turned on, or one that is gone, is left out, and its copy stays as it is.
     """
+    return _match_copy_datetime(
+        "first_enabled_at",
+        source_kind=source_kind,
+        team_id=team_id,
+        source_values_of=first_enabled_of,
+        dry_run=dry_run,
+        batch_size=batch_size,
+    )
+
+
+def match_created_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    created_at_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Sets `created_at` on each of the team's copies of `source_kind` to its source row's, where the two
+    differ, and returns how many it set, or would set with `dry_run`.
+
+    `created_at_of` maps the given source row ids to when each row was created. A row that is gone is
+    left out, and its copy stays as it is.
+    """
+    return _match_copy_datetime(
+        "created_at",
+        source_kind=source_kind,
+        team_id=team_id,
+        source_values_of=created_at_of,
+        dry_run=dry_run,
+        batch_size=batch_size,
+    )
+
+
+def _match_copy_datetime(
+    column: Literal["first_enabled_at", "created_at"],
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    source_values_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+    batch_size: int,
+) -> int:
     copies = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind.value, legacy_configuration_id__isnull=False
     )
     matched = 0
-    for batch in _pages_by_id(copies, "legacy_configuration_id", "first_enabled_at", batch_size=batch_size):
-        source_values = first_enabled_of([legacy_id for _, legacy_id, _ in batch])
+    for batch in _pages_by_id(copies, "legacy_configuration_id", column, batch_size=batch_size):
+        source_values = source_values_of([legacy_id for _, legacy_id, _ in batch])
         found = {
             configuration_id: source_values[legacy_id]
             for configuration_id, legacy_id, current in batch
@@ -655,7 +716,7 @@ def match_first_enabled_at(
         if found and not dry_run:
             # `update()` rather than `save()`: the copy takes its source's history, which is not a user's edit.
             copies.filter(id__in=list(found)).update(
-                first_enabled_at=Case(*(When(id=key, then=Value(at)) for key, at in found.items()))
+                **{column: Case(*(When(id=key, then=Value(at)) for key, at in found.items()))}
             )
     return matched
 
