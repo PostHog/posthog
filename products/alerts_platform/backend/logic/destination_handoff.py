@@ -26,7 +26,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.alerts_platform.backend.delivery.destinations import live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
@@ -446,11 +446,11 @@ def _endpoints_by_configuration(
         .values_list("id", "configuration_id", "config", "legacy_hog_function_ids")
     )
     # A row that copies a live HogFunction does not send, as in delivery, so the HogFunction keeps the firing.
-    live = live_hog_function_ids(
-        team_id=team_id, hog_function_ids={hog_function_id for *_, copied in rows for hog_function_id in copied}
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={destination_id: copied for destination_id, *_, copied in rows}
     )
-    for destination_id, configuration_id, config, copied in rows:
-        if not live.intersection(copied):
+    for destination_id, configuration_id, config, _ in rows:
+        if destination_id not in copies:
             data = cast(AlertDestinationData, config)
             own[configuration_id].setdefault(
                 address(data), _Endpoint(destination_id=str(destination_id), routed=False, data=data)

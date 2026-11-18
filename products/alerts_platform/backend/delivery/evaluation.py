@@ -29,7 +29,10 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     subscribers,
 )
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import (
+    copies_of_live_hog_functions,
+    list_alert_destination_groups,
+)
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import (
     add_late_image as add_late_image_to_target,
@@ -829,14 +832,13 @@ def _is_subscriber_group(group: AlertDestinationGroup) -> bool:
 
 def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
     """Read apart from the alert's destination lookup, which misses a HogFunction whose alert filter a
-    person removed, while that function still hears every emitted event. A disabled HogFunction
-    counts too: a person who disabled it did not ask its copy to send instead."""
-    copied = {
-        hog_function_id for destination in destinations for hog_function_id in destination.legacy_hog_function_ids
-    }
-    live = live_hog_function_ids(team_id=team_id, hog_function_ids=copied)
+    person removed, while that function still hears every emitted event."""
     return frozenset(
-        str(destination.id) for destination in destinations if live.intersection(destination.legacy_hog_function_ids)
+        str(destination_id)
+        for destination_id in copies_of_live_hog_functions(
+            team_id=team_id,
+            copied_by_row={destination.id: destination.legacy_hog_function_ids for destination in destinations},
+        )
     )
 
 
