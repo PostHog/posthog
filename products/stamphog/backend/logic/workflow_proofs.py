@@ -70,6 +70,9 @@ logger = structlog.get_logger(__name__)
 # A read that fails proves nothing, so the entry stays pending or lifts nothing. It must not fail the
 # review of a PR that the entry may not even cover.
 _UNREADABLE = (StamphogGitHubError, GitHubRateLimitError, GitHubEgressBudgetExhausted)
+# GitHub lists check runs from only the newest 1000 check suites of a commit
+# (https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference).
+_LISTED_CHECK_SUITES = 1000
 _TOKEN_RE = re.compile(r"<!--\s*stamphog-oidc:v1\s+([A-Za-z0-9_.-]+)\s*-->")
 _ID_RE = re.compile(r"[1-9][0-9]{0,19}")
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -155,8 +158,9 @@ class WorkflowProofs:
         check_runs = self._client.get_check_runs(
             self._repo, self._head_sha, check_name=publisher.check, all_runs=True, priority=self._priority
         )
+        # Either limit can leave out the newest result while older copies stay listed, so a listing
+        # that may have stopped short proves nothing.
         if len(check_runs) >= MAX_CHECK_RUNS:
-            # The listing may have stopped before the newest result, so it proves nothing.
             raise StamphogGitHubError(f"Too many {publisher.check!r} check runs on {self._head_sha} to verify")
         candidates: dict[tuple[str, object, str], Candidate] = {}
         for check_run in check_runs:
@@ -172,6 +176,10 @@ class WorkflowProofs:
             candidates.setdefault(
                 signed_content, Candidate(check_run=check_run, marker=marker[0], payload=marker[1], token=tokens[0])
             )
+        if candidates and self._client.count_check_suites(self._repo, self._head_sha, priority=self._priority) > (
+            _LISTED_CHECK_SUITES
+        ):
+            raise StamphogGitHubError(f"Too many check suites on {self._head_sha} to list every check run")
         return list(candidates.values())
 
     def _decode(self, token: str, audience: str) -> dict | None:

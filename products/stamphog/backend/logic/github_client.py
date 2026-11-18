@@ -1161,6 +1161,26 @@ class StamphogGitHubClient:
                 break
         return check_runs
 
+    def count_check_suites(self, repo: str, ref: str, *, priority: Priority = Priority.CRITICAL) -> int:
+        """How many check suites GitHub holds for a commit, from one minimal page."""
+        path = f"/repos/{repo}/commits/{ref}/check-suites"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/commits/{ref}/check-suites",
+            params={"per_page": 1},
+            priority=priority,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to count check suites {repo}@{ref}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        total = data.get("total_count") if isinstance(data, dict) else None
+        if type(total) is not int:
+            raise StamphogGitHubError(f"Unexpected check suites payload for {repo}@{ref}")
+        return total
+
     def get_repository_identity(self, repo: str, *, priority: Priority = Priority.CRITICAL) -> RepositoryIdentity:
         """The repository's id, its name as GitHub spells it, and its default branch."""
         path = f"/repos/{repo}"

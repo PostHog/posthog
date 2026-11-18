@@ -1034,10 +1034,14 @@ class _WorkflowClient:
         self.at_run = dict(self.default_branch)
         self.job_reads = 0
         self.object_read_lanes: list[Priority] = []
+        self.check_suites = 1
 
     def get_check_runs(self, repo: str, head_sha: str, **filters: Any) -> list[dict]:
         assert filters["all_runs"] is True
         return [check_run for check_run in self.check_runs if check_run.get("name") == filters["check_name"]]
+
+    def count_check_suites(self, repo: str, ref: str, **_: Any) -> int:
+        return self.check_suites
 
     def get_repository_identity(self, repo: str, **_: Any) -> RepositoryIdentity:
         return RepositoryIdentity(id=42, full_name="acme/widgets", default_branch="main")
@@ -1235,8 +1239,18 @@ class WorkflowProofTests(SimpleTestCase):
 
         assert _proofs(client).verified_result(_PUBLISHER) is not None
 
-    def test_a_listing_that_may_have_stopped_short_proves_nothing(self) -> None:
-        client = _WorkflowClient([_signed_check_run(posted_id) for posted_id in range(MAX_CHECK_RUNS)])
+    @parameterized.expand(
+        [
+            ("too_many_check_runs", MAX_CHECK_RUNS, 1),
+            # GitHub lists check runs from only the newest 1000 check suites of a commit.
+            ("too_many_check_suites", 1, 1001),
+        ]
+    )
+    def test_a_listing_that_may_have_stopped_short_proves_nothing(
+        self, _name: str, check_runs: int, check_suites: int
+    ) -> None:
+        client = _WorkflowClient([_signed_check_run(posted_id) for posted_id in range(check_runs)])
+        client.check_suites = check_suites
 
         assert _proofs(client).verified_result(_PUBLISHER) is None
 
