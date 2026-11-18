@@ -1,103 +1,50 @@
 import { describe, expect, it } from "vitest";
 import { type RunPolicy, runPolicyFromOrigin } from "./run-policy";
+import policyCases from "./run-policy-cases.json";
 
-interface Case {
-  name: string;
-  originProduct: string | null;
-  endRunWhenDone?: boolean;
-  callerEndsRun?: boolean;
-  expected: Partial<RunPolicy>;
+function toWire(policy: RunPolicy): Record<string, unknown> {
+  return {
+    finish_tool: policy.finishTool,
+    finish_report_required: policy.finishReportRequired,
+    report_activity_tool: policy.reportActivityTool,
+    branch_push_only: policy.branchPushOnly,
+    expects_system_prompt: policy.expectsSystemPrompt,
+    thread_link: policy.threadLink,
+    default_client_provenance: policy.defaultClientProvenance ?? null,
+  };
 }
 
 describe("runPolicyFromOrigin", () => {
-  it.each<Case>([
-    {
-      name: "a run that ends itself",
-      originProduct: "user_created",
-      expected: { finishTool: true, finishReportRequired: false },
-    },
-    {
-      name: "an unknown origin",
-      originProduct: null,
-      expected: { finishTool: false },
-    },
-    {
-      name: "an empty origin",
-      originProduct: "",
-      expected: { finishTool: false },
-    },
-    {
-      name: "an unknown origin with the end-run opt-in",
-      originProduct: null,
-      endRunWhenDone: true,
-      expected: { finishTool: true, finishReportRequired: false },
-    },
-    {
-      name: "a caller-managed assessment run",
-      originProduct: "signal_report",
-      callerEndsRun: true,
-      expected: { finishTool: false },
-    },
-    {
-      name: "a workflow run",
-      originProduct: "workflow",
-      expected: { finishTool: false, finishReportRequired: false },
-    },
-    {
-      name: "a workflow run with the end-run opt-in",
-      originProduct: "workflow",
-      endRunWhenDone: true,
-      expected: { finishTool: true, finishReportRequired: true },
-    },
-    {
-      name: "a non-workflow run with the end-run opt-in",
-      originProduct: "user_created",
-      endRunWhenDone: true,
-      expected: { finishTool: true, finishReportRequired: false },
-    },
-    {
-      name: "a ReviewHog run",
-      originProduct: "review_hog",
-      expected: { finishTool: false },
-    },
-    {
-      name: "a ReviewHog run with the end-run opt-in",
-      originProduct: "review_hog",
-      endRunWhenDone: true,
-      expected: { finishTool: false },
-    },
-    {
-      name: "a scout suggestions run",
-      originProduct: "scout_suggestions",
-      expected: { finishTool: false },
-    },
-    {
-      name: "a scout suggestions run with the end-run opt-in",
-      originProduct: "scout_suggestions",
-      endRunWhenDone: true,
-      expected: { finishTool: false },
-    },
-    {
-      name: "a task analysis run",
-      originProduct: "task_analysis",
-      expected: { reportActivityTool: true },
-    },
-    {
-      name: "a run that reports no activity",
-      originProduct: "user_created",
-      expected: { reportActivityTool: false },
-    },
-  ])(
+  it.each(policyCases.policy_from_origin)(
     "resolves $name",
-    ({
-      originProduct,
-      endRunWhenDone = false,
-      callerEndsRun = false,
-      expected,
-    }) => {
-      expect(
-        runPolicyFromOrigin({ originProduct, endRunWhenDone, callerEndsRun }),
-      ).toMatchObject(expected);
+    ({ origin_product, end_run_when_done, caller_ends_run, expected }) => {
+      const policy = runPolicyFromOrigin({
+        originProduct: origin_product,
+        endRunWhenDone: end_run_when_done,
+        callerEndsRun: caller_ends_run,
+      });
+
+      expect(toWire(policy)).toEqual(expected);
+    },
+  );
+
+  it.each<[string, string | null, boolean, boolean]>([
+    ["an unknown origin", null, false, false],
+    ["an empty origin", "", false, false],
+    ["an unknown origin with the end-run opt-in", null, true, true],
+  ])(
+    "decides the finish tool for %s",
+    (_, originProduct, endRunWhenDone, expected) => {
+      const policy = runPolicyFromOrigin({
+        originProduct,
+        endRunWhenDone,
+        callerEndsRun: false,
+      });
+
+      expect([policy.finishTool, policy.finishReportRequired]).toEqual([
+        expected,
+        false,
+      ]);
     },
   );
 });
