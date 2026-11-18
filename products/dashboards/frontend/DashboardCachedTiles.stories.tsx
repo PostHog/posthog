@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -127,7 +128,16 @@ type Story = StoryObj<{}>
 /** With dashboard-v2, a date change on a cached dashboard shows every tile from one cached-tiles request. */
 export const DateChangeShowsCachedTilesFromOneRequest: Story = {
     play: async () => {
-        const logic = dashboardLogic.findMounted({ id: DASHBOARD_ID })
-        logic?.actions.setDates('-7d', null)
+        const logic = await waitFor(
+            () => {
+                const mounted = dashboardLogic.findMounted({ id: DASHBOARD_ID })
+                if (!mounted?.values.dashboard || mounted.values.itemsLoading) {
+                    throw new Error('Dashboard not loaded yet')
+                }
+                return mounted
+            },
+            { timeout: 10000 }
+        )
+        logic.actions.setDates('-7d', null)
     },
 }
