@@ -15288,6 +15288,7 @@ export namespace Schemas {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification
      */
@@ -15300,6 +15301,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       Teams: 'teams',
       Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
       Email: 'email',
       InApp: 'in_app',
     } as const;
@@ -15319,6 +15321,7 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io
        * * `email` - Email
        * * `in_app` - In-app notification */
       type: DestinationTypeEnum;
@@ -15433,6 +15436,8 @@ export namespace Schemas {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      */
     export type AlertReceiverTypeEnum = typeof AlertReceiverTypeEnum[keyof typeof AlertReceiverTypeEnum];
 
@@ -15442,6 +15447,8 @@ export namespace Schemas {
       Webhook: 'webhook',
       Teams: 'teams',
       Discord: 'discord',
+      Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
     } as const;
 
     export interface AlertReceiver {
@@ -15454,7 +15461,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type: AlertReceiverTypeEnum;
       /** Whether routes send to this receiver. A disabled receiver gets nothing. */
       enabled: boolean;
@@ -15468,6 +15477,24 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident. Unset means critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to. Unset means us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /** ID of the incident.io HTTP alert source the events go to. */
+      incident_io_alert_source_config_id?: string;
+      /** incident.io alert source secret reduced to its last four characters. */
+      incident_io_secret?: string;
     }
 
     export interface AlertReceiverWrite {
@@ -15483,7 +15510,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -15493,6 +15522,27 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern ^[0-9A-Za-z]{26}$
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface AlertResetDestination {
@@ -15539,7 +15589,7 @@ export namespace Schemas {
       receiver_id: string;
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers: AlertRouteMatcher[];
-      /** The alert transitions the receiver hears about through this route. */
+      /** The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. */
       event_kinds: PlatformAlertDestinationEventKindEnum[];
       /** Whether this route sends. */
       enabled: boolean;
@@ -15568,7 +15618,7 @@ export namespace Schemas {
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers?: AlertRouteMatcher[];
       /**
-         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
          * @minItems 1
          */
       event_kinds?: PlatformAlertDestinationEventKindEnum[];
@@ -87981,7 +88031,9 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
-       * * `discord` - Discord */
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
       type?: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -87991,6 +88043,27 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern ^[0-9A-Za-z]{26}$
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface PatchedAlertRouteWrite {
@@ -87999,7 +88072,7 @@ export namespace Schemas {
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
       matchers?: AlertRouteMatcher[];
       /**
-         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
          * @minItems 1
          */
       event_kinds?: PlatformAlertDestinationEventKindEnum[];
