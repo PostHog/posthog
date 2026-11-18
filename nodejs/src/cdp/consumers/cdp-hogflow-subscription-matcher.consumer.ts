@@ -174,8 +174,8 @@ type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
 type FilterFirstMode = 'off' | 'shadow' | 'on'
 
-// Past this, the rest of a batch is looked up without the check, so a slow filter cannot hold the batch.
-const FILTER_FIRST_BUDGET_MS = 1000
+// Past this, the rest of a batch is looked up without the check, so slow or numerous filters cannot hold the batch.
+const FILTER_FIRST_BUDGET_MS = 50
 
 // A filter that draws a random number can pass one evaluation and fail the next, so checking it before the
 // lookup would make it pass twice to count.
@@ -470,10 +470,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Only the events stream is checked: a person change or a cohort change is judged against
         // state the event does not carry, and internal events are too few to matter.
         const filterFirst = source === 'events' ? this.filterFirst : 'off'
-        const watcherCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals) => {
+        const watcherCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
             const goalFlows = goalFlowsByTeam.get(globals.project.id)
             // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
-            return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals))
+            return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
         })
         if (watcherCheck.lookup.length > 0) {
             const conversionsCounted = await this.claimConversionWatchers(
@@ -504,10 +504,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        const parkedCheck = await this.checkFilters(filterFirst, 'parked', invocationGlobals, (globals) =>
+        const parkedCheck = await this.checkFilters(filterFirst, 'parked', invocationGlobals, (globals, spent) =>
             this.couldMoveRun(
                 (hogFlowsByTeam[globals.project.id] ?? []).filter(hasWaitUntilOrConversion),
-                filterGlobalsFor(globals)
+                filterGlobalsFor(globals),
+                spent
             )
         )
         if (parkedCheck.lookup.length === 0) {
@@ -645,7 +646,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         mode: FilterFirstMode,
         lookup: 'parked' | 'watchers',
         invocationGlobals: HogFunctionInvocationGlobals[],
-        passes: (globals: HogFunctionInvocationGlobals) => boolean | Promise<boolean>
+        // `spent` turns true once the batch is over budget; `passes` then answers true without evaluating.
+        passes: (globals: HogFunctionInvocationGlobals, spent: () => boolean) => boolean | Promise<boolean>
     ): Promise<{
         lookup: HogFunctionInvocationGlobals[]
         noteMatch: (globals: HogFunctionInvocationGlobals) => void
@@ -655,12 +657,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         const failed = new Set<HogFunctionInvocationGlobals>()
         const startedAt = performance.now()
+        const spent = (): boolean => performance.now() - startedAt > FILTER_FIRST_BUDGET_MS
         let unchecked = 0
         for (const globals of invocationGlobals) {
-            if (performance.now() - startedAt > FILTER_FIRST_BUDGET_MS) {
-                unchecked++
-            } else if (!(await passes(globals))) {
+            if (!(await passes(globals, spent))) {
                 failed.add(globals)
+            } else if (spent()) {
+                unchecked++
             }
         }
         counterHogflowMatcherFilterFirstEvents
@@ -680,12 +683,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     // Whether the event could end a wait or meet a goal in any of the flows. A parked run is woken only
     // when its own wait step or its flow's goal matches, so an event that matches none of them cannot wake it.
-    private async couldMoveRun(flows: HogFlow[], filterGlobals: FilterGlobals): Promise<boolean> {
+    private async couldMoveRun(flows: HogFlow[], filterGlobals: FilterGlobals, spent: () => boolean): Promise<boolean> {
         for (const flow of flows) {
-            if (flowCallsRandom(flow)) {
+            if (spent() || flowCallsRandom(flow)) {
                 return true
             }
             for (const action of flow.actions) {
+                if (spent()) {
+                    return true
+                }
                 if (
                     action.type === 'wait_until_condition' &&
                     (await matchesWaitUntilCondition(action, filterGlobals, {
@@ -696,7 +702,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     return true
                 }
             }
-            if (await this.evaluateConversionEvents(flow, filterGlobals, false)) {
+            if (spent() || (await this.evaluateConversionEvents(flow, filterGlobals, false))) {
                 return true
             }
         }
@@ -1726,10 +1732,10 @@ function flowCallsRandom(flow: HogFlow): boolean {
     return [...waits, ...goals, flow.conversion?.bytecode].some(callsRandom)
 }
 
-async function couldConvert(flows: HogFlow[], filterGlobals: FilterGlobals): Promise<boolean> {
+async function couldConvert(flows: HogFlow[], filterGlobals: FilterGlobals, spent: () => boolean): Promise<boolean> {
     for (const flow of flows) {
         const goal = pinConversionGoal(flow)
-        if (goal && [goal.properties, ...(goal.events ?? [])].some(callsRandom)) {
+        if (spent() || (goal && [goal.properties, ...(goal.events ?? [])].some(callsRandom))) {
             return true
         }
         if (goal && (await matchesPinnedGoal(goal, filterGlobals, flow.id))) {

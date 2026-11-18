@@ -1008,8 +1008,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     } as any),
                 })
                 const clock = jest.spyOn(performance, 'now')
-                let elapsed = 0
-                clock.mockImplementation(() => (overBudget ? (elapsed += 2000) : 0))
+                // Each clock read costs 30ms, so the budget runs out partway through the one event.
+                let now = 0
+                clock.mockImplementation(() => (overBudget ? (now += 30) : 0))
 
                 // Event name doesn't match wuc_subscribed (waiter event) nor any conversion
                 await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
