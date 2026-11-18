@@ -763,7 +763,7 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
 
         def revoke_during_the_ci_read(_team_id: int, refs: list) -> dict:
             SignalScoutConfig.objects.filter(id=self.config.id).update(report_actions=[])
-            return dict.fromkeys(refs, "failing")
+            return dict.fromkeys(refs, PullRequestCiStatus(ci_status="failing", has_conflict=False))
 
         with patch(
             "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
