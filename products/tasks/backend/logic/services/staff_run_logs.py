@@ -24,6 +24,11 @@ def staff_task_run_log_link(run_id: UUID, user: User) -> TaskRunLogLink | None:
     )
     if run is None:
         return None
+    if run.log.chunked:
+        return TaskRunLogLink(
+            url=None,
+            unavailable_reason="This run's log is stored in chunks, which this page can't download yet.",
+        )
     if not run_log_exists(run.log):
         return TaskRunLogLink(
             url=None,

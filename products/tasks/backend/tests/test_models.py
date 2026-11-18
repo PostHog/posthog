@@ -56,6 +56,13 @@ from products.tasks.backend.models import (
     fail_stale_live_runs,
 )
 from products.tasks.backend.run_options import run_options_record
+from products.tasks.backend.storage import (
+    copy_run_log,
+    read_run_log,
+    read_run_log_bytes,
+    read_run_log_size,
+    run_log_chunk_key,
+)
 from products.tasks.backend.task_profiles import USER
 
 SCOUT_PROFILE = get_task_profile("signals.scout")
@@ -150,6 +157,15 @@ class TestTask(TestCase):
                 task.create_run(environment=environment)
 
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_run)
+
+    @parameterized.expand([("flag_on", True, "chunked"), ("flag_off", False, "single")])
+    def test_create_run_fixes_the_log_format_from_the_flag(self, _name, flag_enabled, expected_format):
+        task = Task.objects.create(team=self.team, title="Test Task", description="Test Description")
+
+        with patch("products.tasks.backend.models.chunked_run_logs_enabled", return_value=flag_enabled):
+            run = task.create_run(environment=TaskRun.Environment.LOCAL)
+
+        self.assertEqual(run.log_format, expected_format)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -2190,74 +2206,100 @@ class TestTaskRun(TestCase):
         run.refresh_from_db()
         self.assertEqual(self._recorded_ids(run), ["m2"])
 
-    def test_append_log_to_empty(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
+    LOG_FORMATS = [("single", TaskRun.LogFormat.SINGLE), ("chunked", TaskRun.LogFormat.CHUNKED)]
+
+    def _run(self, log_format: str = TaskRun.LogFormat.SINGLE) -> TaskRun:
+        return TaskRun.objects.create(task=self.task, team=self.team, log_format=log_format)
+
+    def _entries(self, run: TaskRun) -> list[dict]:
+        run.refresh_from_db()
+        return [json.loads(line) for line in read_run_log(run.log).splitlines()]
+
+    @parameterized.expand(LOG_FORMATS)
+    def test_append_log_to_empty(self, _name: str, log_format: str):
+        run = self._run(log_format)
+
+        run.append_log([{"type": "info", "message": "First log entry"}])
+
+        self.assertEqual(
+            [(entry["type"], entry["message"]) for entry in self._entries(run)], [("info", "First log entry")]
         )
 
-        entries = [{"type": "info", "message": "First log entry"}]
-        run.append_log(entries)
-        run.refresh_from_db()
+    @parameterized.expand(LOG_FORMATS)
+    def test_append_log_multiple_entries(self, _name: str, log_format: str):
+        run = self._run(log_format)
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
-        assert log_content is not None
-
-        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 1)
-        self.assertEqual(log_entries[0]["type"], "info")
-        self.assertEqual(log_entries[0]["message"], "First log entry")
-
-    def test_append_log_multiple_entries(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
+        run.append_log(
+            [
+                {"type": "info", "message": "First entry"},
+                {"type": "warning", "message": "Second entry"},
+                {"type": "error", "message": "Third entry"},
+            ]
         )
 
-        entries = [
-            {"type": "info", "message": "First entry"},
-            {"type": "warning", "message": "Second entry"},
-            {"type": "error", "message": "Third entry"},
-        ]
-        run.append_log(entries)
-        run.refresh_from_db()
+        self.assertEqual([entry["type"] for entry in self._entries(run)], ["info", "warning", "error"])
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
-        assert log_content is not None
+    @parameterized.expand(LOG_FORMATS)
+    def test_append_log_to_existing(self, _name: str, log_format: str):
+        run = self._run(log_format)
+        run.append_log([{"type": "info", "message": "First entry"}])
 
-        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 3)
-        self.assertEqual(log_entries[0]["type"], "info")
-        self.assertEqual(log_entries[1]["type"], "warning")
-        self.assertEqual(log_entries[2]["type"], "error")
-
-    def test_append_log_to_existing(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
+        run.append_log(
+            [
+                {"type": "success", "message": "New entry 1"},
+                {"type": "debug", "message": "New entry 2"},
+            ]
         )
 
-        first_entries = [{"type": "info", "message": "First entry"}]
-        run.append_log(first_entries)
+        self.assertEqual(
+            [entry["message"] for entry in self._entries(run)], ["First entry", "New entry 1", "New entry 2"]
+        )
 
-        new_entries = [
-            {"type": "success", "message": "New entry 1"},
-            {"type": "debug", "message": "New entry 2"},
-        ]
-        run.append_log(new_entries)
+    @parameterized.expand([("one_orphan", 1), ("count_three_behind", 3)])
+    def test_chunked_append_lands_after_chunks_the_count_missed(self, _name: str, stored_chunks: int):
+        run = self._run(TaskRun.LogFormat.CHUNKED)
+        for chunk_index in range(stored_chunks):
+            object_storage.write(
+                run_log_chunk_key(run.log, chunk_index),
+                json.dumps({"message": f"stored {chunk_index}"}).encode() + b"\n",
+            )
+
+        run.append_log([{"type": "info", "message": "next"}])
+
+        expected = [*(f"stored {chunk_index}" for chunk_index in range(stored_chunks)), "next"]
+        self.assertEqual([entry["message"] for entry in self._entries(run)], expected)
+        self.assertEqual(run.log_chunk_count, stored_chunks + 1)
+
+    def test_chunked_read_finds_chunks_past_a_stale_count(self):
+        run = self._run(TaskRun.LogFormat.CHUNKED)
+        stale = TaskRun.objects.get(id=run.id)
+
+        run.append_log([{"type": "info", "message": "first"}])
+
+        self.assertEqual(stale.log_chunk_count, 0)
+        self.assertEqual([json.loads(line)["message"] for line in read_run_log(stale.log).splitlines()], ["first"])
+
+    def test_chunked_size_and_copy_match_the_read(self):
+        run = self._run(TaskRun.LogFormat.CHUNKED)
+        run.append_log([{"type": "info", "message": "first"}])
+        run.append_log([{"type": "info", "message": "second"}])
         run.refresh_from_db()
+        content = read_run_log_bytes(run.log)
+        copy_key = f"{run.log_url}.copy"
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
-        assert log_content is not None
+        copy_run_log(run.log, copy_key)
 
-        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
-        self.assertEqual(len(log_entries), 3)
-        self.assertEqual(log_entries[0]["message"], "First entry")
-        self.assertEqual(log_entries[1]["message"], "New entry 1")
-        self.assertEqual(log_entries[2]["message"], "New entry 2")
+        self.assertEqual(read_run_log_size(run.log, strict=True), len(content))
+        self.assertEqual(object_storage.read_bytes(copy_key), content)
+
+    def test_chunked_append_skips_a_batch_it_already_holds(self):
+        run = self._run(TaskRun.LogFormat.CHUNKED)
+
+        run.append_log([{"type": "info", "message": "imported"}], batch_id="b1")
+        run.append_log([{"type": "info", "message": "imported"}], batch_id="b1")
+
+        self.assertEqual([entry["message"] for entry in self._entries(run)], ["imported"])
+        self.assertEqual(run.log_chunk_count, 1)
 
     def test_log_file_tagged_with_ttl(self):
         run = TaskRun.objects.create(

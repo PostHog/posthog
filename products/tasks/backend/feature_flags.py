@@ -9,6 +9,7 @@ from posthog.utils import get_instance_region
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    CHUNKED_RUN_LOGS_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     GITLAB_TASKS_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
@@ -116,6 +117,24 @@ def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
         )
     except Exception:
         logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
+def chunked_run_logs_enabled(team: "Team") -> bool:
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                CHUNKED_RUN_LOGS_FEATURE_FLAG,
+                f"team_{team.id}",
+                groups={"organization": organization_id, "project": str(team.id)},
+                group_properties={"organization": {"id": organization_id}, "project": {"id": str(team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("chunked-run-logs flag check failed; treating as disabled")
         return False
 
 

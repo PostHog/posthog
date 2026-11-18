@@ -40,6 +40,7 @@ from posthog.storage.object_storage import (
     read,
     read_bytes,
     write,
+    write_if_absent,
 )
 
 TEST_BUCKET = "test_storage_bucket"
@@ -104,6 +105,16 @@ class TestStorage(APIBaseTest):
             head = head_object(file_name)
             assert head is not None
             assert head["ETag"].endswith('-2"') == expected_assembled_in_storage
+
+    def test_write_if_absent_writes_a_key_once(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_write_if_absent_writes_a_key_once/{uuid.uuid4()}"
+
+            first = write_if_absent(file_name, b"first")
+            second = write_if_absent(file_name, b"second")
+
+            assert (first, second) == (True, False)
+            self.assertEqual(read_bytes(file_name), b"first")
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -482,3 +493,9 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is presigned_client
+
+
+class TestUnavailableStorage(SimpleTestCase):
+    def test_write_if_absent_refuses_instead_of_pretending_to_write(self) -> None:
+        with self.assertRaises(ObjectStorageError):
+            UnavailableStorage().write_if_absent("bucket", "key", b"content")

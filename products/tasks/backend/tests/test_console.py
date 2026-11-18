@@ -63,6 +63,14 @@ class TestTaskRunLogsConsoleTool(BaseTest):
         assert response.status_code == 404
         assert expected in " ".join(str(message) for message in get_messages(response.wsgi_request))
 
+    def test_chunked_log_says_why_it_cannot_be_downloaded(self) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(log_format=TaskRun.LogFormat.CHUNKED)
+
+        response = self._download(self.task_run.id)
+
+        assert response.status_code == 404
+        assert "stored in chunks" in " ".join(str(message) for message in get_messages(response.wsgi_request))
+
     @parameterized.expand([("unknown",), ("private",)])
     @patch(f"{_STORAGE}.head_object")
     def test_unknown_or_private_run_is_refused_without_touching_storage(self, case: str, mock_head: MagicMock) -> None:
