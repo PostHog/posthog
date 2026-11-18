@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AlertWizard } from 'lib/components/Alerting/AlertWizard/AlertWizard'
 import {
@@ -9,6 +10,7 @@ import {
     AlertWizardLogicProps,
     alertWizardLogic,
 } from 'lib/components/Alerting/AlertWizard/alertWizardLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -44,6 +46,16 @@ export function ErrorTrackingAlerting(): JSX.Element {
 function ErrorTrackingAlertingInner(): JSX.Element {
     const { alertCreationView, subTemplateIds } = useValues(alertWizardLogic)
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const cancelTraditionalCreation = (): void => setAlertCreationView(AlertCreationView.None)
+
+    const startWizardCreation = (): void => {
+        posthog.capture('error_tracking_alert_creation_started', {
+            ui_source: 'wizard_button',
+        })
+        setAlertCreationView(AlertCreationView.Wizard)
+    }
 
     if (alertCreationView === AlertCreationView.Wizard) {
         return (
@@ -72,13 +84,15 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                     id ? { filters: getFiltersFromSubTemplateId(id, subTemplate) } : undefined
                 }
                 extraControls={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => setAlertCreationView(AlertCreationView.None)}
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" onClick={cancelTraditionalCreation}>
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton type="secondary" size="small" onClick={cancelTraditionalCreation}>
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
         )
@@ -99,18 +113,15 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                 })
             }}
             extraControls={
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => {
-                        posthog.capture('error_tracking_alert_creation_started', {
-                            ui_source: 'wizard_button',
-                        })
-                        setAlertCreationView(AlertCreationView.Wizard)
-                    }}
-                >
-                    New notification
-                </LemonButton>
+                todayRailNav ? (
+                    <Button variant="primary" onClick={startWizardCreation}>
+                        New notification
+                    </Button>
+                ) : (
+                    <LemonButton type="primary" size="small" onClick={startWizardCreation}>
+                        New notification
+                    </LemonButton>
+                )
             }
         />
     )

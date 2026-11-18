@@ -1,4 +1,7 @@
+import { Text } from '@posthog/quill'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { IssueSeverityTag } from '../../../components/IssueSeverityTag'
 import { RuleList } from '../rules/RuleList'
@@ -7,6 +10,11 @@ import { SeverityRuleModal } from './SeverityRuleModal'
 import { severityRuleModalLogic } from './severityRuleModalLogic'
 
 export function SeverityRules(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const description =
+        'Set the initial severity of newly created issues from exception properties. The first matching rule wins. When no rule matches, built-in severity inference is preserved. Existing issues are never changed.'
+
     return (
         <RuleList
             ruleType={ErrorTrackingRuleType.Severity}
@@ -15,15 +23,17 @@ export function SeverityRules(): JSX.Element {
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             pageKeyPrefix="severity-rule"
             description={
-                <p>
-                    Set the initial severity of newly created issues from exception properties. The first matching rule
-                    wins. When no rule matches, built-in severity inference is preserved. Existing issues are never
-                    changed.
-                </p>
+                todayRailNav ? (
+                    <Text size="xs" render={<p className="m-0" />}>
+                        {description}
+                    </Text>
+                ) : (
+                    <p>{description}</p>
+                )
             }
             renderCardHeaderExtra={(rule: ErrorTrackingSeverityRule) => (
                 <>
-                    <span className="text-muted">·</span>
+                    <span className={todayRailNav ? 'text-muted-foreground' : 'text-muted'}>·</span>
                     <IssueSeverityTag severity={rule.severity} />
                 </>
             )}

@@ -4,11 +4,13 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillGeneralSection } from '../../components/QuillGeneralSection/QuillGeneralSection'
 import { AuthorizedDomains } from './AuthorizedDomains'
 import { ChannelsSection } from './ChannelsSection'
 import { DraftModeSection } from './DraftModeSection'
@@ -22,8 +24,35 @@ export function GeneralSection(): JSX.Element {
     const { conversationsEnabledLoading, isAddingDomain, editingDomainIndex } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const teamsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isEnabled = !!currentTeam?.conversations_enabled
+
+    const handleConversationsEnabledChange = (checked: boolean): void => {
+        setConversationsEnabledLoading(true)
+        updateCurrentTeam({
+            conversations_enabled: checked,
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_enabled: checked ? currentTeam?.conversations_settings?.widget_enabled : false,
+            },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillGeneralSection
+                isEnabled={isEnabled}
+                enabledLoading={conversationsEnabledLoading}
+                teamsEnabled={teamsEnabled}
+                showAddDomainButton={!isAddingDomain && editingDomainIndex === null}
+                // The send menu confirms every send, so the draft-mode default has nothing left to set.
+                showDraftMode={!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]}
+                onEnabledChange={handleConversationsEnabledChange}
+                onAddDomain={() => setIsAddingDomain(true)}
+            />
+        )
+    }
 
     return (
         <>
@@ -78,18 +107,7 @@ export function GeneralSection(): JSX.Element {
                         </div>
                         <LemonSwitch
                             checked={isEnabled}
-                            onChange={(checked) => {
-                                setConversationsEnabledLoading(true)
-                                updateCurrentTeam({
-                                    conversations_enabled: checked,
-                                    conversations_settings: {
-                                        ...currentTeam?.conversations_settings,
-                                        widget_enabled: checked
-                                            ? currentTeam?.conversations_settings?.widget_enabled
-                                            : false,
-                                    },
-                                })
-                            }}
+                            onChange={handleConversationsEnabledChange}
                             loading={conversationsEnabledLoading}
                         />
                     </div>

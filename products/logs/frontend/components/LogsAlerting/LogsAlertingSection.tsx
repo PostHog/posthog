@@ -2,10 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LogsAlertCreateModal } from './LogsAlertCreateModal'
 import { LogsAlertEditModal } from './LogsAlertEditModal'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertList } from './LogsAlertList'
+import { QuillLogsAlertList } from './QuillLogsAlertList'
+import { QuillLogsAlertsBetaBanner } from './QuillLogsAlertsBetaBanner'
+
+const BETA_BANNER_DISMISS_KEY = 'logs-alerts-beta-banner'
 
 export function LogsAlertingSection(): JSX.Element {
     return (
@@ -18,12 +24,24 @@ export function LogsAlertingSection(): JSX.Element {
 function LogsAlertingSectionContent(): JSX.Element {
     const { isCreateAlertModalOpen, editingAlert } = useValues(logsAlertingLogic)
     const { closeCreateAlertModal, closeEditAlertModal } = useActions(logsAlertingLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-3">
+                <QuillLogsAlertsBetaBanner dismissKey={BETA_BANNER_DISMISS_KEY} />
+                <QuillLogsAlertList />
+                <LogsAlertCreateModal isOpen={isCreateAlertModalOpen} onClose={closeCreateAlertModal} />
+                <LogsAlertEditModal alert={editingAlert} onClose={closeEditAlertModal} />
+            </div>
+        )
+    }
 
     return (
         <>
             <LemonBanner
                 type="info"
-                dismissKey="logs-alerts-beta-banner"
+                dismissKey={BETA_BANNER_DISMISS_KEY}
                 className="mb-3"
                 action={{ children: 'Send feedback', id: 'logs-alerts-feedback-button' }}
             >
