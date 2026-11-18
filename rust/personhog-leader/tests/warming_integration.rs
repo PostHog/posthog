@@ -5,7 +5,7 @@
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common::{create_mock_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
 use personhog_coordination::changelog::WarmSource;
@@ -18,12 +18,12 @@ use personhog_leader::warming::{
 };
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
-use rdkafka::config::{ClientConfig, FromClientConfig};
+use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer, FutureRecord};
 use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
-use rdkafka::{Offset, TopicPartitionList};
+use rdkafka::{Message, Offset, TopicPartitionList};
 
 /// Build a Person proto with deterministic fields — enough that the
 /// warming pipeline's decode + JSON-parse + cache-write round-trip
@@ -259,18 +259,46 @@ async fn a_fill_reads_each_record_once_when_markers_end_its_chunks() {
     cache.publish_warmed_partition(0);
     let source = WarmSource::live(&topic.topic, None, 0);
 
-    let (_, end) = BaseConsumer::from_config(
-        ClientConfig::new().set("bootstrap.servers", topic.bootstrap_servers()),
-    )
-    .expect("consumer")
-    .fetch_watermarks(&topic.topic, 0, Duration::from_secs(5))
-    .expect("watermarks");
+    // The log end is taken only once every record is visible as committed, so the range
+    // the fill is given holds all three whatever the broker still has to write.
+    let reader: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", topic.bootstrap_servers())
+        .set("group.id", format!("fill-visible-{}", topic.topic))
+        .set("isolation.level", "read_committed")
+        .create()
+        .expect("consumer");
+    let mut from_start = TopicPartitionList::new();
+    from_start
+        .add_partition_offset(&topic.topic, 0, Offset::Beginning)
+        .expect("partition offset");
+    reader.assign(&from_start).expect("assign");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut visible = Vec::new();
+    while visible.len() < 3 {
+        assert!(
+            Instant::now() < deadline,
+            "committed records seen: {visible:?}"
+        );
+        if let Some(message) = reader.poll(Duration::from_millis(100)) {
+            visible.push(message.expect("record").offset());
+        }
+    }
+    let (_, end) = reader
+        .fetch_watermarks(&topic.topic, 0, Duration::from_secs(5))
+        .expect("watermarks");
 
     let stats = fill_source(&cfg, &FILL, &pools, &serving(&cache), &source, 0, end)
         .await
         .expect("fill should succeed");
 
-    assert_eq!((stats.records, stats.inserted), (3, 3));
+    let filled: Vec<i64> = (1..=3)
+        .filter(|person_id| version_of(&cache, 0, *person_id).is_some())
+        .collect();
+    assert_eq!(
+        (stats.records, stats.inserted, filled),
+        (3, 3, vec![1, 2, 3]),
+        "log end {end}, records at offsets {visible:?}"
+    );
 }
 
 #[tokio::test]
