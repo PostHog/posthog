@@ -1564,22 +1564,8 @@ class BillingManager:
             raise Exception(f"Billing service returned {res.status_code}: {res.text}")
 
 
-def organization_has_active_subscription(organization: Organization) -> bool:
-    """Whether billing reports an active subscription, which deleting the organization would leave running.
-
-    Only Cloud bills through the billing service, so elsewhere there is nothing to check. Raises when
-    billing cannot answer, so a caller refuses the deletion instead of deleting blind.
-    """
-    if not is_cloud():
-        return False
-    license = get_cached_instance_license()
-    if not license:
-        return False
-    return bool(BillingManager(license).get_billing(organization).get("has_active_subscription"))
-
-
 def notify_billing_organization_deleted(organization_id: str) -> None:
-    """Mark the organization deleted in billing, so a card check that finishes later can't subscribe it."""
+    """Mark the organization deleted in billing, so a card check finishing after the delete can't subscribe it."""
     if not is_cloud():
         return
     license = get_cached_instance_license()

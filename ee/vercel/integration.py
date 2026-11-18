@@ -235,27 +235,13 @@ class VercelIntegration:
         Deletes the organization (which cascades to OrganizationIntegration) and
         optionally deletes the user if it was created specifically for this installation.
         """
-        # Read before delete(), which clears the primary key.
-        organization_id = str(organization.id)
         try:
             organization.delete()
             logger.info(
                 "Cleaned up organization after billing failure",
                 installation_id=installation_id,
-                organization_id=organization_id,
+                organization_id=str(organization.id),
             )
-            # A timed-out authorize may still have started a subscription in billing.
-            try:
-                from ee.billing.billing_manager import notify_billing_organization_deleted  # noqa: PLC0415
-
-                notify_billing_organization_deleted(organization_id)
-            except Exception as notice_error:
-                logger.exception(
-                    "Failed to tell billing about the cleaned up organization",
-                    installation_id=installation_id,
-                    organization_id=organization_id,
-                )
-                capture_exception(notice_error)
 
             # Only delete user if it was created specifically for this installation
             # Existing users should not be deleted
@@ -270,7 +256,7 @@ class VercelIntegration:
             logger.exception(
                 "Failed to clean up organization after billing failure",
                 installation_id=installation_id,
-                organization_id=organization_id,
+                organization_id=str(organization.id),
             )
             capture_exception(cleanup_error)
 

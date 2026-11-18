@@ -734,49 +734,6 @@ class TestVercelIntegration(TestCase):
         # User should NOT be deleted - they existed before this installation
         assert User.objects.filter(pk=user_pk).exists(), "Trusted Vercel user should NOT be deleted on billing failure"
 
-    @patch("ee.billing.billing_manager.get_cached_instance_license", return_value=Mock())
-    @patch("ee.billing.billing_manager.is_cloud", return_value=True)
-    @patch("ee.vercel.integration.report_user_signed_up")
-    @patch("ee.billing.billing_manager.BillingManager")
-    @patch("ee.vercel.integration.get_cached_instance_license")
-    def test_billing_failure_tells_billing_the_cleaned_up_organization_is_gone(
-        self, mock_license, mock_billing, mock_report, _is_cloud, _billing_license
-    ):
-        claims = self._create_user_claims("vercel_user_cleanup")
-        claims.installation_id = self.NEW_INSTALLATION_ID
-        mock_license.return_value = Mock()
-        mock_billing.return_value.authorize.side_effect = Exception("Billing timed out")
-        organization_count = Organization.objects.count()
-
-        with self.assertRaises(Exception):
-            VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, claims)
-
-        assert Organization.objects.count() == organization_count
-        mock_billing.return_value.mark_organizations_deleted.assert_called_once()
-        (organization_ids,) = mock_billing.return_value.mark_organizations_deleted.call_args.args
-        assert len(organization_ids) == 1 and organization_ids[0] != "None"
-
-    @patch("ee.billing.billing_manager.get_cached_instance_license", return_value=Mock())
-    @patch("ee.billing.billing_manager.is_cloud", return_value=True)
-    @patch("ee.vercel.integration.report_user_signed_up")
-    @patch("ee.billing.billing_manager.BillingManager")
-    @patch("ee.vercel.integration.get_cached_instance_license")
-    def test_billing_failure_cleanup_survives_a_failed_deletion_notice(
-        self, mock_license, mock_billing, mock_report, _is_cloud, _billing_license
-    ):
-        claims = self._create_user_claims("vercel_user_cleanup_2")
-        claims.installation_id = self.NEW_INSTALLATION_ID
-        mock_license.return_value = Mock()
-        mock_billing.return_value.authorize.side_effect = Exception("Billing timed out")
-        mock_billing.return_value.mark_organizations_deleted.side_effect = Exception("Billing still down")
-        organization_count = Organization.objects.count()
-
-        with self.assertRaises(exceptions.APIException) as context:
-            VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, claims)
-
-        assert "Failed to initialize billing" in str(context.exception.detail)
-        assert Organization.objects.count() == organization_count
-
     @patch("ee.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):
         error_user_claims = self._create_user_claims("error_user_999")

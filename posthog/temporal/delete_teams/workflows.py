@@ -259,7 +259,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
-        # First, because a card check started before the lockout can still finish and subscribe the org.
+        # First, because a card check can still finish after the delete and subscribe the org.
         if temporalio.workflow.patched("notify-billing-organization-deleted"):
             try:
                 await temporalio.workflow.execute_activity(

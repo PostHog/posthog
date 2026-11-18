@@ -6,11 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 
-from ee.billing.billing_manager import (
-    BillingManager,
-    notify_billing_organization_deleted,
-    organization_has_active_subscription,
-)
+from ee.billing.billing_manager import BillingManager, notify_billing_organization_deleted
 from ee.models.license import License, LicenseManager
 
 
@@ -77,27 +73,3 @@ class TestNotifyBillingOrganizationDeleted(BaseTest):
             notify_billing_organization_deleted("org-1")
 
         mark_mock.assert_not_called()
-
-
-class TestOrganizationHasActiveSubscription(BaseTest):
-    @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    @patch("ee.billing.billing_manager.get_cached_instance_license")
-    def test_reads_the_billing_status_on_cloud(self, license_mock, get_billing_mock):
-        license_mock.return_value = _create_license()
-        for reported, expected in ((True, True), (False, False), (None, False)):
-            get_billing_mock.return_value = {"has_active_subscription": reported}
-            with self.is_cloud(True):
-                assert organization_has_active_subscription(self.organization) is expected
-
-    @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    @patch("ee.billing.billing_manager.get_cached_instance_license")
-    def test_is_false_without_cloud_billing(self, license_mock, get_billing_mock):
-        license_mock.return_value = _create_license()
-        with self.is_cloud(False):
-            assert organization_has_active_subscription(self.organization) is False
-
-        license_mock.return_value = None
-        with self.is_cloud(True):
-            assert organization_has_active_subscription(self.organization) is False
-
-        get_billing_mock.assert_not_called()
