@@ -39,7 +39,8 @@
         ".agents/**",
         ".semgrep/**",
         ".github/workflows/**",
-        "common/storybook/**"
+        "common/storybook/**",
+        "products/messaging/backend/tests/**"
     ],
     "force_full": [
         "playwright/utils/**",
