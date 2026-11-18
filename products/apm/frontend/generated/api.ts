@@ -9,15 +9,47 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ApmDeploymentsListParams,
     ApmEndpointsListParams,
     ApmServiceMapListParams,
     ApmServicesListParams,
     ApmUsageListParams,
+    DeploymentsResponseApi,
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
     ServiceUsageResponseApi,
     ServicesHealthResponseApi,
 } from './api.schemas'
+
+export const getApmDeploymentsListUrl = (projectId: string, params: ApmDeploymentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/deployments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/deployments/`
+}
+
+/**
+ * One service's versions in an environment and window, each compared with the one before. Same gate and window as services.
+ */
+export const apmDeploymentsList = async (
+    projectId: string,
+    params: ApmDeploymentsListParams,
+    options?: RequestInit
+): Promise<DeploymentsResponseApi> => {
+    return apiMutator<DeploymentsResponseApi>(getApmDeploymentsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getApmEndpointsListUrl = (projectId: string, params?: ApmEndpointsListParams) => {
     const normalizedParams = new URLSearchParams()

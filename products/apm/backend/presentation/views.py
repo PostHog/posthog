@@ -28,17 +28,21 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 from posthog.models.user import User
 
 from products.apm.backend.facade.api import (
     get_service_map,
     is_apm_enabled,
+    list_deployments,
     list_endpoints_health,
     list_service_usage,
     list_services_health,
 )
 from products.apm.backend.presentation.serializers import (
+    DeploymentsRequestSerializer,
+    DeploymentsResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     ServiceMapResponseSerializer,
@@ -164,6 +168,39 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class DeploymentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """One service's versions in an environment and window, each compared with the one before. Same gate and window as services."""
+
+    scope_object = "tracing"
+
+    @extend_schema(parameters=[DeploymentsRequestSerializer], responses={200: DeploymentsResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = DeploymentsRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data["service"]
+
+        try:
+            rows = list_deployments(
+                team=self.team,
+                date_from=window.date_from,
+                date_to=window.date_to,
+                environment=window.environment,
+                service=service,
+            )
+        except CHQueryErrorTooManyBytes:
+            raise ValidationError("This window reads too many spans. Pick a shorter window.")
+        payload = {
+            "results": [asdict(row) for row in rows],
+            "service": service,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(DeploymentsResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
