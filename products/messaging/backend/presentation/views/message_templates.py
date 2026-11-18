@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -14,6 +15,7 @@ from django.core.exceptions import (
 )
 from django.core.validators import validate_email
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -90,6 +92,7 @@ from products.messaging.backend.facade.transactional_email import (
     FieldNotAccepted,
     MessageTooLarge,
     QueuedEmail,
+    QueuedEmailStatus,
     SendWarningCode,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -498,6 +501,8 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
+SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
 EMAIL_IMPACT_FLAG = "workflows-email-impact"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
@@ -529,21 +534,40 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
     )
 
+
+class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
+    )
+
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
             raise serializers.ValidationError(
                 {
-                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. Leave out "
+                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. To "
+                    "schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out "
                     "`scheduled_at` to send it now."
                 }
             )
         return super().to_internal_value(data)
 
 
-class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
-    identifiers = TransactionalEmailIdentifiersSerializer(
-        required=False, help_text="Who the email is for, used to attribute engagement events."
-    )
+class ScheduledAtField(serializers.DateTimeField):
+    default_error_messages = {
+        "no_offset": "Add a UTC offset to the time, such as `Z` or `+01:00`, so PostHog knows when to send it."
+    }
+
+    def enforce_timezone(self, value: datetime) -> datetime:
+        if timezone.is_naive(value):
+            self.fail("no_offset")
+        return super().enforce_timezone(value)
+
+    def to_internal_value(self, value: Any) -> datetime:
+        scheduled_at = super().to_internal_value(value)
+        below_a_millisecond = scheduled_at.microsecond % 1000
+        if below_a_millisecond:
+            scheduled_at += timedelta(microseconds=1000 - below_a_millisecond)
+        return scheduled_at
 
 
 CODE_SEND_FIELDS = (
@@ -652,6 +676,14 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
         "says. The object form needs a JSON body.",
     )
+    scheduled_at = ScheduledAtField(
+        required=False,
+        allow_null=True,
+        help_text="When to send the email, in ISO 8601 with a UTC offset, such as `2026-11-20T09:00:00Z` or "
+        "`2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 7 days after the request, and "
+        "rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out "
+        "or send null to send now.",
+    )
     sensitive = OmittableBooleanField(
         required=False,
         help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
@@ -692,7 +724,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return value
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        sent = _sent_fields(self.initial_data)
+        sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
@@ -726,12 +758,6 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
-
-
-def _sent_fields(initial_data: Any) -> set[str]:
-    if not isinstance(initial_data, Mapping):
-        return set()
-    return {field for field in initial_data if not (field == "scheduled_at" and initial_data[field] is None)}
 
 
 def _within_body_limit(value: str, body: str) -> str:
@@ -791,11 +817,27 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Things the caller should act on although the email was queued. Left out when there are none.",
     )
+    status = serializers.ChoiceField(
+        choices=QueuedEmailStatus.choices,
+        required=False,
+        help_text="Only in the answer to a request with `scheduled_at`. `scheduled`: the email waits for "
+        "`scheduled_at`. `queued`: the time had passed, so the email goes out now.",
+    )
+    scheduled_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Only in the answer to a request with `scheduled_at`. The time the email waits for, to the "
+        "millisecond, or null when the time had passed and the email goes out now. A retry with the same "
+        "`Idempotency-Key` answers the first request's time.",
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = super().to_representation(instance)
         if not data.get("warnings"):
             data.pop("warnings", None)
+        if not self.context.get("scheduled"):
+            data.pop("status", None)
+            data.pop("scheduled_at", None)
         return data
 
 
@@ -1068,6 +1110,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
+                scheduled_at=data.get("scheduled_at"),
             ),
             usage_properties={"template_id": str(template.id)},
         )
@@ -1082,6 +1125,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
         attachments = request.validated_data.get("attachments") or []
+        scheduled_at = request.validated_data.get("scheduled_at")
+        _check_scheduled_at(self.team, scheduled_at)
+        usage_properties = {**usage_properties, **_scheduled_send_properties(scheduled_at)}
         outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
@@ -1111,7 +1157,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
         return Response(
-            SendTransactionalEmailResponseSerializer(queued).data,
+            SendTransactionalEmailResponseSerializer(queued, context={"scheduled": scheduled_at is not None}).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -1650,6 +1696,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
+                scheduled_at=data.get("scheduled_at"),
             ),
             usage_properties={
                 "addressed_by": "template_key",
@@ -1659,6 +1706,34 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             },
             unavailable=unconfirmed_email_send,
         )
+
+
+def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
+    if scheduled_at is None:
+        return
+    if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
+        raise serializers.ValidationError(
+            {
+                "scheduled_at": "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave "
+                "out `scheduled_at` to send it now."
+            }
+        )
+    if scheduled_at - timezone.now() > SCHEDULED_SEND_MAX_LEAD:
+        raise ExplainedRefusal(
+            "`scheduled_at` is more than 7 days away, so PostHog didn't send the email.",
+            code="scheduled_too_far",
+            attr="scheduled_at",
+            why="PostHog holds a scheduled email for at most 7 days after the request.",
+            fix="Pick a time within 7 days, or send the email closer to the time.",
+        )
+
+
+def _scheduled_send_properties(scheduled_at: datetime | None) -> dict[str, Any]:
+    lead = scheduled_at - timezone.now() if scheduled_at else timedelta(0)
+    if lead <= timedelta(0):
+        return {"scheduled": False, "scheduled_lead_bucket": None}
+    bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
+    return {"scheduled": True, "scheduled_lead_bucket": bucket}
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:

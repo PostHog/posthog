@@ -4,9 +4,12 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest.mock import MagicMock
+
+from django.utils import timezone
 
 import requests
 
@@ -173,11 +176,34 @@ TRACKING = _object(
     refine=_clicks_need_opens,
 )
 
+
+def _parse_scheduled_at(value: str) -> datetime | None:
+    # Node's `z.string().datetime({ offset: true })`, then `new Date()`, which keeps milliseconds.
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.replace(microsecond=parsed.microsecond // 1000 * 1000)
+
+
+def _scheduled_at(value: Any, path: list[Any]) -> Issues:
+    if not isinstance(value, str):
+        return [_issue("invalid_type", path)]
+    return [] if _parse_scheduled_at(value) else [_issue("invalid_format", path)]
+
+
+def _iso_milliseconds(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
+
+
 _TEMPLATE_REQUEST_KEYS = {
     "to": _Key(_email),
     "distinct_id": _Key(_string(min_length=1)),
     "variables": _Key(_record, optional=True),
     "idempotency_key": _Key(_string(min_length=1, max_length=255), optional=True),
+    "scheduled_at": _Key(_scheduled_at, optional=True),
 }
 
 
@@ -222,8 +248,17 @@ class FakeCdpApi:
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
+        requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
+        if requested_at is not None and requested_at > timezone.now() + timedelta(days=30):
+            return _response(400, {"error": "invalid_scheduled_at", "reason": "too_far"})
+        scheduled_at = requested_at if requested_at is not None and requested_at > timezone.now() else None
         self.queued.append({name: value for name, value in request.items() if name in keys})
-        reply = {"invocation_id": str(uuid.uuid4()), **(_sender_kind(request["send"]) if is_code_send else {})}
+        reply = {
+            "status": "scheduled" if scheduled_at else "queued",
+            "invocation_id": str(uuid.uuid4()),
+            "scheduled_at": _iso_milliseconds(scheduled_at) if scheduled_at else None,
+            **(_sender_kind(request["send"]) if is_code_send else {}),
+        }
         if key is not None:
             self.idempotency_keys[key] = (fingerprint, reply)
         return _response(202, reply)
@@ -272,8 +307,16 @@ def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
         if sender.get("email") or sender.get("name")
         else None
     )
+    requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
     return _json_dumps(
-        [url, request["to"], request["distinct_id"], request.get("variables"), {**request["send"], "from": chosen}]
+        [
+            url,
+            request["to"],
+            request["distinct_id"],
+            request.get("variables"),
+            {**request["send"], "from": chosen},
+            _iso_milliseconds(requested_at) if requested_at else None,
+        ]
     )
 
 
