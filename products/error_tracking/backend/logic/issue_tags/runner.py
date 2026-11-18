@@ -7,22 +7,18 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.issue_tags import registry
-from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.enabled import issue_tag_definitions_for_enabled_team
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagContext, Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagger
+from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
-from products.error_tracking.backend.logic.severity_inference import build_severity_state
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
-from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 
 logger = structlog.get_logger(__name__)
 
-TAGGERS: tuple[Tagger, ...] = (JevTagger(),)
-TAG_STATE_MAX_TOKENS = 2000
+TAGGERS: tuple[Tagger, ...] = (RuleTagger(), JevTagger())
 
 
 class IssueTaggingSkipReason(StrEnum):
@@ -30,7 +26,6 @@ class IssueTaggingSkipReason(StrEnum):
     TEAM_MISSING = "team_missing"
     ISSUE_MISSING = "issue_missing"
     NO_TAGGER = "no_tagger"
-    NO_EXCEPTION = "no_exception"
 
 
 @frozen
@@ -59,11 +54,7 @@ def run_issue_taggers(
 
     try:
         issue = ErrorTrackingIssue.objects.get(team_id=team_id, id=issue_id)
-        event_properties = load_event_properties(team)
-        stacktrace = render_stacktrace(event_properties, TAG_STATE_MAX_TOKENS)
-        if not stacktrace:
-            return IssueTaggingSkipReason.NO_EXCEPTION
-        context = TagContext(issue=issue, state=build_severity_state(stacktrace, event_properties))
+        context = TagContext(issue=issue, event_properties=load_event_properties(team))
         return tuple(_run_tagger(context, tagger, definitions) for tagger, definitions in taggers)
     except ErrorTrackingIssue.DoesNotExist:
         # The writer raises this too when a merge removes the issue while a tagger runs.
@@ -71,10 +62,7 @@ def run_issue_taggers(
 
 
 def _applicable_taggers(team_id: int) -> list[tuple[Tagger, tuple[IssueTagDefinition, ...]]]:
-    # The caller checked ISSUE_TAGS_FLAG already, so only a tag with its own rollout flag costs another evaluation.
-    rollout_flags = {definition.enabled_flag for definition in registry.ISSUE_TAG_DEFINITIONS} - {ISSUE_TAGS_FLAG}
-    flag_on = {flag: team_flag_enabled(flag, team_id) for flag in rollout_flags} | {ISSUE_TAGS_FLAG: True}
-    enabled = [definition for definition in registry.ISSUE_TAG_DEFINITIONS if flag_on[definition.enabled_flag]]
+    enabled = issue_tag_definitions_for_enabled_team(team_id)
     applicable = []
     for tagger in TAGGERS:
         definitions = tuple(
@@ -88,10 +76,11 @@ def _applicable_taggers(team_id: int) -> list[tuple[Tagger, tuple[IssueTagDefini
 def _run_tagger(context: TagContext, tagger: Tagger, definitions: tuple[IssueTagDefinition, ...]) -> TaggerRun:
     try:
         answers = tagger.answer(context, definitions)
+        by_key = {definition.key: definition for definition in definitions}
         stored = tuple(
             key
             for key, answer in answers.items()
-            if set_issue_tag(context.issue.team_id, context.issue.id, key, answer, tagger.source)
+            if set_issue_tag(context.issue.team_id, context.issue.id, by_key[key], answer, tagger.source)
         )
     except ErrorTrackingIssue.DoesNotExist:
         raise

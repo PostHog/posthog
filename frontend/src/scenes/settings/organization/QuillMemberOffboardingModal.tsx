@@ -28,6 +28,7 @@ import { membersLogic } from '~/models/membersLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { QuillMemberOffboardingResourceSection } from './QuillMemberOffboardingResourceSection'
+import { QuillMemberOffboardingTransferModal } from './QuillMemberOffboardingTransferModal'
 
 export function QuillMemberOffboardingModal({
     title,
@@ -101,6 +102,7 @@ export function QuillMemberOffboardingModal({
                                 )}
                             </div>
                         ) : null}
+                        <QuillMemberOffboardingTransferModal />
                         {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
                             <div className="flex flex-col gap-2">
                                 <Item tone="warning" size="sm">
