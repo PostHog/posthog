@@ -1,3 +1,4 @@
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import {
   LOOPBACK_PROXY_TOKEN,
   SECRET_HEADERS,
@@ -251,6 +252,11 @@ function isTextChunk(event: Record<string, unknown>): event is TextEvent {
   );
 }
 
+function canArriveMidMessage(event: Record<string, unknown>): boolean {
+  const notification = event.notification as { method?: unknown } | undefined;
+  return notification?.method === POSTHOG_NOTIFICATIONS.CONSOLE;
+}
+
 function withText(event: TextEvent, text: string): TextEvent {
   return {
     ...event,
@@ -289,6 +295,9 @@ export class SecretEventRedactor {
   private context = "";
 
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
+    if (canArriveMidMessage(event)) {
+      return [redactSecrets(event) as Record<string, unknown>];
+    }
     const events: Record<string, unknown>[] = [];
     const chunk = isTextChunk(event);
     const kind = chunk ? event.notification.params.update.sessionUpdate : null;

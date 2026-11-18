@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import {
   redactSecrets,
   SecretEventRedactor,
@@ -331,6 +332,46 @@ describe("redactSecrets", () => {
     },
   );
 
+  it.each([
+    ["a token", `tok ghp_${SAMPLE_BODY} end`, "tok [REDACTED] end"],
+    ["a key id", `id AKIA${awsKeyBody} end`, "id [REDACTED] end"],
+  ])(
+    "redacts %s split by a log line at every point",
+    (_label, text, expected) => {
+      const logLine = {
+        event: {
+          type: "notification",
+          notification: {
+            method: POSTHOG_NOTIFICATIONS.CONSOLE,
+            params: { level: "debug", message: "tick" },
+          },
+        },
+      };
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), logLine, text.slice(cut)])).toBe(
+          expected,
+        );
+      }
+    },
+  );
+
+  it("keeps the text that follows a token and a tool call", () => {
+    const toolCall = {
+      event: {
+        type: "notification",
+        notification: {
+          method: "session/update",
+          params: {
+            update: { sessionUpdate: "tool_call", toolCallId: "call" },
+          },
+        },
+      },
+    };
+    expect(streamText([`tok ghp_${SAMPLE_BODY}`, toolCall, "Done"])).toBe(
+      "tok [REDACTED]Done",
+    );
+  });
+
   it("keeps a prefix-bearing word intact across every chunk split", () => {
     const text = "see alpha_blend graphe_x here";
     for (let cut = 1; cut < text.length; cut++) {
@@ -455,35 +496,41 @@ describe("redactSecrets", () => {
   });
 });
 
-type StreamPart = string | { kind: string; text: string };
+type StreamPart =
+  | string
+  | { kind: string; text: string }
+  | { event: Record<string, unknown> };
 
-function streamText(parts: StreamPart[]): string {
-  const redactor = new SecretEventRedactor();
-  const events = parts.flatMap((part) =>
-    redactor.redact({
-      type: "notification",
-      notification: {
-        method: "session/update",
-        params: {
-          update: {
-            sessionUpdate:
-              typeof part === "string" ? "agent_message_chunk" : part.kind,
-            content: {
-              type: "text",
-              text: typeof part === "string" ? part : part.text,
-            },
+function streamEvent(part: StreamPart): Record<string, unknown> {
+  if (typeof part === "object" && "event" in part) return part.event;
+  return {
+    type: "notification",
+    notification: {
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate:
+            typeof part === "string" ? "agent_message_chunk" : part.kind,
+          content: {
+            type: "text",
+            text: typeof part === "string" ? part : part.text,
           },
         },
       },
-    }),
-  );
+    },
+  };
+}
+
+function streamText(parts: StreamPart[]): string {
+  const redactor = new SecretEventRedactor();
+  const events = parts.flatMap((part) => redactor.redact(streamEvent(part)));
   events.push(...redactor.redact({ type: "done" }));
   return events
     .map((event) => {
       const notification = event.notification as
-        | { params: { update: { content: { text: string } } } }
+        | { params?: { update?: { content?: { text?: string } } } }
         | undefined;
-      return notification?.params.update.content.text ?? "";
+      return notification?.params?.update?.content?.text ?? "";
     })
     .join("");
 }
