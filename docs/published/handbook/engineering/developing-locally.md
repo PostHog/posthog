@@ -590,12 +590,17 @@ The repository includes a `.mcp.json` configuration file in the repo root that r
 2. Open the PostHog repository in your AI tool
 3. The phrocs MCP server is available automatically when `hogli start` is running
 
+The server is the `phrocs mcp` subcommand. `.mcp.json` starts it through `tools/phrocs/mcp.sh`, which rebuilds phrocs from your checkout when Go is available and otherwise uses the phrocs on your `PATH`. Without Go, install a phrocs release that includes the `mcp` subcommand (`brew upgrade phrocs`).
+
 ### Available tools
 
-The MCP server provides two tools:
+The MCP server provides these tools:
 
-- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
-- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
+- **get_process_status** – Summarizes every process in one line each, failed ones first with their last output line. Ask for full detail to get timings and metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent output of a process's current run, with optional grep filtering
+- **wait_ready** – Waits until one or all processes are ready, one crashes, or a timeout passes
+- **start_process**, **stop_process**, **restart_process** – Start, stop or restart a process
+- **send_keys** – Types into a running process, for example to answer a prompt
 
 ### Example usage
 

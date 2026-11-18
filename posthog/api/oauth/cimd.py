@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
@@ -620,6 +621,56 @@ def _is_json_media_type(content_type: str | None) -> bool:
     return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
 
 
+VERIFICATION_CHECK_PATH = "/oauth/cimd/verification-token-check/"
+VERIFICATION_CHECK_TIMEOUT_SECONDS = 3
+VERIFICATION_TOKEN_MAX_LENGTH = 256
+
+
+def _verifies_tokens_elsewhere() -> bool:
+    """One metadata document serves every region and carries one token, so one instance issues every token.
+    Any other instance confirms a published token with that issuer instead of looking it up locally."""
+    return bool(settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL)
+
+
+def _published_verification_tokens(metadata: CIMDMetadataDocument) -> list[str]:
+    com_posthog = metadata.get("com.posthog")
+    candidates = [
+        com_posthog.get("verification_token") if isinstance(com_posthog, dict) else None,
+        metadata.get("posthog_verification_token"),
+    ]
+    return [token for token in candidates if isinstance(token, str) and token]
+
+
+def _organization_link_issuer(metadata: CIMDMetadataDocument, url: str) -> str | None:
+    """The issuer's URL when it confirms one of the document's tokens for this URL, an empty string when it
+    confirms none, and None when it could not answer, so the caller keeps what it knew before."""
+    tokens = [
+        token for token in _published_verification_tokens(metadata) if len(token) <= VERIFICATION_TOKEN_MAX_LENGTH
+    ]
+    if not tokens:
+        return ""
+    issuer_url = settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL
+    try:
+        for token in tokens:
+            response = requests.post(
+                f"{issuer_url}{VERIFICATION_CHECK_PATH}",
+                json={"token": token, "cimd_url": url},
+                timeout=VERIFICATION_CHECK_TIMEOUT_SECONDS,
+            )
+            # The issuer refusing the request is its answer about this token, not a failure to answer, so
+            # a partner cannot keep an old link alive by publishing a token the issuer will not read.
+            if response.status_code == 400:
+                continue
+            response.raise_for_status()
+            if response.json().get("valid") is True:
+                return issuer_url
+    except (requests.RequestException, ValueError) as error:
+        logger.warning("cimd_verification_check_failed", url=url, error=str(error))
+        cache.set(_cache_key(url), True, timeout=CIMD_CACHE_MIN_TTL)
+        return None
+    return ""
+
+
 def _resolve_verification_token(
     metadata: CIMDMetadataDocument, url: str, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
 ) -> CIMDVerificationToken | None:
@@ -854,7 +905,12 @@ def _create_cimd_application(
 
     redirect_uris = " ".join(metadata.get("redirect_uris") or [])
     logo_uri = _logo_uri_for(metadata, url)
-    verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
+    if _verifies_tokens_elsewhere():
+        verification = None
+        organization_link_issuer = _organization_link_issuer(metadata, url) or ""
+    else:
+        verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
+        organization_link_issuer = ""
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
     if resolved_optional_scopes and not any(":" in scope for scope in resolved_scopes or []):
@@ -878,6 +934,7 @@ def _create_cimd_application(
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
+        organization_link_issuer=organization_link_issuer,
         scopes=resolved_scopes if resolved_scopes is not None else [],
         optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
@@ -965,8 +1022,17 @@ def _update_cimd_application(
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
-    new_org = verification.organization if verification else None
+    linked_issuer: str | None = app.organization_link_issuer
+    verification: CIMDVerificationToken | None = None
+    if _verifies_tokens_elsewhere():
+        new_org = None
+        linked_issuer = _organization_link_issuer(metadata, app.client_id)
+        if linked_issuer is None:
+            linked_issuer = app.organization_link_issuer
+    else:
+        verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
+        new_org = verification.organization if verification else None
+        linked_issuer = ""
     update_fields = [
         "name",
         "redirect_uris",
@@ -992,6 +1058,9 @@ def _update_cimd_application(
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
+    if linked_issuer != app.organization_link_issuer:
+        app.organization_link_issuer = linked_issuer
+        update_fields.append("organization_link_issuer")
 
     try:
         app.full_clean()

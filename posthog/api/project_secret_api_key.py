@@ -39,7 +39,7 @@ if EE_AVAILABLE:
 
 logger = structlog.get_logger(__name__)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:

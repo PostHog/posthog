@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface KnowledgeAccessApi {
+    /** ID of the project whose business knowledge the caller reads. */
+    project_id: number
+    /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited caller reads. Null when the caller is not limited.
+     * @nullable
+     */
+    library_id: string | null
+}
+
 /**
  * One chunk in a drill-down window over a single knowledge document.
  *
