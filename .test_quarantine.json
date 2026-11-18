@@ -1,14 +1,4 @@
 {
     "version": 1,
-    "entries": [
-        {
-            "id": "products/mcp_analytics/backend/tests/test_dashboard_query.py::TestMCPDashboardQueryRunner::test_the_lean_database_flag_gives_every_section_the_same_rows_1_revenue_filter",
-            "runner": "pytest",
-            "reason": "Fails under the events json schema: the $virt_revenue filter makes ClickHouse coalesce Decimal(76, 10) with Decimal(18, 2) (Code 48). Quarantined to unblock the workflow catalog fix while the root cause is fixed.",
-            "owner": "@team-mcp-analytics",
-            "added": "2026-11-17",
-            "expires": "2026-12-01",
-            "mode": "run"
-        }
-    ]
+    "entries": []
 }

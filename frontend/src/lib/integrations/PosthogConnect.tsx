@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconLogomark, IconPlus, IconTrash } from '@posthog/icons'
@@ -20,9 +21,12 @@ import {
     scopesArrayToObject,
     scopesObjectToArray,
 } from 'lib/scopes'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType } from '~/types'
+
+import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
 
 import { QuillIntegrationList } from './QuillIntegrationList'
 import { QuillIntegrationRow } from './QuillIntegrationRow'
@@ -150,6 +154,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write', 'inbox:read', 'inbox:write'])
     const [searchTerm, setSearchTerm] = useState<string>('')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { currentTeamId } = useValues(teamLogic)
 
     const scopeActions = useMemo(() => scopesArrayToObject(scopes), [scopes])
 
@@ -167,12 +172,6 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
         () => GRANTABLE_SCOPES.filter((s) => scopeMatchesSearch(s, searchTerm)),
         [searchTerm]
     )
-
-    const authorizeUrl = api.integrations.authorizeUrl({
-        kind: 'posthog',
-        next: window.location.pathname,
-        extraParams: { region, scopes: scopes.join(',') },
-    })
 
     const connectDisabledReason = scopes.length === 0 ? 'Select at least one scope' : undefined
 
@@ -214,7 +213,16 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                 scopeRows={filteredScopes.map(scopeRow)}
                 onScopeActionChange={setScopeAction}
                 connectDisabledReason={connectDisabledReason}
-                onConnect={() => window.location.assign(authorizeUrl)}
+                onConnect={() =>
+                    window.location.assign(
+                        combineUrl(getIntegrationsAuthorizeRetrieveUrl(String(currentTeamId)), {
+                            kind: 'posthog',
+                            next: window.location.pathname,
+                            region,
+                            scopes: scopes.join(','),
+                        }).url
+                    )
+                }
             />
         )
     }
@@ -229,7 +237,11 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
             footer={
                 <LemonButton
                     type="primary"
-                    to={authorizeUrl}
+                    to={api.integrations.authorizeUrl({
+                        kind: 'posthog',
+                        next: window.location.pathname,
+                        extraParams: { region, scopes: scopes.join(',') },
+                    })}
                     disableClientSideRouting
                     disabledReason={connectDisabledReason}
                 >

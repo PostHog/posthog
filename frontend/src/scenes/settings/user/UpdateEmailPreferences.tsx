@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconQuestion } from '@posthog/icons'
 import {
@@ -13,28 +13,6 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import {
-    Badge,
-    Button,
-    Card,
-    CardContent,
-    Field,
-    FieldDescription,
-    FieldError,
-    FieldLabel,
-    Heading,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    Item,
-    ItemContent,
-    ItemDescription,
-    Spinner as QuillSpinner,
-    Text,
-    Tooltip as QuillTooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -42,11 +20,29 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
-import { LOCKED_BY_ORGANIZATION, lockedValueFor } from '../shared/notificationLocks'
+import { LOCKED_BY_ORGANIZATION, lockedDisabledReason, lockedValueFor } from '../shared/notificationLocks'
+import {
+    APPROVALS_TOOLTIP,
+    DATA_PIPELINE_THRESHOLD_DESCRIPTION,
+    ET_DIGEST_AUTO_PICK_NOTICE,
+    MEMBER_JOIN_DESCRIPTION,
+    MEMBER_JOIN_HINT,
+    PIPELINE_HINT,
+    SECURITY_ALERTS_DESCRIPTION,
+    WA_DIGEST_AUTO_PICK_NOTICE,
+} from './emailPreferencesCopy'
+import { NotificationCard } from './NotificationCard'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
-import { QuillNotificationCheckbox } from './QuillNotificationCheckbox'
-import { QuillNotificationSelector } from './QuillNotificationSelector'
+import { QuillApprovalsHeading } from './QuillApprovalsHeading'
+import { QuillDataPipelineErrorThreshold } from './QuillDataPipelineErrorThreshold'
+import { QuillInfoNotice } from './QuillInfoNotice'
+import { QuillMemberJoinHeading } from './QuillMemberJoinHeading'
 import { QuillNotificationSwitch } from './QuillNotificationSwitch'
+import { QuillOrganizationMemberJoinSelector } from './QuillOrganizationMemberJoinSelector'
+import { QuillPipelineNotificationSelector } from './QuillPipelineNotificationSelector'
+import { QuillProjectDigestSelector } from './QuillProjectDigestSelector'
+import { QuillSecurityAlertsSwitch } from './QuillSecurityAlertsSwitch'
+import { QuillUpdateEmailPreferences } from './QuillUpdateEmailPreferences'
 
 enum NotificationBlock {
     Security = 'security',
@@ -93,54 +89,6 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     approval_resolved: true,
 }
 
-const MEMBER_JOIN_HINT =
-    'You receive these emails by default for every organization you belong to. Turn off any organization you do not want them for.'
-
-const PIPELINE_HINT = 'All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.'
-
-const ET_DIGEST_AUTO_PICK_NOTICE =
-    "You haven't selected any projects yet, so on the first digest run we'll automatically pick the one with the most exceptions. If you'd prefer to choose yourself, just select your projects below and we won't override your choice."
-
-const WA_DIGEST_AUTO_PICK_NOTICE =
-    "You haven't selected any projects yet, so on the first digest run we'll automatically pick the one with the most visitors. If you'd prefer to choose yourself, just select your projects below and we won't override your choice."
-
-const MEMBER_JOIN_DESCRIPTION =
-    'When someone joins an organization you belong to, we email existing members. Choose which organizations you want these notifications for.'
-
-const DATA_PIPELINE_THRESHOLD_DESCRIPTION =
-    'Only notify if failure rate exceeds this threshold. Set to 0% to notify on any failure.'
-
-const APPROVALS_TOOLTIP = 'These switches apply to approval emails from all your organizations.'
-
-const SECURITY_ALERTS_DESCRIPTION =
-    'Account security notifications including password changes, 2FA, login activity, and personal API key exposure. These notifications cannot be disabled.'
-
-function lockedDisabledReason(enforced: boolean | null, userLoading: boolean): string | undefined {
-    return enforced !== null ? LOCKED_BY_ORGANIZATION : userLoading ? 'Loading...' : undefined
-}
-
-function QuillInfoNotice({ children }: { children: string }): JSX.Element {
-    return (
-        <Item tone="info" size="sm">
-            <ItemContent>
-                <ItemDescription>{children}</ItemDescription>
-            </ItemContent>
-        </Item>
-    )
-}
-
-function NotificationCard({ lemonClassName, children }: { lemonClassName: string; children: ReactNode }): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
-    return todayRailNav ? (
-        <Card size="sm">
-            <CardContent className="flex flex-col gap-3">{children}</CardContent>
-        </Card>
-    ) : (
-        <div className={lemonClassName}>{children}</div>
-    )
-}
-
 function ProjectDigestSelector({
     keyPrefix,
     dataAttrPrefix,
@@ -177,37 +125,21 @@ function ProjectDigestSelector({
 
     if (todayRailNav) {
         return (
-            <QuillNotificationSelector
-                title={`Select projects (${teams.length} available)`}
+            <QuillProjectDigestSelector
+                teams={teams}
+                keyPrefix={keyPrefix}
+                dataAttrPrefix={dataAttrPrefix}
                 expanded={expanded}
                 onExpandedChange={setExpanded}
                 hint={hint}
-                bulkActions={{
-                    enableLabel: 'Enable for all projects',
-                    disableLabel: 'Disable for all projects',
-                    onEnableAll: () => onToggleAllTeams(ownTeamIds, true),
-                    onDisableAll: () => onToggleAllTeams(ownTeamIds, false),
-                    disabledReason: ownTeamIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined,
-                }}
-            >
-                {teams.map((team: TeamBasicType) => {
-                    const enforced = lockedValueFor(user?.notification_locks, setting, team.id)
-
-                    return (
-                        <QuillNotificationCheckbox
-                            key={`${keyPrefix}-${team.id}`}
-                            id={`${keyPrefix}-${team.id}`}
-                            dataAttr={`${dataAttrPrefix}_${team.id}`}
-                            label={team.name}
-                            tag={`id: ${team.id}`}
-                            lockedByAdmin={enforced !== null}
-                            checked={isTeamChecked(team.id, enforced)}
-                            onCheckedChange={(checked) => onToggleTeam(team.id, checked)}
-                            disabledReason={lockedDisabledReason(enforced, userLoading)}
-                        />
-                    )
-                })}
-            </QuillNotificationSelector>
+                enforcedFor={(teamId) => lockedValueFor(user?.notification_locks, setting, teamId)}
+                isTeamChecked={isTeamChecked}
+                userLoading={userLoading}
+                onToggleTeam={onToggleTeam}
+                onEnableAll={() => onToggleAllTeams(ownTeamIds, true)}
+                onDisableAll={() => onToggleAllTeams(ownTeamIds, false)}
+                bulkDisabledReason={ownTeamIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
+            />
         )
     }
 
@@ -279,6 +211,7 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateMemberJoinEmailForOrganization, updateMemberJoinEmailForAllOrganizations } = useActions(userLogic)
     const [expanded, setExpanded] = useState(true)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const organizations = [...(user?.organizations || [])].sort((a, b) => a.name.localeCompare(b.name))
 
@@ -287,40 +220,23 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     const enforcedFor = (orgId: string): boolean | null =>
         lockedValueFor(user?.notification_locks, 'organization_member_join_email_disabled', orgId)
     const ownOrgIds = organizations.filter((o: OrganizationBasicType) => enforcedFor(o.id) === null).map((o) => o.id)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const isOrgChecked = (orgId: string, enforced: boolean | null): boolean =>
+        enforced !== null ? !enforced : !isOrgDisabled(orgId)
 
     if (todayRailNav) {
         return (
-            <QuillNotificationSelector
-                title={`Select organizations (${organizations.length} available)`}
+            <QuillOrganizationMemberJoinSelector
+                organizations={organizations}
                 expanded={expanded}
                 onExpandedChange={setExpanded}
-                hint={MEMBER_JOIN_HINT}
-                bulkActions={{
-                    enableLabel: 'Enable for all organizations',
-                    disableLabel: 'Disable for all organizations',
-                    onEnableAll: () => updateMemberJoinEmailForAllOrganizations(ownOrgIds, true),
-                    onDisableAll: () => updateMemberJoinEmailForAllOrganizations(ownOrgIds, false),
-                    disabledReason: ownOrgIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined,
-                }}
-            >
-                {organizations.map((org) => {
-                    const enforced = enforcedFor(org.id)
-
-                    return (
-                        <QuillNotificationCheckbox
-                            key={`member-join-org-${org.id}`}
-                            id={`member-join-org-${org.id}`}
-                            dataAttr={`member_join_email_org_${org.id}`}
-                            label={org.name}
-                            lockedByAdmin={enforced !== null}
-                            checked={enforced !== null ? !enforced : !isOrgDisabled(org.id)}
-                            onCheckedChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
-                            disabledReason={lockedDisabledReason(enforced, userLoading)}
-                        />
-                    )
-                })}
-            </QuillNotificationSelector>
+                enforcedFor={enforcedFor}
+                isOrgChecked={isOrgChecked}
+                userLoading={userLoading}
+                onToggleOrganization={updateMemberJoinEmailForOrganization}
+                onEnableAll={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, true)}
+                onDisableAll={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, false)}
+                bulkDisabledReason={ownOrgIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
+            />
         )
     }
 
@@ -367,7 +283,7 @@ function OrganizationMemberJoinSelector(): JSX.Element {
                                     id={`member-join-org-${org.id}`}
                                     data-attr={`member_join_email_org_${org.id}`}
                                     onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
-                                    checked={enforced !== null ? !enforced : !isOrgDisabled(org.id)}
+                                    checked={isOrgChecked(org.id, enforced)}
                                     disabledReason={lockedDisabledReason(enforced, userLoading)}
                                     label={
                                         <span className="flex items-center gap-2">
@@ -395,72 +311,26 @@ function PipelineNotificationSelector(): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const pipelineLockFor = (teamId: number): boolean | null =>
-        lockedValueFor(user?.notification_locks, 'pipeline_notifications_disabled', teamId)
+    const isPipelineChecked = (pipelineId: string, enforced: boolean | null): boolean =>
+        enforced !== null ? !enforced : !isPipelineDisabled(pipelineId)
 
     if (todayRailNav) {
         return (
-            <QuillNotificationSelector
-                title="Select pipelines to receive notifications for"
+            <QuillPipelineNotificationSelector
                 expanded={expanded}
                 onExpandedChange={setExpanded}
-                hint={PIPELINE_HINT}
-                bulkActions={
-                    pipelinesLoading || pipelines.length === 0
-                        ? undefined
-                        : {
-                              enableLabel: 'Enable all notifications',
-                              disableLabel: 'Mute all notifications',
-                              onEnableAll: () => updatePipelineNotificationForAll(allPipelineIds, true),
-                              onDisableAll: () => updatePipelineNotificationForAll(allPipelineIds, false),
-                          }
+                pipelines={pipelines}
+                pipelinesLoading={pipelinesLoading}
+                pipelinesByTeam={pipelinesByTeam}
+                enforcedFor={(teamId) =>
+                    lockedValueFor(user?.notification_locks, 'pipeline_notifications_disabled', teamId)
                 }
-            >
-                {pipelinesLoading ? (
-                    <div className="flex items-center gap-2 py-2">
-                        <QuillSpinner />
-                        <Text size="xs" variant="muted" render={<span />}>
-                            Loading pipelines...
-                        </Text>
-                    </div>
-                ) : pipelines.length === 0 ? (
-                    <Text size="xs" variant="muted" className="m-0">
-                        No pipelines found in your projects.
-                    </Text>
-                ) : (
-                    Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => {
-                        const enforced = pipelineLockFor(teamId)
-
-                        return (
-                            <div key={key} className="flex flex-col gap-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Text size="xs" weight="medium" render={<span />}>
-                                        {teamName}
-                                    </Text>
-                                    <Badge>{`id: ${teamId}`}</Badge>
-                                    {enforced !== null && <Badge variant="info">Set by your admin</Badge>}
-                                </div>
-                                <div className="flex flex-col gap-1 ps-4">
-                                    {items.map((pipeline) => (
-                                        <QuillNotificationCheckbox
-                                            key={pipeline.id}
-                                            id={`pipeline-${pipeline.id}`}
-                                            dataAttr={`pipeline_notification_${pipeline.id}`}
-                                            label={pipeline.name}
-                                            tag={PIPELINE_KIND_LABELS[pipeline.kind]}
-                                            checked={enforced !== null ? !enforced : !isPipelineDisabled(pipeline.id)}
-                                            onCheckedChange={(checked) =>
-                                                updatePipelineNotification(pipeline.id, checked)
-                                            }
-                                            disabledReason={lockedDisabledReason(enforced, userLoading)}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )
-                    })
-                )}
-            </QuillNotificationSelector>
+                isPipelineChecked={isPipelineChecked}
+                userLoading={userLoading}
+                onTogglePipeline={updatePipelineNotification}
+                onEnableAll={() => updatePipelineNotificationForAll(allPipelineIds, true)}
+                onDisableAll={() => updatePipelineNotificationForAll(allPipelineIds, false)}
+            />
         )
     }
 
@@ -506,7 +376,11 @@ function PipelineNotificationSelector(): JSX.Element {
                             </div>
 
                             {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => {
-                                const enforced = pipelineLockFor(teamId)
+                                const enforced = lockedValueFor(
+                                    user?.notification_locks,
+                                    'pipeline_notifications_disabled',
+                                    teamId
+                                )
                                 return (
                                     <div key={key} className="flex flex-col gap-2">
                                         <div className="flex items-center gap-2">
@@ -525,9 +399,7 @@ function PipelineNotificationSelector(): JSX.Element {
                                                     onChange={(checked) =>
                                                         updatePipelineNotification(pipeline.id, checked)
                                                     }
-                                                    checked={
-                                                        enforced !== null ? !enforced : !isPipelineDisabled(pipeline.id)
-                                                    }
+                                                    checked={isPipelineChecked(pipeline.id, enforced)}
                                                     disabledReason={lockedDisabledReason(enforced, userLoading)}
                                                     label={
                                                         <div className="flex items-center gap-2">
@@ -575,7 +447,6 @@ export function UpdateEmailPreferences(): JSX.Element {
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
         dataPipelineErrorThresholdValue
     )
-
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleDataPipelineErrorThresholdChange = (value: number | undefined): void => {
@@ -595,13 +466,7 @@ export function UpdateEmailPreferences(): JSX.Element {
         [NotificationBlock.Security]: (
             <NotificationCard lemonClassName="border rounded p-4">
                 {todayRailNav ? (
-                    <QuillNotificationSwitch
-                        dataAttr="security_alerts_enabled"
-                        checked={true}
-                        disabledReason="These notifications cannot be disabled."
-                        label="Security alerts"
-                        description={SECURITY_ALERTS_DESCRIPTION}
-                    />
+                    <QuillSecurityAlertsSwitch />
                 ) : (
                     <div className="space-y-2">
                         <LemonSwitch
@@ -642,14 +507,7 @@ export function UpdateEmailPreferences(): JSX.Element {
         [NotificationBlock.MemberJoin]: (
             <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 {todayRailNav ? (
-                    <div className="flex flex-col gap-1">
-                        <Heading size="sm" render={<h3 className="m-0" />}>
-                            New member joined
-                        </Heading>
-                        <Text size="xs" variant="muted" className="m-0">
-                            {MEMBER_JOIN_DESCRIPTION}
-                        </Text>
-                    </div>
+                    <QuillMemberJoinHeading />
                 ) : (
                     <div className="space-y-2">
                         <span className="font-medium">New member joined</span>
@@ -669,29 +527,12 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
                 {user?.notification_settings?.plugin_disabled !== false &&
                     (todayRailNav ? (
-                        <Field data-invalid={dataPipelineErrorThresholdError ? true : undefined}>
-                            <FieldLabel htmlFor="data-pipeline-error-threshold">Failure rate threshold</FieldLabel>
-                            <InputGroup className="w-32">
-                                <InputGroupInput
-                                    id="data-pipeline-error-threshold"
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    step={0.1}
-                                    value={localDataPipelineErrorThreshold}
-                                    onChange={(event) =>
-                                        handleDataPipelineErrorThresholdChange(event.target.valueAsNumber)
-                                    }
-                                    disabled={userLoading}
-                                    aria-invalid={dataPipelineErrorThresholdError ? true : undefined}
-                                />
-                                <InputGroupAddon align="inline-end">%</InputGroupAddon>
-                            </InputGroup>
-                            <FieldDescription>{DATA_PIPELINE_THRESHOLD_DESCRIPTION}</FieldDescription>
-                            {dataPipelineErrorThresholdError && (
-                                <FieldError>{dataPipelineErrorThresholdError}</FieldError>
-                            )}
-                        </Field>
+                        <QuillDataPipelineErrorThreshold
+                            value={localDataPipelineErrorThreshold}
+                            onChange={handleDataPipelineErrorThresholdChange}
+                            error={dataPipelineErrorThresholdError}
+                            disabled={userLoading}
+                        />
                     ) : (
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Failure rate threshold</label>
@@ -814,20 +655,7 @@ export function UpdateEmailPreferences(): JSX.Element {
         [NotificationBlock.Approvals]: (
             <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 {todayRailNav ? (
-                    <div className="flex items-center gap-1">
-                        <Heading size="sm" render={<h3 className="m-0" />}>
-                            Approvals
-                        </Heading>
-                        <QuillTooltip>
-                            <TooltipTrigger
-                                delay={0}
-                                render={<Button size="icon-xs" aria-label="About approval emails" />}
-                            >
-                                <IconQuestion />
-                            </TooltipTrigger>
-                            <TooltipContent>{APPROVALS_TOOLTIP}</TooltipContent>
-                        </QuillTooltip>
-                    </div>
+                    <QuillApprovalsHeading />
                 ) : (
                     <div className="flex items-center gap-1 font-semibold">
                         <span>Approvals</span>
@@ -905,15 +733,24 @@ export function UpdateEmailPreferences(): JSX.Element {
         }
     }, [dataLoaded, highlightedBlock])
 
-    const highlightClassName = todayRailNav ? 'ring-2 ring-primary rounded-lg' : 'ring-2 ring-accent-primary rounded-lg'
+    if (todayRailNav) {
+        return (
+            <QuillUpdateEmailPreferences
+                blocks={blocks}
+                visibleBlocks={visibleBlocks}
+                highlightedBlock={highlightedBlock}
+                highlightRef={highlightRef}
+            />
+        )
+    }
 
     return (
-        <div className={todayRailNav ? 'flex flex-col gap-3' : 'space-y-3'}>
+        <div className="space-y-3">
             {visibleBlocks.map((key) => (
                 <div
                     key={key}
                     ref={key === highlightedBlock ? highlightRef : undefined}
-                    className={key === highlightedBlock ? highlightClassName : undefined}
+                    className={key === highlightedBlock ? 'ring-2 ring-accent-primary rounded-lg' : undefined}
                 >
                     {blocks[key]}
                 </div>
@@ -987,8 +824,6 @@ const SimpleSwitch = ({
             })
     }
 
-    const disabledReason = lockedDisabledReason(enforced, userLoading)
-
     if (todayRailNav) {
         return (
             <QuillNotificationSwitch
@@ -997,7 +832,7 @@ const SimpleSwitch = ({
                 description={description}
                 checked={checked}
                 onCheckedChange={handleChange}
-                disabledReason={disabledReason}
+                disabledReason={lockedDisabledReason(enforced, userLoading)}
                 lockedByAdmin={enforced !== null}
             />
         )
@@ -1009,7 +844,7 @@ const SimpleSwitch = ({
                 data-attr={dataAttr}
                 onChange={handleChange}
                 checked={checked}
-                disabledReason={disabledReason}
+                disabledReason={lockedDisabledReason(enforced, userLoading)}
                 label={
                     <span className="flex items-center gap-2">
                         {label}
