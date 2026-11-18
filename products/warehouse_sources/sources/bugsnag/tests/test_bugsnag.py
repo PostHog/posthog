@@ -684,3 +684,52 @@ class TestSpanGroupSpans:
         }
         rows, _requested = _collect_via_responses("span_group_spans", responses, _FakeResumableManager(), monkeypatch)
         assert [row["project_id"] for row in rows] == ["p2"]
+
+
+class TestTeamCollaborators:
+    def test_fans_out_over_every_team_and_skips_a_deleted_one(self, monkeypatch: Any) -> None:
+        # The team listing pages by Link header, so a team on its second page must still get its
+        # members read. A team deleted between listing and fan-out answers 404 and contributes nothing.
+        teams_url = "https://api.bugsnag.com/organizations/o1/teams?per_page=100"
+        teams_page2 = "https://api.bugsnag.com/organizations/o1/teams?offset=t1"
+        responses = {
+            _ORGS_URL: _make_response(200, body=[{"id": "o1"}]),
+            teams_url: _make_response(200, body=[{"id": "t1"}], link=f'<{teams_page2}>; rel="next"'),
+            teams_page2: _make_response(200, body=[{"id": "t2"}, {"id": "t3"}]),
+            "https://api.bugsnag.com/organizations/o1/teams/t1/collaborators?per_page=30": _make_response(
+                200, body=[{"id": "c1"}, {"id": "c2"}]
+            ),
+            "https://api.bugsnag.com/organizations/o1/teams/t2/collaborators?per_page=30": _make_response(
+                404, body={"errors": ["Team not found"]}
+            ),
+            "https://api.bugsnag.com/organizations/o1/teams/t3/collaborators?per_page=30": _make_response(
+                200, body=[{"id": "c1"}]
+            ),
+        }
+        rows, _requested = _collect_via_responses("team_collaborators", responses, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {"id": "c1", "organization_id": "o1", "team_id": "t1"},
+            {"id": "c2", "organization_id": "o1", "team_id": "t1"},
+            {"id": "c1", "organization_id": "o1", "team_id": "t3"},
+        ]
+
+
+class TestPerformanceGroupListings:
+    @pytest.mark.parametrize("endpoint", ["span_groups", "page_load_span_groups"])
+    def test_walks_offset_pages_and_skips_projects_without_performance(self, endpoint: str, monkeypatch: Any) -> None:
+        # These listings send no Link header, so the offset cursor is the only way past the first
+        # page. A project that never enabled BugSnag Performance answers 404 and must not fail the
+        # table for the other projects.
+        listing = f"https://api.bugsnag.com/projects/{{}}/{endpoint}?per_page=100&sort=name&direction=asc"
+        full_page = [{"id": f"g{i}"} for i in range(100)]
+        responses = {
+            _ORGS_URL: _make_response(200, body=[{"id": "o1"}]),
+            _PROJECTS_URL: _make_response(200, body=[{"id": "p1"}, {"id": "p2"}]),
+            listing.format("p1"): _make_response(404, body={"errors": ["Project not found"]}),
+            listing.format("p2"): _make_response(200, body=full_page),
+            f"{listing.format('p2')}&offset=100": _make_response(200, body=[{"id": "g100"}]),
+        }
+        rows, _requested = _collect_via_responses(endpoint, responses, _FakeResumableManager(), monkeypatch)
+        assert len(rows) == 101
+        assert {row["project_id"] for row in rows} == {"p2"}
+        assert rows[-1] == {"id": "g100", "organization_id": "o1", "project_id": "p2"}
