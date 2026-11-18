@@ -10196,6 +10196,32 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[0]["message"], "Initial entry")
         self.assertEqual(log_entries[1]["message"], "Task completed")
 
+    @parameterized.expand(
+        [
+            ("live_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.QUEUED, status.HTTP_204_NO_CONTENT, True),
+            (
+                "finished_local_run",
+                TaskRun.Environment.LOCAL,
+                TaskRun.Status.COMPLETED,
+                status.HTTP_409_CONFLICT,
+                False,
+            ),
+            ("cloud_run", TaskRun.Environment.CLOUD, TaskRun.Status.IN_PROGRESS, status.HTTP_409_CONFLICT, False),
+        ]
+    )
+    def test_heartbeat_is_recorded_only_for_a_live_local_run(
+        self, _name, environment, run_status, expected_status, recorded
+    ):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status, environment=environment)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/heartbeat/")
+
+        self.assertEqual(response.status_code, expected_status)
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at is not None, recorded)
+        self.assertIsNone(run.agent_status)
+
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)

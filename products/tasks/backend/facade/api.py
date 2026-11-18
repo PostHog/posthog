@@ -490,6 +490,7 @@ __all__ = [
     "claim_mobile_push_cooldown",
     "release_mobile_push_cooldown",
     "record_run_failure_cause",
+    "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -2645,6 +2646,22 @@ def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, tea
             run.signal_client_activity()
     except Exception:
         logger.warning("Failed to signal client activity for task run %s", run_id)
+
+
+def record_local_task_run_heartbeat(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> Literal["recorded", "not_found", "not_live_local"]:
+    run = (
+        TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
+        .only("id", "team_id", "environment", "status")
+        .first()
+    )
+    if run is None:
+        return "not_found"
+    if run.environment != TaskRun.Environment.LOCAL or run.is_terminal:
+        return "not_live_local"
+    run.record_client_heartbeat()
+    return "recorded"
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
