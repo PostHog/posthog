@@ -244,8 +244,16 @@ exit "$code"
 EOF
 
 password='dry:Run#1?&%x'
-upstream=$(awk '/^nameserver/ { print $2; exit }' /run/systemd/resolve/resolv.conf 2>/dev/null)
-[ -n "$upstream" ] || upstream=$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)
+upstream_resolver() {
+    local file
+    for file in /run/systemd/resolve/resolv.conf /etc/resolv.conf; do
+        [ -r "$file" ] || continue
+        awk '$1 == "nameserver" && $2 !~ /^127\./ && $2 != "::1" { print $2; found = 1; exit } END { exit !found }' "$file" && return 0
+    done
+    echo "No resolver outside this machine in /run/systemd/resolve/resolv.conf or /etc/resolv.conf; the host container needs one to resolve as a run host does" >&2
+    return 1
+}
+upstream=$(upstream_resolver)
 docker network create "$name" >/dev/null
 docker run -d --name "$name-db" --network "$name" --network-alias cluster --network-alias not-in-certificate \
     -e POSTGRES_USER=posthog -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=cyclotron_node \
