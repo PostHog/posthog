@@ -129,6 +129,14 @@ const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribu
     return first
 }
 
+// The attributes of one opening tag such as `<a href="…" data-ph-no-track>`, read the way `editHrefAnchors` reads them.
+export const readAnchorOpeningTag = (openingTag: string): Pick<HrefAnchor, 'attribute'> => {
+    const tags: ScannedTag[] = []
+    scanAnchorTags(openingTag, 0, openingTag.length, tags)
+    const attributes = firstByName(tags[0]?.attributes ?? [])
+    return { attribute: (name) => attributes.get(name) }
+}
+
 // Calls `edit` for each anchor with a usable href, in document order, and applies the edit it returns to the
 // opening tag. The rest of the email stays byte for byte as written.
 export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => AnchorEdit | null): string => {

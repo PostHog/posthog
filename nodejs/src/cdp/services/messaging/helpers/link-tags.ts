@@ -1,20 +1,15 @@
-import { HrefAnchor } from './href-anchors'
+import { HrefAnchor, readAnchorOpeningTag } from './href-anchors'
 
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
 // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
-const CLICK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
-
-export const hasClickTrackingOptOut = (openingTag: string): boolean => CLICK_TRACKING_OPT_OUT_REGEX.test(openingTag)
-
-export const hasSesNoTrack = (openingTag: string): boolean => SES_NO_TRACK_ATTR_REGEX.test(openingTag)
-
-export const isNeverClickTracked = (openingTag: string): boolean =>
-    hasClickTrackingOptOut(openingTag) || hasSesNoTrack(openingTag)
-
-export const hasClickTrackingOptOutAttribute = (anchor: HrefAnchor): boolean =>
+export const hasClickTrackingOptOutAttribute = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
     anchor.attribute('data-ph-no-track') !== undefined || /^off$/i.test(anchor.attribute('clicktracking')?.value ?? '')
+
+export const isNeverClickTracked = (openingTag: string): boolean => {
+    const anchor = readAnchorOpeningTag(openingTag)
+    return hasClickTrackingOptOutAttribute(anchor) || anchor.attribute('ses:no-track') !== undefined
+}
 
 const paramName = (param: string): string => {
     const name = param.split('=')[0]
