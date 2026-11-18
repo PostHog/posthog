@@ -3,6 +3,7 @@ import pytest
 from django.core.management.base import CommandError
 
 import httpx
+from parameterized import parameterized
 
 from products.cdp.backend.test.abuse_support import TEAM_FLAG, AbuseClassificationTestCase
 
@@ -56,13 +57,16 @@ class TestScoreHogFunctionsForAbuse(AbuseClassificationTestCase):
         assert len(self.gateway.requests) == 2
         assert output.count("error:gateway_error") == 2
 
-    def test_skips_a_disabled_function(self) -> None:
+    @parameterized.expand([("by_default", [], 0), ("with_include_disabled", ["--include-disabled"], 1)])
+    def test_a_disabled_function_is_scored_only_when_asked(
+        self, _name: str, options: list[str], expected_requests: int
+    ) -> None:
         disabled = self.create_destination(enabled=False)
 
-        output = self.run_command(COMMAND, "--id", str(disabled.id))
+        output = self.run_command(COMMAND, "--id", str(disabled.id), *options)
 
-        assert self.gateway.requests == []
-        assert str(disabled.id) not in output
+        assert len(self.gateway.requests) == expected_requests
+        assert (str(disabled.id) in output) == bool(expected_requests)
 
     def test_needs_ids_or_a_team(self) -> None:
         with pytest.raises(CommandError, match="--id or --team-id"):

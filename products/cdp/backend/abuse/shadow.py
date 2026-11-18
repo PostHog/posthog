@@ -189,7 +189,7 @@ def is_scorable(hog_function: HogFunction) -> bool:
     return hog_function.enabled and not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
 
 
-def scorable_hog_functions() -> QuerySet[HogFunction]:
+def scorable_hog_functions(*, enabled_only: bool = True) -> QuerySet[HogFunction]:
     """Enabled destinations, and enabled transformations that may run code a customer wrote.
 
     A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
@@ -205,7 +205,8 @@ def scorable_hog_functions() -> QuerySet[HogFunction]:
     may_run_custom_code = may_run_custom_hog | has_inputs
     return (
         HogFunction.objects.select_related("team__organization", "hog_function_template")
-        .filter(enabled=True, deleted=False)
+        .filter(deleted=False)
+        .filter(**({"enabled": True} if enabled_only else {}))
         .filter(Q(type=HogFunctionType.DESTINATION) | (Q(type=HogFunctionType.TRANSFORMATION) & may_run_custom_code))
     )
 

@@ -1,6 +1,7 @@
 """Score hog functions for abuse with Jev and print a table, to tune the shadow thresholds offline.
 
-Scores enabled functions only, and ignores the feature flag. Captures no event unless asked with --capture.
+Scores enabled functions unless asked with --include-disabled, and ignores the feature flag. Captures no event
+unless asked with --capture.
 """
 
 from typing import Any
@@ -18,11 +19,16 @@ class Command(BaseCommand):
         parser.add_argument("--id", dest="ids", action="append", default=[], help="A hog function ID. Repeatable.")
         parser.add_argument("--team-id", type=int, help="Score every enabled destination and transformation of a team.")
         parser.add_argument("--capture", action="store_true", help="Also capture each verdict as an event.")
+        parser.add_argument(
+            "--include-disabled",
+            action="store_true",
+            help="Also score disabled functions, such as ones turned off after abuse, without enabling them.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if not options["ids"] and options["team_id"] is None:
             raise CommandError("Give --id or --team-id.")
-        hog_functions = shadow.scorable_hog_functions()
+        hog_functions = shadow.scorable_hog_functions(enabled_only=not options["include_disabled"])
         hog_functions = (
             hog_functions.filter(id__in=options["ids"])
             if options["ids"]
