@@ -1,5 +1,5 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { type ReactElement, type Ref, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ScrollViewInstance, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler'
 import Animated, {
     type SharedValue,
@@ -37,6 +37,7 @@ function orderOf(positions: Positions): string[] {
 }
 
 interface EditPinsListProps {
+    scrollRef: Ref<ScrollViewInstance>
     pins: readonly PinView[]
     contentTop: number
     contentBottom: number
@@ -48,6 +49,7 @@ interface EditPinsListProps {
 
 /** "Edit pins": drag a handle to reorder, set each pin's mode, or remove it. Every change saves on this phone. */
 export function EditPinsList({
+    scrollRef,
     pins,
     contentTop,
     contentBottom,
@@ -74,6 +76,7 @@ export function EditPinsList({
 
     return (
         <ScrollView
+            ref={scrollRef}
             scrollEnabled={scrollEnabled}
             contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
             testID="edit-pins-sheet"
