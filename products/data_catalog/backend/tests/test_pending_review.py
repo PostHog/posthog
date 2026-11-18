@@ -173,7 +173,7 @@ class TestPendingReviewAPI(APIBaseTest):
         ] * 2
         create_database.assert_called_once()
 
-    @patch("products.data_catalog.backend.logic.metrics.cache")
+    @patch("posthog.utils.cache")
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_counts_metrics_when_the_cache_is_unavailable(self, create_database: MagicMock, cache: MagicMock) -> None:
         create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
@@ -186,6 +186,23 @@ class TestPendingReviewAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["metrics"] == 1
+
+    @patch("products.data_catalog.backend.logic.metrics.system_table_denials", return_value=frozenset())
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_follows_a_change_of_membership_level(
+        self, create_database: MagicMock, _system_table_denials: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+
+        counts = []
+        for level in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.MEMBER):
+            self.organization_membership.level = level
+            self.organization_membership.save()
+            counts.append(self.client.get(url).json()["metrics"])
+
+        assert counts == [1, 0]
 
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_metric_added_after_the_table_check_stays_hidden(self, create_database: MagicMock) -> None:

@@ -15,12 +15,10 @@ from functools import partial
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
-from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.database.database import Database, system_table_denials
@@ -30,6 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
@@ -66,8 +65,6 @@ class _Unset:
 
 
 _UNSET = _Unset()
-
-logger = structlog.get_logger(__name__)
 
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
 _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
@@ -223,32 +220,18 @@ def _denied_tables(team: Team, user: User, user_access_control: UserAccessContro
     return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
 
 
-DENIED_TABLES_CACHE_TTL_SECONDS = 300
+DENIED_TABLES_CACHE_TTL_SECONDS = 60
 
 DeniedTablesLoader = Callable[[Team, User, UserAccessControl], set[str]]
 
 
-def _read_cached_denied_tables(key: str) -> list[str] | None:
-    try:
-        return cache.get(key)
-    except Exception:
-        logger.warning("data_catalog_denied_tables_cache_read_failed", key=key, exc_info=True)
-        return None
-
-
-def _write_cached_denied_tables(key: str, denied: list[str]) -> None:
-    try:
-        cache.set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
-    except Exception:
-        logger.warning("data_catalog_denied_tables_cache_write_failed", key=key, exc_info=True)
-
-
 def cached_denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
-    key = f"data_catalog:denied_tables:{team.id}:{user.id}"
-    denied = _read_cached_denied_tables(key)
+    level = "admin" if user_access_control.is_organization_admin else "member"
+    key = f"data_catalog:denied_tables:{team.id}:{user.id}:{level}"
+    denied = get_safe_cache(key)
     if denied is None:
         denied = sorted(_denied_tables(team, user, user_access_control))
-        _write_cached_denied_tables(key, denied)
+        safe_cache_set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
     return set(denied)
 
 
