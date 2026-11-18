@@ -45,6 +45,7 @@ _FIXED_VARIABLE = re.compile(
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
 # Attributes Go's html/template treats as URLs.
+_MAX_ATTRIBUTE_NAME = 16
 _URL_ATTRIBUTES = frozenset(
     {
         "action",
@@ -377,7 +378,7 @@ class _Converter:
             if in_value and quote:
                 close = text.find(quote, index)
                 segment = text[index:] if close < 0 else text[index:close]
-                started = started or bool(segment)
+                started = started or bool(segment.strip())
                 query = query or "?" in segment or "#" in segment
                 if close < 0:
                     break
@@ -408,8 +409,11 @@ class _Converter:
                 name_done = bool(attribute)
             elif name_done or not attribute:
                 attribute, name_done = character.lower(), False
-            else:
+            elif len(attribute) < _MAX_ATTRIBUTE_NAME:
                 attribute += character.lower()
+            else:
+                # Longer than any URL attribute, so only that it can't match is kept.
+                attribute = "-"
             index += 1
         self.tag = _TagState(
             in_tag=in_tag,
@@ -431,7 +435,15 @@ class _Converter:
         elif len(self.blocks) < depth and self.tag_branches:
             opened, ended = self.tag_branches.pop()
             states = [*ended, self.tag, opened]
-            self.tag = next((state for state in states if state.in_tag), states[-1])
+            chosen = next((state for state in states if state.in_tag), states[-1])
+            # A branch that rendered nothing can leave a value at the start of the address, so only text every branch
+            # wrote counts.
+            in_value = [state for state in states if state.in_value]
+            self.tag = replace(
+                chosen,
+                value_started=all(state.value_started for state in in_value),
+                value_query=all(state.value_query for state in in_value),
+            )
         elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
             ended.append(self.tag)
@@ -732,9 +744,12 @@ class _Converter:
         """Go escapes a value by where it lands. In a link's address it blocks schemes such as `javascript:` at the
         start, and percent-encodes a value in the query, so `&` or `=` can't add a parameter."""
         tag = self.tag
+        if tag.after_equals:
+            # A value right after `=` starts an unquoted attribute value.
+            tag = self.tag = replace(tag, after_equals=False, in_value=True, value_started=False, value_query=False)
         if not (tag.in_value and tag.attribute in _URL_ATTRIBUTES):
             return _escaped(path)
-        self.tag = replace(tag, value_started=True)
+        # Only text from the template counts as the start of an address, since a value before this one can be empty.
         if tag.value_query:
             return f"{{{{ {path} | url_encode }}}}"
         if tag.value_started:

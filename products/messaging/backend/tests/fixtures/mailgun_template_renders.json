@@ -948,5 +948,15 @@
     },
     "liquid": "<a href=\"/s?q={{ variables.X | url_encode }}\">x</a>",
     "expected": "<a href=\"/s?q=a%26b\">x</a>"
+  },
+  {
+    "name": "go unquoted link with a javascript address is blocked",
+    "engine": "go",
+    "template": "<a href={{.U}}>x</a>",
+    "variables": {
+      "U": "javascript:alert(1)"
+    },
+    "liquid": "<a href={% assign url1 = variables.U | append: \"\" %}{% assign url1_head = url1 | split: \"/\" | first %}{% assign url1_scheme = \"http\" %}{% if url1_head contains \":\" %}{% assign url1_scheme = url1_head | split: \":\" | first | downcase %}{% endif %}{% if url1_scheme == \"http\" or url1_scheme == \"https\" or url1_scheme == \"mailto\" %}{{ url1 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}#ZgotmplZ{% endif %}>x</a>",
+    "expected": "<a href=#ZgotmplZ>x</a>"
   }
 ]

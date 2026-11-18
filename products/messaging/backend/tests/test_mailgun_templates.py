@@ -141,6 +141,24 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert sum(end.calls for _, end in counted) <= len(counted)
         assert not converted.too_large
 
+    @parameterized.expand(
+        [
+            ("unquoted", "<a href={{.U}}>x</a>", 1),
+            ("after_another_value", '<a href="{{.P}}{{.U}}">x</a>', 2),
+            ("after_a_space", '<a href=" {{.U}}">x</a>', 1),
+            ("after_a_branch_that_can_render_nothing", '<a href="{{if .A}}pre{{end}}{{.U}}">x</a>', 1),
+        ]
+    )
+    def test_a_go_value_that_can_start_a_link_is_checked(self, _name: str, source: str, checks: int) -> None:
+        assert convert_text(source, engine="go").text.count("#ZgotmplZ") == checks
+
+    def test_a_long_attribute_name_is_not_kept(self) -> None:
+        converter = mailgun_templates._Converter("", "handlebars", True)
+
+        converter._track_tag("<a " + "b" * 100000)
+
+        assert len(converter.tag.attribute) <= mailgun_templates._MAX_ATTRIBUTE_NAME
+
     def test_a_long_comment_renders_nothing(self) -> None:
         source = "{{!-- " + "x" * 30000 + " {{secret}} --}}after"
 
