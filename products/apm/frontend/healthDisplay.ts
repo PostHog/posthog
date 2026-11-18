@@ -49,3 +49,12 @@ export function formatMs(ms: number | null): string {
 export function formatApdex(score: number | null | undefined): string {
     return score === null || score === undefined ? '—' : score.toFixed(2)
 }
+
+export function compareNullable(a: number | null, b: number | null): number {
+    return (a ?? -Infinity) - (b ?? -Infinity) || 0
+}
+
+export function matchesSearch(search: string, ...fields: string[]): boolean {
+    const needle = search.trim().toLowerCase()
+    return !needle || fields.some((field) => field.toLowerCase().includes(needle))
+}

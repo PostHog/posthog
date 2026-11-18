@@ -24644,6 +24644,129 @@ export namespace Schemas {
       unavailable_reason: CITimingUnavailableReasonEnum | null;
     }
 
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type CachedTileInsightResultActionNames = {[key: string]: string} | null;
+
+    /**
+     * The result fields of an insight tile, without the insight's own metadata.
+     *
+     * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+     * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+     */
+    export interface CachedTileInsightResult {
+      readonly id: number;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      /**
+         *
+       *     The datetime this insight's results were generated.
+       *     If added to one or more dashboards the insight can be refreshed separately on each.
+       *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+       *     (see from_dashboard query parameter).
+       *
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+       *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+       *     by querying the database.
+       *
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_date_range: CachedTileInsightResultResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: CachedTileInsightResultResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: CachedTileInsightResultActionNames;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
+    }
+
+    /**
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found
+     */
+    export type CachedTileStatusEnum = typeof CachedTileStatusEnum[keyof typeof CachedTileStatusEnum];
+
+
+    export const CachedTileStatusEnum = {
+      Hit: 'hit',
+      Miss: 'miss',
+      Forbidden: 'forbidden',
+      NotFound: 'not_found',
+    } as const;
+
+    export interface CachedTileResult {
+      /** Dashboard tile ID. */
+      id: number;
+      /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+       *
+       * * `hit` - Hit
+       * * `miss` - Miss
+       * * `forbidden` - Forbidden
+       * * `not_found` - Not found */
+      status: CachedTileStatusEnum;
+      /** The cached result. Present only when status is 'hit'. */
+      insight?: CachedTileInsightResult;
+    }
+
+    export interface CachedTilesResponse {
+      /** One entry per requested tile ID, in request order. */
+      results: CachedTileResult[];
+    }
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -137912,6 +138035,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DashboardsCachedTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
+    /**
+     * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
+     */
+    tile_ids: string;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
+    };
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;

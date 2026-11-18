@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,9 +11,17 @@ import { healthColumns } from './healthColumns'
 import { TelemetryLinks } from './TelemetryLinks'
 
 export function EndpointsTab(): JSX.Element {
-    const { endpoints, endpointsHealthLoading, endpointsLoadError, services, endpointsService, timeRange } =
-        useValues(applicationObservabilityLogic)
-    const { setEndpointsService } = useActions(applicationObservabilityLogic)
+    const {
+        endpoints,
+        filteredEndpoints,
+        search,
+        endpointsHealthLoading,
+        endpointsLoadError,
+        services,
+        endpointsService,
+        timeRange,
+    } = useValues(applicationObservabilityLogic)
+    const { setEndpointsService, setSearch } = useActions(applicationObservabilityLogic)
 
     const serviceNames = services.map((row) => row.service_name)
     if (endpointsService && !serviceNames.includes(endpointsService)) {
@@ -24,6 +32,7 @@ export function EndpointsTab(): JSX.Element {
         {
             title: 'Endpoint',
             key: 'endpoint',
+            sorter: (a, b) => a.endpoint.localeCompare(b.endpoint),
             render: (_, row) => (
                 <Link
                     to={urls.tracingOperation(row.service_name, row.endpoint, { date_from: timeRange, date_to: null })}
@@ -37,6 +46,7 @@ export function EndpointsTab(): JSX.Element {
         {
             title: 'Service',
             key: 'service_name',
+            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => row.service_name,
         },
         ...healthColumns<EndpointHealthApi>(),
@@ -64,6 +74,15 @@ export function EndpointsTab(): JSX.Element {
                     ]}
                     data-attr="apm-endpoints-service"
                 />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="max-w-80"
+                    placeholder="Search endpoints"
+                    value={search}
+                    onChange={setSearch}
+                    data-attr="apm-endpoints-search"
+                />
             </div>
             {endpointsLoadError && (
                 <LemonBanner type="error">
@@ -74,9 +93,14 @@ export function EndpointsTab(): JSX.Element {
             )}
             <LemonTable
                 columns={columns}
-                dataSource={endpoints}
+                dataSource={filteredEndpoints}
                 rowKey={(row) => `${row.service_name}\n${row.endpoint}`}
                 loading={endpointsHealthLoading}
+                emptyState={
+                    endpoints.length > 0
+                        ? `No endpoints match "${search}".`
+                        : 'No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle.'
+                }
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (row) => (
@@ -87,7 +111,6 @@ export function EndpointsTab(): JSX.Element {
                         />
                     ),
                 }}
-                emptyState="No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle."
                 data-attr="apm-endpoints-table"
             />
         </div>
