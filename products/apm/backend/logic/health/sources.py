@@ -75,7 +75,7 @@ def environment_expr() -> ast.Expr:
     return parse_expr(f"coalesce({parts}, {{unset}})", placeholders={"unset": ast.Constant(value=NO_ENVIRONMENT)})
 
 
-def _environment_where(environment: str | None) -> ast.Expr:
+def environment_where(environment: str | None) -> ast.Expr:
     # None means every environment, so no predicate at all, not a match on some default value.
     if environment is None:
         return ast.Constant(value=True)
@@ -85,7 +85,7 @@ def _environment_where(environment: str | None) -> ast.Expr:
     )
 
 
-def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
+def window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     return parse_expr(
         f"timestamp >= {{date_from}} AND timestamp < {{date_to}} AND {_TIME_BUCKET_DATE_RANGE_WHERE}",
         placeholders={"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
@@ -129,8 +129,8 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str | N
         """,
         placeholders={
             "env_expr": environment_expr(),
-            "where": _window_where(date_from, date_to),
-            "env_where": _environment_where(environment),
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
         },
     )
@@ -159,8 +159,8 @@ def _endpoints_query(
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
-            "env_where": _environment_where(environment),
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
             "service_where": (
                 parse_expr("service_name = {service}", placeholders={"service": ast.Constant(value=service)})
                 if service
@@ -184,8 +184,8 @@ def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: s
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
-            "env_where": _environment_where(environment),
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
             "limit": ast.Constant(value=MAP_TRACE_LIMIT),
         },
     )
@@ -223,8 +223,8 @@ def _service_edges_query(
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
-            "env_where": _environment_where(environment),
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
             "span_limit": ast.Constant(value=MAP_SPAN_LIMIT),
             "limit": ast.Constant(value=MAP_EDGES_LIMIT),
@@ -271,8 +271,8 @@ def _sparkline_query(
             "points": ast.Constant(value=SPARKLINE_POINTS),
             "window_seconds": ast.Constant(value=max(1.0, (date_to - date_from).total_seconds())),
             "last_bucket": ast.Constant(value=SPARKLINE_POINTS - 1),
-            "where": _window_where(date_from, date_to),
-            "env_where": _environment_where(environment),
+            "where": window_where(date_from, date_to),
+            "env_where": environment_where(environment),
             "env_expr": environment_expr(),
             "services": ast.Tuple(exprs=[ast.Constant(value=service) for service in services]),
             "limit": ast.Constant(value=SPARKLINE_ROWS_LIMIT),
@@ -285,7 +285,7 @@ def _sparkline_query(
 def _environments_query(date_from: datetime, date_to: datetime) -> ast.SelectQuery:
     query = parse_select(
         "SELECT {env_expr} AS environment FROM posthog.trace_spans WHERE {where} GROUP BY environment ORDER BY environment LIMIT 50",
-        placeholders={"env_expr": environment_expr(), "where": _window_where(date_from, date_to)},
+        placeholders={"env_expr": environment_expr(), "where": window_where(date_from, date_to)},
     )
     assert isinstance(query, ast.SelectQuery)
     return query

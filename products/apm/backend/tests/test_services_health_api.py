@@ -196,7 +196,7 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
             writer.span("mixed", env="default")
         for _ in range(5):
             writer.span("mixed")
-        writer.span("mixed", env="prod", attributes={"deployment.environment": "staging"})
+        writer.span("mixed", env="prod", resource={"deployment.environment": "staging"})
         writer.insert()
         return {"date_from": f"2026-06-{day:02d}T07:00:00Z", "date_to": f"2026-06-{day:02d}T09:00:00Z"}
 

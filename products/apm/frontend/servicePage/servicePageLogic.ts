@@ -85,7 +85,7 @@ export interface servicePageLogicValues {
         date_to: null
     }
     environmentKey: string | null
-    environments: string[]
+    environments: (string | null)[]
     scope: ServiceScope
     scopeFilters: ServiceSpanFilter[]
     scopeOptions: ServiceScopeOptions
@@ -165,7 +165,7 @@ export interface servicePageLogicMeta {
         environmentKey: (scope: ServiceScope, scopeOptions: ServiceScopeOptions) => string | null
         scopeFilters: (scope: ServiceScope, environmentKey: string | null) => ServiceSpanFilter[]
         service: (servicesHealth: ServicesHealthResponseApi | null, arg: any) => ServiceHealthApi | null
-        environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
+        environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
     }
 }
 
@@ -326,8 +326,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
         ],
         environments: [
             (s) => [s.servicesHealth],
-            (servicesHealth: ServicesHealthResponseApi | null): string[] =>
-                (servicesHealth?.environments ?? []).map((environment) => environment ?? ''),
+            (servicesHealth: ServicesHealthResponseApi | null): (string | null)[] => servicesHealth?.environments ?? [],
         ],
     }),
 

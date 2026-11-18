@@ -62,6 +62,26 @@ class ServiceEdge:
     p95_ms: float | None
 
 
+class DependencyKind(LabeledStrEnum):
+    SERVICE = "service"
+    DATABASE = "database"
+    QUEUE = "queue"
+    EXTERNAL = "external"
+
+
+@dataclass(frozen=True)
+class DependencyEdge:
+    """Calls from a service into a dependency: another service, or one inferred from client span attributes."""
+
+    caller: str
+    callee: str
+    inferred: bool
+    kind: DependencyKind
+    requests: int
+    error_count: int
+    p95_ms: float | None
+
+
 def status_of(health: HealthRow) -> HealthStatus:
     rate = health.error_rate or 0.0
     if rate >= SERIOUS_ERROR_RATE:

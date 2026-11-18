@@ -14,11 +14,6 @@ export const EMPTY_SERVICE_SCOPE: ServiceScope = { environment: null, version: n
 export const ENVIRONMENT_KEYS = ['deployment.environment.name', 'deployment.environment', 'env'] as const
 export const VERSION_KEY = 'service.version'
 
-// An empty string scopes to spans that set no environment, which the health API lists as null.
-export function environmentLabel(environment: string): string {
-    return environment === '' ? '(no environment)' : environment
-}
-
 /**
  * How a scope value goes into the URL. The router reads `1.0` back as the number 1 and `true` as a
  * boolean, so a value that looks like either goes in as a one-item list, which it keeps as written.

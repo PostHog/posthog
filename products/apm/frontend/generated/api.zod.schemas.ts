@@ -9,6 +9,89 @@
  */
 import { z as zod } from 'zod'
 
+export const DependencyKindEnumApi = zod
+    .enum(['service', 'database', 'queue', 'external'])
+    .describe('\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External')
+
+export type DependencyKindEnumApi = zod.input<typeof DependencyKindEnumApi>
+export type DependencyKindEnumApiOutput = zod.output<typeof DependencyKindEnumApi>
+
+export const DependencyEdgeApi = zod.object({
+    caller: zod.string().describe('The calling service.'),
+    callee: zod
+        .string()
+        .describe(
+            'The called service, or for an inferred dependency the peer service, database, queue or host it names.'
+        ),
+    inferred: zod
+        .boolean()
+        .describe("True when the callee sends no spans and is named by the caller's client span attributes."),
+    kind: zod
+        .enum(['service', 'database', 'queue', 'external'])
+        .describe('\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External')
+        .describe(
+            'What the callee is.\n\n\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+        ),
+    requests: zod.number().describe('Calls from the caller into the callee in the window.'),
+    error_count: zod.number().describe("Calls with an error status, on the caller's client span when it has one."),
+    p95_ms: zod
+        .number()
+        .nullable()
+        .describe("95th percentile call duration in ms, on the caller's client span when it has one."),
+})
+
+export type DependencyEdgeApi = zod.input<typeof DependencyEdgeApi>
+export type DependencyEdgeApiOutput = zod.output<typeof DependencyEdgeApi>
+
+export const DependenciesResponseApi = zod.object({
+    edges: zod
+        .array(
+            zod.object({
+                caller: zod.string().describe('The calling service.'),
+                callee: zod
+                    .string()
+                    .describe(
+                        'The called service, or for an inferred dependency the peer service, database, queue or host it names.'
+                    ),
+                inferred: zod
+                    .boolean()
+                    .describe(
+                        "True when the callee sends no spans and is named by the caller's client span attributes."
+                    ),
+                kind: zod
+                    .enum(['service', 'database', 'queue', 'external'])
+                    .describe(
+                        '\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+                    )
+                    .describe(
+                        'What the callee is.\n\n\* `service` - Service\n\* `database` - Database\n\* `queue` - Queue\n\* `external` - External'
+                    ),
+                requests: zod.number().describe('Calls from the caller into the callee in the window.'),
+                error_count: zod
+                    .number()
+                    .describe("Calls with an error status, on the caller's client span when it has one."),
+                p95_ms: zod
+                    .number()
+                    .nullable()
+                    .describe("95th percentile call duration in ms, on the caller's client span when it has one."),
+            })
+        )
+        .describe('One edge per caller and callee, most requests first.'),
+    truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the edges were computed for: null for every environment, empty for spans with no environment.'
+        ),
+    service: zod.string().nullable().describe('The service filter applied, if any.'),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
+export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
+
 export const HealthStatusEnumApi = zod
     .enum(['good', 'warning', 'serious', 'critical'])
     .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
