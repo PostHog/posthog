@@ -24,7 +24,13 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_cache import clean_up_stale_insights, days_read_at_this_time, get_stale_insights, read_since
+from posthog.query_cache import (
+    clean_up_stale_insights,
+    days_read_at_this_time,
+    get_stale_insights,
+    read_since,
+    stale_among,
+)
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -114,10 +120,12 @@ def _stale_combos(team_id: int, *, read_at_this_time_only: bool, read_recently_o
     if not read_at_this_time_only and not read_recently_only:
         return get_stale_insights(team_id=team_id, limit=STALE_INSIGHTS_LIMIT)
     now = datetime.now(UTC)
-    combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
     if read_recently_only:
+        # Start from the reads, not a capped page of stale entries, so unread entries cannot crowd out read tiles.
         recently_read = read_since(team_id=team_id, since=now - RECENT_READ_WINDOW, now=now)
-        combos = [combo for combo in combos if combo in recently_read]
+        combos = stale_among(team_id=team_id, identifiers=recently_read)
+    else:
+        combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
     if read_at_this_time_only:
         days_read = days_read_at_this_time(team_id=team_id, identifiers=combos, now=now)
         combos = [combo for combo in combos if days_read[combo] >= READ_DAYS_REQUIRED]

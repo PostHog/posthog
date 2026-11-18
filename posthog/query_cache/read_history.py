@@ -47,4 +47,5 @@ def read_since(*, team_id: int, since: datetime, now: datetime) -> set[str]:
     first_hour = since.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
     hours = int((now - first_hour) // timedelta(hours=1)) + 1
     keys = [_redis_key(team_id, first_hour + timedelta(hours=hour)) for hour in range(hours)]
-    return {identifier.decode("utf-8") for identifier in redis.get_client().sunion(keys)}
+    members = redis.get_client().sunion(keys)
+    return {member.decode("utf-8") if isinstance(member, bytes) else str(member) for member in members}
