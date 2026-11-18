@@ -129,7 +129,7 @@ export function McpSharedFilters({
             {showLoadingBar && (
                 <LoadingBar
                     wrapperClassName="absolute inset-x-0 top-full mt-1 max-w-none"
-                    className="h-1 rounded-none bg-transparent"
+                    className="h-1 rounded-full bg-border-primary"
                 />
             )}
         </div>
