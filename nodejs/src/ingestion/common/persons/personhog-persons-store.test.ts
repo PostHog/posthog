@@ -65,8 +65,6 @@ describe('PersonhogPersonsStore', () => {
             properties: { plan: 'free' },
             created_at: DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             version: 1,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             is_user_id: null,
             is_identified: false,
             last_seen_at: null,
@@ -769,8 +767,6 @@ describe('PersonhogPersonsStore', () => {
         const result = await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { initial: 'props' },
-            {},
-            {},
             1,
             null,
             false,
@@ -813,8 +809,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 true,
@@ -847,8 +841,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             {},
-            {},
-            {},
             1,
             null,
             true,
@@ -877,8 +869,6 @@ describe('PersonhogPersonsStore', () => {
 
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-            {},
-            {},
             {},
             1,
             null,
@@ -950,8 +940,6 @@ describe('PersonhogPersonsStore', () => {
         const creating = bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { seed: 'value' },
-            {},
-            {},
             1,
             null,
             false,
@@ -1590,8 +1578,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -1652,8 +1638,6 @@ describe('PersonhogPersonsStore', () => {
 
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -1761,8 +1745,6 @@ describe('PersonhogPersonsStore', () => {
 
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -2635,8 +2617,6 @@ describe('PersonhogPersonsStore', () => {
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -2961,8 +2941,6 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -3329,8 +3307,6 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-            {},
-            {},
             {},
             1,
             null,
