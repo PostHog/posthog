@@ -956,6 +956,10 @@ impl Coordinator {
         pre_flip_deadline: Duration,
         max_txn_ops: usize,
     ) -> Result<()> {
+        // Migrations and retirements belong to the instance that owns the config.
+        if !store.owns_config() {
+            return Ok(());
+        }
         let Some((migration, mod_revision)) = store.get_migration_with_mod_revision().await? else {
             migration::record_phase(None);
             // No saga: a drained generation retires, then a waiting request may

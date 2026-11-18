@@ -195,6 +195,13 @@ impl PartitionedCache {
         }
     }
 
+    /// See [`PersonCache::put_if_newer`]; false when the partition is not served.
+    pub fn put_if_newer(&self, partition: u32, key: PersonCacheKey, person: CachedPerson) -> bool {
+        self.partitions
+            .get(&partition)
+            .is_some_and(|cache| cache.put_if_newer(key, person))
+    }
+
     /// Counter-free read for bookkeeping passes; see [`PersonCache::peek`].
     pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedVersion> {
         self.partitions

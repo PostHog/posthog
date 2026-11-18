@@ -114,6 +114,8 @@ pub struct PersonhogStore {
     /// per reconcile pass into one. Absence is never cached — the
     /// sweep can delete a record a later chunk re-creates.
     freeze_quorums: Arc<StdMutex<HashMap<String, Vec<String>>>>,
+    /// Where the changelog config lives when it belongs to another instance.
+    config_prefix: Option<Arc<str>>,
 }
 
 /// Counts store calls by the method that made them. The shared etcd
@@ -262,15 +264,43 @@ impl PersonhogStore {
         Self {
             inner,
             freeze_quorums: Arc::new(StdMutex::new(HashMap::new())),
+            config_prefix: None,
         }
+    }
+
+    /// Read the changelog config from another instance's prefix. A follower instance has
+    /// its own registrations and assignments but follows the leaders' changelog, so it
+    /// takes the topic, partition count and epoch from where the leaders keep them.
+    pub fn with_config_prefix(mut self, prefix: &str) -> Self {
+        self.config_prefix = Some(Arc::from(prefix));
+        self
     }
 
     pub fn inner(&self) -> &EtcdStore {
         &self.inner
     }
 
+    /// Whether the changelog config belongs to this instance. Only its owner may change
+    /// it or run a migration on it; an instance that reads another's follows it.
+    pub fn owns_config(&self) -> bool {
+        self.config_prefix.is_none()
+    }
+
+    /// The config key, for a write.
+    pub(crate) fn config_write_key(&self) -> Result<String> {
+        if !self.owns_config() {
+            return Err(Error::invalid_state(
+                "this instance reads the changelog config of another and must not write it",
+            ));
+        }
+        Ok(self.key(StoreKey::ChangelogConfig))
+    }
+
     fn key(&self, k: StoreKey<'_>) -> String {
-        k.resolve(self.inner.prefix())
+        match (&k, &self.config_prefix) {
+            (StoreKey::ChangelogConfig, Some(prefix)) => k.resolve(prefix),
+            _ => k.resolve(self.inner.prefix()),
+        }
     }
 
     // ── Pod operations ──────────────────────────────────────────
@@ -1500,7 +1530,7 @@ impl PersonhogStore {
     }
 
     async fn create_changelog_config(&self, value: Vec<u8>) -> Result<bool> {
-        let key = self.key(StoreKey::ChangelogConfig);
+        let key = self.config_write_key()?;
         let txn = Txn::new()
             .when(vec![Compare::create_revision(
                 key.clone(),
@@ -1530,7 +1560,7 @@ impl PersonhogStore {
     /// Bypasses the protocol: see the crate's `test-support` feature.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn put_changelog_config(&self, config: &ChangelogConfig) -> Result<()> {
-        let key = self.key(StoreKey::ChangelogConfig);
+        let key = self.config_write_key()?;
         Ok(self.inner.put(&key, config, None).await?)
     }
 

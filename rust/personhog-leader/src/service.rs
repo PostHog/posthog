@@ -1019,7 +1019,7 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     Ok(())
 }
 
-fn cached_person_into_proto(p: CachedPerson) -> Person {
+pub fn cached_person_into_proto(p: CachedPerson) -> Person {
     Person {
         id: p.id,
         uuid: p.uuid,

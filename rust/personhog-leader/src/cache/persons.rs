@@ -133,7 +133,11 @@ pub struct PersonCache {
     capacity_bytes: usize,
     /// Present while a fill is pending.
     put_keys: Mutex<Option<PutTracking>>,
+    /// Serializes `put_if_newer` calls for one key, so its compare and insert are one step.
+    newer_stripes: Box<[Mutex<()>]>,
 }
+
+const NEWER_STRIPES: usize = 64;
 
 /// Every key put since a pending fill's warm build began.
 struct PutTracking {
@@ -167,6 +171,7 @@ impl PersonCache {
             codec,
             capacity_bytes,
             put_keys: Mutex::new(None),
+            newer_stripes: (0..NEWER_STRIPES).map(|_| Mutex::new(())).collect(),
         }
     }
 
@@ -268,6 +273,24 @@ impl PersonCache {
         }
         drop(put_keys);
         self.inner.insert(key, stored);
+    }
+
+    /// Insert unless the cache already holds this version or a newer one. A follower's
+    /// applies and loads reach the cache from two directions, and only the newer may stay.
+    pub fn put_if_newer(&self, key: PersonCacheKey, person: CachedPerson) -> bool {
+        let stripe = self.inner.hash(&key) as usize % self.newer_stripes.len();
+        let _guard = self.newer_stripes[stripe]
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let held = self
+            .inner
+            .get(&key)
+            .map(|entry| entry.value().cached_version());
+        if held.is_some_and(|held| held.version >= person.version) {
+            return false;
+        }
+        self.put(key, person);
+        true
     }
 
     pub fn remove(&self, key: &PersonCacheKey) {
@@ -389,6 +412,15 @@ mod tests {
             FillOutcome::NotTracking
         );
         assert!(by_fills.get(&key(2)).is_none());
+    }
+
+    #[test]
+    fn put_if_newer_keeps_the_highest_version_whatever_the_order() {
+        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
+        for (version, replaces) in [(5, true), (5, false), (4, false), (6, true)] {
+            assert_eq!(cache.put_if_newer(key(1), at_version(version)), replaces);
+        }
+        assert_eq!(cache.get(&key(1)).unwrap().version, 6);
     }
 
     #[test]
