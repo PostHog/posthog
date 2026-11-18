@@ -964,7 +964,6 @@ export interface WelcomeResponseApi {
  * * `personal_api_key` - personal_api_key
  * * `oauth` - oauth
  * * `project_secret_key` - project_secret_key
- * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
  * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
@@ -991,7 +990,6 @@ export const ActivityLogCredentialTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     Oauth: 'oauth',
     ProjectSecretKey: 'project_secret_key',
-    TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
     OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
@@ -1041,7 +1039,6 @@ export interface ActivityLogApi {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
