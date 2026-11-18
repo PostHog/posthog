@@ -30,6 +30,7 @@ from posthog.models.integration.email import (
     lock_sender_if_expirable,
 )
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.redis import get_client as get_redis_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -174,12 +175,14 @@ UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 # Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
 # backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
 EXPIRED_EMAIL_SENDERS_PER_RUN = 10
-# Bounds the sender deletes and cleanup tasks of one run, which the identity budget above does not count.
-DELETED_EMAIL_SENDERS_PER_RUN = 200
+# A sender kept for an active workflow counts too, because each delete attempt asks every usage provider.
+CHECKED_EMAIL_SENDERS_PER_RUN = 200
+# The next run resumes after the last sender a run reached, so senders kept in use cannot hold back the rest.
+EMAIL_SENDER_EXPIRY_CURSOR_KEY = "posthog:expire_unverified_email_senders:after_id"
+EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS = 24 * 60 * 60
 
 
-def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
-    after_id: int | None = None
+def _unverified_email_senders_oldest_first(after_id: int | None) -> Iterator[IntegrationRecord]:
     while page := IntegrationManager.email.any.list_across_teams(
         CrossTeamFilter(where={"verified": False}, limit=100, after_id=after_id)
     ):
@@ -191,17 +194,24 @@ def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
 @skip_team_scope_audit
 def expire_unverified_email_senders() -> None:
     cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
-    expired = deleted = kept_in_use = 0
-    for sender in _unverified_email_senders_oldest_first():
+    redis_client = get_redis_client()
+    cursor = redis_client.get(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
+    after_id = int(cursor) if cursor else None
+    expired = checked = kept_in_use = 0
+    for sender in _unverified_email_senders_oldest_first(after_id):
+        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or checked >= CHECKED_EMAIL_SENDERS_PER_RUN:
+            redis_client.set(EMAIL_SENDER_EXPIRY_CURSOR_KEY, after_id, ex=EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS)
+            break
         # Rows come back in id order, which is creation order, so every later sender is younger too.
-        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or deleted >= DELETED_EMAIL_SENDERS_PER_RUN:
-            break
         if sender.created_at >= cutoff:
+            redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
             break
+        after_id = sender.id
         # A contested domain's senders hold the only record that verifying it needs the organization's own record.
         if sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY):
             continue
         domain = sender.config.get("domain")
+        checked += 1
         try:
             with transaction.atomic():
                 if not lock_sender_if_expirable(sender):
@@ -222,9 +232,10 @@ def expire_unverified_email_senders() -> None:
             # sender until nothing active uses it, so the failure stays an unverified-domain failure.
             kept_in_use += 1
             continue
-        deleted += 1
         if frees_identity:
             expired += 1
+    else:
+        redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
     logger.info("expired_unverified_email_senders", count=expired, kept_in_use=kept_in_use)
 
 

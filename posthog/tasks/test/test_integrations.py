@@ -279,7 +279,7 @@ class TestIntegrationsTasks(APIBaseTest):
             )
             Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=age_days))
 
-        with patch("posthog.tasks.integrations.DELETED_EMAIL_SENDERS_PER_RUN", deletes_per_run):
+        with patch("posthog.tasks.integrations.CHECKED_EMAIL_SENDERS_PER_RUN", deletes_per_run):
             expire_unverified_email_senders()
 
         assert set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True)) == remaining
@@ -303,6 +303,45 @@ class TestIntegrationsTasks(APIBaseTest):
         assert Integration.objects.filter(kind="email").count() == 1
         expire_unverified_email_senders()
         assert Integration.objects.filter(kind="email").count() == 0
+
+    @patch("posthog.tasks.integrations.CHECKED_EMAIL_SENDERS_PER_RUN", 2)
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_moves_past_senders_kept_in_use(
+        self, _mock_delete_identity: MagicMock
+    ) -> None:
+        senders = []
+        for email in ["a@kept1.com", "b@kept2.com", "c@stale.com"]:
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": email.split("@")[1], "provider": "ses", "verified": False},
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=15))
+            senders.append(sender)
+        for sender in senders[:2]:
+            create_workflow_for_test(
+                team_id=self.team.id,
+                name=f"Sends from {sender.integration_id}",
+                status="active",
+                actions=[
+                    {
+                        "id": "action_email",
+                        "name": "Email",
+                        "type": "function_email",
+                        "config": {"inputs": {"email": {"value": {"from": {"integrationId": sender.id}}}}},
+                    }
+                ],
+                edges=[],
+            )
+
+        def remaining() -> set[str]:
+            return set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True))
+
+        expire_unverified_email_senders()
+        assert remaining() == {"a@kept1.com", "b@kept2.com", "c@stale.com"}
+        expire_unverified_email_senders()
+        assert remaining() == {"a@kept1.com", "b@kept2.com"}
 
     @parameterized.expand([("verified", {"verified": True}), ("contested", {"organization_proof_required": True})])
     @patch("posthog.tasks.integrations.delete_ses_identity")
