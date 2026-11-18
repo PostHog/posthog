@@ -1,6 +1,9 @@
+import subprocess
 from pathlib import Path
 
-from hoglint_shadow import ChangedLines, HookFilter, OldToolEdits, ShadowReport, StagedChange
+import pytest
+
+from hoglint_shadow import ChangedLines, HookFilter, OldToolEdits, ShadowReport, StagedChange, git_diff
 from parameterized import parameterized
 
 # Real hoglint 0.2.2 output and the real git diff of the same state, from a scratch worktree whose
@@ -270,6 +273,25 @@ class TestChangedLines:
             "diff --git a/b.py b/b.py\n--- a/b.py\n+++ b/b.py\n@@ -5 +5 @@\n-old = 1\n+new = 1\n"
         )
         assert ChangedLines.of(diff).lines == {"a.py": {1}, "b.py": {5}}
+
+    def test_a_user_s_inter_hunk_context_keeps_hunks_apart(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        def run(*args: str) -> None:
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], check=True)
+
+        run("init", "-q")
+        run("config", "diff.interHunkContext", "3")
+        Path("m.py").write_text("a\nb\nc\nd\n")
+        Path("z.py").write_text("x\n")
+        run("add", ".")
+        run("commit", "-qm", "base")
+        Path("m.py").write_text("A\nb\nc\nD\n")
+        Path("z.py").write_text("y\n")
+        run("add", ".")
+        assert ChangedLines.of(git_diff("--cached")).lines == {"m.py": {1, 4}, "z.py": {1}}
 
 
 class TestOldToolEdits:

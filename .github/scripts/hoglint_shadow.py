@@ -599,7 +599,7 @@ def git_file(revision: str) -> str:
 
 def git_diff(*args: str) -> str:
     """The diff at zero context, with fixed path prefixes whatever the user's git config says."""
-    flags = ["-U0", "-M", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]
+    flags = ["-U0", "--inter-hunk-context=0", "-M", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]
     return git("-c", "core.quotePath=false", "diff", *flags, *args)
 
 
