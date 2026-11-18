@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -170,7 +171,7 @@ describe('TransactionalEmailsTable', () => {
                 '/api/projects/:team_id/transactional_code_emails/': [],
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
-                ...(selfHosted ? { '/_preflight': { cloud: false, is_debug: false } } : {}),
+                '/_preflight': { cloud: !selfHosted },
                 ...get,
             } as Record<string, any>,
         })
@@ -192,24 +193,24 @@ describe('TransactionalEmailsTable', () => {
         ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
         ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
     ])('%s', async (_case, selfHosted) => {
-        renderWithCodeSends({
-            '/api/projects/:team_id/transactional_code_emails/': [
-                codeEmail('password-reset', AccessControlLevel.Editor),
-            ],
-            '/_preflight': { cloud: !selfHosted, is_debug: false },
-        })
-        expect(await screen.findByText('password-reset')).toBeInTheDocument()
-
-        await waitFor(() =>
-            expect(
-                Boolean(
-                    screen.queryByText(
-                        "Transactional emails count toward your daily sending allowance and are still sent after it's used up.",
-                        { exact: false }
-                    )
-                )
-            ).toBe(!selfHosted)
+        renderWithCodeSends(
+            {
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+            },
+            { selfHosted }
         )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+        await waitFor(() => expect(preflightLogic.values.preflight).not.toBeNull())
+
+        expect(
+            Boolean(
+                screen.queryByText(
+                    "Transactional emails count toward your daily sending allowance and are still sent after it's used up."
+                )
+            )
+        ).toBe(!selfHosted)
         expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
             selfHosted
                 ? undefined
