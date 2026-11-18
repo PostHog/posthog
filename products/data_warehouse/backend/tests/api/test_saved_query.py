@@ -32,7 +32,15 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import (
+    TRINO_INCREMENTAL_SCOPE,
+    UnsatisfiableFrequencyError,
+    definition_fingerprint,
+    get_incremental_config,
+    mark_node_suspended,
+    resolve_write_plan,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.models import (
     CONNECTION_SAVE_REASON,
     DAG,
@@ -219,9 +227,9 @@ class TestSavedQuery(APIBaseTest):
             )
 
         assert response.status_code in (200, 201), response.content
-        assert response.json()["query"]["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+        assert response.json()["query"]["query"] == "select models.revenue.id from models.revenue -- keep me"
         stored = DataWarehouseSavedQuery.objects.get(team=self.team, name="models.child")
-        assert stored.query["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+        assert stored.query["query"] == "select models.revenue.id from models.revenue -- keep me"
 
     def test_create_raw_managed_trino_view(self) -> None:
         trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
@@ -2754,6 +2762,90 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 400:
             self.assertEqual(response.json()["detail"], "Ensure this field has no more than 121 characters.")
+
+    def _model_with_a_dependent(self) -> tuple[DataWarehouseSavedQuery, DataWarehouseSavedQuery]:
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="models.stg_signups", query={"kind": "HogQLQuery", "query": "select 1 as id"}
+        )
+        dependent = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="models.signups_report",
+            query={"kind": "HogQLQuery", "query": "select stg_signups.id -- keep me\nfrom stg_signups"},
+            incremental_config={"enabled": True, "incremental_key": "id", "unique_key": ["id"]},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        fingerprint = definition_fingerprint(dependent.query, get_incremental_config(dependent))
+        engine_state = {
+            "watermark": "2026-01-01T00:00:00+00:00",
+            "watermark_type": "datetime",
+            "definition_fingerprint": fingerprint,
+        }
+        dependent.incremental_state = {**engine_state, TRINO_INCREMENTAL_SCOPE: engine_state}
+        dependent.save()
+        return renamed, dependent
+
+    def test_rename_rewrites_the_models_that_read_it(self) -> None:
+        renamed, dependent = self._model_with_a_dependent()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
+        after = "select models.staging.signups.id -- keep me\nfrom models.staging.signups"
+
+        plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+
+        assert plan.status_code == 200, plan.content
+        assert plan.json() == {
+            "name": "models.staging.signups",
+            "dependents": [
+                {
+                    "id": str(dependent.id),
+                    "name": "models.signups_report",
+                    "before": dependent.query["query"],
+                    "after": after,
+                }
+            ],
+            "blocked": [],
+            "hidden_dependent_count": 0,
+            "hidden_blocked_count": 0,
+            "plan_token": plan.json()["plan_token"],
+        }
+        assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
+
+        response = self.client.post(
+            f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["name"] == "models.staging.signups"
+        stored = DataWarehouseSavedQuery.objects.get(id=dependent.id)
+        assert stored.query == {"kind": "HogQLQuery", "query": after}
+        assert stored.query_revision != dependent.query_revision
+        assert stored.query_updated_at == dependent.query_updated_at
+        assert stored.status == DataWarehouseSavedQuery.Status.COMPLETED
+        for scope in (None, TRINO_INCREMENTAL_SCOPE):
+            assert resolve_write_plan(self.team.id, dependent.id, scope=scope).reason == "incremental"
+
+    @parameterized.expand([("blocked_dependent", 400), ("stale_plan_token", 409)])
+    def test_a_refused_rename_changes_nothing(self, case: str, expected_status: int) -> None:
+        renamed, dependent = self._model_with_a_dependent()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
+        if case == "blocked_dependent":
+            broken = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="models.broken",
+                query={"kind": "HogQLQuery", "query": "select * from stg_signups where"},
+            )
+        plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"}).json()
+        if case == "blocked_dependent":
+            assert plan["blocked"] == [{"id": str(broken.id), "name": "models.broken", "reason": "does not parse"}]
+        else:
+            dependent.query = {"kind": "HogQLQuery", "query": "select id from stg_signups"}
+            dependent.query_revision = uuid.uuid4()
+            dependent.save()
+
+        response = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": plan["plan_token"]})
+
+        assert response.status_code == expected_status, response.content
+        assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "models.stg_signups"
+        assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 
     def test_delete_saved_query_with_managed_viewset_fails(self):
         """Test that deleting a saved query with managed viewset fails with correct error message"""
