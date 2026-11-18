@@ -35,6 +35,10 @@ const initResult = posthog.init(
         disable_product_tours: true,
         disable_session_recording: true,
         disable_external_dependency_loading: runningInBrowserExtension,
+        // Left unset, these fall back to remote config, which would capture clicks and web vitals of the host page.
+        capture_heatmaps: false,
+        capture_dead_clicks: false,
+        capture_performance: false,
         // The logs extension wraps the global console when remote config enables console capture,
         // and a local config cannot turn that off. Leave it out so the host page's console stays its own.
         __extensionClasses: { logs: undefined },
