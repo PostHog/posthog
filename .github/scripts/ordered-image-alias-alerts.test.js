@@ -42,22 +42,37 @@ function failingHistory(count) {
 
 function fakeHistory(
     entries,
-    { stalePages = 0, addedAfterFirstPage, slackResponse = { ok: true, json: async () => ({ ok: true }) } } = {}
+    { firstAttempts = [], stalePages = 0, addedAfterFirstPage, slackResponse = { ok: true, json: async () => ({ ok: true }) } } = {}
 ) {
     const calls = []
     const delays = []
     const messages = []
     const runs = entries.map(({ run }) => run).sort((a, b) => b.created_at.localeCompare(a.created_at))
     const jobs = new Map(entries.map(({ run, jobs }) => [run.id, jobs]))
+    const attempts = new Map(firstAttempts.map((entry) => [entry.run.id, entry]))
+    const jobsPage = (available, page, perPage) => {
+        const start = (page - 1) * perPage
+        return { data: { jobs: available.slice(start, start + perPage), total_count: available.length } }
+    }
     const github = {
         rest: {
             actions: {
                 async listJobsForWorkflowRun({ run_id, per_page, page }) {
                     calls.push(page === 1 ? run_id : `list jobs ${run_id} page ${page}`)
                     assert.ok(jobs.has(run_id))
-                    const available = jobs.get(run_id)
-                    const start = (page - 1) * per_page
-                    return { data: { jobs: available.slice(start, start + per_page), total_count: available.length } }
+                    return jobsPage(jobs.get(run_id), page, per_page)
+                },
+                async getWorkflowRunAttempt({ run_id, attempt_number, ...repo }) {
+                    calls.push(`get run ${run_id} attempt ${attempt_number}`)
+                    assert.deepEqual(repo, { owner: 'example', repo: 'images' })
+                    assert.equal(attempt_number, 1)
+                    return { data: attempts.get(run_id).run }
+                },
+                async listJobsForWorkflowRunAttempt({ run_id, attempt_number, per_page, page, ...repo }) {
+                    calls.push(`list jobs ${run_id} attempt ${attempt_number} page ${page}`)
+                    assert.deepEqual(repo, { owner: 'example', repo: 'images' })
+                    assert.equal(attempt_number, 1)
+                    return jobsPage(attempts.get(run_id).jobs, page, per_page)
                 },
                 async listWorkflowRuns(params) {
                     calls.push(`list runs ${params.page}`)
@@ -245,6 +260,46 @@ test('exits before reading history on a rerun, including a rerun that succeeded'
     const history = fakeHistory([trigger, ...failingHistory(3)])
     assert.deepEqual(await history.process({ ...trigger.run, run_attempt: 2 }), [])
     assert.deepEqual(history.calls, [])
+})
+
+test('ignores a successful rerun event and posts one recovery on the next successful push', async () => {
+    const [failed, ...predecessors] = failingHistory(3)
+    const [alert] = await messagesFor(failed, predecessors)
+    assert.match(alert, /failed in 3 consecutive runs/)
+
+    const rerun = completedAt(nodeRun(failed.run.id, 'success'), 101)
+    rerun.run.run_attempt = 2
+    const recovered = nodeRun(102, 'success')
+    const later = nodeRun(103, 'success')
+    const history = fakeHistory([later, recovered, rerun, ...predecessors], { firstAttempts: [failed] })
+    assert.deepEqual(await history.process(rerun.run), [])
+    assert.deepEqual(history.calls, [])
+
+    const recovery = 'Publish ordered image alias for Node.js (Build and deploy node container image) succeeded after at least 3 consecutive failures (<https://example.com/runs/102|successful run>).'
+    assert.deepEqual(await history.process(recovered.run), [recovery])
+    assert.deepEqual(await history.process(later.run), [recovery])
+})
+
+test('counts an older rerun at its first completion and makes no attempt calls for one-attempt runs', async () => {
+    const [trigger, ordinary, failed] = failingHistory(3)
+    failed.run.html_url += '/attempts/1'
+    failed.jobs.unshift(...Array.from({ length: 100 }, (_, i) => ({ name: `Build component ${i}`, conclusion: 'success' })))
+    const rerun = completedAt(nodeRun(failed.run.id, 'success'), 101)
+    rerun.run.run_attempt = 2
+    const history = fakeHistory([trigger, ordinary, rerun], { firstAttempts: [failed] })
+
+    const messages = await history.process(trigger.run)
+    assert.equal(messages.length, 1)
+    assert.match(messages[0], /failed in 3 consecutive runs/)
+    assert.ok(messages[0].includes('<https://example.com/runs/98/attempts/1|first failure>'))
+    assert.deepEqual(history.calls, [
+        100,
+        'list runs 1',
+        'get run 98 attempt 1',
+        99,
+        'list jobs 98 attempt 1 page 1',
+        'list jobs 98 attempt 1 page 2',
+    ])
 })
 
 test('a skipped, cancelled, or absent triggering job only needs the triggering jobs page', async () => {

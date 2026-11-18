@@ -1,5 +1,6 @@
 const { setTimeout: sleep } = require('node:timers/promises')
 
+const FIRST_ATTEMPT = 1
 const INITIAL_FAILURES = 3
 const REPEAT_INTERVAL = 10
 const RUNS_PER_PAGE = 100
@@ -110,6 +111,18 @@ function newestFirst(a, b) {
     return Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
 }
 
+async function firstAttemptRun(actions, coordinates, run) {
+    if (run.run_attempt > FIRST_ATTEMPT) {
+        const { data } = await actions.getWorkflowRunAttempt({
+            ...coordinates,
+            run_id: run.id,
+            attempt_number: FIRST_ATTEMPT,
+        })
+        return { ...data, jobsAttempt: FIRST_ATTEMPT }
+    }
+    return run
+}
+
 async function* loadOlderRuns(actions, coordinates, trigger, readJobs, delay) {
     const readPage = async (page) => {
         const { data } = await actions.listWorkflowRuns({
@@ -138,13 +151,16 @@ async function* loadOlderRuns(actions, coordinates, trigger, readJobs, delay) {
             }
         }
 
-        for (const run of runs) {
-            oldestFetchedCreation = Math.min(oldestFetchedCreation, Date.parse(run.created_at))
-            if (seen.has(run.id) || newestFirst(run, trigger) <= 0) {
+        for (const listedRun of runs) {
+            oldestFetchedCreation = Math.min(oldestFetchedCreation, Date.parse(listedRun.created_at))
+            if (seen.has(listedRun.id)) {
                 continue
             }
-            seen.add(run.id)
-            waiting.add(run)
+            seen.add(listedRun.id)
+            const run = await firstAttemptRun(actions, coordinates, listedRun)
+            if (newestFirst(run, trigger) > 0) {
+                waiting.add(run)
+            }
         }
 
         const exhausted = runs.length < RUNS_PER_PAGE
@@ -171,17 +187,22 @@ module.exports = async (
     { fetch: send = fetch, token = process.env.SLACK_BOT_TOKEN, delay = sleep } = {}
 ) => {
     const run = context.payload.workflow_run
-    if (run.run_attempt !== 1) {
+    if (run.run_attempt !== FIRST_ATTEMPT) {
         return
     }
 
     const actions = github.rest.actions
     const coordinates = context.repo
-    const readJobs = async ({ id }) => {
+    const readJobs = async ({ id, jobsAttempt }) => {
         const jobs = []
         const perPage = 100
+        const method = jobsAttempt ? 'listJobsForWorkflowRunAttempt' : 'listJobsForWorkflowRun'
+        const params = { ...coordinates, run_id: id, per_page: perPage }
+        if (jobsAttempt) {
+            params.attempt_number = jobsAttempt
+        }
         for (let page = 1; ; page++) {
-            const { data } = await actions.listJobsForWorkflowRun({ ...coordinates, run_id: id, per_page: perPage, page })
+            const { data } = await actions[method]({ ...params, page })
             jobs.push(...data.jobs)
             if (data.jobs.length < perPage || jobs.length >= data.total_count) {
                 return jobs
