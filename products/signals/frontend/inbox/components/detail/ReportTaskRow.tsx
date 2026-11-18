@@ -8,13 +8,12 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { captureInboxRunSummaryViewed } from '../../inboxAnalytics'
 import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
-import { RunLogContainer } from './RunLogContainer'
+import { ReportRunTranscript } from './ReportRunTranscript'
 
 /**
  * One row of a report's Runs list: the run's status, its purpose label, and — on hover or keyboard
@@ -43,7 +42,13 @@ export function ReportTaskRow({
     const summary = task.latest_run?.task_summary?.trim() || null
 
     const captureSummaryViewed = useCallback(
-        () => captureInboxRunSummaryViewed({ purpose, status, summaryLength: summary?.length ?? 0 }),
+        () =>
+            captureInboxRunSummaryViewed({
+                purpose,
+                status,
+                summaryLength: summary?.length ?? 0,
+                surface: 'runs_tooltip',
+            }),
         [purpose, status, summary]
     )
 
@@ -100,40 +105,7 @@ export function ReportTaskRow({
                 </Link>
             </div>
 
-            {expanded ? <RunTranscript taskId={task.id} runId={runId} replayOnly={replayOnly} /> : null}
-        </div>
-    )
-}
-
-function RunTranscript({
-    taskId,
-    runId,
-    replayOnly,
-}: {
-    taskId: string
-    runId: string | null
-    replayOnly: boolean
-}): JSX.Element {
-    return (
-        <div className="mt-1.5 mb-1 ml-1.5">
-            {runId ? (
-                // The viewer's virtualized thread owns scroll, so this box only bounds the height and
-                // clips — an `overflow-y-auto` here would nest a second scrollbar. Content is kept off
-                // the border via `threadRowClassName`/`threadListClassName`, not padding on this box.
-                <RunLogContainer>
-                    <ReadonlyRunSurface
-                        taskId={taskId}
-                        runId={runId}
-                        interaction={replayOnly ? 'read-only' : 'live'}
-                        threadRowClassName="px-3"
-                        threadListClassName="py-3"
-                    />
-                </RunLogContainer>
-            ) : (
-                <div className="rounded border border-primary bg-surface-primary px-3 py-2.5 text-xs text-secondary leading-snug">
-                    This run hasn't started yet. Its agent log will appear here once it does.
-                </div>
-            )}
+            {expanded ? <ReportRunTranscript taskId={task.id} runId={runId} replayOnly={replayOnly} /> : null}
         </div>
     )
 }

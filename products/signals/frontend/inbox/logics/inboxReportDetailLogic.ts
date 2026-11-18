@@ -31,6 +31,7 @@ import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
+import { unwrapUserMessageContent } from 'products/posthog_ai/frontend/api/logics'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
@@ -72,7 +73,12 @@ import type { SignalNodeApi } from 'products/signals/frontend/generated/api.sche
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import type { SignalReportStateEnumApi } from '../../generated/api.schemas'
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
-import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
+import {
+    deriveTaskPurpose,
+    isDiscussionTaskRun,
+    ReportTaskPurpose,
+    TaskRunArtefactContent,
+} from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
     buildAddReviewerOptions,
@@ -150,6 +156,12 @@ export interface ReportTaskEntry {
     purpose: ReportTaskPurpose
     purposeLabel: string
     startedAt: string
+}
+
+/** An Ask AI chat on the report, with the message the person sent to start it. */
+export interface ReportDiscussion {
+    entry: ReportTaskEntry
+    question: string
 }
 
 /**
@@ -347,6 +359,7 @@ export interface inboxReportDetailLogicValues {
     currentUserGithubLogin: string | null
     detailTab: ReportDetailTab
     diffArtefactId: string | null
+    discussionTaskIds: Set<string>
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
     editingCommentId: string | null
@@ -402,6 +415,7 @@ export interface inboxReportDetailLogicValues {
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: GitHubLoadError | null
     reportDiffLoading: boolean
+    reportDiscussions: ReportDiscussion[] | null
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
     reportSignalsLoading: boolean
@@ -410,6 +424,7 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    reportTasksWithoutDiscussions: ReportTaskEntry[] | null
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -836,6 +851,15 @@ export interface inboxReportDetailLogicMeta {
             availableReviewers: AvailableReviewerOption[] | null,
             user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
+        discussionTaskIds: (reportArtefacts: SignalReportArtefact[] | null) => Set<string>
+        reportDiscussions: (
+            reportTasks: ReportTaskEntry[] | null,
+            discussionTaskIds: Set<string>
+        ) => ReportDiscussion[] | null
+        reportTasksWithoutDiscussions: (
+            reportTasks: ReportTaskEntry[] | null,
+            discussionTaskIds: Set<string>
+        ) => ReportTaskEntry[] | null
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
@@ -1653,6 +1677,40 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     : null
                 return buildAddReviewerOptions(availableReviewers ?? [], me)
             },
+        ],
+        discussionTaskIds: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): Set<string> => {
+                const taskIds = new Set<string>()
+                for (const artefact of reportArtefacts ?? []) {
+                    const content = artefact.content as TaskRunArtefactContent
+                    if (artefact.type === 'task_run' && content?.task_id && isDiscussionTaskRun(content)) {
+                        taskIds.add(content.task_id)
+                    }
+                }
+                return taskIds
+            },
+        ],
+        // Oldest first, like the notes, so the chats read in the order people asked them. The task
+        // description holds the message behind the agent's context blocks, so unwrapping it gives
+        // the text the person typed, the same text the chat shows.
+        reportDiscussions: [
+            (s) => [s.reportTasks, s.discussionTaskIds],
+            (reportTasks: ReportTaskEntry[] | null, discussionTaskIds: Set<string>): ReportDiscussion[] | null =>
+                reportTasks === null
+                    ? null
+                    : reportTasks
+                          .filter((entry) => discussionTaskIds.has(entry.task.id))
+                          .map((entry) => ({
+                              entry,
+                              question: unwrapUserMessageContent(entry.task.description ?? '').trim(),
+                          }))
+                          .sort((a, b) => a.entry.startedAt.localeCompare(b.entry.startedAt)),
+        ],
+        reportTasksWithoutDiscussions: [
+            (s) => [s.reportTasks, s.discussionTaskIds],
+            (reportTasks: ReportTaskEntry[] | null, discussionTaskIds: Set<string>): ReportTaskEntry[] | null =>
+                reportTasks?.filter((entry) => !discussionTaskIds.has(entry.task.id)) ?? null,
         ],
         // True when a re-research is under way: ≥2 research tasks, one currently in-flight while a prior
         // attempt already reached a terminal state. Mirrors desktop `AgentRunDetail`'s `isReResearch`.

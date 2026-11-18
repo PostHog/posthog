@@ -12,12 +12,23 @@ import { ReportTaskRow } from './ReportTaskRow'
  * Renders the report's linked tasks inline (latest status + purpose), each row expanding in place to
  * the task's run transcript — mirroring the Code experience instead of navigating away to a separate
  * run page. The purpose label is derived from each task's `task_run` artefact; `repo_selection` runs
- * are filtered out.
+ * are filtered out. `excludeDiscussions` leaves out the Ask AI chats for a view that lists them on
+ * their own.
  */
-export function ReportTasksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportTasks, reportTasksLoading, expandedTaskIds } = useValues(
-        inboxReportDetailLogic({ reportId: report.id, report })
-    )
+export function ReportTasksSection({
+    report,
+    excludeDiscussions = false,
+}: {
+    report: SignalReport
+    excludeDiscussions?: boolean
+}): JSX.Element | null {
+    const {
+        reportTasks: allReportTasks,
+        reportTasksWithoutDiscussions,
+        reportTasksLoading,
+        expandedTaskIds,
+    } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const reportTasks = excludeDiscussions ? reportTasksWithoutDiscussions : allReportTasks
     const { toggleExpandedTask } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
 
     if (reportTasksLoading && !reportTasks) {

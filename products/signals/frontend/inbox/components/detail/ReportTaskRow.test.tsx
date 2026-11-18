@@ -62,6 +62,7 @@ describe('ReportTaskRow', () => {
         expect(summaryCaptures()).toEqual([
             expect.objectContaining({
                 inbox_client: 'cloud',
+                surface: 'runs_tooltip',
                 run_purpose: 'implementation',
                 run_status: 'completed',
                 summary_length: summary.length,
