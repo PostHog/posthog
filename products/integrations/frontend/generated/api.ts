@@ -22,6 +22,7 @@ import type {
     GitHubReposResponseApi,
     GitHubRepositoryAccessResponseApi,
     GitHubTeamsResponseApi,
+    GitLabProjectsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationAssigneesResponseApi,
@@ -36,6 +37,7 @@ import type {
     IntegrationsGithubRepositoryAccessRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsGitlabMembersRetrieveParams,
+    IntegrationsGitlabProjectsRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
     IntegrationsLinearTeamMembersRetrieveParams,
     IntegrationsListParams,
@@ -670,6 +672,38 @@ export const integrationsGitlabMembersRetrieve = async (
     options?: RequestInit
 ): Promise<IntegrationAssigneesResponseApi> => {
     return apiMutator<IntegrationAssigneesResponseApi>(getIntegrationsGitlabMembersRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsGitlabProjectsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabProjectsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/gitlab_projects/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/gitlab_projects/`
+}
+
+export const integrationsGitlabProjectsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabProjectsRetrieveParams,
+    options?: RequestInit
+): Promise<GitLabProjectsResponseApi> => {
+    return apiMutator<GitLabProjectsResponseApi>(getIntegrationsGitlabProjectsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

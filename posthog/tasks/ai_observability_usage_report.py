@@ -121,6 +121,10 @@ class TeamMetrics:
     ai_generation_summary_count: int = 0
     ai_trace_clusters_count: int = 0
     ai_generation_clusters_count: int = 0
+    ai_generation_with_session_count: int = 0
+    ai_generation_identified_count: int = 0
+    ai_generation_with_tool_calls_count: int = 0
+    ai_otel_generation_count: int = 0
 
     # Cost metrics
     total_cost: float = 0.0
@@ -377,6 +381,11 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_hog_evaluation_count += row[29] or 0
             metrics.ai_sentiment_evaluation_count += row[30] or 0
 
+            metrics.ai_generation_with_session_count += row[31] or 0
+            metrics.ai_generation_identified_count += row[32] or 0
+            metrics.ai_generation_with_tool_calls_count += row[33] or 0
+            metrics.ai_otel_generation_count += row[34] or 0
+
     return team_metrics
 
 
@@ -439,7 +448,17 @@ def get_all_ai_metrics(
             -- Evaluation counts
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count,
+            -- Instrumentation counts. OTel generations always get a random UUID distinct_id, so they are
+            -- left out of the identified count and counted apart.
+            countIf(event = '$ai_generation' AND {prop("$ai_session_id")} != '') as ai_generation_with_session_count,
+            countIf(
+                event = '$ai_generation'
+                AND {prop("$ai_ingestion_source")} != 'otel'
+                AND distinct_id != {prop("$ai_trace_id")}
+            ) as ai_generation_identified_count,
+            countIf(event = '$ai_generation' AND toInt64OrZero({prop("$ai_tool_call_count")}) > 0) as ai_generation_with_tool_calls_count,
+            countIf(event = '$ai_generation' AND {prop("$ai_ingestion_source")} = 'otel') as ai_otel_generation_count
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND startsWith(event, %(ai_event_prefix)s)
@@ -1053,6 +1072,10 @@ def _get_all_ai_observability_reports(
                 "ai_generation_summary_count": 0,
                 "ai_trace_clusters_count": 0,
                 "ai_generation_clusters_count": 0,
+                "ai_generation_with_session_count": 0,
+                "ai_generation_identified_count": 0,
+                "ai_generation_with_tool_calls_count": 0,
+                "ai_otel_generation_count": 0,
                 "llm_prompt_fetched_count": 0,
                 "active_llm_feedback_survey_count": 0,
                 "llm_feedback_survey_response_count": 0,
@@ -1102,6 +1125,10 @@ def _get_all_ai_observability_reports(
             report["ai_generation_summary_count"] += metrics.ai_generation_summary_count
             report["ai_trace_clusters_count"] += metrics.ai_trace_clusters_count
             report["ai_generation_clusters_count"] += metrics.ai_generation_clusters_count
+            report["ai_generation_with_session_count"] += metrics.ai_generation_with_session_count
+            report["ai_generation_identified_count"] += metrics.ai_generation_identified_count
+            report["ai_generation_with_tool_calls_count"] += metrics.ai_generation_with_tool_calls_count
+            report["ai_otel_generation_count"] += metrics.ai_otel_generation_count
 
             report["total_ai_cost_usd"] += metrics.total_cost
             report["total_ai_cost_usd_count"] += metrics.total_cost_count

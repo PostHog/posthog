@@ -7,7 +7,7 @@ import { IconCheck, IconCopy } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { condenseCommand } from './CommandBlock'
 
@@ -35,7 +35,7 @@ export function TerminalCard({ command, copyLabel, onCopy, className }: Terminal
     const [copied, setCopied] = useState(false)
 
     // Freeze the typewriter in storybook so visual snapshots are deterministic.
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     // Show the command without `-y`/`@latest` noise; the full `command` is still what gets copied.
     const displayCommand = condenseCommand(command)

@@ -7,6 +7,7 @@ import { IconSelfDriving } from 'lib/lemon-ui/icons'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxReportPreview } from './InboxReportPreview'
 import { InboxSetupActions } from './InboxSetupActions'
 
@@ -14,7 +15,7 @@ const HedgehogSelfDriving = pngHoggie(selfDrivingPng)
 
 const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
     productKey: ProductKey.SELF_DRIVING,
-    productName: 'Self-Driving',
+    productName: 'Self-driving',
     icon: <IconSelfDriving />,
     accentColor: 'var(--color-product-self-driving-light)',
     accentColorDark: 'var(--color-product-self-driving-dark)',
@@ -27,6 +28,7 @@ const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
         },
     },
     PrimaryAction: InboxSetupActions,
+    FooterActions: InboxGithubAccessExplanation,
     docsUrl: 'https://posthog.com/docs/self-driving',
     previewLabel: 'Example report',
     previewClassName: 'items-center [&>*]:w-full [&>*]:max-w-120',

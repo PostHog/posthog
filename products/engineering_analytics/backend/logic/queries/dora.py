@@ -1,30 +1,7 @@
-"""Curated query: DORA-style deploy metrics over the GitHub deployments pair.
+"""Curated query: DORA-style deploy metrics over the GitHub deployments and deployment statuses.
 
-Four quadrants, honestly named (SPEC §4):
-
-- Deployment frequency: deployments whose first ``success`` status landed in the
-  window, within the environment scope. Computed directly.
-- Lead time: ``merge_to_deploy_seconds``, a merged PR's wait until the first
-  successful deployment that *contains* its merge. Containment is resolved through
-  the deploy's head commit: its SHA resolves to a merged PR through ``merge_commit_sha``
-  or the workflow-run builder's ``commit_pr_number`` fallback. Every merge at or before
-  that head merge is on board. Success time alone
-  cannot decide this: deploys ship pre-built images, so a deploy routinely
-  succeeds *after* a merge it does not contain. The field name says merge-to-deploy,
-  not the full commit-to-deploy DORA definition (pre-merge time is measured elsewhere).
-  ``open_to_deploy_seconds`` (open to first successful deploy over the same
-  population) is the full-span headline the Health tile shows.
-- Change failure: ``failed_deployment_share``, deployments with a failure/error
-  status over deployments that reached any outcome. A proxy: no incident link, so
-  a deploy that succeeded but broke production is invisible.
-- Restore: ``median_failed_deploy_to_next_success_seconds``, first failure status
-  to the next successful deployment in the same environment. A proxy: recovery by
-  anything other than a deploy is invisible, and unrecovered failures are excluded.
-
-The PR-scoped lead-time reads follow the locked cycle-time recipe (bots and drafts
-excluded) and accept the ``team_members`` join for a GitHub-team filter, a team
-surface with aggregates only (SPEC §6). Deploy counts are repo events and ignore the
-team filter by design.
+Lead time credits a merged PR to the first successful deployment whose head commit merged at or
+after it. Change failure and restore are deploy-status proxies, because no incident link exists.
 """
 
 from datetime import datetime, timedelta
@@ -59,15 +36,11 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     window_pair_predicates,
 )
 
-# PRs merged this long before the scan window are outside lead-time attribution: the PR snapshot
-# holds every PR ever, so the deployed-PR join needs a floor. On a continuous-deploy repo a merge
-# waits minutes-to-hours for its deploy, so the bound is generous; a merge deployed more than this
-# much later is dropped rather than scanning the whole snapshot.
+# The PR snapshot holds every PR, so the deployed-PR join needs a floor. A PR merged longer than this
+# before the scan window gets no lead-time attribution.
 _MERGE_SCAN_LOOKBACK = timedelta(days=30)
 
-# Slack below the scan window so a deployment created before the window still counts when its
-# outcome lands inside it. A week covers even a badly stalled rollout; the deploy tables are
-# per-repo and small enough that the wider floor costs nothing measurable.
+# A deployment created before the scan window still counts when its outcome lands inside the window.
 _DEPLOY_SCAN_SLACK = timedelta(days=7)
 
 _ENVIRONMENT_LOOKBACK = timedelta(days=30)
@@ -75,15 +48,12 @@ _ENVIRONMENT_LOOKBACK = timedelta(days=30)
 _ENVIRONMENTS_LIMIT = 100
 _TEAMS_LIMIT = 500
 
-# One row per deployment with its outcome timestamps: statuses are append-only transitions, so the
-# first success / first failure are the outcome edges every read keys on. INNER JOIN drops
-# deployments with no status rows, because they never reached an outcome. __ENV_PREDICATE__ is one of the
-# trusted variants below (never user input; the exact-match variant reads a placeholder).
-# Assumes one deployment id per attempt (GitHub's normal shape): a deployment carrying both a
-# failure and a later success status on the same id would count toward both outcomes and could
-# pair with itself in the restore self-join.
-# minOrNullIf is required even when a source has non-null timestamps: minIf returns an epoch
-# for a missing outcome, which would win every first-deployment attribution.
+# Statuses are append-only transitions, so the first success and the first failure are the outcome
+# edges. __ENV_PREDICATE__ is trusted SQL, never user input.
+# Assumes one deployment id per attempt. A deployment with a failure and a later success on the same
+# id counts toward both outcomes and can pair with itself in the restore self-join.
+# minIf returns the epoch for a missing outcome, which would win every first-deployment attribution,
+# so the outcome columns use minOrNullIf.
 _DEPLOYS_CTE = """
     deploys AS (
         SELECT
@@ -100,15 +70,9 @@ _DEPLOYS_CTE = """
     )
 """
 
-# Outcome counts, the restore proxy, and the data-freshness edge in ONE round trip: every half
-# aggregates to a single row, so the CROSS JOINs just glue the rows side by side and the deploys
-# CTE is scanned once instead of twice.
-#
-# The restore half measures recovery per failed deployment: the next successful deployment in the
-# SAME environment. The self-join fans out and the min collapses it back to one row per failure;
-# deploy tables are small (per-repo, windowed) so the quadratic pairing stays cheap.
+# Recovery is the next successful deployment in the same environment as the failed one.
 # __DATE_TO_RECOVERY__ bounds the recovery to the requested horizon, so a historical report's
-# "no recovery" doesn't flip to recovered once a later, out-of-range deployment succeeds.
+# "no recovery" does not flip to recovered once a later, out-of-range deployment succeeds.
 _OUTCOMES_SELECT = """
     SELECT
         outcomes.deployment_count,
@@ -162,16 +126,15 @@ _FREQUENCY_SERIES_SELECT = """
     LIMIT 40000
 """
 
-# Each successful deployment's head merge time: the deploy's SHA is the merge commit of some
-# merged PR, and that PR's merged_at says which merges the deploy contains. The sanctioned
-# merge_commit_sha exception (SPEC §6): gated on merged_at (an open PR carries a throwaway
-# test-merge SHA) and collapsed to one row per deployment (min breaks a shared-SHA tie).
+# A deploy's SHA is the merge commit of a merged PR, and that PR's merged_at says which merges the
+# deploy contains. This is the merge_commit_sha exception (SPEC §6). It is gated on merged_at,
+# because an open PR carries a throwaway test-merge SHA, and min breaks a shared-SHA tie.
 # A deploy SHA with no merge_commit_sha match falls back to the workflow-run commit_pr_number on
 # the same repo's default branch. The candidate PR must have no merge commit of its own, because
 # one that names another commit means the (#N) suffix is wrong. It must merge into that branch,
 # because a cherry-pick keeps a release-branch PR's subject. It must merge before the deployment
 # was created, because GitHub fixes the deployed SHA at creation.
-# Bot merges stay in as heads on purpose: a bot's merge commit still names what a deploy contains.
+# Bot merges stay in as heads, because a bot's merge commit still names what a deploy contains.
 _DEPLOY_HEADS_CTE = """
     merge_heads AS (
         SELECT
@@ -218,13 +181,10 @@ _DEPLOY_HEADS_CTE = """
     )
 """
 
-# Each merged PR's first successful deployment that CONTAINS it: the deploy's head merge is at or
-# after the PR's merge. Ground-truthed against deploys whose SHA is exactly a PR's merge commit:
-# this rule agrees on 99.7% of them with a 0-minute median error, where pairing on the deploy's
-# success time instead picked an in-flight deploy built before the merge for roughly half.
-# CROSS JOIN + the WHERE range condition is the attribution: HogQL joins take equality keys only,
-# and the windowed populations are small enough that the pairing stays cheap. The locked
-# cycle-time recipe applies (bots/drafts excluded).
+# A deployment contains a PR when the deploy's head merge is at or after the PR's merge. Pairing on
+# the deploy's success time is wrong, because deploys ship pre-built images and a deploy can succeed
+# after a merge it does not contain.
+# The attribution is a CROSS JOIN with a WHERE range, because HogQL joins take equality keys only.
 _DEPLOYED_PRS_CTE = """
     deployed_prs AS (
         SELECT
@@ -245,9 +205,8 @@ _DEPLOYED_PRS_CTE = """
     )
 """
 
-# The three lead-time stages, one row per deployed PR. Every lead-time read selects from here, so the
-# box-plot series and the delivery summary's rows measure the SAME population and stages, and
-# open → merge and merge → deploy compose into open → deploy.
+# Every lead-time read selects from here, so the box-plot series and the delivery summary's rows
+# measure the same population and stages.
 _LEAD_TIME_INNER = """
     SELECT
         number,
@@ -261,9 +220,8 @@ _LEAD_TIME_INNER = """
     FROM deployed_prs
 """
 
-# The two one-row CROSS JOIN halves put attribution coverage on the same round trip: how many
-# PRs merged in the window at all (same bot/draft/team recipe), and how many an in-scope
-# deployment attributed by the report horizon: the honest denominator behind unattributed_merged_pr_share.
+# attributed_cur counts the PRs merged in the window that an in-scope deployment attributed by the
+# report horizon.
 _LEAD_TIME_HEADLINE_SELECT = f"""
     SELECT
         lead.deployed_cur,
@@ -300,8 +258,6 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
 
 
 def _box_stat_columns(column: str, prefix: str) -> str:
-    """The box-plot summary of ``column``, aliased under ``prefix``: the six-number summary
-    plus p5/p95, the whisker pair the outlier-excluding view draws instead of min/max."""
     return (
         f"min({column}) AS {prefix}_min, quantile(0.05)({column}) AS {prefix}_p05, "
         f"quantile(0.25)({column}) AS {prefix}_p25, quantile(0.5)({column}) AS {prefix}_p50, "
@@ -310,9 +266,8 @@ def _box_stat_columns(column: str, prefix: str) -> str:
     )
 
 
-# The three lead-time stages, in the order their six-stat columns appear in
-# _LEAD_TIME_SERIES_SELECT. _lead_time_bucket's ``stage`` index walks this same list, so the
-# SQL column order and the Python row-slice order can't drift independently.
+# The order of the stage columns in _LEAD_TIME_SERIES_SELECT. _lead_time_bucket slices a row by
+# position in this tuple.
 _LEAD_TIME_STAGES = (("mtd", "lead_seconds"), ("otm", "open_to_merge_seconds"), ("otd", "open_to_deploy_seconds"))
 _STAGE_STAT_WIDTH = 8  # min, p05, p25, p50, mean, p75, p95, max
 _STAGE_MERGE_TO_DEPLOY, _STAGE_OPEN_TO_MERGE, _STAGE_OPEN_TO_DEPLOY = range(len(_LEAD_TIME_STAGES))
@@ -328,9 +283,9 @@ _LEAD_TIME_SERIES_SELECT = f"""
     LIMIT 40000
 """
 
-# Transient environments (ephemeral per-PR previews on this repo) are excluded from the picker
-# options and the default scope: a busy repo deploys previews hundreds of times a week, which
-# would swamp every deploy count. An exact ``environment`` filter can still reach one by name.
+# Transient environments (per-PR previews) are excluded from the picker options and the default
+# scope, because their deploys would swamp every deploy count. An exact ``environment`` filter can
+# still reach one by name.
 _ENVIRONMENTS_SELECT = f"""
     SELECT environment, count() AS n
     FROM __DEPLOYMENTS_SOURCE__ AS d
@@ -340,8 +295,8 @@ _ENVIRONMENTS_SELECT = f"""
     LIMIT {_ENVIRONMENTS_LIMIT}
 """
 
-# Keep default production resolution separate from the capped picker query. Returning one aggregate
-# row also avoids HogQL's implicit row limit when a repository has more than 100 production regions.
+# One aggregate row avoids the picker query's cap and HogQL's implicit row limit, so every
+# production environment is returned.
 _PRODUCTION_ENVIRONMENTS_SELECT = """
     SELECT groupUniqArray(environment) AS environments
     FROM __DEPLOYMENTS_SOURCE__ AS d
@@ -369,7 +324,6 @@ _TEAMS_SELECT = f"""
 
 
 def _date_to_clause(date_to: datetime | None, column: str) -> str:
-    """The optional window-end clause on ``column``; empty when the window is open-ended."""
     return f"AND {column} <= {{date_to}}" if date_to is not None else ""
 
 
@@ -385,8 +339,8 @@ def _sorted_names(rows: list[Any]) -> list[str]:
 
 @frozen(slots=False)
 class _EnvironmentCatalog:
-    """The environment names a source deployed to around one window. Each list is its own ClickHouse
-    read and runs on first use, so a read that only needs the production default skips the rest."""
+    """The environment names a source deployed to around one window. ``options`` and ``production``
+    each run one ClickHouse read on first use."""
 
     curated: CuratedGitHubSource
     deployments_source: str
@@ -406,7 +360,7 @@ class _EnvironmentCatalog:
 
     @cached_property
     def options(self) -> list[str]:
-        """The picker's options: persistent environments deployed to in the scan window, most-deployed first."""
+        """Persistent environments deployed to in the scan window, most-deployed first."""
         rows = self._rows(_ENVIRONMENTS_SELECT, query_type="engineering_analytics.dora_environments")
         return [str(name) for name, _ in rows if name]
 
@@ -429,12 +383,12 @@ class _EnvironmentCatalog:
 
 @frozen
 class _EnvironmentScope:
-    # 'persistent', or the exact environment name(s) the scope resolved to (see DoraOverview).
+    # 'persistent', 'No matching environments', or the comma-joined environment names.
     scope: str
-    # The trusted SQL predicate variant for the deploys CTE.
+    # Trusted SQL for the deploys CTE, never user input.
     predicate: str
-    # The exact environment names the predicate matches, bound as the {environments} placeholder;
-    # None for the predicate variants that match by flag rather than by name.
+    # The environment names bound as the {environments} placeholder. None when the predicate matches
+    # by flag instead of by name.
     values: list[str] | None
 
     @classmethod
@@ -444,9 +398,6 @@ class _EnvironmentScope:
 
 @frozen
 class _DoraScan:
-    """One request's bound deploy scan: the curated handle, the resolved environment scope and its
-    deploys CTE, the placeholders every deploy sub-query shares, and the window."""
-
     curated: CuratedGitHubSource
     environment_catalog: _EnvironmentCatalog
     environment_scope: _EnvironmentScope
@@ -455,22 +406,22 @@ class _DoraScan:
     placeholders: dict[str, ast.Expr]
     date_from: datetime
     date_to: datetime | None
+    # The earliest run start the merge-attribution scan reads, so the runs source must cover it.
+    runs_from: datetime
 
     def run(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None = None) -> HogQLQueryResponse:
-        """Run ``sql`` with the shared placeholders plus ``placeholders`` that only this read binds."""
         return self.curated.run(sql, query_type=query_type, placeholders={**self.placeholders, **(placeholders or {})})
 
     def date_to_filter(self, column: str) -> str:
         return _date_to_clause(self.date_to, column)
 
     def attribution_ctes(self, *, pr_filter: str = "") -> str:
-        """The deploys, deploy heads and deployed PRs CTEs. ``pr_filter`` is a trusted ``AND`` clause
-        over the pull request source aliased ``pr``."""
+        """``pr_filter`` is a trusted ``AND`` clause over the pull request source aliased ``pr``."""
         return (
             f"{self.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
                 "__PR_SOURCE__", self.curated.pr_source()
             )
-            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True))
+            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True, since=self.runs_from))
             .replace("__TEAM_FILTER__", pr_filter)
         )
 
@@ -534,19 +485,16 @@ def _empty_overview(
 
 @frozen
 class _DeployOutcomes:
-    """Deploy outcome counts and the restore-proxy medians over the window pair, straight off
-    the deploys rollup."""
-
     deployment_count: int
     deployment_count_prev: int
     failed_count: int
     failed_count_prev: int
     outcome_count: int
     outcome_count_prev: int
-    # Median failed-deploy-to-next-success seconds (the restore proxy); None when nothing recovered.
+    # None when nothing recovered.
     restore_median_seconds: float | None
     restore_median_seconds_prev: float | None
-    # The newest status row synced in any environment, which shows how fresh the deploy data is.
+    # The newest status row in any environment, not only the scoped ones.
     latest_status_at: datetime | None
 
     @property
@@ -605,16 +553,12 @@ def _query_frequency_series(scan: _DoraScan, granularity: Granularity) -> list[D
 
 @frozen
 class _LeadTime:
-    """The PR-scoped merge-to-deploy figures: window-pair counts and medians, attribution
-    coverage, plus the box-plot series."""
-
     deployed_count: int
     deployed_count_prev: int
     median_seconds: float | None
     median_seconds_prev: float | None
     open_to_deploy_median_seconds: float | None
     open_to_deploy_median_seconds_prev: float | None
-    # PRs merged in the window (the locked recipe), and how many of those a deploy attributed.
     merged_count: int
     attributed_count: int
     series: list[LeadTimeBucket]
@@ -644,8 +588,8 @@ _EMPTY_LEAD_TIME = _LeadTime(
 def _query_lead_time(
     scan: _DoraScan, *, github_team: str | None, members_source: str | None, granularity: Granularity
 ) -> _LeadTime:
-    # A team filter without membership data cannot be honored: empty lead-time figures, never
-    # silently unfiltered ones.
+    # A team filter without membership data cannot be applied, so the figures are empty instead of
+    # unfiltered.
     if github_team and members_source is None:
         return _EMPTY_LEAD_TIME
     team_filter = ""
@@ -696,7 +640,6 @@ def _query_lead_time(
     ) = headline.results[0] if headline.results else (0, 0, None, None, None, None, 0, 0)
     stats_by_bucket = {normalize_bucket(row[0], granularity): row[1:] for row in (rows.results or [])}
     buckets = window_buckets(scan.date_from, scan.date_to, granularity)
-    # Row layout mirrors _LEAD_TIME_SERIES_SELECT: count, then a six-stat slice per stage.
     return _LeadTime(
         deployed_count=int(deployed_cur or 0),
         deployed_count_prev=int(deployed_prev or 0),
@@ -726,16 +669,16 @@ def _scan(
     date_to: datetime | None,
     validated_environments: list[str] | None,
 ) -> _DoraScan:
-    """Resolve the environment scope and bind the deploys CTE and placeholders every deploy read shares."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
+    runs_from = prev_from - _MERGE_SCAN_LOOKBACK
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
-        "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
-        "run_started_floor": run_started_floor_constant(prev_from - _MERGE_SCAN_LOOKBACK),
+        "merge_scan_floor": ast.Constant(value=runs_from),
+        "run_started_floor": run_started_floor_constant(runs_from),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
@@ -744,8 +687,6 @@ def _scan(
         curated=curated, deployments_source=deploy_sources.deployments, date_from=date_from, date_to=date_to
     )
     env_scope = _resolve_environment_scope(validated_environments, catalog)
-    # The busiest-environment fallbacks bind the same placeholder as an explicit filter: either
-    # way ``values`` holds exactly the environment names the predicate matches.
     if env_scope.values is not None:
         placeholders["environments"] = ast.Tuple(exprs=[ast.Constant(value=name) for name in env_scope.values])
 
@@ -762,6 +703,7 @@ def _scan(
         placeholders=placeholders,
         date_from=date_from,
         date_to=date_to,
+        runs_from=runs_from,
     )
 
 
@@ -840,9 +782,8 @@ def query_dora_overview(
     )
 
 
-# Every deployed PR relevant to one window, one row each: deployed in the window (the distribution
-# population) or merged in it (the attribution-coverage population). The delivery summary splits the
-# rows in Python, so the containment rule stays defined once, in the CTEs above.
+# Rows deployed in the window are the distribution population, and rows merged in it are the
+# attribution-coverage population. The delivery summary splits them in Python.
 _DEPLOYED_PR_ROWS_SELECT = f"""
     SELECT
         number,
@@ -886,10 +827,9 @@ def query_deployed_prs(
     scope_predicate: str,
     scope_placeholders: dict[str, ast.Expr],
 ) -> DeployedPRs | None:
-    """The deployed-PR population behind lead time, in the default (production) environment scope,
-    as rows. ``scope_predicate`` is a trusted SQL predicate over the unqualified ``deployed_prs``
-    columns that marks each row ``in_scope``; its placeholders ride in ``scope_placeholders``. None
-    when the deploy tables aren't synced."""
+    """The deployed PRs behind lead time, in the default environment scope. ``scope_predicate`` is
+    trusted SQL over the unqualified ``deployed_prs`` columns that marks each row ``in_scope``.
+    Returns None when the deploy tables are not synced."""
     deploy_sources = curated.deploy_sources()
     if deploy_sources is None:
         return None
@@ -920,8 +860,7 @@ def query_deployed_prs(
 
 
 def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage: int) -> LeadTimeBucket:
-    """One stage's bucket off a series row: ``stats`` is (count, then a _STAGE_STAT_WIDTH-wide
-    slice per stage, in _LEAD_TIME_STAGES order); ``stage`` picks which slice."""
+    """``stats`` is the count, then a _STAGE_STAT_WIDTH-wide slice per stage in _LEAD_TIME_STAGES order."""
     if not stats:
         return LeadTimeBucket(
             bucket_start=bucket,
@@ -959,7 +898,7 @@ def query_dora_environment_choices(
     date_from: datetime,
     date_to: datetime | None,
 ) -> list[str]:
-    """The ``environments`` the source deployed to in the scan window; empty without deploy data."""
+    """The ``environments`` the source deployed to in the scan window. Empty without deploy data."""
     deploy_sources = curated.deploy_sources()
     if deploy_sources is None or not environments:
         return []
@@ -970,7 +909,6 @@ def query_dora_environment_choices(
 
 
 def _query_github_teams(curated: CuratedGitHubSource, members_source: str | None) -> list[str]:
-    """Distinct GitHub team slugs from the membership snapshot: the team filter's options."""
     if members_source is None:
         return []
     response = curated.run(

@@ -109,6 +109,11 @@ def channel_ext_shared_state(slack: SlackIntegration, channel: str) -> bool | No
     For a caller that can wait and ask again, a failed lookup is not the same as a shared
     channel.
     """
+    # A DM with the app is never a Slack Connect channel. The lookup below also cannot answer
+    # for a `D…` id because the app does not request `im:read`, so without this check every DM
+    # reads as shared and is sent to an approval it can never get.
+    if channel.startswith("D"):
+        return False
     try:
         info = slack.client.conversations_info(channel=channel)
         conversation: dict[str, Any] = info.get("channel") or {}

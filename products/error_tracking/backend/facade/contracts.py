@@ -26,6 +26,17 @@ class BuiltInFilterEvaluation(LabeledStrEnum):
     SERVER = "server"
 
 
+class LifecycleFilterOutcome(LabeledStrEnum):
+    """Why compiled lifecycle filters admitted or skipped one issue transition."""
+
+    MATCH = "match"
+    EXCLUDED_BY_FILTER = "excluded_by_filter"
+    # A filter key needs exception properties that the transition does not carry.
+    DATA_UNAVAILABLE = "data_unavailable"
+    # Missing bytecode, or bytecode that failed to evaluate.
+    FILTER_ERROR = "filter_error"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -156,6 +167,32 @@ class ErrorTrackingIssuePreview:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagDefinition:
+    key: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTag:
+    key: str
+    label: str
+    description: str
+    # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
+    source: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
+    previous_source: str | None
+    previous_applied: bool
+    previous_probability: float | None
+    changed: bool
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str
@@ -166,6 +203,8 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+    # None when the tags were not read, so a response leaves the field out.
+    tags: list[ErrorTrackingIssueTag] | None = None
 
 
 @dataclass(frozen=True)
@@ -482,15 +521,6 @@ class ErrorTrackingAlert:
     updated_at: datetime
 
 
-class IssueSummaryCategory(LabeledStrEnum):
-    OWN_CODE = "own_code"
-    THIRD_PARTY = "third_party"
-    NETWORK = "network"
-    BOTS = "bots"
-    EXPECTED = "expected"
-    UNCLEAR = "unclear"
-
-
 @dataclass(frozen=True)
 class ErrorTrackingIssueSummary:
     issue_id: UUID
@@ -499,8 +529,6 @@ class ErrorTrackingIssueSummary:
     likely_cause: str
     who_is_affected: str
     suggested_next_step: str
-    # None when the category model did not answer.
-    category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
     # When generation last wrote the summary.

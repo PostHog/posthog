@@ -77,10 +77,16 @@ describe('HogTransformer', () => {
             SITE_URL: hub.SITE_URL,
             CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
             CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-            MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
+            CDP_INTERNAL_LOGS_SOURCES: '',
+            LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
+            LOGS_INTERNAL_PRODUCER_URL: '',
+            LOGS_INTERNAL_PRODUCER_TEAMS: '',
+            LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+            LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 1024 * 1024,
+            LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 1_000,
         }
         const transformer = createHogTransformerService(config, {
             ...hub,

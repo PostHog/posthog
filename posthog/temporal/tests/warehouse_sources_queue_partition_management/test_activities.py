@@ -304,7 +304,8 @@ async def test_activity_runs_queue_database_statements_on_a_pool_thread(activity
 @pytest.mark.asyncio
 async def test_activity_skips_a_locked_table_and_finishes_the_rest_of_the_run(activity_environment) -> None:
     conn = _FakePgConn(
-        {"sourcebatchstatus": [f"sourcebatchstatus_{_day(-9)}"]}, locked_tables=frozenset({"sourcebatch"})
+        {"sourcebatchstatus": [f"sourcebatchstatus_{_day(-9)}", f"sourcebatchstatus_{_day(0)}"]},
+        locked_tables=frozenset({"sourcebatch"}),
     )
 
     with (
@@ -319,7 +320,11 @@ async def test_activity_skips_a_locked_table_and_finishes_the_rest_of_the_run(ac
         first_sourcebatch
     ] * activities_module.PARTITION_DDL_ATTEMPTS
     assert result["errors"] == [f"Failed to create {first_sourcebatch}: canceling statement due to lock timeout"]
-    assert sum(p.startswith("sourcebatchstatus_") for p in result["ensured"]) == activities_module.PARTITIONS_AHEAD
+    assert [p for p in result["created"] if p.startswith("sourcebatchstatus_")] == [
+        f"sourcebatchstatus_{_day(offset)}" for offset in range(1, activities_module.PARTITIONS_AHEAD)
+    ]
+    assert f"sourcebatchstatus_{_day(0)}" in result["already_existed"]
+    assert f"sourcebatchstatus_{_day(0)}" not in conn.create_attempts
     assert result["dropped"] == [f"sourcebatchstatus_{_day(-9)}"]
 
 

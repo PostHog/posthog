@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import type { DashboardTemplateItemProps } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
-import { TemplateItem } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
+import type { DashboardTemplateItemProps } from '../../dashboards/templates/DashboardTemplateItem'
+import { TemplateItem } from '../../dashboards/templates/DashboardTemplateItem'
 
 // A small inline SVG data URI so stories don't depend on external network requests (picsum.photos)
 // which cause flaky timeouts in CI when waiting for image naturalWidth.

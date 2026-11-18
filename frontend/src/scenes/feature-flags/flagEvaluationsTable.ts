@@ -5,8 +5,8 @@ import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { CompareFilter, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode has no
-// such table. Queries on it fail to resolve for that team.
+// Not a root table, so the `posthog.` prefix is part of the name. On a self-hosted instance, a team on the
+// Events mode has no such table. Queries on it fail to resolve for that team.
 export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
@@ -21,6 +21,14 @@ export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null
 /** Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. */
 export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
     return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
+}
+
+/**
+ * Whether the events table that the team's queries read holds none of its new flag calls. Unlike
+ * storesFlagCallsOutsideEvents, it is also true for a team that reads the native JSON events table.
+ */
+export function flagCallsOnlyInFlagEvaluations(team: TeamPublicType | TeamType | null): boolean {
+    return !!team?.flag_calls_only_in_flag_evaluations
 }
 
 /**

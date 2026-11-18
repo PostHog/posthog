@@ -25,6 +25,8 @@ LOGS_LIST_DEFAULT_LIMIT = 50
 # Six columns fit rate, errors and three percentiles side by side.
 METRICS_TABLE_MAX_COLUMNS = 6
 METRICS_TABLE_MAX_FILTERS = 5
+# A row is one combination of the group-by label values, e.g. a view and an HTTP method.
+METRICS_TABLE_MAX_GROUP_BY = 3
 METRICS_TABLE_MAX_LIMIT = 100
 METRICS_TABLE_DEFAULT_LIMIT = 25
 # Points per sparkline, and also the bucket count of the query. A query returns one row per bucket and label

@@ -88,13 +88,20 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_REJECTED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    ForecastDetectorPausedError,
+    ForecastDetectorUnavailableError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -1174,6 +1181,35 @@ class TestEvaluateAlert:
             assert check.notification_sent_at is not None
             assert alert.last_notified_at == check.notification_sent_at
 
+    @pytest.mark.parametrize("already_firing", [False, True])
+    async def test_ai_detector_alert_notifies_and_investigates_only_the_first_firing_check(
+        self, ateam, already_firing: bool
+    ) -> None:
+        alert = await _create_alert(
+            ateam,
+            state=AlertState.FIRING if already_firing else AlertState.NOT_FIRING,
+            detector_config={"type": "llm"},
+        )
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            investigation_agent_enabled=True, investigation_gates_notifications=True
+        )
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=100.0, breaches=["anomalous point"]),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=True, team_id=ateam.id),
+            )
+
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is not already_firing
+        assert result.should_start_investigation is not already_firing
+        assert result.should_gate_notification is not already_firing
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert ((check.triggered_metadata or {}).get(FIRING_NOT_RENOTIFIED_KEY) is True) is already_firing
+
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
@@ -1356,12 +1392,21 @@ class TestEvaluateAlert:
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
 
-    async def test_a_paused_ai_detector_errors_once_and_leaves_the_alert_enabled(self, alert_with_user) -> None:
-        message = "The AI detector is not enabled for your account."
+    @pytest.mark.parametrize(
+        "paused_error,code",
+        [
+            (LLMDetectorPausedError, LLM_DETECTOR_PAUSED_ERROR_CODE),
+            (ForecastDetectorPausedError, FORECAST_DETECTOR_PAUSED_ERROR_CODE),
+        ],
+    )
+    async def test_a_paused_detector_errors_once_and_leaves_the_alert_enabled(
+        self, alert_with_user, paused_error, code
+    ) -> None:
+        message = "The detector is not enabled for your account."
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=LLMDetectorPausedError(message),
+                side_effect=paused_error(message),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
         ):
@@ -1372,7 +1417,7 @@ class TestEvaluateAlert:
         assert (first.new_state, first.should_notify, repeated.should_notify) == (AlertState.ERRORED, True, False)
         mock_capture.assert_not_called()
         check = await sync_to_async(AlertCheck.objects.get)(pk=first.alert_check_id)
-        assert check.error == {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": message}
+        assert check.error == {"code": code, "message": message}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
 
@@ -1554,15 +1599,16 @@ class TestRecordFailedEvaluation:
             assert result_again.should_notify is (change != "owner")
 
     @pytest.mark.parametrize(
-        "error_type,expected_outcomes",
+        "error_type,expected_outcomes,expected_code",
         [
-            (LLMDetectorUnavailableError.__name__, ["unavailable"]),
-            ("ValueError", []),
-            (None, []),
+            (LLMDetectorUnavailableError.__name__, ["unavailable"], LLM_DETECTOR_UNAVAILABLE_ERROR_CODE),
+            (ForecastDetectorUnavailableError.__name__, [], FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE),
+            ("ValueError", [], None),
+            (None, [], None),
         ],
     )
     async def test_counts_one_unavailable_outcome_per_recorded_failure(
-        self, alert, error_type, expected_outcomes
+        self, alert, error_type, expected_outcomes, expected_code
     ) -> None:
         env = ActivityEnvironment()
         with patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome:
@@ -1578,6 +1624,8 @@ class TestRecordFailedEvaluation:
 
         assert result.alert_check_id is not None
         assert [call.args[0] for call in mock_outcome.call_args_list] == expected_outcomes
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert (check.error or {}).get("code") == expected_code
 
     async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
         # A disable between prepare and evaluate writes no errored check, so it is not a failed
@@ -1897,6 +1945,12 @@ class TestNotifyAlert:
                 False,
             ),
             ({"message": "No AI credits left.", "code": LLM_DETECTOR_PAUSED_ERROR_CODE}, False, True),
+            (
+                {"message": FORECAST_DETECTOR_UNAVAILABLE_MESSAGE, "code": FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE},
+                True,
+                False,
+            ),
+            ({"message": "The forecast service refused.", "code": FORECAST_DETECTOR_REJECTED_ERROR_CODE}, False, True),
         ],
     )
     async def test_error_email_marks_an_unavailable_detector(

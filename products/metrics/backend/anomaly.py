@@ -31,9 +31,15 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _pick_interval, time_range_expr
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    _interval_step,
+    _pick_interval,
+    _resolve_interval,
+    time_range_expr,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
-from products.metrics.backend.metrics4_samples import reads_metrics4_only, series_in_range_query
+from products.metrics.backend.metrics4_samples import not_stale_marker_expr, reads_metrics4_only, series_in_range_query
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -155,7 +161,11 @@ def characterize_anomaly(
     # One query over the combined window keeps baseline and anomaly on a
     # single grid. Buckets between baseline_to and anomaly_from (the gap, for
     # an explicit faraway baseline) are plotted but excluded from the stats.
-    interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
+    # The runner coarsens any interval past its own bucket cap, so resolve it the same way here: the
+    # partial-bucket cutoff below needs the step the query actually buckets by.
+    interval = _resolve_interval(
+        baseline_from, anomaly_to, _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
+    )
 
     def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
         return build_metric_query_runner(
@@ -170,13 +180,23 @@ def characterize_anomaly(
             quantile=quantile if aggregation == "histogram_quantile" else None,
         ).run()
 
+    # A bucket that ends after anomaly_to, or after now, has only part of its samples, so a sum or an
+    # increase reads low there. It stays in the plotted series but out of every statistic.
+    complete_until = min(anomaly_to, dt.datetime.now(dt.UTC))
+    step = _interval_step(interval)
+
+    def _is_partial(time: dt.datetime) -> bool:
+        return time + step > complete_until
+
     rows = _run()
     points = [MetricPoint(time=row["time"], value=row["value"]) for row in rows]
     point_times = [_parse_point_time(p.time) for p in points]
-    baseline_values = [
-        p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to and p.value is not None
-    ]
-    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from and p.value is not None]
+    partial_bucket_time = next((p.time for p, t in zip(points, point_times) if _is_partial(t)), None)
+    complete = [(p, t) for p, t in zip(points, point_times) if not _is_partial(t)]
+    baseline_values = [p.value for p, t in complete if baseline_from <= t < baseline_to and p.value is not None]
+    anomaly_values = [p.value for p, t in complete if t >= anomaly_from and p.value is not None]
+    if not anomaly_values and partial_bucket_time is not None:
+        raise ValueError(f"the anomaly window has no complete {interval} bucket yet; widen it or move anomaly_to later")
 
     baseline_mean = _mean(baseline_values)
     baseline_stddev = statistics.pstdev(baseline_values) if len(baseline_values) > 1 else 0.0
@@ -190,7 +210,9 @@ def characterize_anomaly(
         direction = "up" if anomaly_mean > baseline_mean else "down"
 
     onset_time = (
-        None if direction == "flat" else _find_onset(points, anomaly_from, baseline_mean, baseline_stddev, direction)
+        None
+        if direction == "flat"
+        else _find_onset([p for p, _ in complete], anomaly_from, baseline_mean, baseline_stddev, direction)
     )
 
     movers = _find_top_movers(
@@ -203,6 +225,7 @@ def characterize_anomaly(
         anomaly_to=anomaly_to,
         filters=filters,
         candidate_keys=candidate_keys,
+        is_partial=_is_partial,
     )
 
     return MetricAnomalyReport(
@@ -220,6 +243,7 @@ def characterize_anomaly(
         change_ratio=change_ratio,
         direction=direction,
         onset_time=onset_time,
+        partial_bucket_time=partial_bucket_time,
         top_movers=movers,
         series=MetricSeries(labels={}, points=tuple(points), metric_name=metric_name, clause="anomaly"),
     )
@@ -234,10 +258,12 @@ def _series_in_range(metric_name: str, date_from: dt.datetime, date_to: dt.datet
             FROM posthog.metrics
             WHERE metric_name = {metric_name}
               AND {time_range}
+              AND {not_stale}
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
             "time_range": time_range_expr(date_from, date_to),
+            "not_stale": not_stale_marker_expr(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -278,7 +304,7 @@ def _discover_candidate_keys(
             "limit": ast.Constant(value=MAX_CANDIDATE_KEYS),
         },
     )
-    response = execute_hogql_query(query_type="MetricQuery", query=query, team=team, workload=Workload.LOGS)
+    response = execute_hogql_query(query_type="MetricQuery", query=query, team=team, workload=Workload.METRICS)
     keys: list[str] = []
     for row in response.results:
         key = "service_name" if row[0] == "service.name" else row[0]
@@ -312,6 +338,7 @@ def _find_top_movers(
     anomaly_to: dt.datetime,
     filters: tuple[MetricFilter, ...],
     candidate_keys: tuple[str, ...] | None,
+    is_partial: Callable[[dt.datetime], bool],
 ) -> tuple[MetricAnomalyDimension, ...]:
     keys = candidate_keys or _discover_candidate_keys(team, metric_name, anomaly_from, anomaly_to)
 
@@ -321,6 +348,8 @@ def _find_top_movers(
         per_label: dict[str, dict[str, list[float]]] = {}
         for row in rows:
             time = _parse_point_time(row["time"])
+            if is_partial(time):
+                continue
             if time >= anomaly_from:
                 bucket = "anomaly"
             elif baseline_from <= time < baseline_to:

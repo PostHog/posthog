@@ -11,7 +11,7 @@ export interface MessageListProps {
     messages: ThreadMessage[]
     emptyText: string
     openFrom: number
-    /** Messages that contain this text open too, so the search highlights in them show. */
+    /** Messages that contain this text open in full, so the search highlights in them show. */
     highlightQuery?: string | null
 }
 
@@ -48,6 +48,7 @@ export function MessageList({ messages, emptyText, openFrom, highlightQuery = nu
                         defaultOpen={
                             index >= openFrom || (!!highlightQuery && messageContainsText(message, highlightQuery))
                         }
+                        highlightQuery={highlightQuery}
                     />
                 </Fragment>
             ))}

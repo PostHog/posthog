@@ -12,8 +12,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import type { MockResolverInfo } from '~/mocks/utils'
 
-import __dashboard1 from '../dashboard/__mocks__/dashboard1.json'
-import __dashboards from '../dashboard/__mocks__/dashboards.json'
+import __dashboard1 from 'products/dashboards/frontend/__mocks__/dashboard1.json'
+import __dashboards from 'products/dashboards/frontend/__mocks__/dashboards.json'
 
 const dashboardRaw = __dashboard1 as any
 // Mark all tiles as cached to prevent refresh attempts in storybook

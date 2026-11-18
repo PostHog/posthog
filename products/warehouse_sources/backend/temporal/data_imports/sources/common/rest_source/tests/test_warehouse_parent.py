@@ -172,6 +172,45 @@ def test_reader_logs_the_row_count_and_how_the_scan_ended(
     assert logged.kwargs["outcome"] == expected_outcome
 
 
+@pytest.mark.parametrize(
+    "raised,expected_type",
+    [
+        (
+            OSError(
+                "Generic S3 error: The operation lacked the necessary privileges to complete for path "
+                "some/table/part-00000.parquet"
+            ),
+            warehouse_parent.ObjectStorePermissionDeniedError,
+        ),
+        (
+            OSError("Generic S3 error: Please reduce your request rate"),
+            warehouse_parent.TransientObjectStoreError,
+        ),
+    ],
+    ids=["permission_denied", "transient"],
+)
+def test_reader_classifies_object_store_errors_raised_mid_scan(
+    tmp_path: Path, raised: OSError, expected_type: type
+) -> None:
+    # The table opens fine; the bucket only refuses (or blips on) reading a fragment's actual
+    # bytes once the scan is underway. That must come out as the same typed error every other
+    # Delta read/write path in this package raises for it, not a raw crash naming the S3 key.
+    uri = _write_parent_table(tmp_path)
+    failing_fragment = Mock(path="part-00000.parquet")
+    failing_fragment.to_batches.side_effect = raised
+    fake_dataset = Mock()
+    fake_dataset.get_fragments.return_value = [failing_fragment]
+
+    with (
+        patch.object(warehouse_parent, "delta_storage_options", return_value={}),
+        patch.object(deltalake.DeltaTable, "to_pyarrow_dataset", return_value=fake_dataset),
+    ):
+        with pytest.raises(expected_type) as exc_info:
+            _patched_positioned_reader(uri, columns=["id"], page_size=10)
+
+    assert exc_info.value.__cause__ is raised
+
+
 def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
     with pytest.raises(WarehouseParentTableNotFoundError, match="no synced table"):
         _patched_resolve(str(tmp_path / "does_not_exist"))

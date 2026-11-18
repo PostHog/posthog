@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 import { v4 as uuidv4 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
+import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
     extractActionId,
@@ -34,6 +36,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
+            ENCRYPTION_SALT_KEYS: '',
         }
         const queue = new CyclotronJobQueuePostgresV2(500, config)
 
@@ -75,6 +78,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             reschedule: jest.fn().mockResolvedValue(undefined),
             cancel: jest.fn().mockResolvedValue(undefined),
             heartbeat: jest.fn().mockResolvedValue(undefined),
+            defer: jest.fn().mockResolvedValue(undefined),
             ...overrides,
         }
     }
@@ -208,6 +212,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const config: any = {
                 CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                 CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+                ENCRYPTION_SALT_KEYS: '',
             }
             const queue = new CyclotronJobQueuePostgresV2(500, config)
 
@@ -352,6 +357,44 @@ describe('CyclotronJobQueuePostgresV2', () => {
 
             expect(job.ack).toHaveBeenCalledTimes(1)
             expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+        })
+    })
+
+    describe('startAsConsumer', () => {
+        async function failedResultWrites(queue: string): Promise<number> {
+            const metric = register.getSingleMetric('cdp_cyclotron_v2_result_write_failures_total')
+            const samples = metric ? (await metric.get()).values : []
+            return samples.find((sample) => sample.labels.queue === queue)?.value ?? 0
+        }
+
+        it('keeps the process up when writing a batch result fails on a dropped connection', async () => {
+            const { queue } = createQueue()
+            let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
+            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
+                connect: (fn: typeof consume) => {
+                    consume = fn
+                    return Promise.resolve()
+                },
+            })
+            const unhandled = jest.fn()
+            process.on('unhandledRejection', unhandled)
+            try {
+                await queue.startAsConsumer('hog', () =>
+                    Promise.resolve({ backgroundTask: Promise.reject(new Error('Connection terminated unexpectedly')) })
+                )
+                const before = await failedResultWrites('hog')
+                await consume([
+                    createDequeuedJob({
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                    }) as unknown as CyclotronV2DequeuedJob,
+                ])
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(unhandled).not.toHaveBeenCalled()
+                expect(await failedResultWrites('hog')).toBe(before + 1)
+            } finally {
+                process.off('unhandledRejection', unhandled)
+            }
         })
     })
 

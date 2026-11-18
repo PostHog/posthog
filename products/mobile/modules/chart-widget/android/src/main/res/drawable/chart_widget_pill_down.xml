@@ -1,0 +1,4 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+  <solid android:color="@color/chart_widget_red_tint" />
+  <corners android:radius="6dp" />
+</shape>

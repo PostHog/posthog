@@ -23,6 +23,7 @@ from hogli_commands.telemetry_props import (
     _repo_commit,
     _repo_commit_properties,
     _session_properties,
+    _worktree_tool,
     classify_command,
     is_rerun,
 )
@@ -46,6 +47,33 @@ class TestProcessManagerInference:
         monkeypatch.setattr("sys.argv", argv)
 
         assert _infer_process_manager("start") == expected
+
+
+class TestWorktreeTool:
+    @pytest.mark.parametrize(
+        ("pointer", "recorded", "expected"),
+        [
+            ("gitdir: {admin}", "superset\n", "superset"),
+            ("gitdir: admin", "t3code", "t3code"),
+            ("gitdir: {admin}", None, None),
+            ("gitdir: {admin}", "Not A Tool; rm -rf", None),
+            (None, "superset", None),
+        ],
+        ids=["absolute-gitdir", "relative-gitdir", "no-hook-ran", "unexpected-content", "main-checkout"],
+    )
+    def test_reads_the_tool_the_create_hook_recorded(
+        self, tmp_path, pointer: str | None, recorded: str | None, expected: str | None
+    ) -> None:
+        admin = tmp_path / "admin"
+        admin.mkdir()
+        if recorded is not None:
+            (admin / "hogli-worktree-source").write_text(recorded)
+        if pointer is None:
+            (tmp_path / ".git").mkdir()
+        else:
+            (tmp_path / ".git").write_text(pointer.format(admin=admin))
+
+        assert _worktree_tool(tmp_path) == expected
 
 
 class TestDetectEnvironment:

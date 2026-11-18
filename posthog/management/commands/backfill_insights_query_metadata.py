@@ -5,13 +5,13 @@ import time
 from datetime import datetime
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.db.models import Q
 
 import structlog
 
 from posthog.hogql_queries.query_metadata import InsightQueryMetadata
 
+from products.product_analytics.backend.facade.api import store_backfilled_query_metadata
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -79,11 +79,13 @@ class Command(BaseCommand):
         Backfill query_metadata for insights that don't have it.
 
         Processes insights in small batches to minimize memory usage.
-        Uses proper row locking to prevent race conditions.
+        Each write is conditional, so a concurrent save of the same insight wins.
         """
-        # Build base query
+        # Regenerate when metadata is missing entirely or predates the properties key. A queryless
+        # insight has nothing to regenerate from.
         base_query = Insight.objects_including_soft_deleted.filter(
-            Q(query_metadata__isnull=True) | Q(query_metadata={})
+            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True),
+            query__isnull=False,
         )
 
         if team_id:
@@ -109,74 +111,80 @@ class Command(BaseCommand):
                 f"in approximately {format_duration(estimated_time)}"
             )
 
-        # Process in batches to minimize memory usage
+        # Process in batches to minimize memory usage. Each batch starts after the last id of the one
+        # before, so the scan never re-reads rows it has passed. Without the cursor every batch walks
+        # over all rows already fixed, and a dry run, which fixes nothing, never ends.
+        last_id = 0
         while True:
             batch_start_time = time.time()
 
-            # Process one batch at a time
-            with transaction.atomic():
-                # Get a batch of insights WITH ROW LOCKING
-                # This ensures no one else can modify these rows while we're processing them
-                insights = list(
-                    base_query.order_by("id")
-                    .select_for_update(skip_locked=True, of=("self",))  # Add row locking
-                    .select_related("team")
-                    .only("id", "query", "query_metadata", "team")[:batch_size]
-                )
+            # No row locks: extraction is slow, and saves of these insights would wait for the lock.
+            insights = list(
+                base_query.filter(id__gt=last_id)
+                .order_by("id")
+                .select_related("team")
+                .only("id", "query", "query_metadata", "team")[:batch_size]
+            )
 
-                if not insights:
-                    # If we got no insights, we're done
-                    break
+            if not insights:
+                break
 
-                batch_updated = 0
-                insights_to_update = []
+            last_id = insights[-1].id
+            batch_updated = 0
 
-                for insight in insights:
-                    # Skip insights that already have metadata
-                    if insight.query_metadata and insight.query_metadata != {}:
-                        continue
+            for insight in insights:
+                query_at_read = insight.query
+                try:
+                    insight.generate_query_metadata()
+                    if verbose:
+                        self.stdout.write(f"Insight {insight.id}: Generated query metadata")
+                except Exception as e:
+                    logger.exception(f"Failed to generate metadata for insight {insight.id}: {e}")
+                    # store metadata to avoid reprocessing, with a specific datetime to know which ones failed via this command (hacky, I know).
+                    # Keep the events from earlier metadata, so a failure to extract properties doesn't erase them.
+                    failed_datetime = datetime(2025, 1, 1, 0, 0, 0)
+                    previous_metadata = insight.query_metadata if isinstance(insight.query_metadata, dict) else {}
+                    previous_events = [
+                        event for event in previous_metadata.get("events") or [] if isinstance(event, str)
+                    ]
+                    insight.query_metadata = InsightQueryMetadata(
+                        events=previous_events, updated_at=failed_datetime
+                    ).model_dump(exclude_none=True, mode="json")
 
-                    # Generate metadata
-                    try:
-                        insight.generate_query_metadata()
-                        batch_updated += 1
-                        if verbose:
-                            self.stdout.write(f"Insight {insight.id}: Generated query metadata")
-                    except Exception as e:
-                        logger.exception(f"Failed to generate metadata for insight {insight.id}: {e}")
-                        # store an empty metadata to avoid reprocessing, with a specific datetime to know which ones failed via this command (hacky, I know)
-                        failed_datetime = datetime(2025, 1, 1, 0, 0, 0)
-                        insight.query_metadata = InsightQueryMetadata(events=[], updated_at=failed_datetime).model_dump(
-                            exclude_none=True, mode="json"
-                        )
+                if dry_run:
+                    batch_updated += 1
+                    continue
 
-                    insights_to_update.append(insight)
+                if (
+                    query_at_read is not None
+                    and insight.query_metadata is not None
+                    and store_backfilled_query_metadata(
+                        insight_id=insight.id, query_at_read=query_at_read, query_metadata=insight.query_metadata
+                    )
+                ):
+                    batch_updated += 1
 
-                # Update all modified insights in this batch
-                if insights_to_update and not dry_run:
-                    Insight.objects_including_soft_deleted.bulk_update(insights_to_update, ["query_metadata"])
+            total_updated += batch_updated
+            total_processed += len(insights)
 
-                total_updated += batch_updated
-                total_processed += len(insights)
+            batch_duration = time.time() - batch_start_time
 
-                batch_duration = time.time() - batch_start_time
+            # Report progress
+            percent_complete = (total_processed / total_insights) * 100 if total_insights > 0 else 100
+            elapsed_time = time.time() - start_time
+            est_remaining = (
+                (elapsed_time / total_processed) * (total_insights - total_processed) if total_processed > 0 else 0
+            )
 
-                # Report progress
-                percent_complete = (total_processed / total_insights) * 100 if total_insights > 0 else 100
-                elapsed_time = time.time() - start_time
-                est_remaining = (
-                    (elapsed_time / total_processed) * (total_insights - total_processed) if total_processed > 0 else 0
-                )
-
-                self.stdout.write(
-                    f"Batch: Processed {len(insights)} insights, updated {batch_updated} in {batch_duration:.2f}s "
-                    f"({len(insights) / batch_duration:.1f} insights/sec)"
-                )
-                self.stdout.write(
-                    f"Progress: {percent_complete:.1f}% ({total_processed}/{total_insights}) | "
-                    f"Elapsed: {format_duration(elapsed_time)} | "
-                    f"Estimated remaining: {format_duration(est_remaining)}"
-                )
+            self.stdout.write(
+                f"Batch: Processed {len(insights)} insights, updated {batch_updated} in {batch_duration:.2f}s "
+                f"({len(insights) / batch_duration:.1f} insights/sec)"
+            )
+            self.stdout.write(
+                f"Progress: {percent_complete:.1f}% ({total_processed}/{total_insights}) | "
+                f"Elapsed: {format_duration(elapsed_time)} | "
+                f"Estimated remaining: {format_duration(est_remaining)}"
+            )
 
             # Sleep between batches
             if sleep_interval > 0:

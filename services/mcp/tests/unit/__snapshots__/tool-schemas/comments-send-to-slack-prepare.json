@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel_id": {
+            "description": "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the top-level comment that starts the discussion.",
+            "type": "string"
+        },
+        "integration_id": {
+            "description": "ID of the Slack integration (kind='slack') whose bot posts the thread.",
+            "type": "number"
+        }
+    },
+    "required": ["id", "integration_id", "channel_id"],
+    "type": "object"
+}

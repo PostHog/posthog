@@ -25,9 +25,9 @@ import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useChartScales } from './hooks/useChartScales'
-import { useLatest } from './hooks/useLatest'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useHoverSync } from './hover-sync'
 import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
@@ -46,6 +46,8 @@ import type {
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// A synced chart draws only the crosshair, with no point highlights.
+const DRAW_NOTHING = (): boolean => true
 // Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
 const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
@@ -161,6 +163,7 @@ export function Chart<Meta = unknown>({
         yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        syncHover = false,
         showTickMarks = false,
         axisOrientation = 'vertical',
         isPercent = false,
@@ -329,10 +332,8 @@ export function Chart<Meta = unknown>({
         resolveHoverIndex,
     })
 
-    // ref keeps composedDrawHover stable across drawHover identity changes
-    const drawHoverRef = useLatest(drawHover)
     const composedDrawHover = useMemo(() => {
-        const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+        const withCrosshair = composeDrawHoverWithCrosshair(drawHover, {
             crosshairColor: theme.crosshairColor,
             crosshairDash: theme.crosshairDashPattern,
             showCrosshair,
@@ -340,14 +341,24 @@ export function Chart<Meta = unknown>({
             labelToCoord,
         })
         return composeDrawHoverWithSelection(withCrosshair)
-    }, [
-        showCrosshair,
-        theme.crosshairColor,
-        theme.crosshairDashPattern,
-        axisOrientation,
-        labelToCoord,
-        drawHoverRef.current,
-    ])
+    }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHover])
+
+    // Inside a <ChartHoverSync>, another chart's hover draws a bare crosshair here while this chart
+    // isn't hovered itself. Its tooltip and point highlights stay on the hovered chart.
+    const syncedIndex = useHoverSync(labels, hoverIndex >= 0 ? (labels[hoverIndex] ?? null) : null, syncHover)
+    const showSyncedCrosshair = hoverIndex < 0 && syncedIndex >= 0
+    const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
+    const drawSyncedCrosshair = useMemo(
+        () =>
+            composeDrawHoverWithCrosshair(DRAW_NOTHING, {
+                crosshairColor: syncedCrosshairColor,
+                crosshairDash: theme.crosshairDashPattern,
+                showCrosshair: true,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [syncedCrosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord]
+    )
 
     useChartDraw({
         ctx,
@@ -356,12 +367,12 @@ export function Chart<Meta = unknown>({
         scales,
         series: coloredSeries,
         labels,
-        hoverIndex,
+        hoverIndex: showSyncedCrosshair ? syncedIndex : hoverIndex,
         hoverPosition,
         theme,
         dragRect,
         drawStatic: drawStaticWithTicks,
-        drawHover: composedDrawHover,
+        drawHover: showSyncedCrosshair ? drawSyncedCrosshair : composedDrawHover,
         hoverAnimationMs,
     })
 
@@ -435,6 +446,7 @@ export function Chart<Meta = unknown>({
                     contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}
+                    syncedIndex={showSyncedCrosshair ? syncedIndex : undefined}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

@@ -15,6 +15,11 @@ class WarehouseSuggestionsInputs:
 class ViewCostRequest:
     team_id: int
     saved_query_id: str
+    consumer_runs_per_month: float = 0.0
+
+
+def most_recomputed(requests: list[ViewCostRequest], limit: int) -> list[ViewCostRequest]:
+    return sorted(requests, key=lambda request: request.consumer_runs_per_month, reverse=True)[:limit]
 
 
 @dataclass(frozen=True, kw_only=True)

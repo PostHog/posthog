@@ -27,12 +27,14 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-from posthog.models.integration import Integration
 
 from products.slack_app.backend.facade.enums import SlackSetupEntry
 from products.slack_app.backend.facade.types import ChannelJoinResult, ChannelOption, SlackSetupNotFound, WorkspaceSetup
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.inbox_report_actions import (
+    report_state_followup_blocks as slack_report_state_followup_blocks,
+)
 from products.slack_app.backend.logic.progress_phases import (
     ANSWER_LINE_TITLE,
     OTHER_WORK,
@@ -49,6 +51,9 @@ from products.slack_app.backend.logic.progress_phases import (
     phase_for_tool_call,
     phase_line_title,
     tool_call_from_acp_update,
+)
+from products.slack_app.backend.logic.reply_suggestions import (
+    report_implementation_button as slack_report_implementation_button,
 )
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
@@ -88,6 +93,8 @@ __all__ = [
     "slack_channel_is_approved",
     "slack_followup_invite",
     "slack_followup_invite_text",
+    "slack_report_implementation_button",
+    "slack_report_state_followup_blocks",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -95,7 +102,14 @@ logger = structlog.get_logger(__name__)
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
 
 
-def invalidate_slack_integration_auth_state(integration_id: int) -> None:
+def _slack_workspace_id(team_id: int, integration_id: int) -> str | None:
+    try:
+        return IntegrationManager.slack.any.get(team_id, integration_id).integration_id
+    except IntegrationNotFound:
+        return None
+
+
+def invalidate_slack_integration_auth_state(team_id: int, integration_id: int) -> None:
     """Drop the cached auth verdict for ``integration_id``.
 
     Call from core's OAuth completion path so a freshly-reconnected Slack
@@ -107,13 +121,7 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     invalidate_auth_state(integration_id)
     # Cache invalidation on the caller's own row, id straight from core's OAuth completion
     # path rather than user input; only the Slack workspace id is read off it.
-    slack_team_id = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id, kind="slack"
-        )
-        .values_list("integration_id", flat=True)
-        .first()
-    )
+    slack_team_id = _slack_workspace_id(team_id, integration_id)
     if slack_team_id:
         invalidate_workspace_bot_user_id(slack_team_id)
 
@@ -159,16 +167,16 @@ def slack_followup_invite(
     return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
 
 
-def record_slack_feature_used(integration_id: int, slack_user_id: str | None, feature: SlackFeature) -> None:
+def record_slack_feature_used(
+    team_id: int, integration_id: int, slack_user_id: str | None, feature: SlackFeature
+) -> None:
     """Never raises, so a caller can record use from inside the feature's own code path."""
     try:
-        slack_workspace_id = (
-            Integration.objects.filter(id=integration_id, kind="slack")  # nosemgrep: idor-lookup-without-team
-            .values_list("integration_id", flat=True)
-            .first()
-        )
+        slack_workspace_id = _slack_workspace_id(team_id, integration_id)
     except Exception:
-        logger.warning("slack_app_feature_used_lookup_failed", integration_id=integration_id, exc_info=True)
+        logger.warning(
+            "slack_app_feature_used_lookup_failed", team_id=team_id, integration_id=integration_id, exc_info=True
+        )
         return
     if slack_workspace_id:
         record_feature_used(slack_workspace_id, slack_user_id, feature)

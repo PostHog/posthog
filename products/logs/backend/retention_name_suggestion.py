@@ -2,17 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.conf import settings
-
 import structlog
-import posthoganalytics
-from posthoganalytics.ai.openai import OpenAI
+
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 
 logger = structlog.get_logger(__name__)
 
-# gpt-4.1-mini, not the gpt-4.1 that log explanation uses — a rule name is a much smaller job than
-# summarising a log line, and this fires on every filter edit.
-SUGGESTION_MODEL = "gpt-4.1-mini"
+SUGGESTION_MODEL = "gpt-6-luna"
 SUGGESTION_TIMEOUT = 15
 MAX_PROMPT_CHARS = 2000
 MAX_NAME_CHARS = 60
@@ -69,21 +65,26 @@ def suggest_retention_rule_name(
     """Suggest a name for a retention rule. Returns "" when unavailable — callers hide the suggestion.
 
     The caller is responsible for checking the organization's AI data processing consent; this only
-    guards on the key being configured, so self-hosted instances without one degrade quietly.
+    guards on the AI gateway being configured, so self-hosted instances without one degrade quietly.
     """
     description = describe_filter_group(filter_group)[:MAX_PROMPT_CHARS]
-    if not description or not settings.OPENAI_API_KEY:
+    if not description or resolve_ai_gateway_config() is None:
         return ""
 
     record = RECORD_NOUNS.get(source, "log")
     record_plural = RECORD_NOUNS_PLURAL.get(source, "logs")
 
     try:
-        client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+        client = build_openai_client(
+            "django",
+            ai_product=source,
+            properties={"ai_feature": "retention-rule-name-suggestion", "team_id": str(team_id)},
+            distinct_id=distinct_id,
+        )
         response = client.chat.completions.create(
             model=SUGGESTION_MODEL,
-            temperature=0.2,
-            max_tokens=32,
+            reasoning_effort="low",
+            max_completion_tokens=1024,
             timeout=SUGGESTION_TIMEOUT,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT.format(record_plural=record_plural)},
@@ -98,8 +99,6 @@ def suggest_retention_rule_name(
                 },
             ],
             user=f"team/{team_id}/{source}-retention-rule-name",
-            posthog_distinct_id=distinct_id,
-            posthog_properties={"ai_product": source, "ai_feature": "retention-rule-name-suggestion"},
         )
         name = (response.choices[0].message.content or "").strip()
         if name.lower().startswith(("name:", "rule:")):

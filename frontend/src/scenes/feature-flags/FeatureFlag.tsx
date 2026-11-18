@@ -32,7 +32,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -64,7 +64,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -93,6 +92,7 @@ import {
 import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
+import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
@@ -125,6 +125,11 @@ const RESOURCE_TYPE = 'feature_flag'
 // instead of the click blocking the main thread for seconds and reading as a dead click.
 const FeatureFlagForm = lazy(() =>
     retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
+)
+
+// Only teams with code analysis see the Code tab, so its code stays out of the flag page's chunk.
+const FeatureFlagCodeTab = lazyWithRetry(() =>
+    import('products/feature_flags/frontend/FeatureFlagCodeTab').then((m) => ({ default: m.FeatureFlagCodeTab }))
 )
 
 function FeatureFlagFormSkeleton(): JSX.Element {
@@ -185,7 +190,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         refreshFeatureFlagAfterAgentChange,
     } = useActions(featureFlagLogic)
 
-    const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
 
@@ -375,7 +379,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 label: 'History',
                 key: FeatureFlagsTab.HISTORY,
                 content: (
-                    <>{featureFlag.id && <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />}</>
+                    <>
+                        {featureFlag.id && (
+                            <ActivityLog
+                                scope={ActivityScope.FEATURE_FLAG}
+                                id={featureFlag.id}
+                                renderRowActions={(logItem) => (
+                                    <FeatureFlagRestoreVersionButton
+                                        flagId={featureFlag.id as number}
+                                        logItem={logItem}
+                                    />
+                                )}
+                            />
+                        )}
+                    </>
                 ),
             },
             {
@@ -402,6 +419,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
             },
+            {
+                label: 'Code',
+                key: FeatureFlagsTab.CODE,
+                content: featureFlag.id ? (
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={<LemonSkeleton className="h-24" />}>
+                            <FeatureFlagCodeTab id={featureFlag.id} featureFlag={featureFlag} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                ) : null,
+            },
         ] as LemonTab<FeatureFlagsTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
 
@@ -418,7 +446,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 evaluationContextsDisabledReason={
                                     isV1Config ? null : "Evaluation contexts can't be changed on this flag yet."
                                 }
-                                tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                 flagId={featureFlag.id}
                                 context="sidebar"
                             />
@@ -427,7 +454,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 onSave={(tags) => saveSidebarTags(tags)}
                                 canEdit
                                 tags={featureFlag.tags}
-                                tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                 dataAttrKey={RESOURCE_TYPE}
                             />
                         )}
@@ -713,7 +739,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     onSave={(updatedTags) => saveTagsInline(updatedTags)}
                                     canEdit
                                     tags={featureFlag.tags}
-                                    tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                     dataAttrKey={RESOURCE_TYPE}
                                 />
                             </SceneMenuBarPopover>

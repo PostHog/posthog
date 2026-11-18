@@ -11,6 +11,7 @@ import { useChartAccessibility } from './accessibility/useChartAccessibility'
 import { barPageSize, barSegments, barWindow } from './barLayout'
 import { ChartDatePager } from './ChartDatePager'
 import { ChartOverlay } from './ChartOverlay'
+import { chartAxes } from './chartAxes'
 import { chartGeometry, TICK_LINE_HEIGHT, X_LABEL_OFFSET, yPosition } from './chartGeometry'
 import { samePoints, TICK_FONT_SIZE } from './chartMath'
 import {
@@ -41,6 +42,12 @@ function sameSeries(a: readonly ChartSeries[], b: readonly ChartSeries[]): boole
                 s.label === other.label &&
                 s.color === other.color &&
                 s.style === other.style &&
+                s.kind === other.kind &&
+                s.axis === other.axis &&
+                s.startAtZero === other.startAtZero &&
+                s.area === other.area &&
+                s.formatValue === other.formatValue &&
+                s.points.every((p, i) => p.label === other.points[i]?.label) &&
                 s.compareOf === other.compareOf &&
                 s.incompleteFrom === other.incompleteFrom &&
                 samePoints(s.points, other.points)
@@ -62,6 +69,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const {
         kind,
         barLayout = 'grouped',
+        fitAllBars = false,
         interval,
         label,
         formatValue,
@@ -89,25 +97,21 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const endOffset = page.data === allSeries ? page.endOffset : 0
     const allVisible = useMemo(() => visibleSeries(allSeries, hiddenKeys), [allSeries, hiddenKeys])
     const totalCount = bucketCount(allSeries)
-    const currentCount = allVisible.filter((s) => !isCompareSeries(s)).length
-    const allSegments = useMemo(() => barSegments(allVisible, barLayout), [allVisible, barLayout])
-    const axisValues = useMemo(
-        () =>
-            allVisible.flatMap((s, index) =>
-                kind === 'bar'
-                    ? isCompareSeries(s)
-                        ? []
-                        : [...(allSegments[index]?.starts ?? []), ...(allSegments[index]?.ends ?? [])]
-                    : s.points.map((p) => p.value)
-            ),
-        [allVisible, allSegments, kind]
+    const currentCount = allVisible.filter((s) => !isCompareSeries(s) && (s.kind ?? kind) === 'bar').length
+    const plotKind = allSeries.some((s) => (s.kind ?? kind) === 'bar') ? 'bar' : kind
+    const axes = useMemo(
+        () => chartAxes(allVisible, kind, barLayout, formatValue),
+        [allVisible, kind, barLayout, formatValue]
     )
+    const axisValues = axes.left.values
     const axisGeometry = useMemo(
         () =>
             chartGeometry({
                 width,
                 height: fullHeight,
-                kind,
+                kind: plotKind,
+                primaryAxis: axes.left,
+                rightAxis: axes.right,
                 variant,
                 count: totalCount,
                 values: axisValues,
@@ -116,10 +120,10 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                 interval,
                 formatValue,
             }),
-        [width, fullHeight, kind, variant, totalCount, axisValues, interval, formatValue, uses24hourClock]
+        [width, fullHeight, plotKind, axes, variant, totalCount, axisValues, interval, formatValue, uses24hourClock]
     )
     const pageSize = barPageSize(axisGeometry.plot.right - axisGeometry.plot.left, currentCount, barLayout)
-    const paged = kind === 'bar' && variant !== 'compact' && width > 0 && totalCount > pageSize
+    const paged = plotKind === 'bar' && !fitAllBars && variant !== 'compact' && width > 0 && totalCount > pageSize
     const window = barWindow(totalCount, paged ? pageSize : Math.max(1, totalCount), endOffset)
     const series = useMemo(
         () =>
@@ -137,14 +141,21 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const visible = useMemo(() => visibleSeries(series, hiddenKeys), [series, hiddenKeys])
     const count = bucketCount(series)
     const dates = useMemo(() => bucketDates(series), [series])
+    const labels = useMemo(
+        () => (series.find((s) => !isCompareSeries(s)) ?? series[0])?.points.map((p) => p.label),
+        [series]
+    )
     const mask = useMemo(() => selectableMask(visible, count), [visible, count])
-    const segments = useMemo(() => barSegments(visible, barLayout), [visible, barLayout])
+    const segments = useMemo(() => barSegments(visible, barLayout, kind), [visible, barLayout, kind])
 
     const geometry = useMemo(() => {
         return chartGeometry({
             width,
             height,
-            kind,
+            kind: plotKind,
+            primaryAxis: axes.left,
+            rightAxis: axes.right,
+            labels,
             variant,
             count,
             values: axisValues,
@@ -153,24 +164,37 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
             formatValue,
             uses24hourClock,
         })
-    }, [width, height, kind, variant, count, axisValues, dates, interval, formatValue, uses24hourClock])
+    }, [
+        width,
+        height,
+        plotKind,
+        axes,
+        labels,
+        variant,
+        count,
+        axisValues,
+        dates,
+        interval,
+        formatValue,
+        uses24hourClock,
+    ])
 
     const plotted = useMemo<PlottedSeries[]>(
         () =>
             visible.map((s, seriesIndex) => {
                 const segment = segments[seriesIndex]
+                const seriesKind = s.kind ?? kind
+                const domain = s.axis === 'right' ? (geometry.rightYDomain ?? geometry.yDomain) : geometry.yDomain
                 const ys = s.points.map((point, index) =>
                     Number.isFinite(point.value)
                         ? yPosition(
-                              kind === 'bar' ? (segment?.ends[index] ?? 0) : point.value,
-                              geometry.yDomain,
+                              seriesKind === 'bar' ? (segment?.ends[index] ?? 0) : point.value,
+                              domain,
                               geometry.plot
                           )
                         : Number.NaN
                 )
-                const baseYs = s.points.map((_, index) =>
-                    yPosition(segment?.starts[index] ?? 0, geometry.yDomain, geometry.plot)
-                )
+                const baseYs = s.points.map((_, index) => yPosition(segment?.starts[index] ?? 0, domain, geometry.plot))
                 const points: PointsArray = s.points.map((point, index) => ({
                     x: geometry.xs[index] ?? 0,
                     xValue: index,
@@ -180,6 +204,9 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                 const stroke = seriesStroke(s, theme)
                 return {
                     key: s.key,
+                    kind: seriesKind,
+                    area: s.area,
+                    authoredColor: s.kind !== undefined,
                     color: stroke.color,
                     dotted: stroke.dotted,
                     compare: isCompareSeries(s),
@@ -255,6 +282,8 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                     from={dates[0] ?? 0}
                     to={dates[dates.length - 1] ?? 0}
                     interval={interval}
+                    fromLabel={labels?.[0]}
+                    toLabel={labels?.[labels.length - 1]}
                     earlier={window.start > 0}
                     later={window.end < totalCount}
                     onEarlier={() => setPage({ data: allSeries, endOffset: totalCount - window.start })}
@@ -290,7 +319,26 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                                     numberOfLines={1}
                                     style={[
                                         styles.tick,
-                                        { right: width - geometry.yLabelWidth, top: y - TICK_LINE_HEIGHT / 2 },
+                                        {
+                                            left: 0,
+                                            width: geometry.yLabelWidth,
+                                            textAlign: 'right',
+                                            top: y - TICK_LINE_HEIGHT / 2,
+                                        },
+                                    ]}
+                                >
+                                    {text}
+                                </Text>
+                            )
+                        )}
+                        {geometry.rightYTicks?.map(({ value, y, text }) =>
+                            text === null ? null : (
+                                <Text
+                                    key={`right-y-${value}`}
+                                    numberOfLines={1}
+                                    style={[
+                                        styles.tick,
+                                        { left: geometry.plot.right + 6, top: y - TICK_LINE_HEIGHT / 2 },
                                     ]}
                                 >
                                     {text}

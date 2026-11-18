@@ -2532,7 +2532,7 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
-        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        availableTabs: (featureFlag: FeatureFlagType, props: any, enabledFeatures: FeatureFlagsSet) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
         asksRollbackReason: (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat) => boolean
         editorKind: (
@@ -5473,8 +5473,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         props: [() => [(_, props) => props], (props) => props],
         // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
         availableTabs: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+            (s) => [s.featureFlag, s.props, s.enabledFeatures],
+            (
+                featureFlag: FeatureFlagType,
+                props: FeatureFlagLogicProps,
+                enabledFeatures: FeatureFlagsSet
+            ): FeatureFlagsTab[] => {
                 const tabs = [FeatureFlagsTab.OVERVIEW]
                 // Projects (copy), Schedule and Testing read or rewrite the v1 document.
                 const v1 = isV1FeatureFlagConfig(featureFlag.filters)
@@ -5493,6 +5497,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
                 if (props.id && v1) {
                     tabs.push(FeatureFlagsTab.TESTING)
+                }
+                if (featureFlag.id && enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_CODE_ANALYSIS]) {
+                    tabs.push(FeatureFlagsTab.CODE)
                 }
                 return tabs
             },

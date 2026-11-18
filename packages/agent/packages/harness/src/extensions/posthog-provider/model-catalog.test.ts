@@ -49,32 +49,35 @@ describe("resolvePosthogPiModelCatalog", () => {
     ]);
   });
 
-  it("gives Fable 5.1 the same thinking levels as Fable 5", () => {
-    const models = resolvePosthogPiModelCatalog(
-      [
-        {
-          id: "claude-fable-5",
-          context_window: 1_000_000,
-          supports_vision: true,
-          allowed: true,
-        },
-        {
-          id: "claude-fable-5-1",
-          context_window: 1_000_000,
-          supports_vision: true,
-          allowed: true,
-        },
-      ],
-      "us",
-    );
+  it.each(["claude-fable-5-1", "claude-fable-5-2"])(
+    "gives %s the same thinking levels as Fable 5",
+    (id) => {
+      const models = resolvePosthogPiModelCatalog(
+        [
+          {
+            id: "claude-fable-5",
+            context_window: 1_000_000,
+            supports_vision: true,
+            allowed: true,
+          },
+          {
+            id,
+            context_window: 1_000_000,
+            supports_vision: true,
+            allowed: true,
+          },
+        ],
+        "us",
+      );
 
-    const [fable5, fable51] = models;
-    expect(fable51.thinkingLevels).toEqual(fable5.thinkingLevels);
-    expect(fable51.thinkingLevels).toEqual(
-      expect.arrayContaining(["xhigh", "max"]),
-    );
-    expect(fable51.thinkingLevels).not.toContain("off");
-  });
+      const [fable5, newer] = models;
+      expect(newer.thinkingLevels).toEqual(fable5.thinkingLevels);
+      expect(newer.thinkingLevels).toEqual(
+        expect.arrayContaining(["xhigh", "max"]),
+      );
+      expect(newer.thinkingLevels).not.toContain("off");
+    },
+  );
 
   it("uses the GPT-6.1 Sol thinking levels before Pi adds the model", () => {
     const [model] = resolvePosthogPiModelCatalog(

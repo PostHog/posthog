@@ -198,15 +198,23 @@ services:
             # (CSRF cookie is NOT varied — frontend hardcodes 'posthog_csrftoken'.)
             SESSION_COOKIE_NAME: 'sessionid_${SANDBOX_PORT:-48001}'
             JS_URL: 'http://localhost:${SANDBOX_VITE_PORT:-49001}'
+            CDP_VALKEY_HOST: valkey-cluster
+            CDP_FREQUENCY_CAP_VALKEY_HOST: valkey-cluster
+            CDP_IDEMPOTENCY_VALKEY_HOST: valkey-cluster
+            SES_RATE_LIMITER_VALKEY_HOST: valkey-cluster
         depends_on:
             db:
                 condition: service_healthy
             redis7:
                 condition: service_healthy
+            valkey-cluster:
+                condition: service_healthy
             clickhouse:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
             objectstorage:
                 condition: service_started
 
@@ -485,6 +493,55 @@ services:
               volume:
                   subpath: devenv/duckgres.yaml
             - duckgres-data:/app/data
+
+    valkey-cluster:
+        image: valkey/valkey:8.1-alpine
+        restart: on-failure
+        command:
+            - /bin/sh
+            - -ec
+            - |
+                valkey-server --port 6390 --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                pid=$$!
+                until valkey-cli -p 6390 ping >/dev/null 2>&1; do sleep 0.1; done
+                valkey-cli -p 6390 cluster addslots $$(seq 0 16383)
+                wait $$pid
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'valkey-cli -p 6390 cluster info | grep -q cluster_state:ok && test "$$(valkey-cli -p 6390 cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                ]
+            interval: 2s
+            timeout: 3s
+            retries: 15
+            start_period: 5s
+
+    kafka-init:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        entrypoint: /bin/sh
+        restart: 'no'
+        command:
+            - -ec
+            - |
+                TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /kafka-config/topics.txt)
+                EXISTING=$$(rpk topic list --brokers kafka:9092 | awk '{print $$1}')
+                for topic in $$TOPICS; do
+                    if echo "$$EXISTING" | grep -qx "$$topic"; then
+                        continue
+                    fi
+                    rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1
+                done
+        volumes:
+            - type: volume
+              source: workspace
+              target: /kafka-config
+              read_only: true
+              volume:
+                  subpath: docker/kafka
+        depends_on:
+            kafka:
+                condition: service_healthy
 
     redis-cluster:
         image: redis:7.2

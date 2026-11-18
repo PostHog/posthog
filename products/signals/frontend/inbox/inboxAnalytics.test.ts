@@ -58,6 +58,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
     })
@@ -73,6 +77,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
             tab: 'pulls',
@@ -97,6 +105,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
             scope: 'entire-project',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         const props = lastCapture(INBOX_EVENTS.VIEWED)
         expect(props).toMatchObject({
@@ -219,6 +231,8 @@ describe('inboxAnalytics', () => {
                 listSize: 1,
                 section: 'needs-decision',
                 rankerId: 'priority',
+                personalTier: null,
+                personalReasonShown: false,
             })
             captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
             return [

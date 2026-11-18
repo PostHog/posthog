@@ -40,6 +40,7 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // mark `off` unsupported until the builtin catalog catches up.
 const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
   "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
+  "claude-fable-5-2": { off: null, xhigh: "xhigh", max: "max" },
   "claude-opus-5-5": { off: null, xhigh: "xhigh", max: "max" },
   "claude-sonnet-5-5": { off: null, xhigh: "xhigh", max: "max" },
   "gpt-6.1-sol": {

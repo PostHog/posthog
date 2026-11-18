@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { LemonTagType } from '@posthog/lemon-ui'
+
 import { ApiConfig } from 'lib/api'
 import {
     AppMetricsCommonParams,
@@ -10,12 +12,14 @@ import {
     loadAppMetricsTotals,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFlowsInFlightRetrieve } from '../../generated/api'
 import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
+import { RATE_LEVEL_TAG, classifyRate, minimumVolumeToClassify } from '../Reputation/emailRateLevels'
 import { getOrderedActions } from '../templates/workflowTemplateDisplay'
 import { workflowLogic } from '../workflowLogic'
 
@@ -39,8 +43,27 @@ const HEALTH_METRICS = [
     'email_blocked',
     'push_sent',
     'push_failed',
+    'email_sandbox_sent',
 ] as const
 export type HealthMetric = (typeof HEALTH_METRICS)[number]
+
+export type HealthRate = { value: string; tag: { label: string; type: LemonTagType } | null; detail: string }
+
+export type EmailHealth = { bounce: HealthRate; complaint: HealthRate }
+
+const SANDBOX_ONLY_RATE: HealthRate = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
+
+function healthRate(kind: 'bounce' | 'complaint', count: number, sent: number, detail: string): HealthRate {
+    if (sent === 0) {
+        return { value: '-', tag: null, detail: 'No emails sent' }
+    }
+    const rate = count / sent
+    return {
+        value: percentage(rate, 2, true),
+        tag: sent < minimumVolumeToClassify(kind) ? null : RATE_LEVEL_TAG[classifyRate(rate, kind)],
+        detail,
+    }
+}
 
 export type StepReach = {
     action: HogFlowAction
@@ -70,6 +93,7 @@ export interface workflowOverviewLogicValues {
     } // appMetricsLogic
     params: Partial<AppMetricsCommonParams> // appMetricsLogic
     originalWorkflow: HogFlow | null // workflowLogic
+    emailHealth: EmailHealth
     failedRuns: number | null
     healthTotals: Partial<Record<HealthMetric, number>> | null
     healthTotalsFailed: boolean
@@ -154,6 +178,7 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -168,6 +193,7 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -216,6 +242,21 @@ export interface workflowOverviewLogicActions {
 export interface workflowOverviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        emailHealth: (
+            healthTotals: Partial<
+                Record<
+                    | 'email_blocked'
+                    | 'email_bounced'
+                    | 'email_bounced_hard'
+                    | 'email_sandbox_sent'
+                    | 'email_sent'
+                    | 'push_failed'
+                    | 'push_sent'
+                    | 'triggered',
+                    number
+                >
+            > | null
+        ) => EmailHealth
         orderedSteps: (originalWorkflow: HogFlow | null) => HogFlowAction[]
         stepReach: (
             orderedSteps: HogFlowAction[],
@@ -403,6 +444,31 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
         ],
     })),
     selectors({
+        emailHealth: [
+            (s) => [s.healthTotals],
+            (totals: Partial<Record<HealthMetric, number>> | null): EmailHealth => {
+                const sent = totals?.email_sent ?? 0
+                if (sent === 0 && (totals?.email_sandbox_sent ?? 0) > 0) {
+                    return { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE }
+                }
+                const hardBounces = totals?.email_bounced_hard ?? 0
+                const complaints = totals?.email_blocked ?? 0
+                return {
+                    bounce: healthRate(
+                        'bounce',
+                        hardBounces,
+                        sent,
+                        `${humanFriendlyNumber(hardBounces)} hard, ${humanFriendlyNumber(totals?.email_bounced ?? 0)} bounced in total`
+                    ),
+                    complaint: healthRate(
+                        'complaint',
+                        complaints,
+                        sent,
+                        `${humanFriendlyNumber(complaints)} marked as spam`
+                    ),
+                }
+            },
+        ],
         orderedSteps: [
             (s) => [s.originalWorkflow],
             (workflow: HogFlow | null): HogFlowAction[] =>

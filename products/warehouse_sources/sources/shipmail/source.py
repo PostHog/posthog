@@ -40,9 +40,9 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Shipmail",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your Shipmail API key to sync message analytics, mailboxes, domains, and suppressions into the PostHog Data warehouse.
+            caption="""Enter your Shipmail API key to sync email activity, newsletters, subscribers, and members into the PostHog Data warehouse.
 
-Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, and `suppressions:read`.""",
+Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, `suppressions:read`, `threads:read`, `newsletters:read`, `audiences:read`, and `members:read`. Threads also require `mailboxes:read` to list their mailboxes.""",
             iconPath="/static/services/shipmail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shipmail",
             fields=cast(
@@ -106,9 +106,9 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
         status, scopes = get_capabilities(config.api_key)
         if status == 200:
             if schema_name in SHIPMAIL_ENDPOINTS:
-                required_scope = SHIPMAIL_ENDPOINTS[schema_name].required_scope
-                if "*" not in scopes and required_scope not in scopes:
-                    return False, f"Your Shipmail API key is missing the `{required_scope}` scope"
+                for required_scope in SHIPMAIL_ENDPOINTS[schema_name].required_scopes:
+                    if "*" not in scopes and required_scope not in scopes:
+                        return False, f"Your Shipmail API key is missing the `{required_scope}` scope"
             return True, None
         if status == 401:
             return False, "Invalid Shipmail API key"
@@ -132,10 +132,12 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:
             endpoint_config = SHIPMAIL_ENDPOINTS.get(endpoint)
-            if endpoint_config is None or "*" in scopes or endpoint_config.required_scope in scopes:
-                permissions[endpoint] = None
-            else:
-                permissions[endpoint] = f"API key is missing the `{endpoint_config.required_scope}` scope"
+            permissions[endpoint] = None
+            if endpoint_config is not None and "*" not in scopes:
+                for required_scope in endpoint_config.required_scopes:
+                    if required_scope not in scopes:
+                        permissions[endpoint] = f"API key is missing the `{required_scope}` scope"
+                        break
         return permissions
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShipmailResumeConfig]:

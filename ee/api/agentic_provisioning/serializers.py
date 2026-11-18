@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.scopes.catalog import translate_renamed_scopes
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
@@ -46,12 +47,13 @@ class AccountRequestSerializer(serializers.Serializer):
         default="",
         help_text="Partner-side account request id, echoed back for idempotency.",
     )
-    email = serializers.CharField(
+    email = serializers.EmailField(
         required=False,
         allow_blank=True,
         allow_null=True,
         default=None,
-        help_text="Email of the account to create or link. Required.",
+        max_length=254,
+        help_text="Email of the account to create or link. Required. An ASCII domain is stored in lowercase.",
     )
     name = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, default="", help_text="Display name of the end user."
@@ -91,11 +93,20 @@ class AccountRequestSerializer(serializers.Serializer):
         help_text="PKCE challenge method; only S256 is supported.",
     )
 
+    def validate_email(self, value: str | None) -> str | None:
+        # Radar matches the domain as sent, so an uppercase domain must not present a blocked
+        # domain in a form Radar does not match. A non-ASCII domain stays as given, because
+        # account lookups fold only A-Z case and an encoded form would not match the stored email.
+        if not value:
+            return value
+        local_part, _, domain = value.rpartition("@")
+        return f"{local_part}@{domain.lower()}" if domain.isascii() else value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Treat explicit null on optional fields as absent, so downstream code
         # sees the declared default rather than None.
         attrs["id"] = attrs.get("id") or ""
-        attrs["scopes"] = attrs.get("scopes") or []
+        attrs["scopes"] = translate_renamed_scopes(attrs.get("scopes") or [])
         attrs["code_challenge"] = attrs.get("code_challenge") or ""
         attrs["code_challenge_method"] = attrs.get("code_challenge_method") or "S256"
 

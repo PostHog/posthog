@@ -473,7 +473,27 @@ def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
     assert isinstance(result.raised, requests.HTTPError)
 
 
-@pytest.mark.parametrize("status", [500, 503])
+@pytest.mark.parametrize("schema_name", ["crash_rate", "error_issues"])
+def test_unknown_app_stops_the_sync_with_package_name_copy(schema_name: str) -> None:
+    result = _run(
+        schema_name,
+        [ScriptedResponse(status=404, body=b'{"error": {"code": 404, "status": "NOT_FOUND"}}')],
+        package_names="com.example.missing",
+    )
+
+    source = GooglePlayConsoleSource()
+    error = str(result.raised)
+    messages = [
+        message
+        for pattern, message in source.get_non_retryable_errors().items()
+        if message and error_message_matches(error, [pattern])
+    ]
+    assert messages and "package names" in messages[0]
+    assert "com.example.missing" not in messages[0]
+    assert not error_message_matches(error, source.get_retryable_errors())
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
 def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(

@@ -54,6 +54,21 @@ export class EncryptedFields {
         throw error
     }
 
+    /** Like `decrypt`, but a value that no configured key opens gives `{ ok: false }` instead of an error. */
+    tryDecrypt(value: string): { ok: true; value: string } | { ok: false } {
+        if (!this.fernets.length) {
+            throw new Error('Encryption keys are not set')
+        }
+        for (const fernet of this.fernets) {
+            try {
+                return { ok: true, value: fernet.decrypt(value) }
+            } catch {
+                // The next key can open it.
+            }
+        }
+        return { ok: false }
+    }
+
     decryptObject(value: any, options?: { ignoreDecryptionErrors: boolean }): any {
         if (typeof value === 'string') {
             return this.decrypt(value, options)

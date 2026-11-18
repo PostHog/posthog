@@ -20,7 +20,7 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
             <LemonCard hoverEffect={false} className="p-8 text-center">
                 <h3 className="m-0">No drafts yet</h3>
                 <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Pick questions on the Opportunities tab and draft them. Drafts show up here for review.
+                    Draft a page from the Opportunities tab. Drafts show up here for review.
                 </p>
                 <LemonButton
                     type="secondary"

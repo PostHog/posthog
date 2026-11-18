@@ -15,16 +15,16 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { HeatmapVariantPicker } from '~/toolbar/shared/elements/HeatmapVariantPicker'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
-import { toolbarConfigLogic } from '../../../shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '../../../shared/toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
-    const { posthog, uiHost } = useValues(toolbarConfigLogic)
+    const { posthog } = useValues(toolbarConfigLogic)
 
     if (!posthog || posthog?.heatmaps?.isEnabled) {
         return null
@@ -37,10 +37,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link
-                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
-                        target="_blank"
-                    >
+                    <Link to={toolbarAppUrl(urls.settings('environment-heatmaps', 'heatmaps'))} target="_blank">
                         in your project config
                     </Link>
                     .
@@ -108,6 +105,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         loadingAllElementStats,
         loadAllPagesLoaded,
         scrollDepthPosthogJsError,
+        heatmapVariantFilter,
+        heatmapVariantFlags,
+        heatmapVariantFilterGate,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -121,6 +121,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
+        setHeatmapVariantFilter,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -183,14 +184,21 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </p>
                 )}
 
-                <div className="flex flex-row items-center gap-2 py-2 border-b">
+                <div className="flex flex-row flex-wrap items-center gap-2 py-2 border-b">
                     <DateFilter
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                            setCommonFilters({ ...commonFilters, date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
+                    />
+                    <HeatmapVariantPicker
+                        variantFilter={heatmapVariantFilter}
+                        variantFlags={heatmapVariantFlags}
+                        variantFilterGate={heatmapVariantFilterGate}
+                        onChange={setHeatmapVariantFilter}
+                        data-attr="heatmap-variant-filter"
                     />
                     <LemonButton
                         size="small"

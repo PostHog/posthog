@@ -1270,6 +1270,35 @@ class TestLoginCustomerIdRecovery:
         ]
         assert client.login_customer_id is None
 
+    @pytest.mark.parametrize(
+        "accessible, manager_of, customer_id, expected_valid",
+        [
+            # The account picker offers client accounts under a manager; the MCC toggle stays off.
+            ([_MANAGER_CUSTOMER_ID], {_MANAGER_CUSTOMER_ID: [_CLIENT_CUSTOMER_ID]}, "123-456-7890", True),
+            ([_CLIENT_CUSTOMER_ID], {}, _CLIENT_CUSTOMER_ID, True),
+            ([_MANAGER_CUSTOMER_ID], {_MANAGER_CUSTOMER_ID: ["9999999999"]}, _CLIENT_CUSTOMER_ID, False),
+            ([], {}, _CLIENT_CUSTOMER_ID, False),
+        ],
+        ids=["client_under_manager", "directly_accessible", "no_manager_reaches_it", "no_accounts"],
+    )
+    def test_validate_credentials_accepts_a_client_account_reachable_through_a_manager(
+        self, accessible, manager_of, customer_id, expected_valid
+    ):
+        client = _FakeGoogleAdsClient(accessible=accessible, manager_of=manager_of, page=_single_page())
+        config = GoogleAdsSourceConfig(customer_id=customer_id, google_ads_integration_id=1)
+
+        with mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=client):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is expected_valid
+        if expected_valid:
+            assert message is None
+        else:
+            assert message is not None
+            assert "can't access this customer ID" in message
+            assert customer_id not in message
+        assert client.login_customer_id is None
+
 
 class _FlakyFieldService:
     """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""
@@ -1479,6 +1508,38 @@ class TestGetOAuthAccountsCaching:
         assert [account.value for account in second] == ["987-654-3210"]
 
 
+class TestGetOAuthAccountsSearch:
+    @pytest.mark.parametrize(
+        "search, expected",
+        [
+            ("1234567890", ["123-456-7890"]),
+            ("123-456-7890", ["123-456-7890"]),
+            ("4567890", ["123-456-7890"]),
+            ("acme", ["123-456-7890"]),
+            ("987654", ["987-654-3210"]),
+            ("555", []),
+        ],
+    )
+    def test_customer_id_matches_with_or_without_dashes(self, search, expected):
+        cache.clear()
+        accounts = [
+            {"id": "1234567890", "name": "Acme Corp", "level": None, "parent_id": "1234567890", "manager": False},
+            {"id": "9876543210", "name": "Beta Client", "level": None, "parent_id": "9876543210", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = accounts
+            result = GoogleAdsSource().get_oauth_accounts(1, 2, search=search)
+
+        assert [account.value for account in result] == expected
+
+
 class TestGetOAuthAccountsHierarchy:
     def test_maps_the_hierarchy_and_groups_only_the_first_level(self):
         # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager,
@@ -1504,12 +1565,24 @@ class TestGetOAuthAccountsHierarchy:
 
         # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
         assert accounts == [
-            IntegrationAccount(value="650-192-4158", display_name="Example Corp", is_primary=True, badges=("Manager",)),
-            IntegrationAccount(value="123-456-7890", display_name="Client One", group="Example Corp"),
             IntegrationAccount(
-                value="222-222-2222", display_name="Sub Manager", badges=("Manager",), group="Example Corp"
+                value="650-192-4158",
+                display_name="Example Corp",
+                is_primary=True,
+                badges=("Manager",),
+                secondary_text="6501924158",
             ),
-            IntegrationAccount(value="555-555-5555", display_name="Deep Client"),
+            IntegrationAccount(
+                value="123-456-7890", display_name="Client One", group="Example Corp", secondary_text="1234567890"
+            ),
+            IntegrationAccount(
+                value="222-222-2222",
+                display_name="Sub Manager",
+                badges=("Manager",),
+                group="Example Corp",
+                secondary_text="2222222222",
+            ),
+            IntegrationAccount(value="555-555-5555", display_name="Deep Client", secondary_text="5555555555"),
         ]
 
 

@@ -5,12 +5,16 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
+import { isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
+
+const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
+const MUSE_CHALLENGE_TOKEN = '5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc'
 
 const handleRequest = async (
     request: Request,
@@ -27,7 +31,14 @@ const handleRequest = async (
 
     // OpenAI ChatGPT App Directory domain verification
     if (url.pathname === '/.well-known/openai-apps-challenge') {
-        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+        return new Response(OPENAI_CHALLENGE_TOKEN, {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
+    // Muse domain verification
+    if (url.pathname === `/.well-known/muse-challenge/${MUSE_CHALLENGE_TOKEN}`) {
+        return new Response(`muse-challenge=${MUSE_CHALLENGE_TOKEN}`, {
             headers: { 'content-type': 'text/plain' },
         })
     }
@@ -137,6 +148,12 @@ const handleRequest = async (
     const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
+    const wrongPath = validateCredentialForPath(token, request)
+    if (wrongPath) {
+        log.extend({ authError: 'credential_on_wrong_path' })
+        return wrongPath
+    }
+
     if (!token) {
         // Return 401 with WWW-Authenticate header per RFC 9728.
         // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
@@ -160,7 +177,12 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
+    if (
+        !token.startsWith('phx_') &&
+        !token.startsWith('pha_') &&
+        !isProjectSecretKey(token) &&
+        !isIdJagAccessToken(token)
+    ) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,

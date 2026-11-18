@@ -126,7 +126,6 @@ const issueWithSummary: ErrorIssueData = {
         who_is_affected: 'About 40 users in the last 7 days, mostly on Chrome, all on the dashboard page.',
         suggested_next_step:
             'Default dashboard items to an empty list in DashboardGrid.tsx until the request finishes.',
-        category: 'own_code',
         generated_at: '2025-12-11T09:00:00Z',
     },
 }

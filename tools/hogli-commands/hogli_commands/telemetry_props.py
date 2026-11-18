@@ -188,6 +188,27 @@ def _repo_commit() -> tuple[str, str] | None:
         return None
 
 
+# bin/devbox-worktree-hook writes this file into a worktree's git directory when an app
+# such as t3code or Superset creates the worktree. Keep the name in sync with that script.
+_WORKTREE_TOOL_FILE = "hogli-worktree-source"
+_WORKTREE_TOOL_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+
+
+def _worktree_tool(repo_root: Path) -> str | None:
+    """The app that created this linked worktree, as its create hook recorded it."""
+    try:
+        pointer = (repo_root / ".git").read_text().strip()
+        if not pointer.startswith("gitdir:"):
+            return None
+        git_dir = Path(pointer.removeprefix("gitdir:").strip())
+        if not git_dir.is_absolute():
+            git_dir = repo_root / git_dir
+        tool = (git_dir / _WORKTREE_TOOL_FILE).read_text().strip()
+    except (OSError, ValueError):
+        return None
+    return tool if _WORKTREE_TOOL_RE.match(tool) else None
+
+
 def _repo_commit_properties() -> dict[str, str]:
     commit = _repo_commit()
     if commit is None:
@@ -518,19 +539,26 @@ def _disk_free_gb() -> float | None:
         return None
 
 
-def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
-    # Agent-driven traffic (e.g. skills running metabase:query) otherwise
-    # swamps human usage stats.
+def invocation_identity_properties() -> dict[str, Any]:
     agent = _detect_agent()
     return {
         "actor": _detect_actor(agent),
         "agent": agent,
         "environment": _detect_environment(),
         "git_hook": _declared("HOGLI_GIT_HOOK") or None,
+        "is_agent": agent is not None,
+    }
+
+
+def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
+    # Agent-driven traffic (e.g. skills running metabase:query) otherwise
+    # swamps human usage stats.
+    return {
+        **invocation_identity_properties(),
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
-        "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
+        "worktree_tool": _worktree_tool(REPO_ROOT),
         "worktree_count": _worktree_count(),
         "disk_free_gb": _disk_free_gb(),
         "is_posthog_dev": _is_posthog_dev(),

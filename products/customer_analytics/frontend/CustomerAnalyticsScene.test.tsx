@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { initKeaTests } from '~/test/init'
 
 import { CustomerAnalyticsScene } from './CustomerAnalyticsScene'
@@ -52,6 +53,7 @@ jest.mock('./components/Insights/SignupInsights', () => ({ SignupInsights: () =>
 
 describe('CustomerAnalyticsScene', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         sceneLogic.mount()
@@ -100,6 +102,36 @@ describe('CustomerAnalyticsScene', () => {
             </Provider>
         )
         expect(screen.getByText(label).closest('a')).toHaveAttribute('href', `/project/997${destination}`)
+    })
+
+    it.each([
+        ['people', false],
+        ['products', true],
+    ] as const)('in the Today rail with the %s pane open, shows the tab bar: %s', (pane, showsTabs) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [
+                FEATURE_FLAGS.TODAY_RAIL_NAV,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+            ],
+            {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
+            }
+        )
+
+        todayShellLogic.mount()
+        todayShellLogic.actions.setPickedPane(pane)
+
+        render(
+            <Provider>
+                <CustomerAnalyticsScene />
+            </Provider>
+        )
+
+        expect(!!document.querySelector('[data-attr="customer-analytics-tabs"]')).toBe(showsTabs)
+        expect(document.querySelector('[data-attr="tasks-inbox"]')).toBeInTheDocument()
     })
 
     it('shows the Tasks tab and inbox only when the tasks flag is enabled', () => {

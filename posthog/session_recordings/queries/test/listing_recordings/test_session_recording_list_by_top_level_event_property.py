@@ -10,7 +10,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Element, EventProperty
+from posthog.models import Element
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
@@ -23,7 +23,8 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
@@ -44,7 +45,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(
+        action = create_action(
             team_id=team_id,
             name=name,
             steps_json=[

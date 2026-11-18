@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.linkedin_ads.client import LinkedinAdsAp
 from products.warehouse_sources.sources.linkedin_ads.source import (
     _CONNECTION_CHECK_ERROR,
     _MISSING_INTEGRATION_ERROR,
+    _NO_AD_ACCOUNTS_ERROR,
     LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
@@ -45,6 +46,9 @@ class TestLinkedInAdsSource:
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
+            # A rejected access token (invalid, malformed, or no longer accepted) — distinct from
+            # REVOKED_ACCESS_TOKEN and RESTRICTED_MEMBER above.
+            'LinkedIn API error (401): {"status":401,"code":"AUTHENTICATION_FAILED","message":"Could not authenticate"}',
             # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
             "Integration matching query does not exist.",
             # A sunset version header (see `deprecated_versions`) — happens on every call under that
@@ -147,7 +151,7 @@ class TestLinkedInAdsSource:
     def test_get_oauth_accounts_uses_default_version_header(self, mock_client_for_integration):
         # The account picker must track the default version's header, not the client's legacy default,
         # so listing doesn't break for new sources once the oldest declared header sunsets.
-        mock_client_for_integration.return_value.get_accounts.return_value = []
+        mock_client_for_integration.return_value.get_accounts.return_value = [{"id": 5123, "name": "Example Ads"}]
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
@@ -176,6 +180,15 @@ class TestLinkedInAdsSource:
 
         with pytest.raises(IntegrationAccountListingError, match="re-authorize"):
             self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+    @mock.patch("products.warehouse_sources.sources.linkedin_ads.source.linkedin_ads_client_for_integration")
+    def test_get_oauth_accounts_without_ad_accounts_explains_missing_role(self, mock_client_for_integration):
+        mock_client_for_integration.return_value.get_accounts.return_value = []
+
+        with pytest.raises(IntegrationAccountListingError) as exc_info:
+            self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+        assert str(exc_info.value) == _NO_AD_ACCOUNTS_ERROR
 
     @mock.patch("products.warehouse_sources.sources.linkedin_ads.source.linkedin_ads_client_for_integration")
     def test_get_oauth_accounts_bad_request_propagates(self, mock_client_for_integration):

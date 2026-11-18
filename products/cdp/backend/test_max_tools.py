@@ -20,6 +20,16 @@ class TestParseOutput:
                 "if (a && b) { print(a) }",
                 "unexpected character '&' (U+0026)",
             ),
+            (
+                "assign_to_global",
+                "event := {'name': 'renamed'}\nreturn event",
+                'Variable "event" not declared in this scope. Can not assign to globals.',
+            ),
+            (
+                "hyphenated_property",
+                "let x := event.some-prop",
+                "Use bracket notation: event['some-prop']",
+            ),
         ]
     )
     def test_parse_output_includes_specific_parse_error(self, _name, hog_code, expected_fragment):
@@ -27,16 +37,6 @@ class TestParseOutput:
         with pytest.raises(PydanticOutputParserException) as exc_info:
             tool._parse_output(f"<hog_code>{hog_code}</hog_code>")
         assert expected_fragment in str(exc_info.value)
-
-    def test_parse_output_generic_error_for_non_syntax_issues(self):
-        # Code that parses but fails at the HyphenatedPropertyDetector stage
-        hog_code = "let x := event.some-prop"
-        tool = CreateHogTransformationFunctionTool.__new__(CreateHogTransformationFunctionTool)
-        with pytest.raises(PydanticOutputParserException) as exc_info:
-            tool._parse_output(f"<hog_code>{hog_code}</hog_code>")
-        assert "The Hog code failed to compile" in str(exc_info.value)
-        # Should NOT contain a specific parse error since it's not a syntax error
-        assert "no viable alternative" not in str(exc_info.value)
 
     def test_parse_output_valid_code(self):
         hog_code = "let x := 1\nreturn event"

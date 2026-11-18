@@ -231,7 +231,8 @@ pub struct Recorded {
 struct ScenarioTeams {
     by_id: HashMap<i64, Team>,
     by_token: HashMap<String, Team>,
-    lookup_faults: HashMap<String, JsValue>,
+    /// `None` fails every lookup; `Some(n)` fails the next `n`.
+    lookup_faults: Mutex<HashMap<String, (Option<u64>, JsValue)>>,
     by_id_faults: Mutex<HashMap<i64, (u64, JsValue)>>,
     missing: Vec<i64>,
     recorded: Arc<Recorded>,
@@ -253,8 +254,15 @@ impl TeamManager for ScenarioTeams {
     }
 
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>> {
-        if let Some(spec) = self.lookup_faults.get(token) {
-            return Err(to_error(spec));
+        if let Some((left, spec)) = self.lookup_faults.lock().unwrap().get_mut(token) {
+            match left {
+                None => return Err(to_error(spec)),
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    return Err(to_error(spec));
+                }
+                Some(_) => {}
+            }
         }
         Ok(self.by_token.get(token).cloned())
     }
@@ -515,6 +523,15 @@ pub struct ScenarioConsumer {
     pub recorded: Arc<Recorded>,
 }
 
+/// The service tests swap the outputs for Kafka ones.
+pub struct ScenarioParts {
+    pub identity: LogsConsumerIdentity,
+    pub config: LogsIngestionConsumerConfig,
+    pub deps: LogsIngestionConsumerDeps,
+    pub outputs: Arc<CapturingOutputs>,
+    pub recorded: Arc<Recorded>,
+}
+
 /// `discard` counts produced messages instead of keeping them.
 pub fn build_scenario_consumer(
     scenario: &JsValue,
@@ -522,6 +539,20 @@ pub fn build_scenario_consumer(
     clock: Clock,
     discard: bool,
 ) -> ScenarioConsumer {
+    let parts = scenario_parts(scenario, redis, clock, discard);
+    ScenarioConsumer {
+        consumer: LogsIngestionConsumer::new(parts.identity, parts.config, parts.deps),
+        outputs: parts.outputs,
+        recorded: parts.recorded,
+    }
+}
+
+pub fn scenario_parts(
+    scenario: &JsValue,
+    redis: Arc<dyn TokenBucketRedis>,
+    clock: Clock,
+    discard: bool,
+) -> ScenarioParts {
     let recorded = Arc::new(Recorded::default());
     let outputs = Arc::new(CapturingOutputs {
         faults: arr(get(scenario, "produce_faults"))
@@ -559,10 +590,12 @@ pub fn build_scenario_consumer(
             .iter()
             .map(|t| (t.api_token.clone(), t.clone()))
             .collect(),
-        lookup_faults: entries(get(scenario, "team_lookup_faults"))
-            .into_iter()
-            .map(|(k, v)| (k, v.clone()))
-            .collect(),
+        lookup_faults: Mutex::new(
+            entries(get(scenario, "team_lookup_faults"))
+                .into_iter()
+                .map(|(k, v)| (k, (n(get(v, "times")).map(|t| t as u64), v.clone())))
+                .collect(),
+        ),
         by_id_faults: Mutex::new(faults_with_times(get(scenario, "team_by_id_faults"))),
         missing: arr(get(scenario, "team_by_id_missing"))
             .iter()
@@ -649,27 +682,28 @@ pub fn build_scenario_consumer(
         token_bucket_redis: redis,
         key_root: KeyRoot::Test,
         clock,
+        source_offset_header: false,
     };
     let config = match get(scenario, "config") {
         Some(JsValue::Object(o)) => o.clone(),
         _ => JsObject::new(),
     };
     let traces = s(get(scenario, "consumer")).as_deref() == Some("traces");
-    let consumer = if traces {
-        LogsIngestionConsumer::new(
+    let (identity, config) = if traces {
+        (
             LogsConsumerIdentity::traces(),
             LogsIngestionConsumerConfig::from_traces_config(&config),
-            deps,
         )
     } else {
-        LogsIngestionConsumer::new(
+        (
             LogsConsumerIdentity::logs(),
             LogsIngestionConsumerConfig::from_logs_config(&config),
-            deps,
         )
     };
-    ScenarioConsumer {
-        consumer,
+    ScenarioParts {
+        identity,
+        config,
+        deps,
         outputs,
         recorded,
     }

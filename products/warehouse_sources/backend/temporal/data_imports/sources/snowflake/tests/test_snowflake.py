@@ -1229,6 +1229,21 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Invalid account identifier: only letters, digits, '_', '-' and '.' (as a label "
+            "separator) allowed; no slashes or backslashes",
+            # The real shape from production: the duplicated errno prefix varies, the substring is stable.
+            "251001: 251001: Invalid account identifier: only letters, digits, '_', '-' and '.' "
+            "(as a label separator) allowed; no slashes or backslashes",
+        ],
+    )
+    def test_invalid_account_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-account-identifier error should be non-retryable: {error_msg}"
+
 
 class TestSnowflakeSourceRetryableErrors:
     @pytest.fixture
@@ -1447,6 +1462,27 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
         assert "snowflakecomputing.com" not in message
+        mock_capture.assert_not_called()
+
+    def test_invalid_account_identifier_returns_friendly_message_without_capture(self, source):
+        # The connector's own `_validate_account` rejects the account id (e.g. a pasted URL or
+        # hostname) before any request reaches Snowflake. This is a user config error, not an
+        # unexpected failure worth capturing.
+        error = ProgrammingError(
+            msg="251001: 251001: Invalid account identifier: only letters, digits, '_', '-' and '.' "
+            "(as a label separator) allowed; no slashes or backslashes",
+            errno=251001,
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "account identifier" in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):

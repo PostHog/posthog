@@ -7,6 +7,12 @@
 #
 # To add a new service: append an entry here. The deploy matrix in
 # rust-docker-build.yml must also be updated for production deploys.
+#
+# sqlx_databases: the sqlx databases the service reads or writes, as space-separated
+# migrate-entry names (persons, behavioral-cohorts, cyclotron-node, flags-read-store).
+# The build writes every migration version of these databases into the image's
+# deploy requirements manifest (/app/schema-requirements.json, see tools/deploy-requirements), and the
+# deploy-time check (rust/bin/deploy-requirements-check) waits until they are applied.
 - image: capture
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
@@ -45,6 +51,7 @@
 - image: feature-flags
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  sqlx_databases: persons behavioral-cohorts
 
 - image: flags-cache-warmer
   bin: warm-flags-cache
@@ -101,6 +108,13 @@
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
+# rust/logs-ingestion. Named apart from the Node logs-ingestion release, and
+# shares ingestion-consumer's Depot project because both build on ingestion-framework.
+- image: logs-ingestion-rust
+  bin: logs-ingestion
+  dockerfile: ./rust/Dockerfile
+  project: mtvzx98zjn
+
 # Internal web tool for the ingestion team (lag analysis, consumer debug
 # visualizer).
 - image: ingestion-control-plane
@@ -126,6 +140,7 @@
 - image: personhog-identity
   dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
+  sqlx_databases: persons
 
 # Second binary of the personhog-identity crate: drains the publish outbox
 # identity writes. Shares identity's Depot project like the flags-cache
@@ -133,14 +148,17 @@
 - image: personhog-publisher
   dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
+  sqlx_databases: persons
 
 - image: personhog-leader
   dockerfile: ./rust/Dockerfile
   project: g0kjbvxgqx
+  sqlx_databases: persons
 
 - image: personhog-replica
   dockerfile: ./rust/Dockerfile
   project: vq4lxdfdv2
+  sqlx_databases: persons
 
 - image: personhog-router
   dockerfile: ./rust/Dockerfile
@@ -149,6 +167,7 @@
 - image: personhog-writer
   dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
+  sqlx_databases: persons
 
 - image: personhog-changelog-relay
   dockerfile: ./rust/Dockerfile

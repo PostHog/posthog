@@ -29,6 +29,13 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+AMPLITUDE_READ_TIMEOUT_ERROR = "Read timed out"
+
+AMPLITUDE_SLOW_RESPONSE_MESSAGE = (
+    "Amplitude's API was slow to respond, so this sync run did not finish. This usually clears on "
+    "its own and the next sync runs on schedule."
+)
+
 
 @SourceRegistry.register
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
@@ -167,7 +174,12 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
         # tenacity to retry in-process, but Temporal still retries the whole activity and resume
         # state re-fetches the same window. Mirrors GitHub's and Bitbucket's identical classification
         # of the same urllib3 wording.
-        return {AMPLITUDE_INVALID_ARCHIVE_ERROR, "Read timed out"}
+        return {AMPLITUDE_INVALID_ARCHIVE_ERROR, AMPLITUDE_READ_TIMEOUT_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without this, a timeout that outlives every retry stores the raw urllib3 text, which
+        # names the export URL and a read timeout rather than a next step.
+        return {AMPLITUDE_READ_TIMEOUT_ERROR: AMPLITUDE_SLOW_RESPONSE_MESSAGE}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.amplitude.canonical_descriptions import CANONICAL_DESCRIPTIONS

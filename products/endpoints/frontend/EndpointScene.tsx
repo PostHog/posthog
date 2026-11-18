@@ -4,10 +4,12 @@ import { combineUrl, router } from 'kea-router'
 import {
     IconCheck,
     IconClock,
+    IconCode,
     IconCode2,
     IconDatabase,
     IconDecisionTree,
     IconEndpoints,
+    IconGear,
     IconGraph,
     IconLive,
     IconPause,
@@ -44,7 +46,6 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
@@ -77,7 +78,6 @@ export function EndpointScene(): JSX.Element {
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const lineageSavedQueryId = (viewingVersion ?? endpoint)?.materialization?.saved_query_id ?? null
@@ -254,6 +254,24 @@ export function EndpointScene(): JSX.Element {
                             />
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
+                                onClick={() => router.actions.push(urls.endpoint(endpoint.name))}
+                                data-attr="endpoint-menubar-open-query"
+                            >
+                                <IconCode />
+                                Open query
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.CONFIGURATION }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-open-configuration"
+                            >
+                                <IconGear />
+                                Open configuration
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
                                 onClick={() =>
                                     router.actions.push(
                                         combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.PLAYGROUND }).url
@@ -348,7 +366,6 @@ export function EndpointScene(): JSX.Element {
                                 onSave={(tags) => saveTagsInline(tags)}
                                 canEdit
                                 tags={endpoint.tags}
-                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                                 dataAttrKey="endpoint"
                             />
                         </SceneMenuBarPopover>
@@ -382,7 +399,6 @@ export function EndpointScene(): JSX.Element {
                     <ScenePanelInfoSection>
                         <SceneTags
                             tags={endpoint.tags}
-                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                             onSave={(tags) => saveTagsInline(tags)}
                             canEdit
                             dataAttrKey="endpoint"

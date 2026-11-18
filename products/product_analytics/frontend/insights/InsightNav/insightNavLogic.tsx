@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -96,9 +95,10 @@ import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics
 import { expandGroupNodes } from './expandGroupNodes'
 
 export interface Tab {
-    label: string | JSX.Element
+    label: string
     type: InsightType
     dataAttr: string
+    beta?: boolean
 }
 
 type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
@@ -691,11 +691,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 // Visible when flagged or when viewing an existing journeys insight, so links never dead-end
                 if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] || activeView === InsightType.JOURNEYS) {
                     tabs.push({
-                        label: (
-                            <>
-                                Journeys <LemonTag type="warning">BETA</LemonTag>
-                            </>
-                        ),
+                        label: 'Journeys',
+                        beta: true,
                         type: InsightType.JOURNEYS,
                         dataAttr: 'insight-journeys-tab',
                     })
@@ -716,7 +713,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
                     tabs.push({
-                        label: <>Hog 🦔</>,
+                        label: 'Hog 🦔',
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
                     })

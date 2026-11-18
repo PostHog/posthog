@@ -12,15 +12,19 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { getIconColor } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
+
 import type { NewSessionSuggestion, NewSessionSuggestionIcon } from './newSessionSuggestionDefaults'
 
-const SUGGESTION_ICONS: Record<NewSessionSuggestionIcon, { Icon: typeof IconBug; color: string }> = {
-    trends: { Icon: IconTrending, color: 'var(--color-product-customer-analytics-light)' },
-    bug: { Icon: IconBug, color: 'var(--color-product-error-tracking-light)' },
-    canvas: { Icon: IconPalette, color: 'var(--color-product-product-analytics-light)' },
-    code: { Icon: IconCode, color: 'var(--color-product-tasks-light)' },
-    revenue: { Icon: IconPiggyBank, color: 'var(--color-product-revenue-analytics-light)' },
-    feedback: { Icon: IconMessage, color: 'var(--color-product-llm-analytics-light)' },
+// Colors come from the file system type, so a suggestion matches the same object everywhere else (tree, recents, search)
+const SUGGESTION_ICONS: Record<NewSessionSuggestionIcon, { Icon: typeof IconBug; type: FileSystemIconType }> = {
+    trends: { Icon: IconTrending, type: 'customer_analytics' },
+    bug: { Icon: IconBug, type: 'error_tracking' },
+    canvas: { Icon: IconPalette, type: 'canvas' },
+    code: { Icon: IconCode, type: 'task' },
+    revenue: { Icon: IconPiggyBank, type: 'revenue_analytics' },
+    feedback: { Icon: IconMessage, type: 'llm_analytics' },
 }
 
 export interface NewSessionSuggestionsProps {
@@ -38,7 +42,8 @@ export function NewSessionSuggestions({ suggestions, onSelect }: NewSessionSugge
             </Text>
             <div className="grid grid-cols-1 gap-2 @lg/new-session-suggestions:grid-cols-2">
                 {suggestions.map((suggestion, index) => {
-                    const { Icon, color } = SUGGESTION_ICONS[suggestion.icon]
+                    const { Icon, type } = SUGGESTION_ICONS[suggestion.icon]
+                    const [color] = getIconColor(type)
                     const activate = (): void => setActiveId(suggestion.id)
                     const deactivate = (): void => setActiveId(null)
                     return (

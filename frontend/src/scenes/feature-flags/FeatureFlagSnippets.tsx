@@ -526,8 +526,7 @@ export function AndroidSnippet({
         return (
             <>
                 <CodeSnippet language={Language.Kotlin} wrap>
-                    {`${warning ? warning + '\n' : ''}val result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
-result.payload?.let { payload ->
+                    {`${warning ? warning + '\n' : ''}${clientSuffix}getFeatureFlagResult("${flagKey}", sendFeatureFlagEvent = false)?.payload?.let { payload ->
     // Handle remote configuration payload
     println("Remote config: $payload")
 }`}
@@ -544,7 +543,7 @@ result.payload?.let { payload ->
     if (payload) {
         return (
             <CodeSnippet language={Language.Kotlin} wrap>
-                {`${clientSuffix}getFeatureFlagResult("${flagKey}")?.payload`}
+                {`${clientSuffix}getFeatureFlagResult("${flagKey}", sendFeatureFlagEvent = false)?.payload`}
             </CodeSnippet>
         )
     }

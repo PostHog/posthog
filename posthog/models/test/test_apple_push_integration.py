@@ -31,7 +31,7 @@ class TestApplePushIntegration(BaseTest):
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
     ) -> Integration:
-        return ApplePushIntegration.integration_from_key(
+        record = ApplePushIntegration.integration_from_key(
             signing_key=signing_key,
             key_id=key_id,
             team_id_apple=team_id_apple,
@@ -41,6 +41,7 @@ class TestApplePushIntegration(BaseTest):
             push_identity_verification=push_identity_verification,
             push_identity_public_keys=push_identity_public_keys,
         )
+        return Integration.objects.get(pk=record.id)
 
     def test_creates_integration(self):
         integration = self._create_apple_push_integration()

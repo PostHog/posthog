@@ -7,10 +7,10 @@ import pytest
 from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import PropertyDefinition
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
+from products.event_definitions.backend.models import PropertyDefinition
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

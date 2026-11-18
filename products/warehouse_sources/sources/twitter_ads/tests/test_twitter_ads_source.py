@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     MISSING_APP,
     MISSING_INTEGRATION,
     REVOKED_GRANT,
+    VIDEO_AND_CONVERSION_FLAG,
 )
 from products.warehouse_sources.sources.twitter_ads.source import TwitterAdsSource
 from products.warehouse_sources.sources.twitter_ads.twitter_ads import TwitterAdsClient, twitter_ads_source
@@ -111,6 +112,34 @@ def test_account_listing_preserves_names_and_omits_deleted() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "schema_name,flag_on,expected",
+    [
+        ("campaign_stats", True, True),
+        ("line_item_stats", True, True),
+        ("campaign_stats", False, False),
+        ("campaigns", True, False),
+    ],
+)
+def test_video_and_conversion_flag_reaches_stats_tables_only(schema_name: str, flag_on: bool, expected: bool) -> None:
+    source = TwitterAdsSource()
+    inputs = MagicMock(schema_name=schema_name, team_id=1, schema_id="schema", api_version=None)
+    with (
+        patch.object(source, "get_oauth_integration", return_value=MagicMock()),
+        patch("products.warehouse_sources.sources.twitter_ads.source.TwitterAdsClient"),
+        patch("products.warehouse_sources.sources.twitter_ads.source.ExternalDataSchema"),
+        patch(
+            "products.warehouse_sources.sources.twitter_ads.source.is_schema_flag_enabled",
+            side_effect=lambda schema, flag: flag_on and flag == VIDEO_AND_CONVERSION_FLAG,
+        ),
+        patch("products.warehouse_sources.sources.twitter_ads.source.twitter_ads_source") as build,
+    ):
+        source.source_for_pipeline(
+            TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1), MagicMock(), inputs
+        )
+    assert build.call_args.args[-1] is expected
+
+
 @override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret")
 def test_unsupported_version_and_unknown_table_fail_before_http() -> None:
     integration = Integration(
@@ -119,4 +148,4 @@ def test_unsupported_version_and_unknown_table_fail_before_http() -> None:
     with pytest.raises(ValueError, match="Unsupported X Ads API version"):
         TwitterAdsClient(integration, "11")
     with pytest.raises(ValueError, match="Unknown X Ads table"):
-        twitter_ads_source(TwitterAdsClient(integration), "account", "unknown", MagicMock(), None)
+        twitter_ads_source(TwitterAdsClient(integration), "account", "unknown", MagicMock(), None, MagicMock())

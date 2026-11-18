@@ -3,6 +3,65 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "threads": {
+        "description": "Message threads across mailboxes, including message counts and the latest message.",
+        "docs_url": "https://shipmail.to/docs/api/threads",
+        "columns": {
+            "id": "Identifier of the thread within its mailbox.",
+            "conversation_id": "Stable conversation identifier that survives thread merges and changes in mail server threading.",
+            "mailbox_id": "Identifier of the mailbox that contains the thread.",
+            "subject": "Subject of the thread, when available.",
+            "message_count": "Number of messages in the thread.",
+            "latest_message": "Latest message in the thread.",
+            "created_at": "Time at which the thread was created.",
+            "updated_at": "Time at which the thread was last updated.",
+        },
+    },
+    "newsletters": {
+        "description": "Newsletters with their send status, delivery totals, and engagement counts.",
+        "docs_url": "https://shipmail.to/docs/api/newsletters",
+        "columns": {
+            "id": "Unique identifier for the newsletter.",
+            "audience_id": "Identifier of the newsletter audience, when available.",
+            "name": "Name of the newsletter.",
+            "status": "Current newsletter status.",
+            "track_engagement": "Whether the newsletter tracks opens and clicks.",
+            "opened_count": "Unique recipients with a counted open. Null when engagement tracking is off.",
+            "clicked_count": "Unique recipients with a tracked click. Null when engagement tracking is off.",
+            "delivered_count": "Number of delivered newsletter messages.",
+            "bounced_count": "Number of bounced newsletter messages.",
+            "complained_count": "Number of newsletter messages that received a spam complaint.",
+            "created_at": "Time at which the newsletter was created.",
+            "updated_at": "Time at which the newsletter was last updated.",
+        },
+    },
+    "audience_subscribers": {
+        "description": "Subscribers across audiences, including membership status and consent source.",
+        "docs_url": "https://shipmail.to/docs/api/audiences",
+        "columns": {
+            "id": "Identifier of the subscriber within the audience.",
+            "audience_id": "Identifier of the audience that contains the subscriber.",
+            "email_address": "Email address of the subscriber.",
+            "display_name": "Display name of the subscriber, when available.",
+            "status": "Current subscriber status.",
+            "merge_fields": "Custom fields stored for the subscriber.",
+            "consent_source": "Source of the subscriber's consent, when available.",
+            "created_at": "Time at which the subscriber was created.",
+            "updated_at": "Time at which the subscriber was last updated.",
+        },
+    },
+    "members": {
+        "description": "Organization members with their roles and mailbox access visible to the API key.",
+        "docs_url": "https://shipmail.to/docs/api/members",
+        "columns": {
+            "id": "Unique identifier for the member.",
+            "email": "Email address of the member.",
+            "name": "Name of the member.",
+            "role": "Organization role of the member.",
+            "mailbox_access": "Mailbox access scope and visible mailbox identifiers. Selected mailbox lists can be incomplete.",
+            "created_at": "Time at which the member was created.",
+        },
+    },
     "messages": {
         "description": "Analytics-safe message records in stable update order, without message content or sensitive headers.",
         "docs_url": "https://shipmail.to/docs/api/messages",

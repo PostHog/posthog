@@ -44,21 +44,27 @@ class AvailableFeature(StrEnum):
     SURVEYS_RECURRING = "surveys_recurring"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
+    HIPAA_BAA = "hipaa_baa"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
     HIGH_FREQUENCY_ALERTS = "high_frequency_alerts"
     REAL_TIME_ALERTS = "real_time_alerts"
+    DATA_MODELING_REFRESH_INTERVAL = "data_modeling_refresh_interval"
+    REALTIME_COHORTS = "realtime_cohorts"
+    REALTIME_COHORTS_HISTORY = "realtime_cohorts_history"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    IP_RESTRICTIONS = "ip_restrictions"
     MEMBER_GOVERNANCE = "member_governance"
     SSF = "ssf"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
+    PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION = "product_analytics_standard_data_retention"
     LOGS_RETENTION_30D = "logs_retention_30d"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
@@ -66,6 +72,8 @@ class AvailableFeature(StrEnum):
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
     PERSONAL_API_KEYS = "personal_api_keys"
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = "self_driving_trial_allowance_microusd"
+    SELF_DRIVING_TRIAL_REPORTS = "self_driving_trial_reports"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -246,6 +254,7 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    LOCAL_EVALUATION_NOT_MODIFIED = "local-evaluation-not-modified"
     REMOTE_CONFIG = "remote-config"
 
 
@@ -258,6 +267,8 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
 EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-ratio-metric-events-preaggregation"
+EXPERIMENTS_CUPED_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-cuped-metric-events-preaggregation"
+EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY = "experiments-precompute-person-resolution"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

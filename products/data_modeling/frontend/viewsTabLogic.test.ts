@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -128,6 +129,12 @@ describe('viewsTabLogic', () => {
             expect(logic.values.visibleViews).toHaveLength(PAGE_SIZE)
         }
     )
+
+    it('reloads the database schema so certification tags follow an accepted suggestion', async () => {
+        await expectLogic(logic, () => logic.actions.suggestionAccepted('mat-0', false)).toDispatchActions([
+            databaseTableListLogic.actionCreators.refreshDatabaseSchema(),
+        ])
+    })
 
     it('keeps polling an accepted materialize until the view reports it is materialized', async () => {
         logic.actions.suggestionAccepted('plain-a', true)

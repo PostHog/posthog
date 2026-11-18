@@ -1206,6 +1206,15 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('reply suggestions', () => {
+        it('keeps the newer turn when an older frame lands late', () => {
+            logic.actions.setReplySuggestions({ turnIndex: 3, replies: ['Newer'] })
+            logic.actions.setReplySuggestions({ turnIndex: 2, replies: ['Older'] })
+
+            expect(logic.values.replySuggestionsFrame).toEqual({ turnIndex: 3, replies: ['Newer'] })
+        })
+    })
+
     describe('pushHumanMessage', () => {
         it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             logic.actions.pushHumanMessage('hello agent')
@@ -3664,6 +3673,23 @@ describe('runStreamLogic', () => {
             expect(
                 logic.values.log.entries.some(({ entry }) => entry.notification.method === '_posthog/task_notification')
             ).toBe(true)
+        })
+
+        it('reconciles and deduplicates coalesced thought chunks', () => {
+            const thought = (text: string, id: string, first?: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text } }),
+                event_id: id,
+                first_event_id: first,
+            })
+            const saved = thought('abc', 'boot-3', 'boot-1')
+            const chunks = [thought('a', 'boot-1'), thought('b', 'boot-2'), thought('c', 'boot-3')]
+            const result = reconcileRunLog([saved], [], [...chunks, saved])
+            expect(result.entries.map(({ entry }) => entry)).toEqual([saved])
+            const merged = mergeCoalescedRunLog(
+                { entries: chunks.map((entry) => ({ entry, source: 'live' as const })), toolUpdateIndex: {} },
+                saved
+            )
+            expect(merged.entries.map(({ entry }) => entry)).toEqual([saved])
         })
 
         it('merges a coalesced frame into a long transcript without losing unrelated entries', () => {

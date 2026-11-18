@@ -17,9 +17,12 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_queries.query_runner import AR, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.mcp_analytics.backend.constants import MCP_FEEDBACK_EVENT, MCP_MISSING_CAPABILITY_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 
 if TYPE_CHECKING:
     from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
@@ -49,6 +52,22 @@ EFFECTIVE_DESCRIPTION_SQL = (
 CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+
+def missing_capability_report_expr() -> ast.Expr:
+    """Events that report a capability an agent needed and could not find.
+
+    `reportMissing` emits `$mcp_missing_capability` from `get_more_tools`. `collectFeedback`
+    emits `$mcp_feedback` from `send_feedback`, and only its `missing_capability` type is such a
+    report. Both SDKs put the report text in `$mcp_intent`.
+    """
+    return parse_expr(
+        "event = {missing_capability_event} OR (event = {feedback_event} AND properties.$mcp_feedback_type = 'missing_capability')",
+        placeholders={
+            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+            "feedback_event": ast.Constant(value=MCP_FEEDBACK_EVENT),
+        },
+    )
 
 
 def mcp_source_expr() -> ast.Expr:
@@ -131,3 +150,14 @@ def mcp_query_date_range(
         interval=interval,
         now=datetime.now(team.timezone_info),
     )
+
+
+class HarnessLabelQueryRunner(AnalyticsQueryRunner[AR]):
+    """A runner whose results carry harness labels, which depend on the team's custom harness rules."""
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Without the rules in the key, a save keeps serving cached results with the old labels until they expire.
+        if rules := custom_harness_rules(self.team):
+            payload["mcp_custom_harness_rules"] = [[rule.name, rule.pattern] for rule in rules]
+        return payload

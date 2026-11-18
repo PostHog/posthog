@@ -24,6 +24,9 @@ class StackOverflowForTeamsEndpointConfig:
     should_sync_default: bool = True
     page_size: int = PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
+    # The comments and subject-matter-experts endpoints take no paging params and return their
+    # whole result in one body: a bare array, or a single object.
+    single_page: bool = False
     # No v3 list endpoint has a confirmed server-side timestamp filter (see INCREMENTAL_FIELDS
     # below), so every endpoint stays full refresh; these satisfy the fan-out helper's endpoint
     # protocol without advertising an incremental field.
@@ -86,6 +89,74 @@ STACK_OVERFLOW_FOR_TEAMS_ENDPOINTS: dict[str, StackOverflowForTeamsEndpointConfi
         path="/collections",
         sort="creation",
         order="asc",
+    ),
+    "Communities": StackOverflowForTeamsEndpointConfig(
+        name="Communities",
+        path="/communities",
+        # CommunitySortParameter offers only "name" and "size", and communities carry no
+        # creation date.
+        sort="name",
+        order="asc",
+        partition_key=None,
+    ),
+    "QuestionComments": StackOverflowForTeamsEndpointConfig(
+        name="QuestionComments",
+        path="/questions/{questionId}/comments",
+        sort=None,
+        order=None,
+        primary_keys=["id", "questionId"],
+        single_page=True,
+        fanout=DependentEndpointConfig(
+            parent_name="Questions",
+            resolve_param="questionId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "questionId"},
+            parent_params={"sort": "creation", "order": "asc"},
+            # A question deleted between the listing and this fetch answers 404.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "AnswerComments": StackOverflowForTeamsEndpointConfig(
+        name="AnswerComments",
+        path="/questions/{questionId}/answers/{answerId}/comments",
+        sort=None,
+        order=None,
+        primary_keys=["id", "answerId"],
+        single_page=True,
+        # Answers is itself a fan-out of Questions, so this table walks Questions -> Answers ->
+        # comments; `questionId` is bound from the Questions row the answer came from.
+        fanout=DependentEndpointConfig(
+            parent_name="Answers",
+            resolve_param="answerId",
+            resolve_field="id",
+            include_from_parent=["id", "questionId"],
+            parent_field_renames={"id": "answerId", "questionId": "questionId"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "TagSubjectMatterExperts": StackOverflowForTeamsEndpointConfig(
+        name="TagSubjectMatterExperts",
+        path="/tags/{tagId}/subject-matter-experts",
+        sort=None,
+        order=None,
+        partition_key=None,
+        # One row per expert of a tag: a user or a user group, whose ids can overlap.
+        primary_keys=["tagId", "expertType", "id"],
+        single_page=True,
+        fanout=DependentEndpointConfig(
+            parent_name="Tags",
+            resolve_param="tagId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "tagId"},
+            parent_params={"sort": "creationDate", "order": "asc"},
+            # 404 means the tag has no experts, 422 that the team has the SME feature turned off.
+            child_response_actions=[
+                {"status_code": 404, "action": "ignore"},
+                {"status_code": 422, "action": "ignore"},
+            ],
+        ),
     ),
 }
 

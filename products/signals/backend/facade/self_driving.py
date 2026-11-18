@@ -21,11 +21,16 @@ __all__ = [
     "record_quota_check_failed_open",
     "self_driving_free_trial_enabled",
     "self_driving_quota_gate",
+    "self_driving_limit_name",
 ]
 
 
 def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     return quota.self_driving_quota_gate(team)
+
+
+def self_driving_limit_name(team: "Team") -> str:
+    return quota.self_driving_limit_name(team)
 
 
 def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, stage: str, enforced: bool) -> None:
@@ -36,8 +41,10 @@ def record_quota_check_failed_open() -> None:
     quota.record_quota_check_failed_open()
 
 
-def self_driving_free_trial_enabled(team: "Team") -> bool:
-    return free_trial.self_driving_free_trial_enabled(team)
+def self_driving_free_trial_enabled(
+    team: "Team", *, admitted_report_id: str | None = None, enabled: bool | None = None
+) -> bool:
+    return free_trial.self_driving_free_trial_enabled(team, admitted_report_id=admitted_report_id, enabled=enabled)
 
 
 def capture_signal_report_free_trial_paused(team: "Team", *, report_id: str | None, stage: str) -> None:

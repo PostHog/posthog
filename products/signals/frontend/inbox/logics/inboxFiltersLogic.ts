@@ -16,9 +16,11 @@ import type { UserType } from '~/types'
 import {
     INBOX_CREATED_WINDOW_OPTIONS,
     INBOX_MODEL_SORT_OPTIONS,
+    INBOX_PERSONAL_SORT_OPTION,
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
+    isMergeKeySortField,
     isRankingSortField,
 } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
@@ -42,7 +44,13 @@ export interface InboxReviewerOption {
 }
 
 export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fix'
-export type InboxSortField = 'recommended' | 'priority' | 'created_at' | 'updated_at' | InboxRankingSortField
+export type InboxSortField =
+    | 'recommended'
+    | 'personal'
+    | 'priority'
+    | 'created_at'
+    | 'updated_at'
+    | InboxRankingSortField
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
 export type InboxCreatedWindow = '24h' | '3d' | '7d' | '14d'
@@ -101,6 +109,7 @@ const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 // direction independently would accept keys like `priority:desc` that have no matching UI option.
 const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_MODEL_SORT_KEYS = new Set(INBOX_MODEL_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
+const PERSONAL_SORT_KEY = `${INBOX_PERSONAL_SORT_OPTION.field}:${INBOX_PERSONAL_SORT_OPTION.direction}`
 const VALID_CREATED_WINDOWS = new Set<string>(INBOX_CREATED_WINDOW_OPTIONS.map((o) => o.value))
 
 // Old sort field names that URLs and local storage can still hold, so a stored sort does not fall back to the default.
@@ -110,12 +119,29 @@ function currentSortField(field: string): InboxSortField {
     return RENAMED_SORT_FIELDS[field] ?? (field as InboxSortField)
 }
 
-function isOfferedSortKey(key: string, modelSortAvailable: boolean): boolean {
-    return VALID_SORT_KEYS.has(key) || (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(key))
+/** The sorts behind a flag that the current user can use. */
+interface FlaggedSortAvailability {
+    modelSortAvailable?: boolean
+    personalSortAvailable?: boolean
 }
 
-function isOfferedSort(field: InboxSortField, direction: InboxSortDirection, modelSortAvailable: boolean): boolean {
-    return isOfferedSortKey(`${field}:${direction}`, modelSortAvailable)
+function isOfferedSortKey(
+    key: string,
+    { modelSortAvailable = false, personalSortAvailable = false }: FlaggedSortAvailability
+): boolean {
+    return (
+        VALID_SORT_KEYS.has(key) ||
+        (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(key)) ||
+        (personalSortAvailable && key === PERSONAL_SORT_KEY)
+    )
+}
+
+function isOfferedSort(
+    field: InboxSortField,
+    direction: InboxSortDirection,
+    availability: FlaggedSortAvailability
+): boolean {
+    return isOfferedSortKey(`${field}:${direction}`, availability)
 }
 
 export interface InboxFilterState {
@@ -178,18 +204,18 @@ function parseScoutParam(raw: unknown): string[] {
 
 /**
  * Decode the filter query params into filter state, ignoring unknown/invalid values and falling back to defaults.
- * A model sort in a link opened by a user who cannot use it falls back to the default sort.
+ * A flagged sort in a link opened by a user who cannot use it falls back to the default sort.
  */
 export function parseFilterSearchParams(
     searchParams: Record<string, any>,
-    { modelSortAvailable = false }: { modelSortAvailable?: boolean } = {}
+    availability: FlaggedSortAvailability = {}
 ): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
     if (typeof searchParams.sort === 'string') {
         const [rawField, direction] = searchParams.sort.split(':')
         const field = currentSortField(rawField)
-        if (isOfferedSortKey(`${field}:${direction}`, modelSortAvailable)) {
+        if (isOfferedSortKey(`${field}:${direction}`, availability)) {
             sortField = field
             sortDirection = direction as InboxSortDirection
         }
@@ -306,16 +332,14 @@ export function appliedInboxSearch(searchQuery: string): string | undefined {
 }
 
 /**
- * The sort params for the list request. Recommended is a server preset that a user flag resolves
- * to a ranker, so it goes out as `sort` with no `ordering`, because `ordering` overrides the preset.
+ * The sort params for the list request. Recommended and Personalized are server presets that resolve
+ * to a ranker per user, so they go out as `sort` with no `ordering`, because `ordering` overrides the preset.
  */
 export function buildSignalReportListSortParams(
     field: InboxSortField,
     direction: InboxSortDirection
 ): { ordering?: string; sort?: string } {
-    return field === 'recommended'
-        ? { sort: 'recommended' }
-        : { ordering: buildSignalReportListOrdering(field, direction) }
+    return isMergeKeySortField(field) ? { sort: field } : { ordering: buildSignalReportListOrdering(field, direction) }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -339,8 +363,8 @@ export interface inboxFiltersLogicValues {
         uuid: string
     } | null
     modelSortAvailable: boolean
-    monitoringAvailable: boolean
     nonDefaultReportFilterCount: number
+    personalSortAvailable: boolean
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
     scoutFilter: string[]
@@ -475,7 +499,6 @@ export interface inboxFiltersLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxFiltersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        monitoringAvailable: (featureFlags: FeatureFlagsSet) => boolean
         hasActiveFilters: (
             searchQuery: string,
             activeSourceProductFilter: string[],
@@ -485,15 +508,18 @@ export interface inboxFiltersLogicMeta {
         ) => boolean
         isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
         modelSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        personalSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSortField: (
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
-            modelSortAvailable: boolean
+            modelSortAvailable: boolean,
+            personalSortAvailable: boolean
         ) => InboxSortField
         activeSortDirection: (
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
-            modelSortAvailable: boolean
+            modelSortAvailable: boolean,
+            personalSortAvailable: boolean
         ) => InboxSortDirection
         timeWindowAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeCreatedWindow: (
@@ -514,8 +540,7 @@ export interface inboxFiltersLogicMeta {
                 | 'outcome-monitoring'
                 | 'resolved'
             )[],
-            user: UserType | null,
-            monitoringAvailable: boolean
+            user: UserType | null
         ) => InboxReportSectionKey[]
         nonDefaultReportFilterCount: (
             visibleStateFilter: (
@@ -577,7 +602,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Moves a user still on the old Priority first default to Recommended. Not a user choice, so
         // it is not a query change and does not rewrite the URL.
         migrateLegacyDefaultSort: true,
-        // Resets a stored model sort the user can no longer use, so the lists reload in the default order.
+        // Resets a stored model or personalized sort the user can no longer use, so the lists reload in the default order.
         resetUnavailableSort: true,
         setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => ({ createdWindow }),
         // Set by a model sort, not by the user, so it is not a query change of its own.
@@ -822,10 +847,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     }),
 
     selectors({
-        monitoringAvailable: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
-        ],
         // Whether any server-side list-narrowing filter is active. Scope and sort are excluded: they
         // don't hide reports the way search/source/priority/created window do, and `clearFilters` leaves them
         // untouched. The state filter is also excluded: it only narrows which states the flat
@@ -863,27 +884,35 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT],
         ],
+        // The backend gates `sort=personal` on its own ranking flag and falls back to the Recommended
+        // order without it, so this flag only decides who sees the menu option.
+        personalSortAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT],
+        ],
         // The sort the list requests and renders with. A persisted sort the menu no longer offers, or a
-        // model sort persisted while it was available, falls back to the default.
+        // flagged sort persisted while it was available, falls back to the default.
         activeSortField: [
-            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
+            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable, s.personalSortAvailable],
             (
                 sortField: InboxSortField,
                 sortDirection: InboxSortDirection,
-                modelSortAvailable: boolean
+                modelSortAvailable: boolean,
+                personalSortAvailable: boolean
             ): InboxSortField =>
-                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                isOfferedSort(currentSortField(sortField), sortDirection, { modelSortAvailable, personalSortAvailable })
                     ? currentSortField(sortField)
                     : DEFAULT_SORT_FIELD,
         ],
         activeSortDirection: [
-            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
+            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable, s.personalSortAvailable],
             (
                 sortField: InboxSortField,
                 sortDirection: InboxSortDirection,
-                modelSortAvailable: boolean
+                modelSortAvailable: boolean,
+                personalSortAvailable: boolean
             ): InboxSortDirection =>
-                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                isOfferedSort(currentSortField(sortField), sortDirection, { modelSortAvailable, personalSortAvailable })
                     ? sortDirection
                     : DEFAULT_SORT_DIRECTION,
         ],
@@ -921,17 +950,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // selection the control has no checkbox to clear. The raw `stateFilter` stays stored and in
         // the URL, so a staff user opening the same link still gets the full selection.
         visibleStateFilter: [
-            (s) => [s.stateFilter, s.user, s.monitoringAvailable],
-            (
-                stateFilter: InboxReportSectionKey[],
-                user: UserType | null,
-                monitoringAvailable: boolean
-            ): InboxReportSectionKey[] =>
-                stateFilter.filter(
-                    (key) =>
-                        (user?.is_staff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)) &&
-                        (key !== 'outcome-monitoring' || monitoringAvailable)
-                ),
+            (s) => [s.stateFilter, s.user],
+            (stateFilter: InboxReportSectionKey[], user: UserType | null): InboxReportSectionKey[] =>
+                stateFilter.filter((key) => user?.is_staff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
         ],
         // The window a ranking sort applies on its own is that sort's default, so it does not count.
         nonDefaultReportFilterCount: [
@@ -967,6 +988,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // would show them in an arbitrary order.
         modelSortAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
             if (wasAvailable && !available && isRankingSortField(values.sortField)) {
+                actions.resetUnavailableSort()
+            }
+        },
+        // Rows loaded with the personalized sort carry merge keys from the personal ranker, which do
+        // not merge with the Recommended keys the default sort loads.
+        personalSortAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
+            if (wasAvailable && !available && values.sortField === 'personal') {
                 actions.resetUnavailableSort()
             }
         },
@@ -1029,7 +1057,10 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             // A shared link is authoritative: apply the params it carries and reset the rest to defaults.
             // Only dispatch when something actually changed — urlToAction also fires on plain navigation
             // (opening a report, switching tabs), and we don't want a redundant list refresh each time.
-            const parsed = parseFilterSearchParams(searchParams, { modelSortAvailable: values.modelSortAvailable })
+            const parsed = parseFilterSearchParams(searchParams, {
+                modelSortAvailable: values.modelSortAvailable,
+                personalSortAvailable: values.personalSortAvailable,
+            })
             const changed =
                 values.scope !== parsed.scope ||
                 !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||

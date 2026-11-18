@@ -580,21 +580,24 @@ class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
-    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN or the id of a
+    # team-scoped aws-s3 integration. Inline credentials still parse, but the activity rejects them.
     authorization: IAMRole | AWSCredentials | IntegrationID
-    # Credentials used to stage files in the S3 bucket: inline credentials or
-    # the id of a team-scoped aws-s3 integration.
+    # Credentials used to stage files in the S3 bucket: the id of a team-scoped aws-s3
+    # integration. Inline credentials still parse, but the activity rejects them.
     bucket_credentials: AWSCredentials | IntegrationID
 
 
 @dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Redshift export workflow."""
+    """Inputs for Redshift export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). `host` and `port` are read only for AWS Redshift integrations,
+    because a plain Redshift integration stores the server itself.
+    """
 
     database: str
-    user: str | None = None
-    password: str | None = field(default=None, repr=False)
     host: str | None = None
     schema: str = "public"
     table_name: str = "events"
@@ -655,15 +658,16 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for BigQuery export workflow."""
+    """Inputs for BigQuery export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). The activity also reads the project from the Integration, so
+    `project_id` only keeps existing configs valid.
+    """
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = field(default=None, repr=False)
-    private_key_id: str | None = None
-    token_uri: str | None = None
-    client_email: str | None = None
     use_json_type: bool = False
 
 

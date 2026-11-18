@@ -38,6 +38,7 @@ const repo: RepoApi = {
     baseline_file_paths: {},
     enable_pr_comments: true,
     debt_digest_enabled: false,
+    auto_quarantine_mode: 'off',
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -280,6 +281,7 @@ const buttonQuarantine: QuarantinedIdentifierEntryApi = {
     expires_at: '2026-07-01T00:00:00Z',
     created_at: '2026-06-01T00:00:00Z',
     updated_at: '2026-06-01T00:00:00Z',
+    lift_reason: '',
 }
 
 const pendingLift: QuarantineLiftEntryApi = {

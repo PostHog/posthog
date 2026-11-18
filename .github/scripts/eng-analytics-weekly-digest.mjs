@@ -1,8 +1,9 @@
 // Weekly CI digest for #alerts-devex. It compares the last 7 complete UTC days with the 7 days before.
-// Spend covers every repository in the organization. Runner and container build minutes come from
-// Depot's usage API. Depot CI comes from the depot_ci_usage endpoint, which counts only repositories
-// with a synced Depot source. Cache storage is not counted. PR workflow p95 durations come from the
-// workflow_health endpoint, which computes them over successful pull request runs only.
+// Spend covers every repository in the organization. Runner, Depot CI and container build minutes come
+// from Depot's usage API. Cache storage is not counted in weekly spend. The contract line starts from
+// Depot's credit balance, which is current as of the last invoice, and subtracts this month's usage.
+// PR workflow p95 durations come from the workflow_health endpoint, which computes them over
+// successful pull request runs only.
 
 import { pathToFileURL } from 'node:url'
 
@@ -26,12 +27,19 @@ const DEPOT_CONTRACT_USD = Number(process.env.DEPOT_CONTRACT_USD || 0)
 const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
 const DEPOT_CONTRACT_END = process.env.DEPOT_CONTRACT_END || ''
 
-// The depot_ci_usage endpoint prices Depot CI.
 const RUNNER_USD_PER_MINUTE = 0.004
 const BUILD_USD_PER_MINUTE = 0.04
+// Depot bills Depot CI in raw vCPU-minutes, while runner minutes are 2-vCPU-equivalent, so the two
+// rates are not comparable. Keep this equal to DEPOT_CI_RATE_USD_PER_VCPU_SECOND × 60 in
+// products/engineering_analytics/backend/logic/cost.py, so the digest and the app agree.
+const DEPOT_CI_USD_PER_VCPU_MINUTE = 0.003
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
+
+// Keep this, plus one day's retries, inside the job's timeout-minutes.
+const DEPOT_TIME_BUDGET_MS = 20 * 60 * 1000
+const STARTED_AT = performance.now()
 
 const PR_DURATION_BUDGET_SECONDS = 20 * 60
 // One slow run can move the p95 of a workflow with few runs in the week by minutes.
@@ -39,13 +47,13 @@ const MIN_PERCENTILE_RUNS = 100
 // Slack rejects a message with a section text over 3,000 characters.
 const SLACK_SECTION_MAX_CHARS = 3000
 
-function billedMinutes(entry) {
+function billedMinutes(minutes) {
     // Protobuf JSON omits a field at its zero default.
-    const minutes = entry?.minutesBilled ?? 0
-    if (!Number.isFinite(minutes) || minutes < 0) {
+    const value = minutes ?? 0
+    if (!Number.isFinite(value) || value < 0) {
         throw new Error('Depot GetUsage returned invalid billed minutes')
     }
-    return minutes
+    return value
 }
 
 async function depotUsageSpend(startAt, endAt) {
@@ -59,7 +67,7 @@ async function depotUsageSpend(startAt, endAt) {
             Authorization: `Bearer ${DEPOT_TOKEN}`,
         },
         body: JSON.stringify({ startAt: startAt.toISOString(), endAt: endAt.toISOString() }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(30_000),
     }).catch(() => null)
     if (!res?.ok) {
         throw Object.assign(new Error(`Depot GetUsage failed${res ? ` with ${res.status}` : ''}`), {
@@ -68,48 +76,109 @@ async function depotUsageSpend(startAt, endAt) {
     }
     const usage = await res.json().catch(() => null)
     const jobs = usage?.githubActionsJobs ?? []
+    const ciWorkflows = usage?.depotCi ?? []
     const builds = usage?.containerBuild ?? []
-    if (!usage || typeof usage !== 'object' || !Array.isArray(jobs) || !Array.isArray(builds)) {
+    if (
+        !usage ||
+        typeof usage !== 'object' ||
+        !Array.isArray(jobs) ||
+        !Array.isArray(ciWorkflows) ||
+        !Array.isArray(builds)
+    ) {
         throw new Error('Depot GetUsage returned invalid usage')
     }
-    let runners = 0
-    let repoRunners = 0
-    for (const repo of jobs) {
-        const usd = billedMinutes(repo?.total) * RUNNER_USD_PER_MINUTE
-        runners += usd
-        if (isThisRepository(repo?.repo)) {
-            repoRunners += usd
+    const byRepository = (entries, usd) => {
+        let all = 0
+        let here = 0
+        for (const entry of entries) {
+            const amount = usd(entry)
+            all += amount
+            if (isThisRepository(entry?.repo)) {
+                here += amount
+            }
         }
+        return [all, here]
     }
-    const containerBuilds = builds.reduce((sum, project) => sum + billedMinutes(project) * BUILD_USD_PER_MINUTE, 0)
-    return { runners, repoRunners, containerBuilds }
-}
-
-async function depotCiSpend(startAt, endAt) {
-    const usage = await withRetry(() =>
-        api('depot_ci_usage', { date_from: startAt.toISOString(), date_to: endAt.toISOString() })
+    const [runners, repoRunners] = byRepository(
+        jobs,
+        (repo) => billedMinutes(repo?.total?.minutesBilled) * RUNNER_USD_PER_MINUTE
     )
-    if (!Array.isArray(usage) || usage.some((repo) => !Number.isFinite(repo?.estimated_cost_usd))) {
-        throw new Error('depot_ci_usage returned invalid usage')
-    }
-    const sum = (repos) => repos.reduce((total, repo) => total + repo.estimated_cost_usd, 0)
-    return {
-        depotCi: sum(usage),
-        repoDepotCi: sum(usage.filter((repo) => isThisRepository(repo.repo))),
-        depotCiRepos: usage.map((repo) => repo.repo),
-    }
+    const [depotCi, repoDepotCi] = byRepository(
+        ciWorkflows,
+        (workflow) => billedMinutes(workflow?.vcpuMinutesBilled) * DEPOT_CI_USD_PER_VCPU_MINUTE
+    )
+    const containerBuilds = builds.reduce(
+        (sum, project) => sum + billedMinutes(project?.minutesBilled) * BUILD_USD_PER_MINUTE,
+        0
+    )
+    return { runners, repoRunners, depotCi, repoDepotCi, containerBuilds }
 }
 
 function isThisRepository(name) {
     return typeof name === 'string' && name.toLowerCase() === GITHUB_REPOSITORY.toLowerCase()
 }
 
+// GetUsage runs out of processing time on a week of our Depot CI usage and answers 500 or 429, so
+// every read asks for one UTC day at a time. Past the time budget, the digest posts without spend
+// rather than letting the job limit stop it before it posts anything. A day is requested once per
+// run and reused, because the contract's month to date overlaps the weeks.
+const dayReads = new Map()
+
 async function spend(startAt, endAt) {
-    const [usage, ci] = await Promise.all([
-        withRetry(() => depotUsageSpend(startAt, endAt)),
-        depotCiSpend(startAt, endAt),
-    ])
-    return { ...usage, ...ci, total: usage.runners + ci.depotCi + usage.containerBuilds }
+    const sum = { runners: 0, repoRunners: 0, depotCi: 0, repoDepotCi: 0, containerBuilds: 0 }
+    for (const [from, to] of utcDays(startAt, endAt)) {
+        const range = `${from.toISOString()}/${to.toISOString()}`
+        if (!dayReads.has(range)) {
+            if (performance.now() - STARTED_AT > DEPOT_TIME_BUDGET_MS) {
+                throw new Error('Depot GetUsage reads ran past their time budget')
+            }
+            dayReads.set(range, withRetry(() => depotUsageSpend(from, to)))
+        }
+        const day = await dayReads.get(range)
+        for (const key of Object.keys(sum)) {
+            sum[key] += day[key]
+        }
+    }
+    return { ...sum, total: sum.runners + sum.depotCi + sum.containerBuilds }
+}
+
+function* utcDays(startAt, endAt) {
+    for (let from = startAt; from < endAt; ) {
+        const to = new Date(Math.min(from.getTime() + DAY_MS, endAt.getTime()))
+        yield [from, to]
+        from = to
+    }
+}
+
+async function depotCreditBalanceUsd() {
+    const res = await fetch('https://api.depot.dev/depot.core.v1.CreditService/GetCreditBalance', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+            Authorization: `Bearer ${DEPOT_TOKEN}`,
+        },
+        body: '{}',
+        signal: AbortSignal.timeout(30_000),
+    }).catch(() => null)
+    if (!res?.ok) {
+        throw Object.assign(new Error(`Depot GetCreditBalance failed${res ? ` with ${res.status}` : ''}`), {
+            retryable: !res || res.status >= 500,
+        })
+    }
+    const balance = await res.json().catch(() => null)
+    const minor = balance?.remainingCreditMinor
+    if (balance?.currency !== 'USD' || typeof minor !== 'string' || !/^\d+$/.test(minor)) {
+        throw new Error('Depot GetCreditBalance returned an invalid balance')
+    }
+    return Number(minor) / 100
+}
+
+async function contractUsed(weekEnd) {
+    const balance = await withRetry(depotCreditBalanceUsd)
+    const monthStart = new Date(Date.UTC(weekEnd.getUTCFullYear(), weekEnd.getUTCMonth(), 1))
+    const monthToDate = await spend(monthStart, weekEnd)
+    return DEPOT_CONTRACT_USD - (balance - monthToDate.total)
 }
 
 function contractDates(weekEnd) {
@@ -144,19 +213,13 @@ async function readSpend(weekStart, weekEnd) {
     if (!contract) {
         console.warn('Depot contract variables missing or invalid. Posting without the contract sentence.')
     }
-    const [weeks, used] = await Promise.all([
-        Promise.all([spend(weekStart, weekEnd), spend(new Date(weekStart.getTime() - WEEK_MS), weekStart)]).catch(
-            unavailable('Spend')
-        ),
-        contract &&
-            spend(contract.start, weekEnd)
-                .then((contractSpend) => contractSpend.total)
-                .catch(unavailable('Contract spend')),
-    ])
-    if (!weeks) {
+    const lastWeek = await spend(weekStart, weekEnd).catch(unavailable('Spend'))
+    const priorWeek =
+        lastWeek && (await spend(new Date(weekStart.getTime() - WEEK_MS), weekStart).catch(unavailable('Spend')))
+    if (!priorWeek) {
         return null
     }
-    const [lastWeek, priorWeek] = weeks
+    const used = contract && (await contractUsed(weekEnd).catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
@@ -237,7 +300,7 @@ function isoDay(date) {
 }
 
 function contractSummary(contract, weeklySpend, weekEnd) {
-    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, not counting cache storage.`
+    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, not counting this month's cache storage.`
     const remaining = DEPOT_CONTRACT_USD - contract.used
     if (remaining <= 0) {
         return `${used} The contract is used up.`
@@ -273,7 +336,7 @@ async function api(action, params) {
     const fail = (detail) => {
         throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
     }
-    // The message never quotes the body, because depot_ci_usage returns billing data.
+    // The message never quotes the body, because it reaches the public Actions log.
     const parsed = await res.json().catch(() => fail('non-JSON response'))
     if (!res.ok) {
         fail(typeof parsed?.detail === 'string' ? parsed.detail : 'request failed')
@@ -395,7 +458,7 @@ function buildBlocks(weekStart, weekEnd, rows, notes) {
         {
             type: 'table',
             column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'right' }, { align: 'right' }],
-            rows: [[cell(''), cell('last week'), cell('week before'), cell('change')], ...rows],
+            rows: [[cell('metric'), cell('last week'), cell('week before'), cell('change')], ...rows],
         },
     ]
     for (const note of notes) {
@@ -410,23 +473,12 @@ function buildBlocks(weekStart, weekEnd, rows, notes) {
 }
 
 function spendNotes(weeks, weekEnd) {
-    if (!weeks) {
+    if (!weeks?.contract) {
         return []
     }
-    const repos = weeks.lastWeek.depotCiRepos
-    const notes = [
-        repos.length
-            ? `Depot CI counts ${repos.join(', ')}.`
-            : 'Depot CI counts no repository, because no Depot source is synced.',
+    return [
+        DRY_RUN ? `Depot contract sentence ${HIDDEN}.` : contractSummary(weeks.contract, weeks.lastWeek.total, weekEnd),
     ]
-    if (weeks.contract) {
-        notes.push(
-            DRY_RUN
-                ? `Depot contract sentence ${HIDDEN}.`
-                : contractSummary(weeks.contract, weeks.lastWeek.total, weekEnd)
-        )
-    }
-    return notes
 }
 
 async function postToSlack(blocks) {

@@ -124,6 +124,50 @@ class TestListFiringAlertsCreatedBy(BaseTest):
         assert len(self._firing(include_metrics_insights)) == (1 if listed else 0)
 
 
+class TestListEnabledAlerts(BaseTest):
+    def _alert(
+        self, team: Team, insight_fields: dict[str, object], alert_fields: dict[str, object]
+    ) -> AlertConfiguration:
+        insight = Insight.objects.create(**{"team": team, "name": "Checkout funnel", **insight_fields})
+        return AlertConfiguration.objects.create(
+            **{"team": team, "insight": insight, "name": "Checkout conversion", "enabled": True, **alert_fields}
+        )
+
+    def test_lists_enabled_alerts_on_live_insights_in_this_project(self) -> None:
+        named = self._alert(self.team, {}, {"created_by": self._create_user("other@example.com")})
+        unnamed = self._alert(self.team, {"name": None, "derived_name": "Pageview count"}, {"name": ""})
+        self._alert(self.team, {}, {"enabled": False})
+        self._alert(self.team, {"deleted": True}, {})
+        self._alert(Team.objects.create(organization=self.organization, name="Other project"), {}, {})
+
+        assert api.list_enabled_alerts(self.team, self.user, limit=10) == [
+            contracts.EnabledAlert(
+                id=unnamed.id, name="", insight_name="Pageview count", insight_short_id=unnamed.insight.short_id
+            ),
+            contracts.EnabledAlert(
+                id=named.id,
+                name="Checkout conversion",
+                insight_name="Checkout funnel",
+                insight_short_id=named.insight.short_id,
+            ),
+        ]
+
+    def test_leaves_out_an_alert_whose_insight_you_cannot_view(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        viewable = self._alert(self.team, {"created_by": self.user}, {})
+        hidden = self._alert(self.team, {"created_by": self._create_user("other@example.com")}, {})
+        AccessControl.objects.create(
+            resource="insight", resource_id=hidden.insight.id, team=self.team, access_level="none"
+        )
+
+        assert [alert.id for alert in api.list_enabled_alerts(self.team, self.user, limit=1)] == [viewable.id]
+
+
 class TestInsightShortIdsWatchedBy(BaseTest):
     def test_lists_enabled_alerts_you_created_or_subscribe_to(self) -> None:
         other = self._user("other@example.com")

@@ -73,24 +73,16 @@ def _make_ticket(
 
 class TestMasterFlagEnabled:
     @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+    def test_evaluates_flag_keyed_on_organization(self, mock_feature_enabled):
         team = MagicMock()
-        team.id = 2
-        team.uuid = TEST_TEAM_UUID
         team.organization_id = TEST_ORG_UUID
 
         assert _is_master_flag_enabled(team) is True
         mock_feature_enabled.assert_called_once_with(
-            "product-support-ai-suggestion",
-            str(TEST_TEAM_UUID),
-            groups={
-                "organization": str(TEST_ORG_UUID),
-                "project": "2",
-            },
-            group_properties={
-                "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
-            },
+            "product-support-ai-suggestion-orgs",
+            str(TEST_ORG_UUID),
+            groups={"organization": str(TEST_ORG_UUID)},
+            group_properties={"organization": {"id": str(TEST_ORG_UUID)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -177,6 +169,25 @@ class TestCollectEligible:
         assert result[0].team_id == team.id
         assert result[0].ticket_id == ticket_id
 
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_master_flag_evaluated_once_per_org(
+        self,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+    ):
+        tickets = [_make_ticket(team_id=team_id)[0] for team_id in (1, 1, 2)]
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = tickets
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
+
+        result = _collect_eligible()
+        assert len(result) == 3
+        mock_master_flag.assert_called_once()
+
     @parameterized.expand(
         [
             ("channel_in_allowed_list", ["widget"], "widget"),
@@ -233,11 +244,13 @@ class TestCollectEligible:
 
     @parameterized.expand(
         [
-            # (name, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
-            ("fresh_ticket_no_comments_still_settling", 0, None, False),
-            ("old_ticket_no_comments_settled", 30, None, True),
-            ("recent_customer_followup_still_settling", 30, 0, False),
-            ("old_customer_followup_settled", 30, 30, True),
+            # (name, channel_source, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
+            ("fresh_ticket_no_comments_still_settling", "widget", 0, None, False),
+            ("old_ticket_no_comments_settled", "widget", 30, None, True),
+            ("recent_customer_followup_still_settling", "widget", 30, 0, False),
+            ("old_customer_followup_settled", "widget", 30, 30, True),
+            ("fresh_email_ticket_skips_settle", "email", 0, None, True),
+            ("recent_email_followup_skips_settle", "email", 30, 0, True),
         ]
     )
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
@@ -247,6 +260,7 @@ class TestCollectEligible:
     def test_settle_window_gates_until_customer_goes_quiet(
         self,
         _name,
+        channel_source,
         created_min_ago,
         last_msg_min_ago,
         expected_eligible,
@@ -258,8 +272,9 @@ class TestCollectEligible:
         # Guards the debounce: a ticket whose customer just sent a message (or was just created)
         # must not be drafted until they've gone quiet for TICKET_SETTLE_MINUTES, so follow-up
         # messages get folded into the same draft. Drop the settle gate and the two "still_settling"
-        # cases start returning the ticket immediately.
-        ticket, ticket_id, team = _make_ticket(created_minutes_ago=created_min_ago)
+        # cases start returning the ticket immediately. Channels in SETTLE_EXEMPT_CHANNELS skip the
+        # wait, so the email cases are eligible at once.
+        ticket, ticket_id, team = _make_ticket(channel_source=channel_source, created_minutes_ago=created_min_ago)
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
         rows: list[tuple[str, str, bool, object]] = []

@@ -1,7 +1,7 @@
 import json
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
 
@@ -20,7 +20,8 @@ from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, Cli
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_top_actions
+from products.actions.backend.facade.contracts import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY, TRACKS, TrackKey
 from products.web_analytics.backend.achievements.query_concurrency import achievement_query_scope
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
@@ -334,7 +335,12 @@ def _action_event_filter_expr(actions: list[Action]) -> ast.Expr:
 
 def _action_fingerprints(actions: list[Action]) -> list[list[object]]:
     return [
-        [action.id, hashlib.sha256(json.dumps(action.steps_json or [], sort_keys=True).encode()).hexdigest()[:16]]
+        [
+            action.id,
+            hashlib.sha256(json.dumps([asdict(step) for step in action.steps], sort_keys=True).encode()).hexdigest()[
+                :16
+            ],
+        ]
         for action in actions
     ]
 
@@ -402,7 +408,10 @@ def _add_conversion_counts(
     latest_inclusive: bool = False,
 ) -> bool:
     chunk_daily: dict[str, list[int]] = {}
-    for team in _project_environment_teams(ctx.team):
+    environment_teams = _project_environment_teams(ctx.team)
+    # Actions live on the project's root team, which is one of these, so compiling them reads no team again.
+    teams_by_id = {team.id: team for team in environment_teams}
+    for team in environment_teams:
         query = parse_select(
             "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
             placeholders={
@@ -415,7 +424,10 @@ def _add_conversion_counts(
             raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
         query.select = [
             query.select[0],
-            *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
+            *(
+                ast.Call(name="countIf", args=[action_to_expr(action, team=teams_by_id.get(action.team_id))])
+                for action in actions
+            ),
         ]
         # Future slices can group more than the default 100 days; the largest bounded slice is 50 years.
         query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
@@ -605,11 +617,7 @@ def _advance_conversion_bootstrap(
 
 
 def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
-    actions = list(
-        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False)
-        .select_related("team")
-        .order_by("pinned_at", "-last_calculated_at")[:5]
-    )
+    actions = list_top_actions(project_id=ctx.team.project_id, limit=5)
     if not actions:
         return TrackEvaluation(value=0, checkpoint={})
 

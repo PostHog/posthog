@@ -162,6 +162,15 @@ def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | Non
     return min(timestamps) if timestamps else None
 
 
+def _is_invalid_token_response(response: requests.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    return isinstance(error, dict) and error.get("invalidToken") is True
+
+
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine via GET /v2/user — the cheapest authenticated probe,
     available to any valid Vercel token regardless of team scope or resource permissions."""
@@ -191,6 +200,10 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         # the same as an invalid token, so it shares the message.
         return False, _VERCEL_INVALID_TOKEN_ERROR
     if response.status_code == 403:
+        # Vercel answers an unknown or revoked token with 403 rather than 401 on this endpoint, and
+        # only the body tells it apart from a real token that lacks access.
+        if _is_invalid_token_response(response):
+            return False, _VERCEL_INVALID_TOKEN_ERROR
         return (
             False,
             "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
@@ -351,7 +364,16 @@ def get_fanout_rows(
             if config.team_scoped and team_id:
                 params["teamId"] = team_id
 
-            data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            try:
+                data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            except requests.HTTPError as e:
+                # Vercel can still list a deployment whose check runs it can't find, and that
+                # deployment returns the same 404 on every sync. One such deployment must not
+                # fail the whole table.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.warning(f"Vercel: no check runs found for deployment {parent_id}; skipping")
+                    continue
+                raise
             for item in data.get(config.response_data_key) or []:
                 batcher.batch(item)
                 if batcher.should_yield():

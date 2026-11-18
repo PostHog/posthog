@@ -13,12 +13,13 @@ from products.tasks.backend.facade.profiles import (
     ContractCheck,
     DrivePolicy,
     GithubAccess,
+    RunOptionsCaller,
     TaskProfile,
     TaskRunOptions,
     TaskRunOptionsError,
     get_task_profile,
 )
-from products.tasks.backend.run_options import RunOptionsCaller, validate_run_options
+from products.tasks.backend.run_options import validate_run_options
 
 SERVER = RunOptionsCaller.SERVER
 PUBLIC = RunOptionsCaller.PUBLIC
@@ -99,20 +100,33 @@ def _violation_counts(profile: TaskProfile) -> dict[ContractCheck, float]:
 
 class TestValidateRunOptions(SimpleTestCase):
     @parameterized.expand(CASES)
-    def test_log_mode_counts_each_violation_and_refuses_nothing(
+    def test_log_mode_counts_each_violation_and_refuses_only_public_options(
         self, _name: str, options: TaskRunOptions, caller: RunOptionsCaller, violated: tuple[ContractCheck, ...]
     ) -> None:
         before = _violation_counts(LOG_PROFILE)
+        refused = ContractCheck.PUBLIC_OPTIONS in violated
 
         with structlog.testing.capture_logs() as logs:
-            validate_run_options(LOG_PROFILE, options, caller=caller)
+            if refused:
+                with self.assertRaises(TaskRunOptionsError):
+                    validate_run_options(LOG_PROFILE, options, caller=caller)
+            else:
+                validate_run_options(LOG_PROFILE, options, caller=caller)
 
         after = _violation_counts(LOG_PROFILE)
         self.assertEqual({check for check in ContractCheck if after[check] - before[check] == 1}, set(violated))
         self.assertEqual({check for check in ContractCheck if after[check] - before[check] > 1}, set())
         self.assertEqual(
             {(log["event"], log["check"]) for log in logs},
-            {("task_contract_violation_would_refuse", check.value) for check in violated},
+            {
+                (
+                    "task_contract_violation_refused"
+                    if check == ContractCheck.PUBLIC_OPTIONS
+                    else "task_contract_violation_would_refuse",
+                    check.value,
+                )
+                for check in violated
+            },
         )
 
     @parameterized.expand(CASES)
@@ -175,13 +189,10 @@ class TestValidateRunOptions(SimpleTestCase):
         else:
             validate_run_options(profile, options)
 
-    @parameterized.expand([("without_profile", None, WIDE_OPTIONS), ("without_options", ENFORCE_PROFILE, None)])
-    def test_nothing_to_check_changes_nothing(
-        self, _name: str, profile: TaskProfile | None, options: TaskRunOptions | None
-    ) -> None:
+    def test_no_options_change_nothing(self) -> None:
         before = _violation_counts(ENFORCE_PROFILE)
 
-        validate_run_options(profile, options, caller=PUBLIC)
+        validate_run_options(ENFORCE_PROFILE, None, caller=PUBLIC)
 
         self.assertEqual(_violation_counts(ENFORCE_PROFILE), before)
 

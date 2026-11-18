@@ -81,6 +81,7 @@ interface ChatScreenProps {
     source: ChatSheetSource
     autoFocus?: boolean
     onBack: () => void
+    onNewChat?: () => void
 }
 
 function sessionTarget(taskId: string | undefined, runId: string | undefined): SessionOptions {
@@ -98,6 +99,7 @@ export function ChatScreen({
     source,
     autoFocus = false,
     onBack,
+    onNewChat,
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -112,7 +114,7 @@ export function ChatScreen({
     const session = useSession(target)
     const scope = useProjectScope()
     const { aiIncident } = usePostHogStatus(scope?.host)
-    const headerInset = pane.y === 0 ? insets.top + headerHeight : 0
+    const headerInset = Math.max(0, insets.top + headerHeight - pane.y)
     const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
@@ -586,6 +588,7 @@ export function ChatScreen({
         pickedOptions.current = false
         dispatchRunOptions({ type: 'reset' })
         input.current?.focus()
+        onNewChat?.()
     }
 
     const archiveChat = async (): Promise<void> => {
@@ -663,6 +666,9 @@ export function ChatScreen({
                                 </ScrollView>
                             ) : (
                                 <SessionThread
+                                    feedbackContext={
+                                        session.taskId ? { sessionId: session.taskId, runtime: 'sandbox' } : undefined
+                                    }
                                     session={session}
                                     topInset={contentInset}
                                     onRetryHistory={() => {

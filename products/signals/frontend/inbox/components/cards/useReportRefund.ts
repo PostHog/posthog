@@ -52,6 +52,7 @@ export function useReportRefund({
     // without a PR was never billed either. One refund per report, ever.
     const canRefund =
         !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] &&
+        !featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] &&
         reportPullRequests(report).length > 0 &&
         !report.refund &&
         !report.billing_exempt_reason

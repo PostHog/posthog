@@ -12,7 +12,6 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.smartreach._config import SmartreachSourceConfig
-from products.warehouse_sources.sources.smartreach.settings import ENDPOINTS, SMARTREACH_ENDPOINTS
 from products.warehouse_sources.sources.smartreach.smartreach import (
     SMARTREACH_API_V1,
     SMARTREACH_API_V3,
@@ -67,18 +66,34 @@ class TestPagination:
 
 
 class TestVersionDispatch:
-    def test_v3_uses_v3_base_root_envelope_and_team_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("team_scoped", "prospects", [{"team_id": ("team_abc",)}]),
+            # `/teams` lists every team the key can see, so it is not scoped to the configured one.
+            ("teams_listing", "teams", [{}]),
+        ]
+    )
+    def test_v3_uses_v3_base_root_envelope_and_team_id(
+        self, _name: str, endpoint: str, expected_queries: list[dict[str, tuple[str, ...]]]
+    ) -> None:
         result = _run(
-            [_response_v3([{"id": "p_1"}], "prospects", next_url=None)],
+            [_response_v3([{"id": "x_1"}], endpoint, next_url=None)],
+            endpoint=endpoint,
             api_version=SMARTREACH_API_V3,
             smartreach_team_id="team_abc",
         )
 
-        # Rows come from the v3 root envelope; a leftover v1 `data.prospects` selector would yield none.
-        assert result.rows == [{"id": "p_1"}]
-        assert result.requests[0].url.startswith(f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/prospects")
+        # Rows come from the v3 root envelope; a leftover v1 `data.*` selector would yield none.
+        assert result.rows == [{"id": "x_1"}]
+        assert result.urls[0].startswith(f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/{endpoint}")
         # v3 requires team_id on the first request; the paginator carries it forward via links.next.
-        assert result.queries == [{"team_id": ("team_abc",)}]
+        assert result.queries == expected_queries
+
+    def test_v3_only_table_is_refused_on_v1(self) -> None:
+        result = _run(always(_response(None, "users", next_url=None)), endpoint="users", api_version=SMARTREACH_API_V1)
+
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
     def test_v1_uses_v1_base_and_never_sends_team_id(self) -> None:
         # Even if a team_id is threaded through, v1 keeps its legacy base + `data.*` envelope untouched.
@@ -139,6 +154,79 @@ class TestSmartreachSourceResponse:
         assert response.partition_mode is None
         assert response.partition_keys is None
 
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in SMARTREACH_ENDPOINTS.values())
-        assert set(SMARTREACH_ENDPOINTS) == set(ENDPOINTS)
+
+V3_BASE = SMARTREACH_BASE_URLS[SMARTREACH_API_V3]
+CAMPAIGNS_PAGE = _response_v3([{"id": "cmp_1"}, {"id": "cmp_2"}], "campaigns", next_url=None)
+
+
+def _campaign_prospect(prospect_id: str) -> dict[str, Any]:
+    return {
+        "object": "campaign_prospect",
+        "prospect": {"id": prospect_id, "first_name": "Ada"},
+        "prospect_status_in_campaign": {"sent": True, "replied": False},
+    }
+
+
+def _run_v3(script: Script, endpoint: str, **inputs: Any) -> DriveResult:
+    return _run(script, endpoint=endpoint, api_version=SMARTREACH_API_V3, smartreach_team_id="team_abc", **inputs)
+
+
+class TestCampaignFanOut:
+    def test_campaign_prospects_walks_each_campaigns_pages(self) -> None:
+        cmp_1_page_2 = f"{V3_BASE}/campaigns/cmp_1/prospects?team_id=team_abc&cursor=c2"
+        result = _run_v3(
+            [
+                CAMPAIGNS_PAGE,
+                _response_v3([_campaign_prospect("prs_1")], "campaign_prospects", next_url=cmp_1_page_2),
+                _response_v3([_campaign_prospect("prs_2")], "campaign_prospects", next_url=None),
+                _response_v3([_campaign_prospect("prs_1")], "campaign_prospects", next_url=None),
+            ],
+            "campaign_prospects",
+        )
+
+        assert result.raised is None
+        assert result.urls == [
+            f"{V3_BASE}/campaigns?team_id=team_abc",
+            f"{V3_BASE}/campaigns/cmp_1/prospects?team_id=team_abc",
+            cmp_1_page_2,
+            f"{V3_BASE}/campaigns/cmp_2/prospects?team_id=team_abc",
+        ]
+        # The same prospect in two campaigns stays two rows, keyed apart by the campaign id.
+        assert [(row["campaign_id"], row["prospect_id"]) for row in result.rows] == [
+            ("cmp_1", "prs_1"),
+            ("cmp_1", "prs_2"),
+            ("cmp_2", "prs_1"),
+        ]
+
+    def test_campaign_stats_is_one_row_per_campaign(self) -> None:
+        stats = {"object": "campaign", "total_sent": 10, "reply_sentiment_stats": {"positive": 1}}
+        result = _run_v3(
+            [
+                CAMPAIGNS_PAGE,
+                # A stray links.next must not be followed: the stats object is the whole response.
+                ScriptedResponse(json={**stats, "links": {"next": f"{V3_BASE}/campaigns/cmp_1/stats?page=2"}}),
+                ScriptedResponse(json=stats),
+            ],
+            "campaign_stats",
+        )
+
+        assert result.raised is None
+        assert result.urls == [
+            f"{V3_BASE}/campaigns?team_id=team_abc",
+            f"{V3_BASE}/campaigns/cmp_1/stats?team_id=team_abc",
+            f"{V3_BASE}/campaigns/cmp_2/stats?team_id=team_abc",
+        ]
+        assert [(row["campaign_id"], row["total_sent"]) for row in result.rows] == [("cmp_1", 10), ("cmp_2", 10)]
+
+    def test_resume_skips_finished_campaigns(self) -> None:
+        result = _run_v3(
+            [CAMPAIGNS_PAGE, ScriptedResponse(json={"object": "campaign", "total_sent": 3})],
+            "campaign_stats",
+            resume_state=SmartreachResumeConfig(
+                fanout_state={"completed": ["/campaigns/cmp_1/stats"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.urls[1:] == [f"{V3_BASE}/campaigns/cmp_2/stats?team_id=team_abc"]
+        assert [row["campaign_id"] for row in result.rows] == ["cmp_2"]

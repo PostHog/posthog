@@ -251,16 +251,18 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
     })
 }
 
-// The browser extension ships one panel bundle in a folder per browser. Only the manifest differs:
+// The browser extension ships as a folder to load unpacked in Chrome, and as a zip for the Chrome Web Store:
 //
-//   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, content.js, content.css,
+//   dist/toolbar-extension/chrome/manifest.json
+//   dist/toolbar-extension/chrome/panel.html, panel.js, panel.css, background.js, content.js, content.css,
 //   assets/, icons/
-//
-// Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
-const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
+//   dist/toolbar-extension/posthog-toolbar-chrome-<version>.zip
+const TOOLBAR_EXTENSION_OUT_DIR = 'toolbar-extension'
 
-const TOOLBAR_EXTENSION_VERSION = '0.1.0'
+// The release workflow bumps this version from Sampo changesets. See "Releases" in src/toolbar/extension/README.md.
+const TOOLBAR_EXTENSION_VERSION = JSON.parse(
+    fs.readFileSync(new URL('./src/toolbar/extension/release/package.json', import.meta.url), 'utf8')
+).version
 
 const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 
@@ -319,7 +321,7 @@ export function getToolbarExtensionBuildConfig(dirname) {
 
 /**
  * The panel injects content.js into the tab with `scripting.executeScript`, which runs a file as a classic script, and
- * Firefox doesn't run a module as a background script. So each of these scripts is one self-contained IIFE.
+ * the manifest loads background.js as a classic service worker. So each of these scripts is one self-contained IIFE.
  */
 export function getToolbarExtensionScriptsBuildConfig(dirname) {
     return {
@@ -345,8 +347,8 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
 
 // Asks for every http and https site, because the panel follows the active tab without a click on the extension
 // button, which `activeTab` needs.
-function buildToolbarExtensionManifest(browser) {
-    const manifest = {
+function buildToolbarExtensionManifest() {
+    return {
         manifest_version: 3,
         name: 'PostHog',
         description: 'Use the PostHog toolbar in a side panel next to your website.',
@@ -356,67 +358,40 @@ function buildToolbarExtensionManifest(browser) {
             default_title: 'Open PostHog',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
-        permissions: ['scripting', 'storage'],
+        permissions: ['scripting', 'storage', 'sidePanel'],
         host_permissions: ['http://*/*', 'https://*/*'],
         web_accessible_resources: [{ resources: ['content.css', 'assets/*'], matches: ['http://*/*', 'https://*/*'] }],
-    }
-    if (browser === 'firefox') {
-        manifest.sidebar_action = {
-            default_title: 'PostHog',
-            default_panel: 'panel.html',
-            default_icon: TOOLBAR_EXTENSION_ICONS,
-            open_at_install: false,
-        }
-        // Firefox needs an add-on ID for MV3 storage, and addons.mozilla.org never lets the ID change after the first
-        // upload. 140 is the first release that asks the user at install for the data collection declared here.
-        manifest.browser_specific_settings = {
-            gecko: {
-                id: 'toolbar@posthog.com',
-                strict_min_version: '140.0',
-                // Keep in sync with the "Data collection" section of src/toolbar/extension/README.md.
-                data_collection_permissions: {
-                    required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
-                    optional: ['technicalAndInteraction'],
-                },
-            },
-        }
-        // Firefox runs Manifest V3 background code as an event page, not as a service worker.
-        manifest.background = { scripts: ['background.js'] }
-    } else {
-        manifest.permissions.push('sidePanel')
-        manifest.side_panel = { default_path: 'panel.html' }
+        side_panel: { default_path: 'panel.html' },
+        // The PostHog app asks whether the extension is installed, and asks it to open an authorized URL. Only the cloud
+        // app hosts, because a sender also sets the extension's PostHog host.
+        externally_connectable: {
+            matches: ['https://us.posthog.com/*', 'https://eu.posthog.com/*', 'https://app.posthog.com/*'],
+        },
         // 116 is the first release with `sidePanel.setPanelBehavior`, which opens the panel from the toolbar button.
-        manifest.minimum_chrome_version = '116'
-        manifest.background = { service_worker: 'background.js' }
+        minimum_chrome_version: '116',
+        background: { service_worker: 'background.js' },
     }
-    return manifest
 }
 
 export function finalizeToolbarExtensionBuild(dirname) {
     const buildDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR)
-    for (const browser of TOOLBAR_EXTENSION_BROWSERS) {
-        const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
-        fs.rmSync(outDir, { recursive: true, force: true })
-        fs.cpSync(buildDir, outDir, { recursive: true })
-        fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/panel.html'), path.resolve(outDir, 'panel.html'))
-        for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
-            fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
-            fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
-        }
-        fs.writeFileSync(
-            path.resolve(outDir, 'manifest.json'),
-            JSON.stringify(buildToolbarExtensionManifest(browser), null, 4) + '\n'
-        )
-        fs.writeFileSync(
-            path.resolve(
-                dirname,
-                'dist',
-                'toolbar-extension',
-                `posthog-toolbar-${browser}-${TOOLBAR_EXTENSION_VERSION}.zip`
-            ),
-            zipSync(readDirectoryFiles(outDir))
-        )
+    const extensionDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_OUT_DIR)
+    const outDir = path.resolve(extensionDir, 'chrome')
+    fs.rmSync(extensionDir, { recursive: true, force: true })
+    fs.cpSync(buildDir, outDir, { recursive: true })
+    fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/panel.html'), path.resolve(outDir, 'panel.html'))
+    for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
+        fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
+        fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
     }
+    fs.writeFileSync(
+        path.resolve(outDir, 'manifest.json'),
+        JSON.stringify(buildToolbarExtensionManifest(), null, 4) + '\n'
+    )
+    fs.writeFileSync(
+        path.resolve(extensionDir, `posthog-toolbar-chrome-${TOOLBAR_EXTENSION_VERSION}.zip`),
+        zipSync(readDirectoryFiles(outDir))
+    )
 }
 
 function readDirectoryFiles(directory) {

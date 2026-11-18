@@ -187,6 +187,11 @@
             "description": "Archive state for the survey.",
             "type": "boolean"
         },
+        "base_language": {
+            "description": "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.",
+            "maxLength": 20,
+            "type": "string"
+        },
         "conditions": {
             "anyOf": [
                 {
@@ -313,7 +318,7 @@
                     "type": "null"
                 }
             ],
-            "description": "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule."
+            "description": "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it."
         },
         "iteration_frequency_days": {
             "anyOf": [
@@ -1176,6 +1181,17 @@
             ],
             "description": "Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching)."
         },
+        "repeat_until_stopped": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat."
+        },
         "responses_limit": {
             "anyOf": [
                 {
@@ -1198,7 +1214,7 @@
                     "type": "null"
                 }
             ],
-            "description": "How often a person can see the survey: once, recurring, or always. Omit this to keep the current schedule. When setting recurring, also set iteration_count and iteration_frequency_days. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this \"Every time the display conditions are met\". When you change away from recurring, the iteration fields are cleared. An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays."
+            "description": "How often a person can see the survey: once, recurring, or always. Omit this to keep the current schedule. When setting recurring, also set iteration_frequency_days, plus either iteration_count for a fixed number of repeats or repeat_until_stopped=true to keep repeating. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this \"Every time the display conditions are met\". When you change away from recurring, the iteration fields are cleared. An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays."
         },
         "start_date": {
             "anyOf": [

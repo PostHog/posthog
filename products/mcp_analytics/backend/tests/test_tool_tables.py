@@ -34,6 +34,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
@@ -82,9 +83,11 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             ("sdk_mcp_remote_stripped", "claude-ai (via mcp-remote 0.1.37)", ["Claude.ai"]),
             ("sdk_cursor", "cursor-vscode", ["Cursor"]),
             ("sdk_unknown_to_other", "totally-unknown-thing", ["Other"]),
+            ("custom_rule_beats_built_in", "cursor-internal", ["Our Cursor"]),
         ]
     )
     def test_resolves_harness_labels(self, _name: str, client_name: str, expected: list[str]) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit(client_name=client_name)
         flush_persons_and_events()
 
@@ -148,6 +151,7 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         is_error: bool = True,
         error_type: str | None = None,
         error_status: str | None = None,
+        error_message: str | None = None,
         exec_tool: str | None = None,
         exec_verb: str | None = None,
         exec_target: str | None = None,
@@ -162,6 +166,8 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             properties["$mcp_error_type"] = error_type
         if error_status is not None:
             properties["$mcp_error_status"] = error_status
+        if error_message is not None:
+            properties["$mcp_error_message"] = error_message
         if exec_tool is not None:
             properties["$mcp_exec_tool_call_name"] = exec_tool
         if exec_verb is not None:
@@ -234,6 +240,41 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         assert by_label["internal"].harnesses == ["Claude.ai", "Cursor"]
         assert by_label["validation"].occurrences == 1
 
+    @parameterized.expand(
+        [
+            (
+                "different_messages_split_one_type",
+                ["Validation error: invalid_input (field: questions)", "Validation error: unique"],
+                2,
+            ),
+            (
+                "digits_and_uuids_merge",
+                [
+                    "parameter questions.0.link: expected string",
+                    "parameter questions.3.link: expected string",
+                    "survey 0190a6e2-5c1f-7a3b-9d4e-1f2a3b4c5d6e not found",
+                    "survey 01a1b13c-ec92-7fcf-8e37-6087a7fd6bd9 not found",
+                    "commit 3f9a2c1d failed",
+                    "commit 8be41a07 failed",
+                ],
+                3,
+            ),
+            # The cut lands inside a two-byte character; a byte cut would leave invalid UTF-8 and fail the query.
+            ("multibyte_cut_stays_valid", ["a" * 299 + "é and more", "a" * 299 + "é and others"], 1),
+        ]
+    )
+    def test_groups_failures_by_cause(self, _name: str, messages: list[str], expected_groups: int) -> None:
+        for message in messages:
+            self._emit(error_type="validation", error_message=message)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert len(rows) == expected_groups
+        assert sum(r.occurrences for r in rows) == len(messages)
+        assert {r.message for r in rows} == {"validation"}
+        assert {r.sample_message for r in rows} <= set(messages)
+
     def test_excludes_other_tools_and_resolves_effective_tool_name(self) -> None:
         self._emit(tool_name="other_tool", error_type="internal", client_name="claude-ai")
         # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name, not $mcp_tool_name.
@@ -305,12 +346,15 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
             properties=properties,
         )
 
-    def _run(self, error_type: str, error_status: str | None = None, tool_name: str = "query_run") -> list[Any]:
+    def _run(
+        self, error_type: str, error_status: str | None = None, tool_name: str = "query_run", cause: str | None = None
+    ) -> list[Any]:
         runner = MCPToolFailureOccurrencesQueryRunner(
             query=MCPToolFailureOccurrencesQuery(
                 toolName=tool_name,
                 errorType=error_type,
                 errorStatus=error_status,
+                cause=cause,
                 dateRange=DateRange(date_from="-7d"),
             ),
             team=self.team,
@@ -323,19 +367,29 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
             ("statused_bucket", "api_5xx", "500", {"d500"}),
             ("no_status_bucket_within_type", "api_5xx", None, {"dnostatus"}),
             ("typeless_events_form_unknown_bucket", "unknown", None, {"dtypeless"}),
+            ("cause_narrows_a_type", "internal", None, {"dq1", "dq2"}, "table N not found"),
+            ("empty_cause_selects_calls_without_a_message", "internal", None, {"dother"}, ""),
         ]
     )
     def test_filters_to_exactly_one_bucket(
-        self, _name: str, query_type: str, query_status: str | None, expected_ids: set[str]
+        self,
+        _name: str,
+        query_type: str,
+        query_status: str | None,
+        expected_ids: set[str],
+        cause: str | None = None,
     ) -> None:
         self._emit(distinct_id="d500", error_type="api_5xx", error_status="500")
         self._emit(distinct_id="d502", error_type="api_5xx", error_status="502")
         self._emit(distinct_id="dnostatus", error_type="api_5xx")
         self._emit(distinct_id="dtypeless")
         self._emit(distinct_id="dother", error_type="internal")
+        self._emit(distinct_id="dq1", error_type="internal", error_message="table 12 not found")
+        self._emit(distinct_id="dq2", error_type="internal", error_message="table 7 not found")
+        self._emit(distinct_id="dperm", error_type="internal", error_message="permission denied")
         flush_persons_and_events()
 
-        rows = self._run(query_type, query_status)
+        rows = self._run(query_type, query_status, cause=cause)
 
         assert {r.distinct_id for r in rows} == expected_ids
 
@@ -416,7 +470,7 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
 def _emit_tool_call(
     team: Any,
     *,
-    tool_name: str = "query_run",
+    tool_name: str | None = "query_run",
     distinct_id: str = "d1",
     source: str | None = NEW_SDK_SOURCE,
     is_error: bool = False,
@@ -704,24 +758,33 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
 
     @parameterized.expand(
         [
-            ("before", NeighborDirection.BEFORE, "tool_a"),
-            ("after", NeighborDirection.AFTER, "tool_b"),
+            ("before", NeighborDirection.BEFORE, {"tool_a": 1, "tool_b": 1}),
+            ("after", NeighborDirection.AFTER, {"tool_b": 1, "tool_c": 1}),
         ]
     )
-    def test_finds_adjacent_tool_in_conversation(
-        self, _name: str, direction: NeighborDirection, expected_neighbor: str
+    def test_counts_adjacent_tools_per_occurrence_within_each_conversation(
+        self, _name: str, direction: NeighborDirection, expected: dict[str, int]
     ) -> None:
         now = datetime.now(tz=UTC)
-        _emit_tool_call(self.team, tool_name="tool_a", session_id="conv1", timestamp=now - timedelta(minutes=2))
-        _emit_tool_call(self.team, tool_name="query_run", session_id="conv1", timestamp=now - timedelta(minutes=1))
-        _emit_tool_call(self.team, tool_name="tool_b", session_id="conv1", timestamp=now)
+        conversations: dict[str, list[str | None]] = {
+            "target_repeats_back_to_back_and_at_the_end": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],
+            "target_opens_the_conversation": ["query_run", "tool_c"],
+            "target_never_called": ["tool_b", "tool_d"],
+            "nameless_calls_beside_the_target": [None, "query_run", None],
+        }
+        for session_id, tools in conversations.items():
+            for position, tool in enumerate(tools):
+                _emit_tool_call(
+                    self.team,
+                    tool_name=tool,
+                    session_id=session_id,
+                    timestamp=now - timedelta(minutes=len(tools) - position),
+                )
         flush_persons_and_events()
 
         rows = self._run(direction)
 
-        assert len(rows) == 1
-        assert rows[0].neighbor_tool == expected_neighbor
-        assert rows[0].co_occurrences == 1
+        assert {row.neighbor_tool: row.co_occurrences for row in rows} == expected
 
 
 # Shaped so every table on the tool detail page has a row to drop once the filters apply.

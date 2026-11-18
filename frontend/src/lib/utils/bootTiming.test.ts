@@ -98,6 +98,37 @@ describe('bootTiming', () => {
         }
     )
 
+    it('exposes renewable readiness without enabling boot analytics in Storybook', async () => {
+        let renders = 0
+        const scene = createSceneRenderedMark(() => renders++)
+        const releaseFirst = scene.holdUntilContent()
+        const releaseSecond = scene.holdUntilContent()
+        scene.sceneCommitted()
+        releaseFirst()
+        releaseFirst()
+        await flushSend()
+        expect(scene.getReadyVersion()).toBeNull()
+        expect(renders).toBe(0)
+
+        releaseSecond()
+        expect(scene.getReadyVersion()).toBeNull()
+        await flushSend()
+        const firstVersion = scene.getReadyVersion()
+        expect(firstVersion).not.toBeNull()
+        expect(renders).toBe(1)
+
+        const releaseLateContent = scene.holdUntilContent()
+        expect(scene.getReadyVersion()).toBeNull()
+        releaseLateContent()
+        await flushSend()
+        expect(scene.getReadyVersion()).not.toBe(firstVersion)
+        expect(renders).toBe(2)
+
+        scene.sceneUncommitted()
+        expect(scene.getReadyVersion()).toBeNull()
+        expect(capture).not.toHaveBeenCalled()
+    })
+
     it('does not mark a scene that unmounts before lazy content appears', async () => {
         markAt(50, 'entry')
         const sceneRendered = createSceneRenderedMark()
@@ -140,31 +171,23 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { distinctId: IN_SAMPLE_ID, variant: undefined, sampleRate: 0.05 },
-        { distinctId: OUT_OF_SAMPLE_ID, variant: undefined, sampleRate: null },
+        { distinctId: IN_SAMPLE_ID, sampled: true },
+        { distinctId: OUT_OF_SAMPLE_ID, sampled: false },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
-        { distinctId: '', variant: undefined, sampleRate: null },
-        { distinctId: undefined, variant: undefined, sampleRate: null },
-        { distinctId: OUT_OF_SAMPLE_ID, variant: 'control', sampleRate: 1 },
-        { distinctId: OUT_OF_SAMPLE_ID, variant: 'test', sampleRate: 1 },
-    ])(
-        'samples on distinct ID $distinctId in variant $variant (sample rate: $sampleRate)',
-        async ({ distinctId, variant, sampleRate }) => {
-            getDistinctId.mockReturnValue(distinctId)
-            markAt(50, 'entry', { deferred_app_context_variant: variant })
-            markAt(900, 'scene_rendered')
-            await flushSend()
+        { distinctId: '', sampled: false },
+        { distinctId: undefined, sampled: false },
+    ])('samples on distinct ID $distinctId (sampled: $sampled)', async ({ distinctId, sampled }) => {
+        getDistinctId.mockReturnValue(distinctId)
+        markAt(50, 'entry')
+        markAt(900, 'scene_rendered')
+        await flushSend()
 
-            if (sampleRate === null) {
-                expect(capture).not.toHaveBeenCalled()
-            } else {
-                expect(capture).toHaveBeenCalledWith(
-                    'app boot timing',
-                    expect.objectContaining({ sample_rate: sampleRate })
-                )
-            }
+        if (sampled) {
+            expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ sample_rate: 0.05 }))
+        } else {
+            expect(capture).not.toHaveBeenCalled()
         }
-    )
+    })
 
     it.each([
         {
