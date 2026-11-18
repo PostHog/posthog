@@ -1360,8 +1360,8 @@ def social_create_user(
             if invite_organization is not None or (jit_domain is not None and jit_domain.jit_provisioning_enabled):
                 _refuse_blocked_sso_join(strategy, backend, email, None)
                 user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=False)
-                kwargs["idp_new_user"] = True
-                kwargs["current_partial"].data["kwargs"]["idp_new_user"] = True
+                kwargs["idp_new_user_id"] = user.pk
+                kwargs["current_partial"].data["kwargs"]["idp_new_user_id"] = user.pk
         if user is not None:
             kwargs["current_partial"].data["kwargs"]["user"] = user.pk
             verification = social_require_idp_email_verification(
@@ -1370,7 +1370,7 @@ def social_create_user(
             if verification is not None:
                 return verification
 
-    if user and not kwargs.get("idp_new_user"):
+    if user and kwargs.get("idp_new_user_id") != user.pk:
         # If the user is already authenticated, we're looking for outstanding invites for them
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")

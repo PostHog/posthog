@@ -1,4 +1,6 @@
+import json
 import time
+from hashlib import sha256
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
@@ -20,11 +22,18 @@ IDP_SSO_BACKENDS = ("saml", "oidc")
 IDP_AUTHENTICATION_TTL_SECONDS = 30 * 60
 
 
+def idp_identity_key(provider: str, issuer: str, subject: str) -> str:
+    return sha256(json.dumps([provider, issuer, subject]).encode()).hexdigest()
+
+
 def idp_authentication_is_fresh(authenticated_at: object) -> bool:
     return isinstance(authenticated_at, int) and 0 <= time.time() - authenticated_at < IDP_AUTHENTICATION_TTL_SECONDS
 
 
 def validate_idp_partial(backend: "BaseAuth", partial: "PartialMixin") -> None:
+    request = getattr(backend.strategy, "request", None)
+    if request is not None and _is_authenticated(request):
+        raise AuthStateForbidden(backend)
     if partial.token != backend.strategy.session_get("partial_pipeline_token"):
         raise AuthStateForbidden(backend)
     if not idp_authentication_is_fresh(partial.data.get("kwargs", {}).get("idp_authenticated_at")):

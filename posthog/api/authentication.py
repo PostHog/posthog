@@ -77,6 +77,7 @@ from posthog.helpers.sso import (
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
     get_safe_next_url,
     idp_authentication_is_fresh,
+    idp_identity_key,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
 )
@@ -331,21 +332,36 @@ def _clear_unverified_local_credentials(user: User) -> bool:
 
 
 def _send_login_code(
-    request: HttpRequest, user: User, *, is_resend: bool = False, target_email: str | None = None
+    request: HttpRequest,
+    user: User,
+    *,
+    is_resend: bool = False,
+    target_email: str | None = None,
+    identity: str | None = None,
 ) -> bool:
     if target_email is not None:
         from posthog.token_bucket import BucketDecision, Budget, consume
 
-        recipient = sha256(target_email.strip().lower().encode()).hexdigest()
-        decision = consume(f"idp_login_code:{user.pk}:{recipient}", Budget(burst=1, per_hour=60))
+        if not identity:
+            return False
+        decision = consume(f"idp_login_code_identity:{user.pk}:{identity}", Budget(burst=1, per_hour=60))
         if not isinstance(decision, BucketDecision):
             logger.warning("idp_login_code_rate_limit_unavailable", user_id=user.pk)
             return False
         if not decision.allowed:
             return False
+        if not code_based_verifier.reserve_idp_challenge(user, identity):
+            return False
+        recipient = sha256(target_email.strip().lower().encode()).hexdigest()
+        account = consume(f"idp_login_code_account:{user.pk}:{recipient}", Budget(burst=10, per_hour=60))
+        if not isinstance(account, BucketDecision):
+            logger.warning("idp_login_code_account_budget_unavailable", user_id=user.pk)
+            return False
+        if not account.allowed:
+            return False
     try:
         return code_based_verifier.create_and_send_code_based_verification(
-            request, user, is_resend=is_resend, target_email=target_email
+            request, user, is_resend=is_resend, target_email=target_email, identity=identity
         )
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
@@ -544,6 +560,8 @@ class LoginSerializer(serializers.Serializer):
 
         require_verified_email_for_login(user)
         code_based_verifier.clear_pending(request)
+        if request.session.pop("partial_pipeline_token", None):
+            request.session.pop("invite_id", None)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -1279,7 +1297,11 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
 
 def _require_fresh_idp_challenge(request: Request) -> None:
     pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
-    if pending and not idp_authentication_is_fresh(pending.get("authenticated_at")):
+    if pending and (
+        request.user.is_authenticated
+        or not idp_authentication_is_fresh(pending.get("authenticated_at"))
+        or code_based_verifier.get_pending_identity(request) is None
+    ):
         code_based_verifier.clear_pending(request)
         raise serializers.ValidationError(
             {"detail": "Your sign-in expired. Please log in again."}, code="authentication_expired"
@@ -1360,10 +1382,15 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
 
         # Code valid - invalidate the pending state and complete login.
         sso: PendingIdPEmailVerification | None = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+        if bool(sso) != bool(code_based_verifier.get_pending_identity(request)):
+            code_based_verifier.clear_pending(request)
+            raise invalid_error
         if sso and (
             sso.get("user_id") != user.pk
             or sso.get("target_email") != code_based_verifier.get_pending_code_based_verification_target(request)
             or sso.get("issued_at") != code_based_verifier.get_pending_code_based_verification_issued_at(request)
+            or code_based_verifier.get_pending_identity(request)
+            != idp_identity_key(sso["provider"], sso["issuer"], sso["subject"])
         ):
             code_based_verifier.clear_pending(request)
             raise invalid_error
@@ -1411,7 +1438,13 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         # A resend must keep mailing the address the pending code authorizes, or the new code would
         # bind to the account address and no longer verify.
         target_email = code_based_verifier.get_pending_code_based_verification_target(request)
-        if not _send_login_code(request, user, is_resend=True, target_email=target_email):
+        if not _send_login_code(
+            request,
+            user,
+            is_resend=True,
+            target_email=target_email,
+            identity=code_based_verifier.get_pending_identity(request),
+        ):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
@@ -1844,7 +1877,12 @@ def social_require_idp_email_verification(
         and 0 <= time.time() - issued_at < CODE_TTL_SECONDS
     )
     try:
-        sent = reuse_code or _send_login_code(request, user, target_email=target_email)
+        sent = reuse_code or _send_login_code(
+            request,
+            user,
+            target_email=target_email,
+            identity=idp_identity_key(identity.provider, identity.issuer, identity.subject),
+        )
     except LoginCodeEmailUndeliverable:
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False

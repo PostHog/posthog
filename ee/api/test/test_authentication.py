@@ -546,9 +546,12 @@ class TestOIDCAuthentication(APILicensedTest):
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
 
+    @parameterized.expand([("resend", False), ("fresh_partial", True)])
     @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
-    def test_paused_idp_callbacks_reuse_the_code_and_share_the_resend_cooldown(self) -> None:
+    def test_paused_idp_callbacks_reuse_the_code_and_share_the_resend_cooldown(
+        self, _name: str, fresh_partial: bool
+    ) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
@@ -569,7 +572,12 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(self.client.post("/api/login/code-based-verification/resend/").status_code, 400)
             self.assertEqual(sent.call_count, 1)
             clock.shift(datetime.timedelta(seconds=61))
-            self.assertEqual(self.client.post("/api/login/code-based-verification/resend/").status_code, 200)
+            if fresh_partial:
+                self.client = APIClient()
+                continuation = self._complete_oidc_login(self.user.email)
+                self.assertIn("code_verification_pending=1", continuation["Location"])
+            else:
+                self.assertEqual(self.client.post("/api/login/code-based-verification/resend/").status_code, 200)
             self.assertEqual(sent.call_count, 2)
             code = sent.call_args.args[1]
             wrong = "000000" if code != "000000" else "111111"
@@ -581,6 +589,67 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "too_many_attempts")
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    @parameterized.expand(
+        [(f"{kind}_{attempts}", kind == "idp", attempts) for kind in ("idp", "password") for attempts in (5, 6)]
+    )
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_an_unproven_identity_cannot_spend_another_logins_code_budget(
+        self, _name: str, idp: bool, attempts: int
+    ) -> None:
+        self.user.email = "member@example.com"
+        self.user.is_email_verified = True
+        self.user.set_password("example-password")
+        self.user.save()
+        self.client.logout()
+        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+            if idp:
+                self._complete_oidc_login(self.user.email, sub="owner-identity")
+            else:
+                response = self.client.post("/api/login/", {"email": self.user.email, "password": "example-password"})
+                self.assertEqual(response.status_code, 401, response.content)
+            owner_code = sent.call_args.args[1]
+            owner_client = self.client
+            try:
+                self.client = APIClient()
+                clock.shift(datetime.timedelta(seconds=61))
+                continuation = self._complete_oidc_login(self.user.email, sub="unproven-identity")
+                self.assertIn("code_verification_pending=1", continuation["Location"])
+                bad_code = "000000" if sent.call_args.args[1] != "000000" else "111111"
+                for _ in range(attempts):
+                    self.client.post("/api/login/code-based-verification/", {"code": bad_code})
+            finally:
+                self.client = owner_client
+            response = self.client.post("/api/login/code-based-verification/", {"code": owner_code})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_the_account_identity_ceiling_preserves_existing_challenges(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+            self._complete_oidc_login(self.user.email, sub="owner-identity")
+            owner_client = self.client
+            try:
+                for subject in ["repeated-identity"] * 4 + ["second-identity", "third-identity", "fourth-identity"]:
+                    clock.shift(datetime.timedelta(seconds=61))
+                    self.client = APIClient()
+                    response = self._complete_oidc_login(self.user.email, sub=subject)
+                    self.assertIn("code_verification_pending=1", response["Location"])
+                count = sent.call_count
+                self.client = APIClient()
+                response = self._complete_oidc_login(self.user.email, sub="over-budget-identity")
+                self.assertNotIn("code_verification_pending=1", response["Location"])
+                self.assertEqual(sent.call_count, count)
+            finally:
+                self.client = owner_client
+            response = self.client.post("/api/login/code-based-verification/resend/")
+            self.assertEqual(response.status_code, 200, response.content)
+            response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_idp_verification_leaves_the_new_device_alert_to_the_queued_worker(self) -> None:
@@ -816,8 +885,11 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertFalse(OrganizationInvite.objects.filter(pk=invite.pk).exists())
         self.assertTrue(user.organization_memberships.filter(organization=self.organization).exists())
 
+    @parameterized.expand([("mailbox", None), ("password_pivot", "password"), ("signed_in_pivot", "session")])
     @pytest.mark.disable_mock_code_based_verifier
-    def test_idp_jit_accepts_the_pending_invite_with_its_role_and_project_access(self) -> None:
+    def test_idp_jit_accepts_the_pending_invite_with_its_role_and_project_access(
+        self, _name: str, pivot: str | None
+    ) -> None:
         self.client.logout()
         self.domain.jit_provisioning_enabled = True
         self.domain.save()
@@ -841,6 +913,32 @@ class TestOIDCAuthentication(APILicensedTest):
             user = User.objects.get(email="invited@example.com")
             self.assertTrue(OrganizationInvite.objects.filter(pk=invite.pk).exists())
             self.assertFalse(user.organization_memberships.exists())
+            if pivot:
+                attacker = User.objects.create_user(
+                    email="other@example.com", first_name="Other", password="example-password", is_email_verified=True
+                )
+                if pivot == "password":
+                    response = self.client.post(
+                        "/api/login/", {"email": attacker.email, "password": "example-password"}
+                    )
+                    if response.status_code == 401:
+                        response = self.client.post(
+                            "/api/login/code-based-verification/", {"code": sent.call_args.args[1]}
+                        )
+                    self.assertEqual(response.status_code, 200, response.content)
+                else:
+                    self.client.force_login(attacker)
+                self.client.get("/complete/oidc/")
+                if CODE_BASED_VERIFICATION_SSO_SESSION_KEY in self.client.session:
+                    self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
+                self.assertTrue(OrganizationInvite.objects.filter(pk=invite.pk).exists())
+                self.assertFalse(attacker.organization_memberships.filter(organization=self.organization).exists())
+                self.assertFalse(
+                    AccessControl.objects.filter(team=project, organization_member__user=attacker).exists()
+                )
+                self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=attacker).exists())
+                self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=user).exists())
+                return
             response = self.client.post("/api/login/code-based-verification/", {"code": sent.call_args.args[1]})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(OrganizationInvite.objects.filter(pk=invite.pk).exists())
