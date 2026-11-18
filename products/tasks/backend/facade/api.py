@@ -62,6 +62,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, Team, User
@@ -2139,20 +2140,25 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
 def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
     swept: Counter[str] = Counter()
     for run in runs_to_sweep():
-        if run.rule == StaleRule.HEARTBEAT:
-            claimed = claim_and_fail_stale_run(
-                run.run_id,
-                "This run stopped responding, so it was ended.",
-                error_type="stale_heartbeat",
-                quiet_since=run.quiet_since,
-            )
-        else:
-            claimed = claim_and_fail_stale_run(
-                run.run_id,
-                "This run made no progress for a day, so it was ended.",
-                error_type="stale_live_run",
-                not_updated_since=run.not_written_since,
-            )
+        try:
+            if run.rule == StaleRule.HEARTBEAT:
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run stopped responding, so it was ended.",
+                    error_type="stale_heartbeat",
+                    quiet_since=run.quiet_since,
+                )
+            else:
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run made no progress for a day, so it was ended.",
+                    error_type="stale_live_run",
+                    not_updated_since=run.not_written_since,
+                )
+        except Exception as error:
+            logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
+            capture_exception(error)
+            continue
         if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]

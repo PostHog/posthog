@@ -1,8 +1,10 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
@@ -240,6 +242,30 @@ class TestCollectStaleLiveRuns(TestCase):
 
         with (
             patch("products.tasks.backend.stale_runs.MAX_SWEEPS_PER_PASS", 2),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={USER.key: "enforce"},
+            ),
+        ):
+            rows = tasks_facade.sweep_stale_live_task_runs()
+
+        ended = TaskRun.objects.filter(id__in=[run.id for run in runs], status=TaskRun.Status.FAILED).count()
+        assert ended == 2
+        assert rows == [SweptRunRow(profile=USER.key, count=2)]
+
+    def test_sweep_keeps_going_after_one_run_fails_to_end(self) -> None:
+        runs = [self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600) for _ in range(3)]
+        end_run = tasks_facade.claim_and_fail_stale_run
+        attempts: list[Any] = []
+
+        def end_all_but_the_second(run_id: Any, *args: Any, **kwargs: Any) -> bool:
+            attempts.append(run_id)
+            if len(attempts) == 2:
+                raise OperationalError("connection lost")
+            return end_run(run_id, *args, **kwargs)
+
+        with (
+            patch("products.tasks.backend.facade.api.claim_and_fail_stale_run", side_effect=end_all_but_the_second),
             patch(
                 "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
                 return_value={USER.key: "enforce"},
