@@ -6,7 +6,7 @@ use tonic::{Code, Request};
 
 use super::super::PersonHogReplicaService;
 use super::followed::{follower_reads, own_partition};
-use super::mocks::PopulatedStorage;
+use super::mocks::{PopulatedStorage, SuccessStorage};
 use crate::service::PARTITION_HEADER;
 
 fn request(person_id: Option<i64>) -> Request<GetFlagContextRequest> {
@@ -35,6 +35,21 @@ async fn a_flag_context_holds_the_person_their_cohorts_and_the_groups() {
     assert_eq!(context.person.map(|person| person.id), Some(42));
     assert_eq!(context.cohort_memberships.len(), 1);
     assert_eq!(context.groups.len(), 1);
+}
+
+#[tokio::test]
+async fn a_person_outside_the_team_gets_no_cohort_memberships() {
+    // This storage finds no person for the team, and answers for any cohort id.
+    let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+    let context = service
+        .get_flag_context(request(Some(42)))
+        .await
+        .expect("served")
+        .into_inner();
+
+    assert!(context.person.is_none());
+    assert!(context.cohort_memberships.is_empty());
 }
 
 #[tokio::test]
