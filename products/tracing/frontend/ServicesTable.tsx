@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -138,29 +138,66 @@ export interface ServicesTableProps {
     rows: _ServiceHealthRowApi[]
     loading: boolean
     error?: boolean
+    /** More services matched than the endpoint returns; only the busiest are in `rows`. */
+    truncated?: boolean
+    /** Services that matched before the endpoint's row limit. */
+    totalServices?: number
+    /** Property filters are active, and the services query doesn't apply them. */
+    propertyFiltersIgnored?: boolean
     /** Length of the window the rows cover (ms), which turns request counts into a rate. */
     windowMs: number
     onRowClick?: (row: _ServiceHealthRowApi) => void
 }
 
-export function ServicesTable({ rows, loading, error, windowMs, onRowClick }: ServicesTableProps): JSX.Element {
+export function ServicesTable({
+    rows,
+    loading,
+    error,
+    truncated,
+    totalServices,
+    propertyFiltersIgnored,
+    windowMs,
+    onRowClick,
+}: ServicesTableProps): JSX.Element {
     const columns = useMemo(() => buildColumns(windowMs), [windowMs])
+    // With no rows the table's empty label carries the error, so the banner is only for stale rows.
+    const showStaleError = error && rows.length > 0
     return (
-        <VirtualizedTable<_ServiceHealthRowApi>
-            // pinned: identifies stored column widths — renaming resets everyone's widths
-            tableKey="services"
-            columns={columns}
-            dataSource={rows}
-            loading={loading}
-            rowKey={(row) => row.service}
-            onRowClick={onRowClick}
-            defaultSort={{ columnKey: 'requests', order: -1 }}
-            emptyLabel={
-                error
-                    ? "Couldn't load services. Try again or change the filters."
-                    : 'No services found for these filters'
-            }
-            data-attr="tracing-services-table"
-        />
+        <div className="flex flex-col gap-2 flex-1 min-h-0">
+            {showStaleError && (
+                <LemonBanner type="error">
+                    Couldn't refresh services. These rows are from the previous filters.
+                </LemonBanner>
+            )}
+            {propertyFiltersIgnored && (
+                <LemonBanner type="info">
+                    Property filters don't apply to services yet. Rows cover every span in the date range and selected
+                    services.
+                </LemonBanner>
+            )}
+            {truncated && !showStaleError && (
+                <LemonBanner type="warning">
+                    Showing the {rows.length} busiest
+                    {totalServices ? ` of ${humanFriendlyNumber(totalServices)}` : ''} services. Sorting only reorders
+                    these. Filter by service to see the rest.
+                </LemonBanner>
+            )}
+            <VirtualizedTable<_ServiceHealthRowApi>
+                // pinned: identifies stored column widths — renaming resets everyone's widths
+                tableKey="services"
+                columns={columns}
+                dataSource={rows}
+                loading={loading}
+                rowKey={(row) => row.service}
+                onRowClick={onRowClick}
+                defaultSort={{ columnKey: 'requests', order: -1 }}
+                emptyLabel={
+                    error
+                        ? "Couldn't load services. Try again or change the filters."
+                        : 'No services found for these filters'
+                }
+                data-attr="tracing-services-table"
+            />
+        </div>
     )
 }

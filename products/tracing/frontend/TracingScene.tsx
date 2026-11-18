@@ -139,7 +139,7 @@ function TracingSceneContents(): JSX.Element {
         availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
-    const { serviceHealth, serviceHealthLoading, serviceHealthError } = useValues(
+    const { serviceHealth, serviceHealthLoading, serviceHealthError, propertyFiltersIgnored } = useValues(
         tracingServicesLogic({ id: TRACING_SCENE_VIEWER_ID })
     )
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
@@ -330,6 +330,9 @@ function TracingSceneContents(): JSX.Element {
                                 rows={serviceHealth?.services ?? []}
                                 loading={serviceHealthLoading}
                                 error={serviceHealthError}
+                                truncated={serviceHealth?.truncated}
+                                totalServices={serviceHealth?.summary.services}
+                                propertyFiltersIgnored={propertyFiltersIgnored}
                                 windowMs={operationsWindowMs}
                                 onRowClick={(row) => selectService(row.service)}
                             />
