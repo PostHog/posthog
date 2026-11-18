@@ -200,6 +200,13 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert extract
 
 
+@pytest.mark.parametrize("path", ["tools/pr-approval-agent/yaml.py", "tools/owners/owners_yaml/json.py"])
+def test_review_payload_refuses_a_repository_file_beside_the_engine_modules(path: str) -> None:
+    # The engine imports from its own directory first, so such a file would run as code.
+    with pytest.raises(RuntimeError, match="engine tree"):
+        _review_payload_archive({path: "import os"}, "{}")
+
+
 @pytest.mark.parametrize("tools_is_symlink", [False, True])
 def test_review_payload_lands_only_in_a_real_tools_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tools_is_symlink: bool
