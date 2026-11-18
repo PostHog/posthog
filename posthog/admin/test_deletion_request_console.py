@@ -349,6 +349,25 @@ class TestDeletionRequestConsole(BaseTest):
         expected = {self._url(pending), approve_url} if member else {self._url(pending)}
         assert request_links == expected
 
+    @parameterized.expand([("staff", {True}), ("not-staff", {False, None})])
+    def test_requests_list_filters_by_whether_staff_created_the_request(
+        self, created_by: str, expected: set[bool | None]
+    ) -> None:
+        requests = {
+            created_by_staff: self._request(created_by_staff=created_by_staff)
+            for created_by_staff in (True, False, None)
+        }
+
+        response = self.client.get("/admin/console/tools/deletion-requests/", {"created_by": created_by})
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        listed = {
+            a["href"]
+            for a in soup.find_all("a", href=True)
+            if a["href"].startswith("/admin/console/deletion-requests/")
+        }
+        assert listed == {self._url(requests[created_by_staff]) for created_by_staff in expected}
+
     def test_requests_list_names_the_active_clickhouse_team_staff(self) -> None:
         clickhouse_team = Group.objects.get(name="ClickHouse Team")
         teammate = User.objects.create(email="teammate@example.com", first_name="Teammate", is_staff=True)

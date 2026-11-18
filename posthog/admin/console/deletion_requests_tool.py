@@ -1,6 +1,6 @@
 from django import forms
 from django.core.paginator import Paginator
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
 
@@ -35,6 +35,16 @@ STATUS_COUNTS = (
 )
 
 
+CREATED_BY_STAFF = "staff"
+CREATED_BY_NOT_STAFF = "not-staff"
+# created_by_staff is null on old requests and on requests that a system job creates, such as the support ticket
+# purge. The deletion pickup sensor queues null behind staff requests, so the filter counts null as not staff.
+CREATED_BY_FILTERS = {
+    CREATED_BY_STAFF: Q(created_by_staff=True),
+    CREATED_BY_NOT_STAFF: Q(created_by_staff=False) | Q(created_by_staff__isnull=True),
+}
+
+
 def _sentence_case(label: str) -> str:
     return label if label.startswith("HogQL") else label.capitalize()
 
@@ -51,6 +61,11 @@ class DeletionRequestFilterForm(forms.Form):
         choices=[("", "Any type"), *((value, _sentence_case(label)) for value, label in RequestType.choices)],
     )
     team_id = forms.IntegerField(required=False, min_value=1, label="Team ID")
+    created_by = forms.ChoiceField(
+        required=False,
+        label="Created by",
+        choices=[("", "Anyone"), (CREATED_BY_STAFF, "Staff"), (CREATED_BY_NOT_STAFF, "Not staff")],
+    )
 
 
 def _filtered_requests(form: DeletionRequestFilterForm) -> QuerySet[DataDeletionRequest]:
@@ -63,6 +78,8 @@ def _filtered_requests(form: DeletionRequestFilterForm) -> QuerySet[DataDeletion
         requests = requests.filter(request_type=request_type)
     if team_id := form.cleaned_data["team_id"]:
         requests = requests.filter(team_id=team_id)
+    if created_by := form.cleaned_data["created_by"]:
+        requests = requests.filter(CREATED_BY_FILTERS[created_by])
     return requests
 
 
@@ -100,7 +117,10 @@ def _request_row(obj: DataDeletionRequest, team_names: dict[int, str], can_appro
             _team_cell(obj.team_id, team_names),
             Cell(text=_sentence_case(status.label), tone=STATUS_TONES.get(status)),
             Cell(text="-" if obj.count is None else f"{obj.count:,}", muted=obj.count is None),
-            Cell(text=obj.created_at.strftime("%Y-%m-%d %H:%M")),
+            Cell(
+                text=obj.created_at.strftime("%Y-%m-%d %H:%M"),
+                detail="By staff" if obj.created_by_staff else "Not by staff",
+            ),
             _action_cell(obj, can_approve),
         )
     )
@@ -164,7 +184,9 @@ class DeletionRequestsTool(ConsoleTool):
                 Filters(
                     form=form,
                     groups=(
-                        FieldGroup(title="Filter", field_names=("status", "request_type", "team_id"), inline=True),
+                        FieldGroup(
+                            title="Filter", field_names=("status", "request_type", "team_id", "created_by"), inline=True
+                        ),
                     ),
                     submit_label="Filter",
                 ),
