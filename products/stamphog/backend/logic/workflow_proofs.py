@@ -87,6 +87,12 @@ def proof_audience(check: str, conclusion: str, marker: str) -> str:
     return f"stamphog-{digest}"
 
 
+def _id_claim(claims: dict, key: str) -> int | None:
+    """A numeric id claim, which GitHub sends as a string of digits."""
+    value = claims.get(key)
+    return int(value) if isinstance(value, str) and _ID_RE.fullmatch(value) else None
+
+
 def _github_signing_key(token: str) -> PyJWK:
     """The key that signed the token, from GitHub's key set as the shared JWKS cache holds it."""
     return select_signing_key(GITHUB_ACTIONS.jwks_url, token)
@@ -201,10 +207,10 @@ class WorkflowProofs:
         claims = self._decode(tokens[0], proof_audience(publisher.check, conclusion, candidate.marker))
         if claims is None or not self._names_publisher(claims, publisher):
             return None
-        run_id, run_attempt, job_id = (claims.get(key) for key in ("run_id", "run_attempt", "check_run_id"))
+        run_id, run_attempt, job_id = (_id_claim(claims, key) for key in ("run_id", "run_attempt", "check_run_id"))
         commit_sha = claims.get("job_workflow_sha")
         blobs = candidate.payload.get("blobs", {})
-        if not all(isinstance(value, str) and _ID_RE.fullmatch(value) for value in (run_id, run_attempt, job_id)):
+        if run_id is None or run_attempt is None or job_id is None:
             return None
         if not isinstance(commit_sha, str) or not _SHA_RE.fullmatch(commit_sha):
             return None
@@ -212,9 +218,9 @@ class WorkflowProofs:
             return None
         return SignedResult(
             check_run=candidate.check_run,
-            run_id=int(run_id),
-            run_attempt=int(run_attempt),
-            job_id=int(job_id),
+            run_id=run_id,
+            run_attempt=run_attempt,
+            job_id=job_id,
             commit_sha=commit_sha,
             blobs=blobs,
         )

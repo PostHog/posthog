@@ -14,7 +14,7 @@ from django.test import SimpleTestCase, override_settings
 
 import jwt
 import yaml
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -967,7 +967,7 @@ _PUBLISHER = WorkflowPublisher(
     job="publish",
     events=("pull_request_target",),
 )
-_OIDC_KEY = serialization.load_pem_private_key(_generate_app_private_key().encode(), password=None)
+_OIDC_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _WORKFLOW_REF = "acme/widgets/.github/workflows/migration-risk.yml@refs/heads/main"
 _RUN_SHA = "c" * 40
 _PROVER = GitObjectId(kind="Blob", oid="a" * 40)

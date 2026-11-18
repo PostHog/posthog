@@ -28,13 +28,19 @@ class WorkflowPublisher:
     events: tuple[str, ...]
 
 
+def _text(entry: dict, key: str) -> str:
+    value = entry.get(key)
+    return value if isinstance(value, str) else ""
+
+
 def workflow_publisher(entry: object) -> WorkflowPublisher | None:
     """The publisher one policy entry names, or None when the entry names no valid workflow publisher."""
     if not isinstance(entry, dict):
         return None
-    name, check, workflow, job, events = (entry.get(key) for key in ("name", "check", "workflow", "job", "events"))
-    if not all(isinstance(value, str) and value for value in (name, check, workflow, job)):
+    name, check, workflow, job = (_text(entry, key) for key in ("name", "check", "workflow", "job"))
+    if not (name and check and workflow and job):
         return None
+    events = entry.get("events")
     if not isinstance(events, list) or not events:
         return None
     if not all(isinstance(event, str) and event in _PUBLISHER_EVENTS for event in events):
