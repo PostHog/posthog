@@ -142,6 +142,20 @@ describe('IntakeProducer', () => {
         expect(jest.getTimerCount()).toBe(0)
     })
 
+    it('counts the ack deadline from the publish, not from when the caller finishes tracking it', async () => {
+        jest.useFakeTimers()
+        produce = () => new Promise<void>((resolve) => setTimeout(resolve, INTAKE_ACK_DEADLINE_MS + 100))
+
+        const outcome = new IntakeProducer(outputs()).produce(
+            { kind: 'transactional-email', invocation: invocation() },
+            'async',
+            { track: () => jest.advanceTimersByTime(200) }
+        )
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+
+        await expect(outcome).resolves.toBe('unacked')
+    })
+
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
         produce = () => new Promise<void>((resolve) => setTimeout(resolve, 400))

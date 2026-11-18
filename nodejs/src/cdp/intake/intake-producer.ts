@@ -102,11 +102,16 @@ export class IntakeProducer {
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
     private withinDeadline(produce: Promise<void>, settlement?: Settlement): Promise<void> {
-        settlement?.track(produce.catch(() => undefined))
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
+        try {
+            settlement?.track(produce.catch(() => undefined))
+        } catch (error) {
+            clearTimeout(timer)
+            throw error
+        }
         return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
     }
 }
