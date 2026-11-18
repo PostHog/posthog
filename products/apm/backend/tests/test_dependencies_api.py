@@ -85,6 +85,18 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
             w.span(
                 "api", name="GET web", kind=3, env="prod", trace=trace, parent=api, attributes={"peer.service": "web"}
             )
+        # A call that timed out before api recorded anything still counts on the web -> api edge.
+        lost = w.span("web", name="GET /orders", env="prod", trace=5)
+        w.span(
+            "web",
+            name="GET api",
+            kind=3,
+            env="prod",
+            trace=5,
+            parent=lost,
+            status_code=2,
+            attributes={"peer.service": "api"},
+        )
         root = w.span("eu-web", name="GET /", env="staging", trace=10)
         w.span("eu-web", name="query", kind=3, env="staging", trace=10, parent=root, attributes={"db.system": "redis"})
         w.insert()
@@ -102,7 +114,8 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             {key: (e["inferred"], e["kind"], e["requests"], e["error_count"]) for key, e in edges.items()},
             {
-                ("web", "api"): (False, "service", 4, 1),
+                ("web", "api"): (False, "service", 5, 2),
+                ("api", "web"): (False, "service", 4, 0),
                 ("api", "postgresql:orders"): (True, "database", 4, 0),
                 ("api", "redis"): (True, "database", 4, 0),
                 ("api", "payments.example.com"): (True, "external", 2, 2),
@@ -113,11 +126,19 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_service_filter_keeps_edges_on_either_side(self) -> None:
         data = self._get(service="web")
-        self.assertEqual([(e["caller"], e["callee"]) for e in data["edges"]], [("web", "api")])
+        self.assertEqual(
+            {(e["caller"], e["callee"], e["requests"]) for e in data["edges"]}, {("web", "api", 5), ("api", "web", 4)}
+        )
         self.assertEqual(data["service"], "web")
         self.assertEqual(
             {(e["caller"], e["callee"]) for e in self._get(service="api")["edges"]},
-            {("web", "api"), ("api", "postgresql:orders"), ("api", "redis"), ("api", "payments.example.com")},
+            {
+                ("web", "api"),
+                ("api", "web"),
+                ("api", "postgresql:orders"),
+                ("api", "redis"),
+                ("api", "payments.example.com"),
+            },
         )
         self.assertEqual(
             [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="payments.example.com")["edges"]],

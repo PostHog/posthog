@@ -2,8 +2,8 @@
 
 A service edge is a server or consumer span whose parent span is in another service. An inferred
 edge is a client or producer span with no client, producer or entry child span, whose attributes name what it called: a peer
-service, a database, a queue or a host. A target that is also a service with spans in the window
-is left out, so an uninstrumented call into an instrumented service is not drawn twice.
+service, a database, a queue or a host. A call with no child whose target is a service with spans
+in the window counts on that service's edge, so a call that never arrived still shows its failure.
 
 Every edge is measured on the caller's side when the caller has a client or producer span, since
 that is the latency and the errors the caller saw. Without one, the callee span is used.
@@ -79,25 +79,33 @@ class DependenciesResult:
 
 
 def _dependencies_query(
-    date_from: datetime, date_to: datetime, environment: str, service: str | None, service_instrumented: bool = True
+    date_from: datetime, date_to: datetime, environment: str, service: str | None
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child is
     # another client span is a wrapper, such as a retry around the real call, so it is not a leaf
-    # and gets no inferred edge: the inner span already draws that dependency.
+    # and gets no inferred edge: the inner span already draws that dependency. A leaf call whose target
+    # is a service with spans in the window never reached it, say a timeout, and counts on that
+    # service's edge rather than being dropped or drawn as a second, inferred node.
+    reached = f"({_HAS_CALLEE} OR p.target_is_service)"
     query = parse_select(
         f"""
         SELECT
             p.service_name AS caller,
             if({_HAS_CALLEE}, c.service_name, p.target) AS callee,
-            if({_HAS_CALLEE}, 0, 1) AS inferred,
-            if({_HAS_CALLEE}, '{DependencyKind.SERVICE.value}', p.target_kind) AS dependency_kind,
+            if({reached}, 0, 1) AS inferred,
+            if({reached}, '{DependencyKind.SERVICE.value}', p.target_kind) AS dependency_kind,
             count() AS requests,
             countIf(if(p.kind IN {_CALL_KINDS}, p.status_code, c.status_code) = 2) AS error_count,
             quantile(0.95)(if(p.kind IN {_CALL_KINDS}, p.duration_nano, c.duration_nano)) / 1e6 AS p95_ms
         FROM (
             SELECT trace_id, span_id, service_name, kind, status_code, duration_nano,
-                {_TARGET} AS target, {_TARGET_KIND} AS target_kind
+                {_TARGET} AS target, {_TARGET_KIND} AS target_kind,
+                target IN (
+                    SELECT service_name FROM posthog.trace_spans
+                    WHERE {{where}} AND {{env_expr}} = {{environment}}
+                    GROUP BY service_name
+                ) AS target_is_service
             FROM posthog.trace_spans
             WHERE {{where}} AND {{env_expr}} = {{environment}} AND {{trace_where}}
         ) AS p
@@ -120,11 +128,7 @@ def _dependencies_query(
             p.kind IN {_CALL_KINDS}
             AND ifNull(cc.call_children, 0) = 0
             AND notEmpty(p.target)
-            AND p.target NOT IN (
-                SELECT service_name FROM posthog.trace_spans
-                WHERE {{where}} AND {{env_expr}} = {{environment}}
-                GROUP BY service_name
-            )
+            AND p.target != p.service_name
         )
         GROUP BY caller, callee, inferred, dependency_kind
         HAVING {{service_where}}
@@ -135,7 +139,7 @@ def _dependencies_query(
             "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
-            "trace_where": _service_traces_where(date_from, date_to, environment, service, service_instrumented),
+            "trace_where": _service_traces_where(date_from, date_to, environment, service),
             "service_where": (
                 parse_expr(
                     "caller = {service} OR callee = {service}", placeholders={"service": ast.Constant(value=service)}
@@ -150,21 +154,17 @@ def _dependencies_query(
     return query
 
 
-def _service_traces_where(
-    date_from: datetime, date_to: datetime, environment: str, service: str | None, service_instrumented: bool
-) -> ast.Expr:
-    # Every edge on a service, in either direction, sits in a trace that has a span from it. service_name
-    # follows time_bucket in the sort key, so this subquery reads only that service's granules, and the
-    # scans and the join then see only those traces instead of the whole environment.
-    # A service that sends no spans can only be an inferred callee, so its traces are the ones with a
-    # call span that names it.
+def _service_traces_where(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.Expr:
+    # Every edge on a service, in either direction, sits in a trace that has a span from it or a call
+    # span that names it: a call that never reached the service, or one to a service that sends no
+    # spans. The scans and the join then see only those traces instead of the whole environment.
     if not service:
         return ast.Constant(value=True)
-    match = "service_name = {service}" if service_instrumented else f"kind IN {_CALL_KINDS} AND {_TARGET} = {{service}}"
     return parse_expr(
         f"""trace_id IN (
             SELECT trace_id FROM posthog.trace_spans
-            WHERE {{where}} AND {{env_expr}} = {{environment}} AND {match}
+            WHERE {{where}} AND {{env_expr}} = {{environment}}
+                AND (service_name = {{service}} OR (kind IN {_CALL_KINDS} AND {_TARGET} = {{service}}))
         )""",
         placeholders={
             "where": window_where(date_from, date_to),
@@ -175,34 +175,12 @@ def _service_traces_where(
     )
 
 
-def _is_instrumented(team: Team, date_from: datetime, date_to: datetime, environment: str, service: str) -> bool:
-    query = parse_select(
-        """
-        SELECT 1 FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment} AND service_name = {service}
-        LIMIT 1
-        """,
-        placeholders={
-            "where": window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
-            "service": ast.Constant(value=service),
-        },
-    )
-    return bool(
-        execute_hogql_query(
-            query_type="ApmDependenciesServiceLookup", query=query, team=team, workload=Workload.LOGS
-        ).results
-    )
-
-
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
 ) -> DependenciesResult:
-    service_instrumented = not service or _is_instrumented(team, date_from, date_to, environment, service)
     rows = execute_hogql_query(
         query_type="ApmDependenciesQuery",
-        query=_dependencies_query(date_from, date_to, environment, service, service_instrumented),
+        query=_dependencies_query(date_from, date_to, environment, service),
         team=team,
         workload=Workload.LOGS,
         limit_context=LimitContext.QUERY,
