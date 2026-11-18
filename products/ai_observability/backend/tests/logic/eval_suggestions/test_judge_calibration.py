@@ -364,3 +364,90 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
 
     assert calls == [None]
     client.messages.create.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("gives_the_review_labels", "return not match(output, '^Reply [0-4]$')", True, (5, 50)),
+        (
+            "loops",
+            "for (let reply in ['Reply 0', 'Reply 1', 'Reply 2', 'Reply 3', 'Reply 4']) {\n"
+            "  if (output == reply) {\n    return false\n  }\n}\nreturn true",
+            True,
+            (5, 50),
+        ),
+        # Five of the review's passes are not JSON, so jsonParse raises on them, and each error counts against the code.
+        (
+            "raises_on_some_passes",
+            "if (match(output, '^Reply [0-4]$')) {\n  return false\n}\n"
+            "if (match(output, '^Reply [5-9]$')) {\n  return jsonParse(output).ok\n}\nreturn true",
+            False,
+            (5, 45),
+        ),
+        ("does_not_compile", "return match(output, 'Reply \\d')", None, None),
+        ("multiplies", "let pad := ' ' * 2\nreturn not match(output, '^Reply [0-4]$')", None, None),
+        ("formats_a_string", "let pad := '%5s' % output\nreturn not match(output, '^Reply [0-4]$')", None, None),
+        ("calls_another_function", "return not match(replaceAll(output, 'x', 'y'), '^Reply [0-4]$')", None, None),
+        # Data could hold a forged function, so no variable may take an allowed function's name.
+        (
+            "binds_an_allowed_name",
+            "let parsed := {'f': lower}\nlet trim := parsed.f\nreturn not match(trim(output), '^Reply [0-4]$')",
+            None,
+            None,
+        ),
+        (
+            "declares_an_allowed_name",
+            "fun trim(text) {\n  return text\n}\nreturn not match(trim(output), '^Reply [0-4]$')",
+            None,
+            None,
+        ),
+        (
+            "catches_into_an_allowed_name",
+            "try {\n  throw {'__hogError__': true, 'type': 'Error', 'message': 'x'}\n} catch (trim) {\n"
+            "  return not match(output, '^Reply [0-4]$')\n}\nreturn true",
+            None,
+            None,
+        ),
+        (
+            "renames_another_function",
+            "let lower := replaceAll\nreturn not match(lower(output, 'x', 'y'), '^Reply [0-4]$')",
+            None,
+            None,
+        ),
+        # A non-boolean result disables a saved Hog evaluation, so one such call rejects the check.
+        (
+            "returns_a_string_on_one_call",
+            "if (output == 'Reply 49') {\n  return 'unsure'\n}\nreturn not match(output, '^Reply [0-4]$')",
+            None,
+            None,
+        ),
+    ]
+)
+def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
+    _name: str, code_check: str, kept: bool | None, counts: tuple[int, int] | None
+) -> None:
+    card, rendering = _card_and_rendering()
+
+    code = judge_calibration.check_code(replace(card, code_check=code_check), rendering, deadline=None)
+
+    if kept is None:
+        assert code is None
+        return
+    assert code is not None
+    assert judge_calibration.keeps(card, code.calibration) is kept
+    assert (code.failed, code.of) == counts
+
+
+def test_a_code_check_never_starts_a_call_that_could_run_past_the_deadline() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return true")
+
+    assert judge_calibration.check_code(card, rendering, deadline=time.monotonic() + 5) is None
+
+
+def test_the_vm_refuses_functions_outside_the_set_when_the_source_check_misses_one() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return not match(replaceAll(output, 'x', 'y'), '^Reply [0-4]$')")
+
+    with patch.object(judge_calibration._OutsideCodeCheckSet, "visit"):
+        assert judge_calibration.check_code(card, rendering, deadline=None) is None
