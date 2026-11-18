@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { defaultConfig } from '~/common/config/config'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -203,8 +205,11 @@ describe('SandboxEmailService', () => {
         expect(recipients()).toEqual(Array(6).fill(member()))
     })
 
-    it('delivers every test send past the daily cap, before and after workflow sends use the whole allowance', async () => {
-        const service = world.service({ caps: { team: 2, warning: 10 } })
+    it('delivers every test send past the daily cap, before and after workflow sends use the whole allowance, and warns on each past the threshold', async () => {
+        const service = world.service({ caps: { team: 2, warning: 4 } })
+        const warnings = async (): Promise<number> =>
+            (await register.getSingleMetric('cdp_sandbox_email_team_warning_total')!.get()).values[0]?.value ?? 0
+        const warningsBefore = await warnings()
         const testSends = async (runs: string[]) => {
             for (const run of runs) {
                 await expect(service.send(request({ invocationId: run, isTest: true }))).resolves.toMatchObject({
@@ -221,8 +226,9 @@ describe('SandboxEmailService', () => {
             status: 'skipped',
             reason: 'daily_cap_reached',
         })
-        await testSends(['test-4', 'test-5'])
-        expect(recipients()).toEqual(Array(7).fill(member()))
+        await testSends(['test-4', 'test-5', 'test-6', 'test-7'])
+        expect(recipients()).toEqual(Array(9).fill(member()))
+        expect(await warnings()).toBe(warningsBefore + 5)
     })
 
     const capped = (): Promise<FrequencyCapCheck> =>
