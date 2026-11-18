@@ -3281,8 +3281,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
 #     the derived id); a caller could otherwise repoint their run at another team's workflow and
 #     signal or terminate-and-restart it.
-#   - pending_external_followups / pending_external_followups_generation are the workflow-owned
-#     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
 #   - timed_out_inactivity / timed_out_wall_clock / sandbox_gone are the workflow's terminal reason
 #     markers, written only by the update_task_run_status activity. Slack reads them to decide that
 #     a FAILED run was a timeout and stays quiet (post_slack_update._post_failure_or_timeout), so a
@@ -3390,11 +3388,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_fallback_cleanup_complete",
         "cancel_fallback_stream_generation",
         "stream_generation",
-        "pending_external_followups",
-        "pending_external_followups_generation",
-        "pending_external_followups_checkpoint",
-        "task_management_ci_idle_skips",
-        "task_management_ci_wait_checks",
         # Terminal reason markers owned by the workflow (see the note above). Spelled as literals
         # rather than imported from the update_task_run_status activity, which would pull temporalio
         # onto this module's import path; the workflow writes them through
