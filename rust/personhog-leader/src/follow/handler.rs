@@ -54,9 +54,12 @@ impl HandoffHandler for FollowerHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
+        // A handoff captured before a config change is built under the live config: a
+        // follower refuses a build under an older one than it already follows.
+        let live = self.changelog.current();
         let config = match self.captured.get(&partition) {
-            Some(captured) => captured.clone(),
-            None => self.changelog.current(),
+            Some(captured) if captured.epoch >= live.epoch => captured.clone(),
+            _ => live,
         };
         self.build(partition, config).await
     }

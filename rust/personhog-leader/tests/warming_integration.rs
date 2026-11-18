@@ -539,6 +539,25 @@ async fn a_person_written_again_while_their_death_was_checked_is_served() {
 }
 
 #[tokio::test]
+async fn a_build_under_a_newer_config_stops_every_reader_of_an_older_one() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let f = following("layouts", &cluster, FOLLOW);
+    let next = ChangelogConfig {
+        epoch: f.config.epoch + 1,
+        ..f.config.clone()
+    };
+    f.follower.follow(0, &f.config).await.expect("follow");
+
+    f.follower.follow(1, &next).await.expect("follow");
+    let under_the_older = f.follower.follow(2, &f.config).await;
+
+    assert!(!f.follower.is_following(0));
+    assert!(f.follower.is_following(1));
+    assert!(under_the_older.is_err());
+    assert!(!f.follower.is_following(2));
+}
+
+#[tokio::test]
 async fn a_partition_that_cannot_be_confirmed_current_fails_its_warm() {
     let (cluster, _producer) = create_mock_kafka().await;
     let never_current = FollowConfig {
