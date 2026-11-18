@@ -37,6 +37,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     SetupRequest,
 )
+from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -296,6 +297,9 @@ def recompute_aeo_own_citations_task(self: Task, team_id: int) -> None:
     try:
         changed = recompute_own_citations(team_id)
         logger.info("aeo_own_citations_recomputed", team_id=team_id, changed=changed)
+        # Checks recorded before the fact rows existed get them here, once, with no command to run.
+        if has_checks_without_facts(team_id):
+            logger.info("aeo_check_facts_backfilled", team_id=team_id, checks=backfill_facts(team_id))
     finally:
         try:
             lock.release()
