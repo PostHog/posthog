@@ -123,7 +123,6 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
-    can_in_organization,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
@@ -147,7 +146,6 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
-from products.authorization.backend.facade.enums import Action
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
@@ -2309,21 +2307,22 @@ class ProjectViewSet(
 
             try:
                 target_organization = Organization.objects.get(pk=target_organization_id)
-                if not can_in_organization(request, current_organization, Action.VIEW) or not can_in_organization(
-                    request, target_organization, Action.VIEW
-                ):
-                    raise exceptions.ValidationError(
-                        "You must be a member of the target organization to move a project."
-                    )
+                current_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=current_organization
+                )
+                target_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=target_organization
+                )
 
-                if not can_in_organization(request, current_organization, Action.EDIT) or not can_in_organization(
-                    request, target_organization, Action.EDIT
+                if (
+                    current_organization_membership.effective_level < OrganizationMembership.Level.ADMIN
+                    or target_organization_membership.effective_level < OrganizationMembership.Level.ADMIN
                 ):
                     raise exceptions.ValidationError(
                         "You must be an admin of both the source and target organizations to move a project."
                     )
 
-            except Organization.DoesNotExist:
+            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
                 raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
 
             # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so

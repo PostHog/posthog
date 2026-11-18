@@ -1673,7 +1673,9 @@ class UserCanCreateProjectPermission(BasePermission):
         except ValueError:
             return True
 
-        if can_in_required_organization(request, organization, Action.CREATE):
+        membership = get_required_organization_membership(request, organization)
+
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             return True
 
         # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).

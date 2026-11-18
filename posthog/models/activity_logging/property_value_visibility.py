@@ -6,10 +6,6 @@ from django.db.models import Q
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog
 
-from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
-
 _CONTEXT_KEY = "property_value_visibility"
 
 # Restricted group property names keyed by group type index. The None key applies to every group type.
@@ -138,10 +134,16 @@ class PropertyValueVisibility:
         if self._user is None or organization_id is None:
             return False
         if organization_id not in self._admin_of_organization:
-            self._admin_of_organization[organization_id] = authorization.check(
-                resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization_id)),
-                action=Action.EDIT,
-                subject=Subject(user_id=self._user.pk),
+            from posthog.models import OrganizationMembership  # noqa: PLC0415
+
+            self._admin_of_organization[organization_id] = (
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
+                    user=self._user,
+                    organization_id=organization_id,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
+                )
+                .exists()
             )
         return self._admin_of_organization[organization_id]
 

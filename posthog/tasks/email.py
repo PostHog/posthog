@@ -3174,16 +3174,13 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     subject = f"{requester_name} requested the {integration_name} integration on PostHog"
 
     # Org admins/owners always have access to every project, so the org-level filter is the access check.
-    authorized_users = authorization.list_subjects(
-        resource=Resource(type=ResourceType.ORGANIZATION, id=str(team.organization_id)),
-        action=Action.EDIT,
-        subject_type=SubjectType.USER,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
     )
-    recipients = list(
-        User.objects.filter(id__in=[subject.user_id for subject in authorized_users])
-        .exclude(id=requesting_user_id)
-        .exclude(email="")
-    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:
         return
 
@@ -3305,14 +3302,16 @@ def send_workload_trust_policy_changed(
         context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
     )
 
-    authorized_users = authorization.list_subjects(
-        resource=Resource(type=ResourceType.ORGANIZATION, id=str(team.organization_id)),
-        action=Action.EDIT,
-        subject_type=SubjectType.USER,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(
+            organization_id=team.organization_id,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
     )
-    recipients = list(
-        User.objects.filter(id__in=[subject.user_id for subject in authorized_users], is_active=True).exclude(email="")
-    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:
         return
 

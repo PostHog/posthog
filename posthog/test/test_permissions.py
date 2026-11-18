@@ -619,7 +619,7 @@ class _ScopedView:
         self.action = action
 
 
-class TestUserScopeTenantPermissions(BaseTest):
+class TestUserScopeTenantPermissions(SimpleTestCase):
     @parameterized.expand(
         [
             ("user_only", {}, None, [2], ["other"], False, True),
@@ -642,19 +642,18 @@ class TestUserScopeTenantPermissions(BaseTest):
         expected: bool,
         effective_level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> None:
-        organization = self.organization
-        organization.members_can_use_personal_api_keys = keys_allowed
-        organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
-        organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+        organization = Organization(
+            id=uuid4(),
+            members_can_use_personal_api_keys=keys_allowed,
+            available_product_features=[{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}],
+        )
         authenticator = PersonalAPIKeyAuthentication()
         authenticator.personal_api_key = PersonalAPIKey(
             scopes=["user:read"],
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations if scoped_organizations is not None else [str(organization.id)],
         )
-        request = SimpleNamespace(successful_authenticator=authenticator, method="GET", user=self.user)
+        request = SimpleNamespace(successful_authenticator=authenticator, method="GET", user=User(id=1))
         view = SimpleNamespace(
             scope_object="user",
             action="list",
