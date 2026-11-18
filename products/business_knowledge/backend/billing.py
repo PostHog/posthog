@@ -124,7 +124,8 @@ def usage_for_team(team_id: int, since: datetime) -> dict[KnowledgeUsageKey, Met
     """
     rows = (
         KnowledgeUsageRecord.objects.unscoped()
-        .filter(team_id=team_id, created_at__gte=since)
+        # Naming the meters lets Postgres range-scan `bk_usage_team_key_created` for this team and period.
+        .filter(team_id=team_id, usage_key__in=list(KnowledgeUsageKey), created_at__gte=since)
         .annotate(day=TruncDate("created_at", tzinfo=dt.UTC))
         .values("usage_key", "surface", "day")
         .annotate(total=Sum("quantity"))
