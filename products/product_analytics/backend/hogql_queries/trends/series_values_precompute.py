@@ -32,6 +32,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
+from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (
     TrendsQueryRunner,
     resolve_series_custom_name,
@@ -190,7 +191,14 @@ def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> dateti
     return boundary
 
 
-def _ensure(runner: TrendsQueryRunner, *, start: datetime, end: datetime, run_inserts: bool) -> LazyComputationResult:
+def _ensure(
+    runner: TrendsQueryRunner,
+    *,
+    start: datetime,
+    end: datetime,
+    run_inserts: bool,
+    wait_timeout_seconds: float | None = None,
+) -> LazyComputationResult:
     series = runner.query.series[0]
     assert isinstance(series, EventsNode)
     properties = _properties(runner)
@@ -220,6 +228,7 @@ def _ensure(runner: TrendsQueryRunner, *, start: datetime, end: datetime, run_in
         },
         query_type="series_values_insert",
         run_inserts=run_inserts,
+        wait_timeout_seconds=wait_timeout_seconds,
         read_after_write=run_inserts,
         cache_key_context={"engine": "series_values_v1"},
     )
@@ -289,56 +298,72 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
     }
 
 
-def _fallback(reason: str) -> None:
+def _fallback(reason: str) -> SeriesValuesUnavailable:
     SERIES_VALUES_PRECOMPUTE_FALLBACK.labels(reason=reason).inc()
+    return SeriesValuesUnavailable(reason=reason)
+
+
+def closed_series_values(
+    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
+) -> ClosedSeriesValues | SeriesValuesUnavailable:
+    reason = _shape_refusal(runner) or _team_refusal(runner)
+    buckets = runner.query_date_range.all_values()
+    date_to = runner.query_date_range.date_to()
+    if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
+        reason = "dst_transition"
+    if reason is None and not buckets:
+        reason = "nothing_closed"
+    if reason is None and _range_unaligned(runner, buckets, date_to):
+        reason = "unaligned_range"
+    if reason is not None:
+        return _fallback(reason)
+
+    now_utc = datetime.now(UTC)
+    today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    if date_to < today_start_utc:
+        live_from = None
+        read_end_utc = date_to.astimezone(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    else:
+        live_from = _live_boundary(buckets, today_start_utc)
+        read_end_utc = live_from.astimezone(UTC)
+    read_start_utc = buckets[0].astimezone(UTC)
+    if read_start_utc >= read_end_utc:
+        return _fallback("nothing_closed")
+
+    range_start = read_start_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    if range_end < read_end_utc:
+        range_end += timedelta(days=1)
+    if (range_end - range_start).days > MAX_RANGE_DAYS:
+        return _fallback("date_range_too_long")
+
+    result = _ensure(
+        runner, start=range_start, end=range_end, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds
+    )
+    if not result.ready or not result.job_ids:
+        return _fallback("not_ready")
+
+    stored = _read_values(
+        runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
+    )
+    closed_buckets = [bucket.replace(tzinfo=None) for bucket in buckets if live_from is None or bucket < live_from]
+    return ClosedSeriesValues(
+        values={bucket: stored.get(bucket, 0) for bucket in closed_buckets},
+        live_from=live_from,
+        freshly_built=result.freshly_built,
+    )
 
 
 def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) -> list[dict[str, Any]] | None:
     try:
-        reason = _shape_refusal(runner) or _team_refusal(runner)
-        buckets = runner.query_date_range.all_values()
-        date_to = runner.query_date_range.date_to()
-        if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
-            reason = "dst_transition"
-        if reason is None and not buckets:
-            reason = "nothing_closed"
-        if reason is None and _range_unaligned(runner, buckets, date_to):
-            reason = "unaligned_range"
-        if reason is not None:
-            _fallback(reason)
+        closed = closed_series_values(runner, run_inserts=run_inserts)
+        if isinstance(closed, SeriesValuesUnavailable):
             return None
 
-        now_utc = datetime.now(UTC)
-        today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        if date_to < today_start_utc:
-            live_from = None
-            read_end_utc = date_to.astimezone(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        else:
-            live_from = _live_boundary(buckets, today_start_utc)
-            read_end_utc = live_from.astimezone(UTC)
-        read_start_utc = buckets[0].astimezone(UTC)
-        if read_start_utc >= read_end_utc:
-            _fallback("nothing_closed")
-            return None
-
-        range_start = read_start_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        if range_end < read_end_utc:
-            range_end += timedelta(days=1)
-        if (range_end - range_start).days > MAX_RANGE_DAYS:
-            _fallback("date_range_too_long")
-            return None
-
-        result = _ensure(runner, start=range_start, end=range_end, run_inserts=run_inserts)
-        if not result.ready or not result.job_ids:
-            _fallback("not_ready")
-            return None
-
-        values = _read_values(
-            runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
-        )
-        if live_from is not None:
-            values.update(_live_tail_values(runner, live_from=live_from, date_to=date_to))
+        values = dict(closed.values)
+        if closed.live_from is not None:
+            date_to = runner.query_date_range.date_to()
+            values.update(_live_tail_values(runner, live_from=closed.live_from, date_to=date_to))
 
         SERIES_VALUES_PRECOMPUTE_SUCCESS.inc()
         return [_series_dict(runner, values)]
