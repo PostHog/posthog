@@ -81,10 +81,23 @@ def _typed_property_read(expr: ast.Expr) -> tuple[ast.PropertyAccess, type] | No
     return (expr, value_type) if isinstance(expr, ast.PropertyAccess) else None
 
 
-def _is_constant_of_type(expr: ast.Expr, value_type: type) -> bool:
-    if not isinstance(expr, ast.Constant):
-        return False
-    value = expr.value
+def _compared_values(term: ast.CompareOperation) -> list[object] | None:
+    """The constant values on the right of `term`, or None when the right side holds anything else.
+
+    Only IN and NOT IN take a list. The query writes it as a tuple or an array, or passes it as one constant.
+    """
+    right = term.right
+    exprs = [right]
+    if term.op in _COMPARISONS_WITH_A_LIST:
+        if isinstance(right, ast.Constant) and isinstance(right.value, (list, tuple)):
+            return list(right.value)
+        if isinstance(right, (ast.Tuple, ast.Array)):
+            exprs = right.exprs
+    constants = [expr for expr in exprs if isinstance(expr, ast.Constant)]
+    return [constant.value for constant in constants] if len(constants) == len(exprs) else None
+
+
+def _has_type(value: object, value_type: type) -> bool:
     if value is None:
         return True
     if value_type is float:
@@ -114,14 +127,11 @@ def _is_fast_property_filter(term: ast.Expr, context: HogQLContext) -> bool:
     if typed_read is None:
         return False
     property_read, value_type = typed_read
-    compared = (
-        term.right.exprs
-        if term.op in _COMPARISONS_WITH_A_LIST and isinstance(term.right, (ast.Tuple, ast.Array))
-        else [term.right]
-    )
+    values = _compared_values(term)
     return (
-        len(property_read.keys) == 1
-        and all(_is_constant_of_type(expr, value_type) for expr in compared)
+        values is not None
+        and len(property_read.keys) == 1
+        and all(_has_type(value, value_type) for value in values)
         and _reads_a_json_column_path(property_read, context)
     )
 

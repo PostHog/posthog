@@ -20,15 +20,22 @@ class _MarkerOrder(TraversingVisitor):
         self.markers: list[str] = []
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if node.value is True:
-            self.markers.append("true")
-        elif isinstance(node.value, (str, int)) and not isinstance(node.value, bool) and node.value in MARKERS:
-            self.markers.append(MARKERS[node.value])
+        for value in node.value if isinstance(node.value, list) else [node.value]:
+            if value is True:
+                self.markers.append("true")
+            elif isinstance(value, (str, int)) and not isinstance(value, bool) and value in MARKERS:
+                self.markers.append(MARKERS[value])
 
 
 class TestFastPropertyFiltersFirst(SimpleTestCase):
     def _filter_order(
-        self, where: str, *, native: bool = True, table: str = "events", property_types: dict[str, str] | None = None
+        self,
+        where: str,
+        *,
+        native: bool = True,
+        table: str = "events",
+        property_types: dict[str, str] | None = None,
+        placeholders: dict[str, ast.Expr] | None = None,
     ) -> list[str]:
         metadata = PropertyMetadata(
             event_properties={name: {"type": property_type} for name, property_type in (property_types or {}).items()}
@@ -41,7 +48,7 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
         )
         context.property_swapper = PropertySwapper("UTC", metadata.event_properties, {}, {}, context, False)
         prepared = prepare_ast_for_printing(
-            parse_select(f"SELECT count() FROM {table} WHERE {where}"), context, "clickhouse"
+            parse_select(f"SELECT count() FROM {table} WHERE {where}", placeholders), context, "clickhouse"
         )
         assert isinstance(prepared, ast.SelectQuery)
         assert prepared.where is not None
@@ -90,6 +97,13 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
     )
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:
         assert self._filter_order(where) == expected
+
+    def test_a_list_passed_as_one_constant_moves(self) -> None:
+        order = self._filter_order(
+            "properties.query.kind = 'deep' AND properties.query_type IN {values}",
+            placeholders={"values": ast.Constant(value=["fast"])},
+        )
+        assert order == ["fast", "deep"]
 
     @parameterized.expand(
         [
