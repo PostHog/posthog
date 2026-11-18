@@ -56,7 +56,7 @@ from products.alerts_platform.backend.facade.grouping import (
 )
 from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY, AlertSnapshot, AlertState
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.logic.platform_alert_events import announcement, history, last_checks
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -762,6 +762,43 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             due = PlatformAlertConfiguration.objects.get(id=self.configuration.id).next_check_at
         assert keys == expected_keys
         assert due is not None and due > self.cutoff
+
+    def test_a_grouped_check_that_judges_no_group_still_records_that_it_ran(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",)).to_stored()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(grouping=grouping)
+            # A second alert checked in the same windows writes rows under the same evaluation keys.
+            other = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Web errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                grouping=grouping,
+            )
+        failed_at, first_at, second_at = self.cutoff, self.cutoff + timedelta(hours=1), self.cutoff + timedelta(hours=2)
+        for configuration_id in (self.configuration.id, other.id):
+            self._record(
+                at=failed_at,
+                groups=(),
+                failure=CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=False),
+                configuration_id=configuration_id,
+            )
+            self._record(at=first_at, groups=(), configuration_id=configuration_id)
+            self._record(at=second_at, groups=(), configuration_id=configuration_id)
+
+        ids = [self.configuration.id, other.id]
+        last = last_checks(self.team.id, ids, all_groups=True)
+        changes = history(self.team.id, ids, since=failed_at, until=second_at + timedelta(minutes=1), all_groups=True)
+        for configuration_id in ids:
+            assert last[configuration_id].checked_at == second_at
+            assert [
+                (change.occurred_at, change.state, change.grouping_key)
+                for change in changes[configuration_id].state_changes
+            ] == [
+                (failed_at, PlatformAlertState.ERRORED, ""),
+                (first_at, PlatformAlertState.NOT_FIRING, ""),
+            ]
 
     @parameterized.expand(
         [

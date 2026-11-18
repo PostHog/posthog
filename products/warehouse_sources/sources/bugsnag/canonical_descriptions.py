@@ -51,6 +51,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Team name.",
         },
     },
+    "team_collaborators": {
+        "description": "Team membership: one row for each collaborator in each team of an organization. Joins the teams and collaborators tables.",
+        "docs_url": "https://developer.smartbear.com/bugsnag/docs/data-access",
+        "columns": {
+            "id": "Identifier of the collaborator.",
+            "organization_id": "Identifier of the organization the team belongs to (injected by the connector).",
+            "team_id": "Identifier of the team the collaborator belongs to (injected by the connector).",
+            "name": "Collaborator's display name.",
+            "email": "Collaborator's email address.",
+            "is_admin": "Whether the collaborator has admin permissions for the organization.",
+            "pending_invitation": "Whether the collaborator has not yet accepted their BugSnag invitation.",
+            "created_at": "When the collaborator's user account was created.",
+            "last_request_at": "Last time the collaborator used the BugSnag dashboard or its APIs. Null if they never have.",
+            "project_roles": "Mapping of project ids to the collaborator's role on each project: project_owner or project_member.",
+            "paid_for": "Whether the collaborator has dashboard access under the organization's current plan.",
+        },
+    },
     "errors": {
         "description": "A group of similar events (a distinct error) in a project, with aggregate counts and first/last-seen timestamps.",
         "docs_url": "https://bugsnagapiv2.docs.apiary.io/#reference/errors",
@@ -229,6 +246,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "virtual_span_group_id": "Identifier of the page load span group the span belongs to, if any.",
             "statistics": "Measurements recorded while the span was active: category statistics such as web vitals, system metrics, rendering statistics and HTTP response code.",
             "metadata": "Additional metadata attributes attached to the span.",
+        },
+    },
+    "page_load_span_groups": {
+        "description": "A BugSnag Performance page load span group: one page of a web app, with the span group of its full page loads and the span group of its route changes. Its statistics hold the page's web vitals.",
+        "docs_url": "https://developer.smartbear.com/bugsnag/docs/data-access",
+        "columns": {
+            "id": "Identifier of the page load span group.",
+            "project_id": "Identifier of the project the page belongs to (injected by the connector).",
+            "organization_id": "Identifier of the organization that owns the project (injected by the connector).",
+            "display_name": "Name of the page as shown in the BugSnag dashboard.",
+            "is_starred": "Whether the account behind the auth token has starred this page.",
+            "full_page_load_span_group": "The span group of full page loads of this page, with its statistics such as duration percentiles and web vitals.",
+            "route_change_span_group": "The span group of route changes to this page, with its statistics such as duration percentiles and web vitals.",
         },
     },
     "saved_searches": {

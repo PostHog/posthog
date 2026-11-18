@@ -214,6 +214,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Creative set version: V1 allows one asset per type, V2 allows several.",
         },
     },
+    "assets": {
+        "description": "Creative assets uploaded to the account: the images, videos and playable HTML files that creative sets use.",
+        "docs_url": _CAMPAIGN_MANAGEMENT_DOCS_URL,
+        "columns": {
+            "id": "ID of the asset. Creative sets reference assets by this ID.",
+            "name": "Name of the asset.",
+            "status": "Status of the asset: IN_REVIEW, REJECTED, ACTIVE or PAUSED.",
+            "asset_type": "Creative asset type: VID_LONG_P, VID_SHORT_P, HOSTED_HTML, IMG_BANNER or IMG_INTER_P.",
+            "resource_type": "Resource type of the asset: IMAGE, VIDEO or HTML.",
+            "asset_hash": "SHA1 hash of the asset file.",
+            "upload_time": "Time the asset was uploaded (UTC).",
+            "url": "URL of the uploaded asset.",
+            "violation_reasons": "Reasons for the rejection, for REJECTED assets.",
+        },
+    },
     "campaign_operation_logs": {
         "description": "History of operations on campaigns: creation, updates, status changes and archiving.",
         "docs_url": _CAMPAIGN_MANAGEMENT_DOCS_URL,
