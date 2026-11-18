@@ -35,7 +35,8 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                         branches. For example:{' '}
                         <code>SELECT * FROM system.accounts WHERE external_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>.
                         For warehouse tables, use the column that stores the account's external ID. Every OR branch must
-                        keep this filter. Use the column directly, without a SELECT or WITH alias.
+                        keep this filter. Use the column directly, without a SELECT or WITH alias. Joins are not
+                        supported.
                     </>
                 }
             >
@@ -60,6 +61,7 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                     hideFilters
                     hideAiTools
                     hideConnectionSelector
+                    captureQueryTelemetry={false}
                     onRunQuery={runPreview}
                     runQueryDisabledReason={runDisabledReason}
                     runQueryTooltip="Preview for this account"

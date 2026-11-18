@@ -119,6 +119,7 @@ interface SQLEditorProps {
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
     hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
@@ -152,6 +153,7 @@ export function SQLEditor({
     hideFilters,
     hideAiTools,
     hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     hostSync,
 }: SQLEditorProps): JSX.Element {
@@ -249,6 +251,7 @@ export function SQLEditor({
         editor,
         singleStatement,
         hideAgentHints,
+        captureQueryTelemetry,
     })
 
     const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
@@ -257,6 +260,7 @@ export function SQLEditor({
     sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        captureQueryTelemetry,
         key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
@@ -274,6 +278,7 @@ export function SQLEditor({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        captureQueryTelemetry,
         query: sourceQuery.source,
         key: dataLogicKey,
         cachedResults: undefined,
@@ -385,6 +390,7 @@ export function SQLEditor({
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
                                                                 hideConnectionSelector={hideConnectionSelector}
+                                                                captureQueryTelemetry={captureQueryTelemetry}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />

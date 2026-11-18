@@ -50,4 +50,42 @@ describe('AccountSqlQueryTile', () => {
         expect(JSON.stringify(capture.mock.calls)).not.toContain('example-org')
         expect(captureException).not.toHaveBeenCalled()
     })
+
+    it.each([undefined, { display: 'ActionsTable' }])(
+        'renders result values as text with visualization %j',
+        async (visualization) => {
+            initKeaTests()
+            const value = [
+                '__hx_tag',
+                '__hx_obj',
+                '__hx_tag',
+                'a',
+                'href',
+                'https://example.com/details',
+                'children',
+                'Details',
+            ]
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => ({
+                        results: [[value]],
+                        columns: ['details'],
+                        types: ['String'],
+                    }),
+                },
+            })
+            const { container } = render(
+                <AccountSqlQueryTile
+                    accountId="example-account"
+                    externalId="example-org"
+                    initialConfig={{
+                        query: 'select details from example_engagements where org_id = {account_external_id}',
+                        ...(visualization ? { visualization } : {}),
+                    }}
+                />
+            )
+            expect(await screen.findByText(JSON.stringify(value))).not.toBeNull()
+            expect(container.querySelector('a[href="https://example.com/details"]')).toBeNull()
+        }
+    )
 })

@@ -82,6 +82,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Stop Data Table pagination after this many accumulated rows. */
     dataTableMaxPaginationRows?: number
     dataTableCaptureQueryTelemetry?: boolean
+    dataTableRenderPlainText?: boolean
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
     /** Virtualize rows in an embedded SQL result table with a bounded height. */

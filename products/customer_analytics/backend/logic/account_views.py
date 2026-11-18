@@ -1,7 +1,7 @@
 import re
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -17,6 +17,10 @@ from products.customer_analytics.backend.facade.enums import AccountViewVisibili
 from products.customer_analytics.backend.models.account_view import AccountView
 from products.notebooks.backend.facade import content as notebook_content
 from products.notebooks.backend.facade.contracts import NotebookMarkdownContentInvalid
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Properties": "Properties",
@@ -101,6 +105,10 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
         self.aliases = aliases
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.select_from and node.select_from.next_join:
+            raise InvalidAccountViewContent(
+                ["SQL account widgets do not support joins. Use a single table per SELECT."]
+            )
         if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases):
             raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
         super().visit_select_query(node)
@@ -283,6 +291,41 @@ ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]]
     "DotMatrix": validate_dot_matrix_widget_config,
     "SqlQuery": validate_sql_query_widget_config,
 }
+
+
+def authorize_sql_query_widget_config(config: dict[str, Any], team: "Team", user: "User", can_query: bool) -> None:
+    if not can_query:
+        raise AccountViewPermissionDenied("Saving SQL widgets requires the query:read API scope.")
+
+    from posthog.schema import HogLanguage, HogQLMetadata  # noqa: PLC0415 -- load query schemas only for SQL writes
+
+    from posthog.hogql.metadata import get_hogql_metadata  # noqa: PLC0415 -- load the query engine only for SQL writes
+
+    metadata = get_hogql_metadata(
+        HogQLMetadata(
+            language=HogLanguage.HOG_QL,
+            query=config["query"],
+            globals={"account_external_id": ""},
+            freshSources=True,
+        ),
+        team=team,
+        user=user,
+    )
+    if not metadata.isValid:
+        raise AccountViewPermissionDenied("The SQL query must be valid and accessible to the person saving it.")
+
+
+ACCOUNT_VIEW_CONFIG_AUTHORIZERS: dict[str, Callable[[dict[str, Any], "Team", "User", bool], None]] = {
+    "SqlQuery": authorize_sql_query_widget_config,
+}
+
+
+def authorize_account_view_content(content: dict[str, Any], *, team: "Team", user: "User", can_query: bool) -> None:
+    validated_content, _ = validate_account_view_content(content)
+    for component in notebook_content.parse_markdown_component_document(validated_content):
+        config = component.props.get("config")
+        if config is not None and (authorize_config := ACCOUNT_VIEW_CONFIG_AUTHORIZERS.get(component.tag_name)):
+            authorize_config(config, team, user, can_query)
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:

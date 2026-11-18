@@ -9,8 +9,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic.account_views import (
@@ -18,6 +19,7 @@ from products.customer_analytics.backend.logic.account_views import (
     validate_account_view_content,
 )
 from products.customer_analytics.backend.models import Account, AccountView
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 def account_view_content(*components: str) -> dict:
@@ -193,6 +195,66 @@ class TestAccountViewContentValidation(SimpleTestCase):
 
 
 class TestAccountViews(APIBaseTest):
+    @parameterized.expand([(False, status.HTTP_403_FORBIDDEN), (True, status.HTTP_201_CREATED)])
+    def test_sql_widget_writes_require_query_scope(self, can_query: bool, expected_status: int) -> None:
+        view = self._create()
+        content = account_view_content(
+            '<SqlQuery nodeId="sql-one" config={{"query":"SELECT name FROM system.accounts WHERE external_id = {account_external_id}"}} />'
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Account view editor",
+            secure_value=hash_key_value(token),
+            scopes=["account:read", "account:write", *(["query:read"] if can_query else [])],
+        )
+        self.client.logout()
+        response = self.client.post(
+            self.endpoint,
+            {"name": "SQL view", "content": content},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == expected_status, response.json()
+
+        response = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {"version": view["version"], "content": content},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == (status.HTTP_200_OK if can_query else status.HTTP_403_FORBIDDEN), response.json()
+        saved = AccountView.objects.for_team(self.team.id).get(id=view["id"])
+        assert saved.content == (content if can_query else view["content"])
+
+    def test_sql_widget_write_checks_referenced_resources(self) -> None:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="example-key", access_secret="example-secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="example_engagements",
+            format="Parquet",
+            credential=credential,
+            url_pattern="https://example.com/data/*",
+            columns={"account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        self.client.force_login(self.editor)
+        content = account_view_content(
+            '<SqlQuery nodeId="sql-one" config={{"query":"SELECT account_id FROM example_engagements WHERE account_id = {account_external_id}"}} />'
+        )
+        membership = OrganizationMembership.objects.get(user=self.editor, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [

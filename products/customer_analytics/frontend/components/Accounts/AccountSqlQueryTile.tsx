@@ -92,6 +92,7 @@ export function AccountSqlQueryTile({
                     onLoadingChange: onLoadingChange ? setResultLoading : undefined,
                     externalLoadingIndicator: !!onLoadingChange,
                     dataTableCaptureQueryTelemetry: false,
+                    dataTableRenderPlainText: true,
                     insightProps: {
                         dashboardItemId: `new-SQLEditor-account-sql-query-${accountId}-${instanceId ?? 'tile'}-${externalId}`,
                     },

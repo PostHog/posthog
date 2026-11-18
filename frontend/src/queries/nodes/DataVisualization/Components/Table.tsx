@@ -500,7 +500,7 @@ export const Table = (props: TableProps): JSX.Element => {
                                 source: props.query.source,
                             },
                             undefined,
-                            undefined,
+                            { dataTableRenderPlainText: props.context?.dataTableRenderPlainText },
                             columnFormat
                         )}
                     </div>

@@ -73,6 +73,7 @@ interface QueryWindowProps {
     hideFilters?: boolean
     hideAiTools?: boolean
     hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
     canExpandDatabaseTree?: boolean
@@ -100,11 +101,12 @@ export function QueryWindow({
     hideFilters,
     hideAiTools,
     hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
-    const logic = sqlEditorLogic({ tabId })
+    const logic = sqlEditorLogic({ tabId, captureQueryTelemetry })
 
     const {
         queryInput,
@@ -414,6 +416,7 @@ export function QueryWindow({
                         indexUsage: true,
                         // Lets error checking resolve the host's placeholders instead of flagging them
                         globals: placeholderValues ?? undefined,
+                        captureQueryTelemetry,
                         onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')

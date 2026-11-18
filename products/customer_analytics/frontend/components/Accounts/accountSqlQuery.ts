@@ -56,7 +56,7 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
     }
     const node = value as ASTNode
     if (node.node === 'SelectQuery') {
-        if (!node.select_from || !isAccountSqlQueryFilter(node.where, aliases)) {
+        if (node.select_from?.next_join || !node.select_from || !isAccountSqlQueryFilter(node.where, aliases)) {
             return false
         }
     }
