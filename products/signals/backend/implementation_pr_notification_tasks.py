@@ -22,8 +22,10 @@ from products.signals.backend.slack_report_threads import (
     reject_on_worker_lost=True,
 )
 @with_team_scope()
-def deliver_implementation_pr_notifications(self: Task, team_id: int, task_id: str, pr_urls: list[str]) -> None:
+def deliver_implementation_pr_notifications(
+    self: Task, team_id: int, task_id: str, pr_urls: list[str], run_id: str | None = None
+) -> None:
     try:
-        dispatch_implementation_pr_notification_batch(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
+        dispatch_implementation_pr_notification_batch(team_id=team_id, task_id=task_id, pr_urls=pr_urls, run_id=run_id)
     except ImplementationPRNotificationRetry as error:
         raise self.retry(exc=error, countdown=max(min(60 * 2**self.request.retries, 3600), error.retry_after))

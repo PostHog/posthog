@@ -154,13 +154,20 @@ def _implementation_report_ids(*, team_id: int, task_id: str) -> list[str]:
 
 
 def _deliver_implementation_pr_to_thread(
-    *, team: Team, task_id: str, thread: SignalReportSlackThread, integration: IntegrationRecord, pr_url: str
+    *,
+    team: Team,
+    task_id: str,
+    run_id: str | None,
+    thread: SignalReportSlackThread,
+    integration: IntegrationRecord,
+    pr_url: str,
 ) -> bool:
     if integration.integration_id != thread.slack_workspace_id:
         return False
-    if slack_thread_is_mapped_to_task(
+    if run_id is not None and slack_thread_is_mapped_to_task(
         team_id=team.id,
         task_id=task_id,
+        run_id=run_id,
         slack_workspace_id=thread.slack_workspace_id,
         channel=thread.channel,
         thread_ts=thread.thread_ts,
@@ -185,9 +192,20 @@ def _deliver_implementation_pr_to_thread(
     return True
 
 
-def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_url: str) -> int:
+def dispatch_implementation_pr_notifications(
+    *, team_id: int, task_id: str, pr_url: str, run_id: str | None = None
+) -> int:
     if not eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=[pr_url]):
         return 0
+    if run_id is None:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+            get_pull_requests_for_tasks,
+        )
+
+        run_id = next(
+            (pr.run_id for pr in get_pull_requests_for_tasks(team_id, [task_id]).get(task_id, []) if pr.url == pr_url),
+            None,
+        )
     report_ids = _implementation_report_ids(team_id=team_id, task_id=task_id)
     threads = list(
         SignalReportSlackThread.objects.for_team(team_id)
@@ -208,7 +226,7 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
             continue
         try:
             sent += _deliver_implementation_pr_to_thread(
-                team=team, task_id=task_id, thread=thread, integration=integration, pr_url=pr_url
+                team=team, task_id=task_id, run_id=run_id, thread=thread, integration=integration, pr_url=pr_url
             )
         except SoftTimeLimitExceeded:
             raise
@@ -228,11 +246,13 @@ def dispatch_implementation_pr_notifications(*, team_id: int, task_id: str, pr_u
     return sent
 
 
-def dispatch_implementation_pr_notification_batch(*, team_id: int, task_id: str, pr_urls: list[str]) -> None:
+def dispatch_implementation_pr_notification_batch(
+    *, team_id: int, task_id: str, pr_urls: list[str], run_id: str | None = None
+) -> None:
     retry_after: int | None = None
     for url in pr_urls[:MAX_IMPLEMENTATION_PR_NOTIFICATIONS]:
         try:
-            dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=url)
+            dispatch_implementation_pr_notifications(team_id=team_id, task_id=task_id, pr_url=url, run_id=run_id)
         except ImplementationPRNotificationRetry as error:
             retry_after = max(retry_after or 0, error.retry_after)
     if retry_after is not None:

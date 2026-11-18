@@ -56,6 +56,7 @@ class TestPostSlackUpdate(TestCase):
         mock_run.task.slack_notified_pr_url = None
         mock_run.task.repository = "org/repo"
         mock_run.task.repositories = []
+        mock_run.task.repository_integration_id = None
         for k, v in kwargs.items():
             setattr(mock_run, k, v)
         return mock_run

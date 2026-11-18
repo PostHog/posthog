@@ -503,6 +503,7 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("provider", ["github", "gitlab"])
 @pytest.mark.parametrize(
     ("other_pr_url", "delivered"),
     [
@@ -512,9 +513,25 @@ def test_pr_notification_rechecks_personal_recipient(team, recipient: str, desti
         ("http://github.com/example/repo/pull/43", False),
     ],
 )
-def test_completed_mapped_run_announces_a_promoted_primary_pr(team, other_pr_url: str, delivered: bool) -> None:
+def test_completed_mapped_run_announces_a_promoted_primary_pr(
+    team, other_pr_url: str, delivered: bool, provider: str
+) -> None:
+    if provider == "gitlab":
+        other_pr_url = (
+            other_pr_url.replace("github.com", "gitlab.com")
+            .replace("example/repo", "example/subgroup/repo")
+            .replace("/pull/", "/-/merge_requests/")
+        )
     pr_url = "https://github.com/example/repo/pull/42"
     task = Task.objects.create(team=team, title="Implement report", repository="example/repo")
+    if provider == "gitlab":
+        task.repository = "example/subgroup/repo"
+        task.repository_integration_id = Integration.objects.create(
+            team=team,
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "example/subgroup/repo"},
+        ).id
+        task.save(update_fields=["repository", "repository_integration_id"])
     run = TaskRun.objects.create(
         task=task,
         team=team,
@@ -573,38 +590,60 @@ def test_opened_webhook_does_not_announce_in_mapped_task_thread(team, django_cap
         task_run=run,
         mentioning_slack_user_id="UREVIEWER",
     )
+    report = _report(team)
+    record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id), run_id=str(run.id))
+    integration = Integration.objects.get(team=team, kind="slack")
+    for channel in ["CTEAM", "COTHER"]:
+        record_report_slack_thread(
+            team_id=team.id,
+            report_id=str(report.id),
+            integration_id=integration.id,
+            slack_workspace_id="T123",
+            channel=channel,
+            thread_ts="1700000000.000100",
+            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            recipient_user_ids=[],
+        )
     Integration.objects.create(team=team, kind="github", integration_id="12345", config={})
     with (
         patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_pr_opened") as delivered,
         patch("celery.app.task.Task.apply_async"),
-        django_capture_on_commit_callbacks(execute=True),
+        patch("products.signals.backend.slack_report_threads.SlackIntegration") as report_slack,
+        patch.object(deliver_implementation_pr_notifications, "delay") as queued,
     ):
-        accept_github_pull_request(
-            WebhookDelivery(
-                provider="github",
-                app="posthog",
-                delivery_id="mapped-pr",
-                event_type="pull_request",
-                payload={
-                    "action": "opened",
-                    "installation": {"id": 12345},
-                    "repository": {"full_name": "example/repo"},
-                    "pull_request": {
-                        "html_url": "https://github.com/example/repo/pull/42",
-                        "head": {"ref": "fix-report", "repo": {"full_name": "example/repo"}},
+        with django_capture_on_commit_callbacks(execute=True):
+            accept_github_pull_request(
+                WebhookDelivery(
+                    provider="github",
+                    app="posthog",
+                    delivery_id="mapped-pr",
+                    event_type="pull_request",
+                    payload={
+                        "action": "opened",
+                        "installation": {"id": 12345},
+                        "repository": {"full_name": "example/repo"},
+                        "pull_request": {
+                            "html_url": "https://github.com/example/repo/pull/42",
+                            "head": {"ref": "fix-report", "repo": {"full_name": "example/repo"}},
+                        },
                     },
-                },
-                received_at=timezone.now(),
-                context={},
+                    received_at=timezone.now(),
+                    context={},
+                )
             )
-        )
+        for job in queued.call_args_list:
+            deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
+        assert [
+            call.kwargs["channel"] for call in report_slack.return_value.client.chat_postMessage.call_args_list
+        ] == ["COTHER"]
     delivered.assert_not_called()
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("mapped_before_recovery", [True, False])
+@pytest.mark.parametrize("thread_timing", ["before_pr", "after_pr", "app_rerun"])
 def test_late_report_thread_keeps_mapped_delivery_once(
-    team, django_capture_on_commit_callbacks, mapped_before_recovery: bool
+    team, django_capture_on_commit_callbacks, mapped_before_recovery: bool, thread_timing: str
 ) -> None:
     report = _report(team)
     integration = _integration(team)
@@ -631,34 +670,56 @@ def test_late_report_thread_keeps_mapped_delivery_once(
         kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
         recipient_user_ids=[],
     )
+    if thread_timing == "app_rerun":
+        TaskRun.objects.filter(id=run.id, team_id=team.id).update(status=TaskRun.Status.FAILED)
+        run = TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS)
+        record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id), run_id=str(run.id))
     output = {"pr_url": "https://github.com/example/repo/pull/42"}
     with (
         patch("products.slack_app.backend.slack_thread.SlackIntegration") as mapped_slack,
         patch("products.signals.backend.slack_report_threads.SlackIntegration") as report_slack,
+        patch("celery.app.task.Task.apply_async"),
         patch.object(deliver_implementation_pr_notifications, "delay") as queued,
     ):
+        if thread_timing == "before_pr":
+            with django_capture_on_commit_callbacks(execute=True):
+                record_report_slack_thread(
+                    team_id=team.id,
+                    report_id=str(report.id),
+                    integration_id=integration.id,
+                    slack_workspace_id="T123",
+                    channel="COTHER",
+                    thread_ts="1700000000.000200",
+                    kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+                    recipient_user_ids=[],
+                )
         if mapped_before_recovery:
-            update_task_run(run.id, task.id, team.id, validated_data={"output": output})
+            with django_capture_on_commit_callbacks(execute=True):
+                update_task_run(run.id, task.id, team.id, validated_data={"output": output})
         else:
             TaskRun.objects.filter(id=run.id, team_id=team.id).update(output=output)
-        with django_capture_on_commit_callbacks(execute=True):
-            record_report_slack_thread(
-                team_id=team.id,
-                report_id=str(report.id),
-                integration_id=integration.id,
-                slack_workspace_id="T123",
-                channel="COTHER",
-                thread_ts="1700000000.000200",
-                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
-                recipient_user_ids=[],
-            )
+        if thread_timing != "before_pr":
+            with django_capture_on_commit_callbacks(execute=True):
+                record_report_slack_thread(
+                    team_id=team.id,
+                    report_id=str(report.id),
+                    integration_id=integration.id,
+                    slack_workspace_id="T123",
+                    channel="COTHER",
+                    thread_ts="1700000000.000200",
+                    kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+                    recipient_user_ids=[],
+                )
         for job in queued.call_args_list:
             deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
         if not mapped_before_recovery:
-            set_task_run_output(run.id, task.id, team.id, output=output)
+            previous_jobs = len(queued.call_args_list)
+            with django_capture_on_commit_callbacks(execute=True):
+                set_task_run_output(run.id, task.id, team.id, output=output)
+            for job in queued.call_args_list[previous_jobs:]:
+                deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
         assert [
             call.kwargs["channel"] for call in mapped_slack.return_value.client.chat_postMessage.call_args_list
-        ] == ["CTEAM"]
-        assert [
-            call.kwargs["channel"] for call in report_slack.return_value.client.chat_postMessage.call_args_list
-        ] == ["COTHER"]
+        ] == ([] if thread_timing == "app_rerun" else ["CTEAM"])
+        channels = [call.kwargs["channel"] for call in report_slack.return_value.client.chat_postMessage.call_args_list]
+        assert sorted(channels) == (["COTHER", "CTEAM"] if thread_timing == "app_rerun" else ["COTHER"])

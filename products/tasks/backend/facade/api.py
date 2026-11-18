@@ -1660,14 +1660,14 @@ def get_pull_requests_for_tasks(
 ) -> dict[str, list[contracts.TaskPullRequest]]:
     result: dict[str, list[contracts.TaskPullRequest]] = {}
     seen: set[tuple[str, str]] = set()
-    for task_id, output in (
+    for task_id, run_id, output in (
         TaskRun.objects.filter(
             *conditions,
             team_id=team_id,
             task_id__in=task_ids,
         )
         .order_by("-created_at", "-id")
-        .values_list("task_id", "output")
+        .values_list("task_id", "id", "output")
     ):
         if not isinstance(output, dict):
             continue
@@ -1677,7 +1677,9 @@ def get_pull_requests_for_tasks(
                 continue
             seen.add(key)
             state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
-            result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
+            result.setdefault(str(task_id), []).append(
+                contracts.TaskPullRequest(url=url, state=state, run_id=str(run_id))
+            )
     return result
 
 
@@ -3764,6 +3766,11 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
     )
 
     try:
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+            notify_implementation_prs_opened,
+        )
+
+        notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
@@ -3771,11 +3778,6 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
             .first()
         )
         if not mapping:
-            from products.signals.backend.facade.api import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
-                notify_implementation_prs_opened,
-            )
-
-            notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls)
             return
         if report_threads_only:
             return
@@ -3817,6 +3819,32 @@ def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | No
         and path_parts[1].lower() == repository_parts[1].lower()
         and path_parts[2] == "pull"
         and path_parts[3].isdigit()
+    )
+
+
+def _is_pull_request_url_for_task(pr_url: str, task: Task) -> bool:
+    if task.repository_integration_id is None:
+        return any(
+            _is_github_pull_request_url_for_repository(pr_url, repository)
+            for repository in [task.repository, *(task.repositories or [])]
+        )
+    integration = IntegrationManager.gitlab.any.get_many(task.team_id, [task.repository_integration_id]).get(
+        task.repository_integration_id
+    )
+    if integration is None:
+        return False
+    hostname = integration.config.get("hostname", "")
+    repository = integration.config.get("path_with_namespace", "")
+    if (
+        not isinstance(hostname, str)
+        or not hostname.startswith("https://")
+        or not repository
+        or repository != task.repository
+    ):
+        return False
+    return (
+        re.fullmatch(re.escape(f"{hostname.rstrip('/')}/{repository}") + r"/-/merge_requests/[1-9][0-9]*/?", pr_url)
+        is not None
     )
 
 

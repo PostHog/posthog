@@ -517,7 +517,9 @@ def remove_reviewer_from_slack(
     return "removed" if removed else "not_reviewer"
 
 
-def notify_implementation_prs_opened(team_id: int, task_id: str, pr_urls: list[str]) -> None:
+def notify_implementation_prs_opened(
+    team_id: int, task_id: str, pr_urls: list[str], *, run_id: str | None = None
+) -> None:
     from products.signals.backend.implementation_pr_notification_tasks import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
         deliver_implementation_pr_notifications,
     )
@@ -527,7 +529,9 @@ def notify_implementation_prs_opened(team_id: int, task_id: str, pr_urls: list[s
         urls = eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
         if urls:
             transaction.on_commit(
-                lambda: deliver_implementation_pr_notifications.delay(team_id=team_id, task_id=task_id, pr_urls=urls)
+                lambda: deliver_implementation_pr_notifications.delay(
+                    team_id=team_id, task_id=task_id, pr_urls=urls, run_id=run_id
+                )
             )
     except Exception:
         logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
@@ -553,7 +557,10 @@ def notify_report_slack_thread_created(team_id: int, report_id: str) -> None:
             )
         ]
         for task_id, pull_requests in get_pull_requests_for_tasks(team_id, task_ids).items():
-            notify_implementation_prs_opened(team_id, task_id, [pr.url for pr in pull_requests])
+            for run_id in dict.fromkeys(pr.run_id for pr in pull_requests):
+                notify_implementation_prs_opened(
+                    team_id, task_id, [pr.url for pr in pull_requests if pr.run_id == run_id], run_id=run_id
+                )
     except Exception:
         logger.exception("signals_inbox_existing_pr_notification_failed", team_id=team_id, report_id=report_id)
 

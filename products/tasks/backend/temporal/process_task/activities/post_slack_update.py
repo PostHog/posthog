@@ -221,13 +221,10 @@ def _post_pr_opened_notification_once(
     task_url: str | None,
 ) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.facade.api import _is_github_pull_request_url_for_repository
+    from products.tasks.backend.facade.api import _is_pull_request_url_for_task
     from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
 
-    if not any(
-        _is_github_pull_request_url_for_repository(pr_url, repository)
-        for repository in [task_run.task.repository, *(task_run.task.repositories or [])]
-    ):
+    if not _is_pull_request_url_for_task(pr_url, task_run.task):
         logger.warning("post_slack_update_pr_url_not_allowed", run_id=str(task_run.id))
         handler.delete_progress()
         return
