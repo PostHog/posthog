@@ -659,10 +659,10 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
-            # The Rust build only produces the binary that "Start Rust flags service" execs
-            # further down; it reads nothing the database setup writes. Overlapping the two
-            # takes the build off the critical path.
-            # Both entries are `run:` steps, which a `parallel:` block handles safely. Nothing
+            # Three independent setups run together: the Rust build only produces the binary
+            # that "Start Rust flags service" execs further down, and the migrations only need
+            # the Docker services started above them.
+            # Every entry is a `run:` step, which a `parallel:` block handles safely. Nothing
             # here writes $GITHUB_PATH or $GITHUB_ENV (docs/internal/ci-things-already-tried.md).
             - parallel:
                   - name: Build Rust flags service
@@ -675,13 +675,14 @@ jobs:
                         RUSTFLAGS: '-C debug-assertions=no'
                     run: cargo build -p feature-flags
 
-                  # One step rather than two: ClickHouse migration 0026 needs the
-                  # posthog_instancesetting table that the Postgres migrations create, so the
-                  # order has to be kept, and `parallel:` entries run concurrently.
-                  - name: Run Django and ClickHouse migrations
-                    run: |
-                        python manage.py migrate --noinput
-                        python manage.py migrate_clickhouse
+                  # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
+                  # never reads Postgres (see the note in ci-clickhouse-multinode-migrations.yml),
+                  # so neither migration depends on the other.
+                  - name: Run Django migrations
+                    run: python manage.py migrate --noinput
+
+                  - name: Run ClickHouse migrations
+                    run: python manage.py migrate_clickhouse
 
             - name: Start Rust flags service
               working-directory: rust
