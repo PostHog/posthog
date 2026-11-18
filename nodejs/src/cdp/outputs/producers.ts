@@ -253,7 +253,8 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
 }
 
 // The cyclotron producer's settings, apart from the ones a route's answer waits on. Its brokers can be an agent group
-// that flushes sooner, and it sends without lingering, because every produce on it holds a request open.
+// that flushes sooner, and it sends without lingering, because a route's produce holds a request open. The intake
+// consumer's dead letters share the producer, so they take the same brokers and linger.
 export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
     ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
     'metadata.broker.list': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_METADATA_BROKER_LIST',
