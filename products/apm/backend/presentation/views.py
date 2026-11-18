@@ -56,7 +56,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_WINDOW = timedelta(hours=1)
 MAX_WINDOW = timedelta(days=7)
-DEFAULT_ENVIRONMENT = "default"
 
 
 def _check_flag(team: Team, user: User) -> None:
@@ -69,7 +68,8 @@ def _check_flag(team: Team, user: User) -> None:
 class HealthWindow:
     date_from: datetime
     date_to: datetime
-    environment: str
+    # None reads every environment. An empty string reads spans that set no environment.
+    environment: str | None
 
 
 def _window(params: WindowRequestSerializer) -> HealthWindow:
@@ -82,7 +82,7 @@ def _window(params: WindowRequestSerializer) -> HealthWindow:
     return HealthWindow(
         date_from=date_from,
         date_to=date_to,
-        environment=params.validated_data.get("environment") or DEFAULT_ENVIRONMENT,
+        environment=params.validated_data.get("environment"),
     )
 
 
