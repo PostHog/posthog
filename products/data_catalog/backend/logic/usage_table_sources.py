@@ -20,6 +20,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ..facade.contracts import TableSource
+from ..metrics import DatabaseBuildTrigger
 from .agent_sessions import stored_conversations
 from .usage_adjusted import paged_rows
 from .usage_snapshots import usage_snapshot_window, write_payload_sections
@@ -255,7 +256,7 @@ def fetch_table_sources(
             )
     if not searches:
         return []
-    database = Database.create_for(team=team)
+    database = Database.create_for(team=team, trigger=DatabaseBuildTrigger.USAGE_TABLE_SOURCES)
     tally = _TableTally({*database.get_posthog_table_names(include_hidden=True), *database.get_system_table_names()})
     searches_by_conversation: dict[str, list[TableSearch]] = defaultdict(list)
     for search in searches:

@@ -90,7 +90,7 @@ hogli unsync:skill -- --name signals-scout-<scope>
 ```
 
 Authoring a new canonical scout is just creating `signals-scout-<scope>/SKILL.md` and merging — the next tick discovers it, seeds it onto enrolled teams, and auto-registers an enabled config on the default every-24-hours schedule.
-**If you change the fleet shape (add/rename a scout, change the SKILL.md schema), update `products/signals/skills/AGENTS.md`.** On master, CI builds and publishes `dist/skills.zip` to the downstream distribution repos (the `ai-plugin` bundle and the standalone skills repo) automatically.
+**If you change the fleet shape (add/rename a scout, change the SKILL.md schema), update `products/signals/skills/AGENTS.md`.** On master, CI builds `dist/skills.zip` and publishes it as the `agent-skills-latest` release, which the MCP server's `learn` catalog and the standalone skills repo pick up automatically.
 
 ## Testing
 

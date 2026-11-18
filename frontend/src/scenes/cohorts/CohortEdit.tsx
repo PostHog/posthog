@@ -67,15 +67,20 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
+import { getPersonForDeleteColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { isDataTableNode } from '~/queries/schema/node-guards'
+import { DataTableNode, VisualizationNode } from '~/queries/schema/schema-general'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import { cohortFlagCallProblem, flagCallProblemText } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { RealtimeCohortsUsage } from 'products/cohorts/frontend/realtime/RealtimeCohortsUsage'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
@@ -100,7 +105,7 @@ import {
 } from './cohortUtils'
 import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
-import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -174,14 +179,24 @@ export interface CohortEditProps {
 export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const logicProps = { id }
 
-    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+    const renderRemovePersonFromCohortButton = ({
+        record,
+        query,
+    }: {
+        record: unknown
+        query: DataTableNode | VisualizationNode
+    }): JSX.Element => {
         if (!Array.isArray(record)) {
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonDisplayNameType
+        const person = isDataTableNode(query) ? getPersonForDeleteColumn(record, query) : null
+        // Only the person_display_name column carries a display name, so the other person columns build one
+        const cohortPerson = person?.id
+            ? { id: person.id, display_name: person.display_name ?? asDisplay(person) }
+            : null
 
-        return <RemovePersonFromCohortButton person={personRecord} />
+        return <RemovePersonFromCohortButton person={cohortPerson} />
     }
 
     const logic = cohortEditLogic(logicProps)
@@ -407,7 +422,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <SceneContent>
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
-                                nameAction={<TodayPeoplePinButton />}
+                                nameAction={<TodayScenePinButton />}
                                 name={cohort.name}
                                 nameSuffix={
                                     !isNewCohort ? (
@@ -666,19 +681,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             )}
 
                                             {isNewCohort && realtimeCohortsServing && hasEventCriteria(cohort) && (
-                                                <LemonField
-                                                    name="realtime_enabled"
-                                                    help="Feature flags can target the cohort once PostHog has prepared it from past events."
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonCheckbox
-                                                            checked={!!value}
-                                                            onChange={onChange}
-                                                            label="Turn on realtime"
-                                                            data-attr="cohort-create-realtime"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                <>
+                                                    <LemonField
+                                                        name="realtime_enabled"
+                                                        help="Feature flags can target the cohort once PostHog has prepared it from past events."
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <LemonCheckbox
+                                                                checked={!!value}
+                                                                onChange={onChange}
+                                                                label="Turn on realtime"
+                                                                data-attr="cohort-create-realtime"
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                    <RealtimeCohortsUsage location="cohort_create" />
+                                                </>
                                             )}
 
                                             {cohort.is_static && isNewCohort && (

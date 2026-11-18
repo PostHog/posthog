@@ -44,6 +44,33 @@ export class PersonhogPropertiesSizeError extends Error {
     }
 }
 
+/** The leader refused an update whose properties nest past its limit; no retry can succeed. */
+export class PersonhogPropertiesDepthError extends Error {
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogPropertiesDepthError'
+    }
+}
+
+/** The leader cannot parse the person's stored row, and a retry reads the same row. */
+export class PersonhogUnprocessablePersonError extends Error implements HandledVerdict {
+    readonly isRetriable = false
+    readonly handledVerdict = 'unprocessable_person'
+
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogUnprocessablePersonError'
+    }
+}
+
 /**
  * The leader knows no such person: deleted, or merged into another. The
  * persons store redirects the ops to the survivor, so the retry layer files
@@ -230,6 +257,9 @@ export class PersonHogPersonOperations {
             if (error instanceof ConnectError && error.code === Code.NotFound) {
                 return null
             }
+            if (error instanceof ConnectError && error.code === Code.DataLoss) {
+                throw new PersonhogUnprocessablePersonError(error.rawMessage, teamId, personId)
+            }
             throw error
         }
     }
@@ -278,6 +308,9 @@ export class PersonHogPersonOperations {
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+                if (error.code === Code.InvalidArgument && error.rawMessage.includes('nesting limit')) {
+                    throw new PersonhogPropertiesDepthError(error.rawMessage, update.teamId, update.personId)
                 }
                 // Keyed on the metadata rather than the status code: the
                 // leader answers FAILED_PRECONDITION while the router hands

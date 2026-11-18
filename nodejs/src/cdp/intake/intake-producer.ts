@@ -57,7 +57,9 @@ export type IntakeRun = {
 export class IntakeProducer {
     constructor(
         private outputs: IngestionOutputs<IntakeOutput>,
-        private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS
+        private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
+        // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
+        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation
     ) {}
 
     async produce(
@@ -69,7 +71,7 @@ export class IntakeProducer {
             fingerprint,
             reply,
             shadow: mode === 'shadow',
-            job: { ...encodeJob(invocation), id: invocation.id },
+            job: { ...encodeJob(this.seal(invocation)), id: invocation.id },
         })
         if (encoded.status !== 'encoded') {
             launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()

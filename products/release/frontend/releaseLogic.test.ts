@@ -116,11 +116,16 @@ describe('releaseLogic', () => {
         } as never)
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
         router.actions.push(url)
-        const logic = releaseLogic()
+        const logic = releaseLogic({ id: url === urls.release('r1') ? 'r1' : undefined })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.breadcrumbs).toEqual(expected)
+        expect(logic.values.todayRecent).toEqual(
+            url === urls.release('r1')
+                ? { type: 'release', id: 'r1', name: 'Quiet theme', href: urls.release('r1') }
+                : null
+        )
     })
 
     it.each([

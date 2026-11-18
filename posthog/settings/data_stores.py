@@ -819,6 +819,12 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
+CACHES["survey_site_snapshot"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Destination replay claims must read what they wrote: a replica that still serves an
 # expired or released claim would let a second sender queue the same replay.
 CACHES["cdp_invocation_replay"] = {
@@ -866,11 +872,25 @@ CACHES["admin_console_results"] = {
     "LOCATION": REDIS_URL,
 }
 
+# A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
+# wrote, and a lagging replica would make it skip a valid fetch as superseded.
+CACHES["data_deletion_stats"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
 # job as unknown, and the client treats that as expired, so read from the writer.
 CACHES["aeo_prompt_suggestions"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+}
+
+# The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
+CACHES["current_alias_usage"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -941,11 +961,14 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
+    CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["data_deletion_stats"] = CACHES["default"]
+    CACHES["current_alias_usage"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

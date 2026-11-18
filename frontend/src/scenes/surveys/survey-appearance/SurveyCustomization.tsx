@@ -6,7 +6,8 @@ import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { defaultSurveyAppearance, getMatchingSurveyThemeId } from 'scenes/surveys/constants'
+import { SurveyTheme, defaultSurveyAppearance, getMatchingSurveyThemeId } from 'scenes/surveys/constants'
+import { useSiteThemeCard } from 'scenes/surveys/survey-appearance/SiteThemeCard'
 import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
 import {
     SurveyColorsAppearance,
@@ -17,6 +18,8 @@ import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 import { SurveyThemeSelector } from 'scenes/surveys/wizard/SurveyThemeSelector'
 
 import { AvailableFeature, SurveyType } from '~/types'
+
+import { reportSurveyThemeSelected } from 'products/surveys/frontend/surveyUsage'
 
 import { surveysLogic } from '../surveysLogic'
 
@@ -55,6 +58,16 @@ export function Customization({
 
     const surveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
     const selectedThemeId = getMatchingSurveyThemeId(survey.appearance)
+    const selectTheme = (theme: SurveyTheme): void => {
+        reportSurveyThemeSelected(survey, theme.id)
+        onAppearanceChange(theme.appearance)
+    }
+    const siteThemeCard = useSiteThemeCard({
+        survey,
+        appearance: surveyAppearance,
+        onSelectTheme: selectTheme,
+        disabled: !surveysStylingAvailable || !!disabledReason,
+    })
 
     return (
         <div className="flex flex-col divide-y divide-border [&>*]:py-5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
@@ -70,9 +83,10 @@ export function Customization({
             >
                 <SurveyThemeSelector
                     selectedThemeId={selectedThemeId}
-                    onSelectTheme={(theme) => onAppearanceChange(theme.appearance)}
+                    onSelectTheme={selectTheme}
                     disabled={!surveysStylingAvailable || !!disabledReason}
                     showHeader={false}
+                    leadingCard={siteThemeCard}
                 />
             </CustomizationSection>
 

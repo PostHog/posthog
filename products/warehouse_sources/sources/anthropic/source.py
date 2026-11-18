@@ -128,7 +128,7 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
 
 Some tables need a Claude Enterprise key instead, created by your primary owner in [claude.ai organization settings](https://claude.ai/admin-settings/api-access). A key works with one API only, so pick the one that matches the tables you want.
 
-The per-seat activity, cost and token usage tables, and the connector, plugin, skill and summary tables, come from the Claude Enterprise Analytics API. They need a Claude Enterprise key carrying the `read:analytics` scope.
+The per-seat activity, cost and token usage tables, and the connector, plugin, skill, chat project, artifact and summary tables, come from the Claude Enterprise Analytics API. They need a Claude Enterprise key carrying the `read:analytics` scope.
 
 The group, group membership and custom role tables come from the Claude Enterprise user management API. They need an Admin API key carrying the `read:rbac_groups` scope for the group tables, or `read:members` for the custom role tables.""",
             iconPath="/static/services/anthropic.svg",

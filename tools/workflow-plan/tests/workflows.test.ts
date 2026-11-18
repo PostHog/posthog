@@ -633,21 +633,23 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
-        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
-        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
-        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
-        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
-        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
-        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
-        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
-        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
-        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+        ['MCP-only PR', pullRequest(), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['Rust CLI change', pullRequest(), 'true', 'true', 'false', '2', 2, 'success', true, true],
+        ['Rust-only PR', pullRequest(), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['Rust-only fork PR', pullRequest({ fork: true }), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['missing filter output', pullRequest(), 'false', '', '', '', 2, 'success', true, true],
+        ['missing unmatched output', pullRequest(), 'false', 'false', '', '2', 2, 'success', true, true],
+        ['newline input with rename', pullRequest(), 'false', 'false', 'true', '3', 3, 'success', true, true],
+        ['newline rename source', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['newline rename destination', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['incomplete file list', pullRequest(), 'false', 'false', 'false', '1', 2, 'success', true, true],
+        ['API file cap', pullRequest(), 'false', 'false', 'false', '3000', 3000, 'success', true, true],
+        ['failed detector', pullRequest(), 'false', '', '', '', 2, 'failure', true, true],
+        ['merge queue', mergeQueue(), 'true', 'true', 'false', '2', 2, 'success', false, false],
     ] as const)(
-        'CLI Rust checks retain coverage (%s)',
-        (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
+        'CLI checks retain coverage (%s)',
+        (name, github, apiBundle, rust, unmatched, count, changedFiles, outcome, runs, bundleRuns) => {
             const event = github.event as Record<string, JsonValue>
             const plan = planWorkflow(workflow('ci-cli.yml'), {
                 name,
@@ -659,14 +661,19 @@ describe('CI workflow run plans', () => {
                     },
                 },
                 steps: {
-                    changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } },
+                    changes: {
+                        filter: {
+                            outcome,
+                            outputs: { rust, api_bundle: apiBundle, unmatched_paths: unmatched, all_count: count },
+                        },
+                    },
                 },
             })
             expect(plan.errors).toEqual([])
             for (const job of ['tests', 'clippy', 'format']) {
                 expect(runningJobs(plan).includes(job)).toBe(runs)
             }
-            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(bundleRuns)
         }
     )
 
@@ -800,6 +807,26 @@ describe('CI workflow run plans', () => {
         expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
         expect(plan.jobs.frontend_tests?.result).toBe('success')
     })
+
+    it.each([
+        ['master push', push(), false, true, false],
+        ['ready PR', pullRequest(), true, true, false],
+        ['fork PR', pullRequest({ fork: true }), true, true, false],
+        ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
+        ['cancelled master push', push(), false, false, true],
+    ] as const)(
+        'Desktop checks keep coverage without an empty detector (%s)',
+        (name, github, changes, checkRuns, cancelled) => {
+            for (const check of ['typecheck', 'quality']) {
+                const wf = workflow(`desktop-${check}.yml`)
+                const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs.changes?.result === 'success', check).toBe(changes)
+                expect(plan.jobs[check]?.result === 'success', check).toBe(checkRuns)
+                expect(plan.jobs[`desktop-${check}-pass`]?.result === 'success', check).toBe(!cancelled)
+            }
+        }
+    )
 
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
@@ -1233,6 +1260,42 @@ describe('CI workflow run plans', () => {
         expect(
             plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
         ).toBe(runs)
+    })
+
+    it.each([
+        ['PR without baseline changes', pullRequest(), 'false', true, false],
+        ['PR with baseline changes', pullRequest(), 'true', true, true],
+        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
+        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
+        ['merge queue', mergeQueue(), 'true', true, true],
+        ['master push', push(), 'true', false, false],
+        ['nightly', schedule(), 'true', false, false],
+    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
+        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+            name,
+            github,
+            jobOutputs: {
+                changes: {
+                    frontend: 'true',
+                    snapshots_baseline: snapshotsBaseline,
+                    merge_queue: name === 'merge queue' ? 'true' : 'false',
+                },
+            },
+            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['build-storybook']?.steps
+        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
+        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
+        expect(uploadsGraph).toBe(graphUpload)
+        expect(uploadsIndex).toBe(indexUpload)
+        if (plan.jobs['select-stories']?.result === 'success') {
+            expect(uploadsGraph).toBe(true)
+        }
+        if (plan.jobs['check-baseline-removals']?.result === 'success') {
+            expect(uploadsIndex).toBe(true)
+        }
     })
 
     it.each([

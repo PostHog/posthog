@@ -2,11 +2,11 @@ import { encodeParams } from 'kea-router'
 
 import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import type { ToolbarRouteScope } from 'lib/toolbar/toolbarProject'
 
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
-import type { ToolbarRouteScope } from '~/toolbar/shared/toolbarProject'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/shared/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour } from '~/types'
 
@@ -144,7 +144,6 @@ type ToolbarRoute = string | ScopedRoute
 
 const projectRoute = (path: string): ScopedRoute => ({ scope: 'project', path })
 const teamRoute = (path: string): ScopedRoute => ({ scope: 'team', path })
-const environmentRoute = (path: string): ScopedRoute => ({ scope: 'environment', path })
 
 async function request<T>(
     method: ToolbarApiMethod,
@@ -340,7 +339,7 @@ export const toolbarApi = {
 
     webVitals: {
         get: <T = unknown>(params: { pathname: string }, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
-            apiGet<T>(environmentRoute(`web_vitals${encodeParams(params, '?')}`), options),
+            apiGet<T>(teamRoute(`web_vitals${encodeParams(params, '?')}`), options),
     },
 
     eventDefinitions: {

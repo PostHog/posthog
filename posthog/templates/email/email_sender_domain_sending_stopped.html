@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+{% block heading %}Emails from {{ domain }} are failing{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        Our email provider stopped sending from <b>{{ domain }}</b> because the domain's DNS records can no longer be verified. Every email that project <b>{{ team }}</b> sends from this domain fails until you fix it.
+    </p>
+    <p><b>How to fix it</b></p>
+    <ul>
+        <li>Open Channels in Workflows and select Configure on a sender of {{ domain }} to see the DNS records it needs.</li>
+        <li>Fix the records with your DNS provider.</li>
+        <li>Verify the domain again. Sending resumes once the records verify.</li>
+    </ul>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri channels_path %}">Open Channels</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri channels_path %}">{% absolute_uri channels_path %}</a>
+        </p>
+    </div>
+{% endblock %}
