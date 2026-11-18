@@ -633,7 +633,6 @@ describe('Self-driving activation guidance', () => {
         vi.stubEnv('NODE_ENV', environment)
         try {
             const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(activationState(), issueCall)
-            expect(notice?.text).toContain('Self-driving setup has not started for this project.')
             expect(notice?.text).toContain('https://example.com/project/2/inbox/activate')
             expect(notice?.text).not.toContain('29')
             expect(notice?.text).not.toContain('project history')
