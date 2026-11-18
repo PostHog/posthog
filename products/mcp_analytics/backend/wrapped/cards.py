@@ -346,9 +346,13 @@ def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:
         quick = min(_ranked(timed)[:TOP_TOOLS], key=lambda row: (row.p95_duration_ms or 0.0, -row.calls))
         slow = max(timed, key=lambda row: (row.p95_duration_ms or 0.0, row.calls))
         if quick.key != slow.key:
-            quickest = ToolLatency(tool=quick.key, p95_duration_ms=quick.p95_duration_ms or 0.0)
-            slowest = ToolLatency(tool=slow.key, p95_duration_ms=slow.p95_duration_ms or 0.0)
-    return SpeedCard(p95_duration_ms=total.p95_duration_ms, quickest_busy_tool=quickest, slowest_tool=slowest)
+            quickest = ToolLatency(tool=quick.key, p95_duration_ms=_ms(quick.p95_duration_ms))
+            slowest = ToolLatency(tool=slow.key, p95_duration_ms=_ms(slow.p95_duration_ms))
+    return SpeedCard(p95_duration_ms=_ms(total.p95_duration_ms), quickest_busy_tool=quickest, slowest_tool=slowest)
+
+
+def _ms(value: float | None) -> float:
+    return round(value or 0.0, 1)
 
 
 def _archetype(

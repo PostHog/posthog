@@ -180,7 +180,7 @@ def test_speed_names_the_quickest_busy_tool_and_the_slowest_tool() -> None:
     tools = (
         _row("get_forecast", 500, p95=300.0),
         _row("list_alerts", 300, p95=40.0),
-        _row("get_history", 150, p95=2400.0),
+        _row("get_history", 150, p95=2400.0400000001),
         _row("exec", 900, p95=1.0),
     )
 
@@ -188,6 +188,7 @@ def test_speed_names_the_quickest_busy_tool_and_the_slowest_tool() -> None:
 
     assert speed is not None and speed.quickest_busy_tool is not None and speed.slowest_tool is not None
     assert (speed.quickest_busy_tool.tool, speed.slowest_tool.tool) == ("list_alerts", "get_history")
+    assert speed.slowest_tool.p95_duration_ms == 2400.0
 
 
 @parameterized.expand(
