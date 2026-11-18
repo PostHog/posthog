@@ -224,6 +224,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ),
             (1, ["bad"], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
             (1, ["_H", 1], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (1, ["_H", 1, 39, -2], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
             (
                 1,
                 ["_H", 1, *([0] * 255)],

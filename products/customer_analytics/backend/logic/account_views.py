@@ -2,7 +2,7 @@ import re
 import json
 from collections import Counter
 from collections.abc import Callable
-from functools import cached_property
+from functools import cache, cached_property
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_program, parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
@@ -291,6 +291,28 @@ def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
     )
 
 
+@cache
+def get_account_sql_formatting_bytecodes() -> dict[str, str]:
+    from posthog.hogql.compiler.bytecode import (
+        create_bytecode,  # noqa: PLC0415 -- load the compiler only for formatting validation
+    )
+
+    templates = {
+        "equals": "return value == input",
+        "not_equals": "return value != input",
+        "greater_than": "return value > input",
+        "greater_than_equal": "return value >= input",
+        "less_than": "return value < input",
+        "less_than_equal": "return value <= input",
+        "is_null": "return value == null",
+        "is_not_null": "return value != null",
+    }
+    return {
+        template_id: json.dumps(create_bytecode(parse_program(program)).bytecode)
+        for template_id, program in templates.items()
+    }
+
+
 def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
     if not set(config) <= {"query", "visualization"}:
         return ["SQL query config must contain only a query and optional visualization settings."]
@@ -332,6 +354,7 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
             if any(
                 not 3 <= len(rule.bytecode) <= ACCOUNT_VIEW_SQL_MAX_FORMATTING_BYTECODE
                 or rule.bytecode[:2] != ["_H", 1]
+                or json.dumps(rule.bytecode) != get_account_sql_formatting_bytecodes().get(rule.templateId)
                 for rule in rules
             ):
                 return ["SQL conditional formatting bytecode is invalid. Recreate the formatting rule."]

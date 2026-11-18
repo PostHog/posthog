@@ -54,6 +54,7 @@ export function conditionalFormattingColor(
                     },
                     functions: {},
                     maxAsyncSteps: 0,
+                    timeout: 5,
                 })
                 if (result.error) {
                     throw result.error

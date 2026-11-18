@@ -275,8 +275,10 @@ describe('SQL table rendering', () => {
     it.each([
         { bytecode: ['bad'], captureTelemetry: true },
         { bytecode: ['_H', 1, 999], captureTelemetry: true },
+        { bytecode: ['_H', 1, 39, -2], captureTelemetry: true },
         { bytecode: ['bad'], captureTelemetry: false },
         { bytecode: ['_H', 1, 999], captureTelemetry: false },
+        { bytecode: ['_H', 1, 39, -2], captureTelemetry: false },
     ])(
         'bounds invalid formatting reports for $bytecode, telemetry=$captureTelemetry',
         ({ bytecode, captureTelemetry }) => {
