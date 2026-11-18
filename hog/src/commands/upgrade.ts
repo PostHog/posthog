@@ -24,7 +24,7 @@ const VersionOption = z
     .string()
     .trim()
     .transform((text) => text.replace(/^v/, ''))
-    .refine((text) => parseVersion(text) !== undefined, { error: 'Pass a version like 0.1.0-alpha.4.' })
+    .refine((text) => parseVersion(text) !== undefined, { error: 'Pass a version like 0.1.2.' })
 
 type Action = 'upgraded' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
 
@@ -164,7 +164,7 @@ export default defineCommand({
         'hog never updates itself on its own. It replaces its own binary only when the install script put it there or you downloaded it yourself.',
         'A copy that Homebrew, npm, pnpm or bun installed updates through that package manager: at a terminal hog asks, then runs its command. Agents get the command to run.',
     ].join('\n'),
-    examples: ['hog upgrade', 'hog upgrade --check', 'hog upgrade --version 0.1.0-alpha.4'],
+    examples: ['hog upgrade', 'hog upgrade --check', 'hog upgrade --version 0.1.2'],
 
     async run({ options, ctx }): Promise<UpgradeResult> {
         const { runtime } = ctx
