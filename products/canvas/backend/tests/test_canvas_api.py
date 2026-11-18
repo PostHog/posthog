@@ -329,6 +329,26 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             assert response.json()["detail"] == "You do not have viewer access to this resource.", path
         assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
+    @parameterized.expand([("creator", True, False), ("non_creator", False, True)])
+    def test_resource_wide_viewer_rule_only_blocks_detail_writes_for_non_creators(
+        self, _name: str, as_creator: bool, expect_forbidden: bool
+    ) -> None:
+        canvas_id = self._create_canvas()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="canvas", resource_id=None, access_level="viewer")
+        cache.clear()
+        if not as_creator:
+            self.client.force_login(User.objects.create_and_join(self.organization, "other-member@example.com", None))
+
+        response = self._publish(canvas_id)
+
+        assert (response.status_code == status.HTTP_403_FORBIDDEN) == expect_forbidden, response.json()
+
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
         # list omits it, and every detail/write action 404s for anyone else.
