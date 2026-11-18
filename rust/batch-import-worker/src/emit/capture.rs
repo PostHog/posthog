@@ -484,6 +484,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_outbound_event_shape_for_an_import_without_lib_and_with_legacy_options() {
+        let ice = make_internally_captured_event(
+            "signed_up",
+            "user123",
+            serde_json::json!({
+                "custom_prop": 1,
+                "$session_id": "session-1",
+                "$process_person_profile": false,
+                "$ignore_sent_at": true,
+            }),
+            Some(serde_json::json!({ "plan": "pro" })),
+            None,
+        );
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let sink = captured.clone();
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .match_request(move |request| {
+                *sink.lock().unwrap() = request.body().ok().cloned();
+                true
+            })
+            .with_status(200)
+            .with_body(V1_OK_BODY)
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let mut emitter = CaptureEmitter::new(client, 10_000);
+        let txn = emitter.begin_write().await.unwrap();
+        txn.emit(&[ice]).await.unwrap();
+        txn.commit_write().await.unwrap();
+        mock.assert();
+
+        let body = captured
+            .lock()
+            .unwrap()
+            .take()
+            .expect("capture received a body");
+        let batch: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(batch["historical_migration"], true);
+        let event = &batch["batch"][0];
+        assert_eq!(event["session_id"], "session-1");
+        assert_eq!(
+            event["options"],
+            serde_json::json!({ "process_person_profile": false, "disable_skew_correction": true })
+        );
+
+        let properties = event["properties"].as_object().unwrap();
+        let prop = |key: &str| properties.get(key).cloned();
+        assert_eq!(prop("custom_prop"), Some(serde_json::json!(1)));
+        assert_eq!(prop("$set"), Some(serde_json::json!({ "plan": "pro" })));
+        assert_eq!(prop("$geoip_disable"), Some(serde_json::json!(true)));
+        assert_eq!(prop("$lib"), Some(serde_json::json!("posthog-rs")));
+        assert!(
+            prop("$lib_version").is_some_and(|v| v.as_str().is_some_and(|v| v.starts_with("1.")))
+        );
+        assert_eq!(prop("$lib_version__major"), Some(serde_json::json!(1)));
+        assert!(prop("$lib_version__minor").is_some());
+        assert!(prop("$lib_version__patch").is_some());
+        assert!(prop("$os").is_some_and(|v| v.is_string()));
+        assert!(prop("$os_version").is_some_and(|v| v.is_string()));
+        assert_eq!(prop("$is_server"), Some(serde_json::json!(true)));
+        for moved in ["$session_id", "$process_person_profile", "$ignore_sent_at"] {
+            assert!(
+                !properties.contains_key(moved),
+                "{moved} must leave properties"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_commit_write_skips_http_on_empty_batch() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
