@@ -269,6 +269,43 @@ def peak_rss_metadata() -> dict[str, dagster.MetadataValue]:
     return {"peak_rss_mib": dagster.MetadataValue.int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)}
 
 
+def write_partition(
+    context: dagster.AssetExecutionContext,
+    table_name: str,
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    *,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
+    """`write_parquet` for the dt=D object of `table_name`, which also captures one
+    `inbox_ranking_dataset_partition_written` event, so a missing partition shows without Dagster."""
+    bytes_written = write_parquet(
+        client, bucket, key, table, snapshot_date=snapshot_date, schema_version=schema_version
+    )
+    # telemetry imports the training modules, which import this module.
+    from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
+        capture_training_events,
+        dataset_partition_written_event,
+    )
+
+    capture_training_events(
+        context,
+        context.partition_key,
+        [
+            dataset_partition_written_event(
+                table=table_name,
+                run_id=context.run_id,
+                rows=table.num_rows,
+                bytes_written=bytes_written,
+                schema_version=schema_version,
+            )
+        ],
+    )
+
+
 def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
@@ -982,7 +1019,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, STATE_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
+    write_partition(context, STATE_TABLE, s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1125,7 +1162,9 @@ def inbox_report_reviewers(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, REVIEWERS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        REVIEWERS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1217,7 +1256,7 @@ def _snapshot_report_embeddings(
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table, partition_key)
-    write_parquet(s3_client(), bucket, key, arrow_table)
+    write_partition(context, table, s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1387,7 +1426,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
             f"with this run produced {table.num_rows}: a union can only grow, so this is a bug in the merge rather "
             "than a source change. Refusing the write to keep archived rows the source may no longer hold."
         )
-    write_parquet(client, bucket, key, table)
+    write_partition(context, SIGNAL_EMBEDDINGS_TABLE, client, bucket, key, table)
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(table.num_rows),
@@ -1432,7 +1471,9 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     rows = merge_label_streams(stream_rows, datetime.date.fromisoformat(partition_key))
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, LABELS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        LABELS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1507,7 +1548,9 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, USER_INTERACTIONS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        USER_INTERACTIONS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1566,7 +1609,9 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     table = project_vectors(labels, consented, snapshot_end, CONTEXT_KINDS)
 
     key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
-    write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
+    write_partition(
+        context, PROJECT_VECTORS_TABLE, client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION
+    )
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1632,7 +1677,7 @@ def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     del embeddings
 
     key = partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)
-    write_parquet(client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
+    write_partition(context, USER_VECTORS_TABLE, client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
     users = set(
         zip(table.column("organization_id").to_pylist(), table.column("user_distinct_id").to_pylist(), strict=True)
     )
@@ -1758,7 +1803,7 @@ def _snapshot_activity_summary_vectors(
     client = s3_client()
     existing = read_parquet_if_exists(client, bucket, key)
     table = fresh if existing is None else merge_activity_summary_vectors(existing, fresh, consent_team_ids)
-    write_parquet(client, bucket, key, table, schema_version=schema_version)
+    write_partition(context, table_name, client, bucket, key, table, schema_version=schema_version)
 
     team_ids = table.column("team_id").to_pylist()
     user_ids = table.column("user_id").to_pylist()
@@ -1939,7 +1984,9 @@ def inbox_report_scored_facts(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SCORED_FACTS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        SCORED_FACTS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -2224,7 +2271,7 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     table = pa.Table.from_pylist(rows, schema=MODEL_DATA_SCHEMA)
 
     partition_key_path = partition_object_key(prefix, MODEL_DATA_TABLE, partition_key)
-    write_parquet(client, bucket, partition_key_path, table, snapshot_date=partition_key)
+    write_partition(context, MODEL_DATA_TABLE, client, bucket, partition_key_path, table, snapshot_date=partition_key)
     latest_key = latest_object_key(prefix, MODEL_DATA_TABLE)
     wrote_latest = latest_is_stale(object_snapshot_date(client, bucket, latest_key), partition_key)
     if wrote_latest:

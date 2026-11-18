@@ -1,10 +1,11 @@
-import { Card, CardContent, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
+import { Card, CardContent, ToggleGroup, ToggleGroupItem, cn } from '@posthog/quill-primitives'
 
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { labMark } from '../aiLabs'
+import { dimWhileLoading } from '../components/loadingFeedback'
 import { formatNumber } from '../dashboard/formatters'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
@@ -85,7 +86,13 @@ export function LabScoreboard({
                     <NoDataMessage />
                 )
             ) : (
-                <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
+                <div
+                    aria-busy={loading}
+                    className={cn(
+                        'grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3',
+                        dimWhileLoading(loading && !showSkeleton)
+                    )}
+                >
                     {showSkeleton && Array.from({ length: PODIUM_SIZE }, (_, i) => <LabTileSkeleton key={i} />)}
                     {podium.map(({ lab, share, count, total }) => (
                         <div key={lab} className="relative">

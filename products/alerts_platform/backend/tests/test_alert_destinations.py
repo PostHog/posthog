@@ -28,7 +28,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
@@ -49,13 +48,12 @@ class TestAlertDestinations(BaseTest):
         super().setUp()
         self.configuration = self._configuration()
 
-    def _configuration(self, destinations_owner: str = PlatformAlertOwner.PLATFORM) -> PlatformAlertConfiguration:
+    def _configuration(self) -> PlatformAlertConfiguration:
         return PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             team=self.team,
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=destinations_owner,
         )
 
     def _create(self, *destinations: NewAlertDestination, configuration: Any = None) -> Any:
@@ -156,15 +154,6 @@ class TestAlertDestinations(BaseTest):
             in_app_resource_id="abc123",
         )
 
-    def test_an_alert_whose_product_keeps_hog_functions_takes_rows_beside_them(self) -> None:
-        configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
-
-        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
-
-        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id)] == [
-            WEBHOOK
-        ]
-
     @parameterized.expand(
         [
             ("same_webhook", WEBHOOK, dict(WEBHOOK)),
@@ -221,7 +210,6 @@ class TestSourceDestinations(BaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.SOURCE,
             legacy_configuration_id=self.legacy_id,
         )
         self.groups: list[AlertDestinationGroup] = []
@@ -330,19 +318,10 @@ class TestSourceDestinations(BaseTest):
 
         assert created.data == SLACK
 
-    @parameterized.expand(
-        [
-            ("no_platform_copy", PlatformAlertOwner.SOURCE, True),
-            ("platform_keeps_the_destinations", PlatformAlertOwner.PLATFORM, False),
-        ]
-    )
-    def test_no_row_is_written_beside_the_hog_functions(self, _name: str, owner: str, unknown_alert: bool) -> None:
-        self.configuration.destinations_owner = owner
-        self.configuration.save()
-
+    def test_no_row_is_written_for_an_alert_the_platform_does_not_have(self) -> None:
         created = record_source_destination(
             team_id=self.team.id,
-            public_id=uuid4() if unknown_alert else self.legacy_id,
+            public_id=uuid4(),
             data=SLACK,
             event_kinds=FIRING,
             hog_function_ids=(uuid4(),),
