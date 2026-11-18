@@ -31,7 +31,7 @@ from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner, record_partner_paid
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
     has_standard_retention,
@@ -802,6 +802,10 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        # Billing's word on whether a partner pays decides the billing lock once customer_id is set.
+        if "paid_by_partner" in data:
+            record_partner_paid(organization.id, bool(data["paid_by_partner"]), computed_at)
+
         should_update_org_billing_quotas = False
 
         usage_summary = cast(dict, data.get("usage_summary"))
@@ -1249,7 +1253,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 
