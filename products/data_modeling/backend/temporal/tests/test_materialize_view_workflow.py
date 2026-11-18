@@ -94,15 +94,20 @@ class TestQualityGateBranching:
         return result, execute_activity
 
     @pytest.mark.parametrize(
-        "shadow_error,skipped,expected_status,expected_error_class",
+        "shadow_error,skipped,expected_status,expected_error_class,expected_error_code",
         [
-            (None, False, "completed", "none"),
-            ("Trino write failed", False, "failed", "other"),
-            ("Trino write failed: upstream table missing", True, "skipped", "none"),
+            (None, False, "completed", "none", "none"),
+            ("Trino write failed", False, "failed", "other", "other"),
+            ("Trino write failed: upstream table missing", True, "skipped", "none", "none"),
         ],
     )
     async def test_trino_only_reports_materialization_failure(
-        self, shadow_error: str | None, skipped: bool, expected_status: str, expected_error_class: str
+        self,
+        shadow_error: str | None,
+        skipped: bool,
+        expected_status: str,
+        expected_error_class: str,
+        expected_error_code: str,
     ) -> None:
         shadow = asyncio.get_running_loop().create_future()
         shadow.set_result(
@@ -132,6 +137,7 @@ class TestQualityGateBranching:
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == (expected_status, "managed_warehouse")
         assert finished.call_args.kwargs.get("error_class", "none") == expected_error_class
+        assert finished.call_args.kwargs.get("error_code", "none") == expected_error_code
         assert finished.call_args.kwargs["run_mode"] == "incremental"
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
 
