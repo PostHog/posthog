@@ -264,6 +264,13 @@ describe('applicationObservabilityLogic', () => {
             await expectLogic(deployments).toFinishAllListeners()
             expect(deploymentRequests).toHaveLength(1)
             expect(deploymentRequests[0]).toContain('service=queue')
+
+            useMocks({ get: { '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }] } })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(2)
+            expect(deploymentRequests[1]).toContain('environment=staging')
             deployments.unmount()
         })
 

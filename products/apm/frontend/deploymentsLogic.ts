@@ -36,6 +36,13 @@ export interface deploymentsLogicActions {
         payload?: void | undefined
         servicesHealth: import('./generated/api.schemas').ServicesHealthResponseApi
     } // applicationObservabilityLogic
+    loadServicesHealthFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // applicationObservabilityLogic
     requestReload: (includeServices?: boolean | undefined) => {
         includeServices: boolean
     } // applicationObservabilityLogic
@@ -84,7 +91,10 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
             applicationObservabilityLogic,
             ['environment', 'timeRange', 'services', 'servicesHealthLoading', 'hasLoadError', 'tab'],
         ],
-        actions: [applicationObservabilityLogic, ['requestReload', 'loadServicesHealthSuccess']],
+        actions: [
+            applicationObservabilityLogic,
+            ['requestReload', 'loadServicesHealthSuccess', 'loadServicesHealthFailure'],
+        ],
     })),
 
     actions({
@@ -154,6 +164,12 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
             }
         },
         loadServicesHealthSuccess: () => {
+            if (values.tab === 'deployments') {
+                actions.loadDeployments()
+            }
+        },
+        // The picked service, or the last loaded list, still names a service to load for the new filter.
+        loadServicesHealthFailure: () => {
             if (values.tab === 'deployments') {
                 actions.loadDeployments()
             }
