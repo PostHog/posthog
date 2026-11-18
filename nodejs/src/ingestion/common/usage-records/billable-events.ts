@@ -44,6 +44,9 @@ export const resolveAnalyticsUsageKey: UsageKeyResolver = (event) => {
     return NON_BILLABLE_EVENTS.has(event) ? null : EVENTS_USAGE_KEY
 }
 
-export const resolveAiUsageKey: UsageKeyResolver = () => AI_EVENTS_USAGE_KEY
+// The ai lane also carries the `$mcp_*` events capture derives from OpenTelemetry MCP spans. Those
+// bill as events, like the `$mcp_*` events the MCP SDKs send through the analytics lane.
+export const resolveAiUsageKey: UsageKeyResolver = (event) =>
+    isAiEventName(event) ? AI_EVENTS_USAGE_KEY : resolveAnalyticsUsageKey(event)
 
 export const resolveExceptionUsageKey: UsageKeyResolver = () => EXCEPTIONS_USAGE_KEY

@@ -54,6 +54,7 @@ describe('processAiEventStep', () => {
         '$ai_evaluation_report',
         // Any `$ai_*` name is an AI event, including ones this code has never seen.
         '$ai_custom_metric',
+        '$mcp_tool_call',
     ])('calls processAiEvent for %s event', async (eventName) => {
         const event = createTestEvent({ event: eventName, properties: { $ai_model: 'gpt-4' } })
         const step = createProcessAiEventStep()
@@ -68,7 +69,7 @@ describe('processAiEventStep', () => {
         }
     })
 
-    it.each(['$pageview', '$autocapture', 'custom_event', '$$heatmap', 'ai_generation', '$AI_generation'])(
+    it.each(['$pageview', '$autocapture', 'custom_event', '$$heatmap', 'ai_generation', '$AI_generation', '$mcp'])(
         'sends %s event to DLQ',
         async (eventName) => {
             const event = createTestEvent({ event: eventName })

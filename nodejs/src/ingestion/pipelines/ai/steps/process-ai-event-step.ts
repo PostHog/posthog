@@ -1,6 +1,6 @@
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { isAiEventName } from '~/ingestion/common/ai-event-types'
+import { isAiLaneEventName } from '~/ingestion/common/ai-event-types'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { processAiEvent } from '~/ingestion/pipelines/ai/process-ai-event'
@@ -12,7 +12,7 @@ type ProcessAiEventInput = {
 
 export function createProcessAiEventStep<TInput extends ProcessAiEventInput>(): ProcessingStep<TInput, TInput> {
     return function processAiEventStep(input) {
-        if (!isAiEventName(input.normalizedEvent.event)) {
+        if (!isAiLaneEventName(input.normalizedEvent.event)) {
             return Promise.resolve(
                 dlq(
                     'non-AI event routed to AI subpipeline',

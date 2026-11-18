@@ -1,6 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import {
-    aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
     aiOtelSystemInstructionsCounter,
     aiOtelUnknownPartTypeCounter,
@@ -8,6 +7,7 @@ import {
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { usableStopReason } from './middleware/stop-reason'
+import { STRIP_ATTRIBUTES, normalizeGroups, otelSpanDurationNanos } from './span-properties'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
@@ -32,15 +32,6 @@ const FALLBACK_ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.usage.completion_tokens': '$ai_output_tokens',
 }
 
-const STRIP_ATTRIBUTES = new Set([
-    'telemetry.sdk.language',
-    'gen_ai.operation.name',
-    'posthog.ai.debug',
-    'user.id',
-    'posthog.distinct_id',
-    'llm.request.type',
-])
-
 const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices', '$ai_tools'])
 
 // Older OTel GenAI spec emits messages as span events rather than
@@ -59,11 +50,6 @@ const OLDER_SPEC_CHOICE_EVENT_NAME = 'gen_ai.choice'
 // (`MAX_OUTPUT_CHOICES_LENGTH`). Pathological payloads would otherwise force
 // `parseJSON` into multi-megabyte input and pressure the ingestion worker.
 const MAX_OLDER_SPEC_EVENTS_LENGTH = 500_000
-
-// Upper bound on the serialized size of a string-valued `$groups` attribute we
-// will parse. A groups map is only a handful of short group-type → key pairs,
-// so this is generous; it keeps a pathological payload out of parseJSON.
-const MAX_GROUPS_LENGTH = 10_000
 
 const REQUEST_TYPE_TO_EVENT: Record<string, string> = {
     chat: '$ai_generation',
@@ -181,50 +167,11 @@ function countUnknownMessageParts(event: PluginEvent): void {
     }
 }
 
-type GroupsOutcome = 'parsed' | 'non_object' | 'malformed' | 'too_large'
-
-function normalizeGroups(event: PluginEvent): void {
-    const props = event.properties!
-    if (typeof props.$groups !== 'string') {
-        return
-    }
-
-    if (props.$groups.length > MAX_GROUPS_LENGTH) {
-        delete props.$groups
-        aiOtelGroupsCounter.labels({ outcome: 'too_large' }).inc()
-        return
-    }
-
-    let outcome: GroupsOutcome
-    try {
-        const parsed = parseJSON(props.$groups)
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-            props.$groups = parsed
-            outcome = 'parsed'
-        } else {
-            outcome = 'non_object'
-        }
-    } catch {
-        outcome = 'malformed'
-    }
-    aiOtelGroupsCounter.labels({ outcome }).inc()
-}
-
 function computeLatency(event: PluginEvent): void {
     const props = event.properties!
-    const startStr = props['$otel_start_time_unix_nano']
-    const endStr = props['$otel_end_time_unix_nano']
-
-    if (typeof startStr === 'string' && typeof endStr === 'string') {
-        try {
-            const start = BigInt(startStr)
-            const end = BigInt(endStr)
-            if (end > start) {
-                props['$ai_latency'] = Number(end - start) / 1_000_000_000
-            }
-        } catch {
-            // Ignore malformed nanosecond timestamps
-        }
+    const duration = otelSpanDurationNanos(props)
+    if (duration !== undefined) {
+        props['$ai_latency'] = Number(duration) / 1_000_000_000
     }
 
     delete props['$otel_start_time_unix_nano']

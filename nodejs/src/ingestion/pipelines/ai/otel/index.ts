@@ -3,13 +3,14 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { mapOtelAttributes } from './attribute-mapping'
 import { anthropic } from './middleware/anthropic'
+import { mcp } from './middleware/mcp'
 import { pydanticAi } from './middleware/pydantic-ai'
 import { traceloop } from './middleware/traceloop'
 import { OtelLibraryMiddleware } from './middleware/types'
 import { vercelAi } from './middleware/vercel-ai'
 
 // Middleware registry — checked in order, first match wins.
-const MIDDLEWARES: OtelLibraryMiddleware[] = [pydanticAi, traceloop, vercelAi, anthropic]
+const MIDDLEWARES: OtelLibraryMiddleware[] = [mcp, pydanticAi, traceloop, vercelAi, anthropic]
 
 // Runs after the middlewares, because each of them can resolve a session id the producer set on
 // purpose. The conversation id stays on the event: where a producer has a wider session grouping,
