@@ -94,7 +94,7 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}
-        assert detail["context"] == {"reason": "staff_set"}
+        assert detail["context"] == {"reason": "staff_set", "window": None, "recent_window": None}
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
 
     @parameterized.expand(
@@ -200,7 +200,7 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert suspended.user == self.user
         assert (suspended.detail or {})["context"] == {"reason": "Hard bounce rate above 5%"}
         tier = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
-        assert (tier.detail or {})["context"] == {"reason": "staff_suspension"}
+        assert (tier.detail or {})["context"] == {"reason": "staff_suspension", "window": None, "recent_window": None}
         assert [
             (
                 call.kwargs["properties"]["new_tier"],
