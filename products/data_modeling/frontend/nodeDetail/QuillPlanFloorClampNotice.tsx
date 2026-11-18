@@ -5,36 +5,33 @@ import { Button, Item, ItemActions, ItemContent, ItemDescription } from '@postho
 
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { planFloorClampMessage } from 'scenes/data-warehouse/saved_queries/PlanFloorClampBanner'
 import { urls } from 'scenes/urls'
 
-export interface QuillPlanFloorClampNoticeProps {
-    subject: 'view' | 'endpoint'
-    savedQueryId: string
-    previousSeconds: number | null
-    planFloorSeconds: number
-    at: string
-}
+import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-export function QuillPlanFloorClampNotice({
-    subject,
-    savedQueryId,
-    previousSeconds,
-    planFloorSeconds,
-    at,
-}: QuillPlanFloorClampNoticeProps): JSX.Element | null {
-    const logic = lemonBannerLogic({ dismissKey: `plan-floor-clamp-${savedQueryId}-${at}` })
+export function QuillPlanFloorClampNotice({ id }: { id: string }): JSX.Element | null {
+    const { node, savedQuery: initialSavedQuery } = useValues(nodeDetailSceneLogic({ id }))
+    const subject = node?.type === 'endpoint' ? 'endpoint' : 'view'
+    const { savedQuery: currentSavedQuery } = useValues(
+        materializationJobsLogic({ viewId: node?.saved_query_id ?? '', kind: subject })
+    )
+    const clamp = (currentSavedQuery ?? initialSavedQuery)?.plan_clamp
+    const logic = lemonBannerLogic({ dismissKey: `plan-floor-clamp-${node?.saved_query_id}-${clamp?.at}` })
     const { isDismissed } = useValues(logic)
     const { dismiss } = useActions(logic)
 
-    if (isDismissed) {
+    if (!clamp || isDismissed) {
         return null
     }
 
     return (
         <Item variant="outline" size="sm" tone="info" className="flex-wrap">
             <ItemContent className="min-w-0">
-                <ItemDescription>{planFloorClampMessage(subject, previousSeconds, planFloorSeconds)}</ItemDescription>
+                <ItemDescription>
+                    {planFloorClampMessage(subject, clamp.previous_target_seconds, clamp.plan_floor_seconds)}
+                </ItemDescription>
             </ItemContent>
             <ItemActions className="flex-wrap">
                 <Button
