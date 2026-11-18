@@ -36,7 +36,7 @@ export function QuillExperimentWarningBanner({
             </ItemMedia>
             <ItemContent className="min-w-0">
                 <ItemTitle>{warningCaption(warning.key)}</ItemTitle>
-                <ItemDescription>
+                <ItemDescription className="line-clamp-none">
                     <WarningDetail warning={warning} flagLink={flagLink} />
                 </ItemDescription>
             </ItemContent>

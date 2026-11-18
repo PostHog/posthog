@@ -56,7 +56,7 @@ export function QuillRecalculationStatus({
                     <IconInfo />
                 </ItemMedia>
                 <ItemContent className="min-w-0">
-                    <ItemDescription>
+                    <ItemDescription className="line-clamp-none">
                         {status.provenance}{' '}
                         {status.ageLimitExceeded ? RECALCULATION_AGE_LIMIT_NOTE : RECALCULATION_NOTICE_NOTE}
                     </ItemDescription>

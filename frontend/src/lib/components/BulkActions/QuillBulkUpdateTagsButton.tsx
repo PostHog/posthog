@@ -85,7 +85,7 @@ function QuillBulkUpdateTagsForm({
             {form.tagAction === 'set' && (
                 <Item variant="outline" size="sm" tone="warning">
                     <ItemContent>
-                        <ItemDescription>{BULK_TAG_REPLACE_WARNING}</ItemDescription>
+                        <ItemDescription className="line-clamp-none">{BULK_TAG_REPLACE_WARNING}</ItemDescription>
                     </ItemContent>
                 </Item>
             )}

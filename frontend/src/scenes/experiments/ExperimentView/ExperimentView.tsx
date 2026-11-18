@@ -115,7 +115,7 @@ const MetricsTab = (): JSX.Element => {
                             </ItemMedia>
                             <ItemContent className="min-w-0">
                                 <ItemTitle>No metrics defined</ItemTitle>
-                                <ItemDescription>{NO_METRICS_WARNING}</ItemDescription>
+                                <ItemDescription className="line-clamp-none">{NO_METRICS_WARNING}</ItemDescription>
                             </ItemContent>
                         </Item>
                     ) : (

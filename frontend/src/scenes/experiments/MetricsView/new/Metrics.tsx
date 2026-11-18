@@ -95,7 +95,9 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                 {!isSecondary && recalculationRejectionMessage && (
                     <Item variant="outline" size="sm" tone="warning">
                         <ItemContent>
-                            <ItemDescription>{recalculationRejectionMessage}</ItemDescription>
+                            <ItemDescription className="line-clamp-none">
+                                {recalculationRejectionMessage}
+                            </ItemDescription>
                         </ItemContent>
                     </Item>
                 )}

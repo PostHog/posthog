@@ -23,7 +23,7 @@ export function QuillMultiVariantBiasWarning({
             </ItemMedia>
             <ItemContent className="min-w-0">
                 <ItemTitle>The uneven split may bias the results</ItemTitle>
-                <ItemDescription className="flex flex-col gap-1">
+                <ItemDescription className="flex flex-col gap-1 line-clamp-none">
                     <span>
                         <strong>{multipleVariantPercentage.toFixed(1)}%</strong> of users were exposed to multiple
                         variants. With your uneven variant split and the current <strong>Exclude</strong> handling,
