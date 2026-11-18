@@ -380,6 +380,39 @@ class TestPersonIdPushdownPrinting(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "alias_of_a_source_column",
+                "events.timestamp AS timestamp",
+                "timestamp >= '2024-01-01'",
+                "events.timestamp",
+            ),
+            (
+                "alias_that_shadows_a_source_column",
+                "toStartOfDay(events.timestamp) AS timestamp",
+                "timestamp >= '2024-01-01'",
+                "toStartOfDay(",
+            ),
+            (
+                "alias_that_reads_the_persons_join",
+                "concat(events.event, person.properties.plan) AS label",
+                "label = 'signup-paid'",
+                None,
+            ),
+        ]
+    )
+    def test_pushdown_copies_a_select_alias_as_its_expression(
+        self, _name: str, select: str, where: str, expected_in_semi_join: str | None
+    ):
+        sql = self._print(f"SELECT {select} FROM events WHERE {where} AND person.properties.plan = 'paid'")
+
+        if expected_in_semi_join is None:
+            assert "SELECT DISTINCT" not in " ".join(sql.split())
+        else:
+            assert "SELECT DISTINCT" in " ".join(sql.split())
+            assert expected_in_semi_join in _persons_semi_join(sql)
+
+    @parameterized.expand(
+        [
             ("relative_sample", "SAMPLE 1/2 OFFSET 1/2", True),
             ("absolute_sample", "SAMPLE 10000", False),
         ]

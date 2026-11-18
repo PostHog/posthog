@@ -306,7 +306,10 @@ class HogQLCohortQuery:
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=self.get_query(),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                personIdPushdown=True,
+            ),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
             settings=HogQLGlobalSettings(),
