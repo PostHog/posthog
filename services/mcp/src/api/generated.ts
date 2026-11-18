@@ -5517,18 +5517,6 @@ export namespace Schemas {
       variables_override?: AccountsTableQueryRequestVariablesOverride;
     }
 
-    /**
-     * * `user` - user
-     * * `team` - team
-     */
-    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
-
-
-    export const AchievementDefinitionScopeEnum = {
-      User: 'user',
-      Team: 'team',
-    } as const;
-
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
@@ -5545,11 +5533,6 @@ export namespace Schemas {
       display_name: string;
       /** One-line description of what the track rewards. */
       description: string;
-      /** Whether the track is tracked per user or per team.
-       *
-       * * `user` - user
-       * * `team` - team */
-      scope: AchievementDefinitionScopeEnum;
       /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
       is_experiment_track: boolean;
       /** The five stages of this track, in ascending threshold order. */
@@ -5589,10 +5572,8 @@ export namespace Schemas {
     export interface AchievementsListResponse {
       /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
       definitions: AchievementDefinition[];
-      /** The requesting user's progress on per-user tracks. */
+      /** The requesting user's progress on each track. */
       user_progress: AchievementProgress[];
-      /** The team's progress on per-team tracks. */
-      team_progress: AchievementProgress[];
       /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
       pending_celebrations: PendingCelebration[];
     }
