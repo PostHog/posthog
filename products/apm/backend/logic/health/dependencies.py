@@ -19,7 +19,7 @@ Fail-fast settings still cap the bytes read and the run time.
 """
 
 import math
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -142,6 +142,30 @@ class _SpanDensity:
             return 0
         share = min(seconds - self.starts[i], self.ends[i] - self.starts[i]) / (self.ends[i] - self.starts[i])
         return self.before[i] + self.counts[i] * share
+
+    def widen_to_buckets(self, sample: _Sample, date_from: datetime) -> _Sample:
+        # A count per bucket can't show where in a bucket the spans sit, so a slice can land in a quiet
+        # part of a busy bucket and read nothing. Each slice grows to the populated buckets it touches,
+        # or moves to the nearest one when it touches none, so the sample is never empty.
+        covered: list[tuple[int, int]] = []
+        for start, end in sample.slices:
+            first = bisect_right(self.ends, (start - date_from).total_seconds())
+            last = bisect_left(self.starts, (end - date_from).total_seconds()) - 1
+            if first > last:
+                first = last = min(first, len(self.starts) - 1)
+            covered.append((first, last))
+        merged: list[list[int]] = []
+        for first, last in sorted(covered):
+            if merged and first <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], last)
+            else:
+                merged.append([first, last])
+        return _Sample(
+            slices=[
+                (date_from + timedelta(seconds=self.starts[first]), date_from + timedelta(seconds=self.ends[last]))
+                for first, last in merged
+            ]
+        )
 
 
 def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) -> _Sample | None:
@@ -408,6 +432,13 @@ def _scale(value: int, rate: float) -> int:
     return value if rate >= 1 else math.floor(value / rate + 0.5)
 
 
+def _count_sample(
+    team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None, sample: _Sample
+) -> int:
+    query = _span_count_query(date_from, date_to, environment, service, sample)
+    return int(_run(team, "ApmDependenciesSampleCount", query)[0][0])
+
+
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> DependenciesResult:
@@ -421,10 +452,11 @@ def get_dependencies(
     sample = _plan_sample(density, date_from, date_to)
     rate = 1.0
     if sample:
-        sampled = _run(
-            team, "ApmDependenciesSampleCount", _span_count_query(date_from, date_to, environment, service, sample)
-        )
-        rate = min(1.0, max(1, int(sampled[0][0])) / density.total)
+        sampled = _count_sample(team, date_from, date_to, environment, service, sample)
+        if sampled == 0:
+            sample = density.widen_to_buckets(sample, date_from)
+            sampled = _count_sample(team, date_from, date_to, environment, service, sample)
+        rate = min(1.0, max(1, sampled) / density.total)
     rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, sample))
     edges = [
         DependencyEdge(
