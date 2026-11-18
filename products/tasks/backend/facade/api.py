@@ -6661,15 +6661,29 @@ def capture_relay_command_telemetry(
 # --- Task run relay (Slack) ---
 
 
-def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
+RELAY_ANSWER_MIN_CHARS = 300
+
+
+def _pick_relay_text(*, text: str, text_parts: list[str] | None, keep_full_answer: bool) -> str:
     """Pick the text to post. If ``text_parts`` has any non-empty entries,
-    the last one wins (that's the post-last-tool-use answer). Otherwise fall
-    back to the joined ``text`` field."""
-    if text_parts:
-        for part in reversed(text_parts):
-            if isinstance(part, str) and part.strip():
-                return part
-    return text
+    the last one is the post-last-tool-use answer. Otherwise fall back to the
+    joined ``text`` field.
+
+    Agents often write the full answer, call a tool (for example to update the
+    task summary), and then write one short closing line. If the last part is
+    shorter than ``RELAY_ANSWER_MIN_CHARS``, the post starts at the latest
+    earlier part that has at least that length, so the closing line does not
+    replace the answer. Short interim narration stays out of the post. Without
+    ``keep_full_answer``, the last part is always the post."""
+    parts = [part for part in text_parts or [] if isinstance(part, str) and part.strip()]
+    if not parts:
+        return text
+    if not keep_full_answer:
+        return parts[-1]
+    for index in range(len(parts) - 1, -1, -1):
+        if len(parts[index].strip()) >= RELAY_ANSWER_MIN_CHARS:
+            return "\n\n".join(parts[index:])
+    return parts[-1]
 
 
 def relay_task_run_message(
@@ -6689,8 +6703,8 @@ def relay_task_run_message(
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
     agent-design flag), or ``"failed"``.
 
-    When ``text_parts`` is provided the last non-empty entry is used — it's the
-    post-last-tool-use answer, and posting only that keeps the interim narration
+    When ``text_parts`` is provided, ``_pick_relay_text`` posts the
+    post-last-tool-use answer, which keeps short interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
 
@@ -6698,6 +6712,9 @@ def relay_task_run_message(
     posted reply keeps so a rating on it can name the turn. Absent when the sandbox
     reported none.
     """
+    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        is_slack_app_full_relay_answer_enabled,
+    )
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
@@ -6712,10 +6729,15 @@ def relay_task_run_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None or run.is_terminal:
         return "skipped", None
-    if not SlackThreadTaskMapping.objects.filter(task_run=run).exists():
+    mapping = SlackThreadTaskMapping.objects.select_related("integration").filter(task_run=run).first()
+    if mapping is None:
         return "skipped", None
 
-    posted_text = _pick_relay_text(text=text, text_parts=text_parts)
+    creator = run.task.created_by
+    keep_full_answer = is_slack_app_full_relay_answer_enabled(
+        mapping.integration, creator.distinct_id if creator else None
+    )
+    posted_text = _pick_relay_text(text=text, text_parts=text_parts, keep_full_answer=keep_full_answer)
     trimmed = posted_text.strip()
     if not trimmed:
         return "skipped", None

@@ -10023,17 +10023,43 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "text": "I'll pull DAU.\n\nHere's your answer.",
                     "text_parts": ["I'll pull DAU.", "Here's your answer."],
                 },
+                True,
                 "Here's your answer.",
+            ),
+            (
+                "keeps_long_answer_when_short_closing_line_follows_tool_call",
+                {
+                    "text": "unused",
+                    "text_parts": ["Let me check.", "A" * 300, "Reply yes for the draft PR."],
+                },
+                True,
+                "A" * 300 + "\n\nReply yes for the draft PR.",
+            ),
+            (
+                "posts_only_closing_line_when_full_answer_flag_off",
+                {
+                    "text": "unused",
+                    "text_parts": ["Let me check.", "A" * 300, "Reply yes for the draft PR."],
+                },
+                False,
+                "Reply yes for the draft PR.",
             ),
             (
                 "falls_back_to_text_when_parts_only_blank",
                 {"text": "actual message", "text_parts": ["", "   "]},
+                True,
                 "actual message",
             ),
         ]
     )
+    @patch("posthoganalytics.feature_enabled")
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_text_selection(self, _name, payload, expected_posted_text, mock_execute_relay):
+    def test_relay_message_text_selection(
+        self, _name, payload, full_answer_flag_enabled, expected_posted_text, mock_execute_relay, mock_feature_enabled
+    ):
+        mock_feature_enabled.side_effect = lambda flag, *args, **kwargs: (
+            full_answer_flag_enabled and flag == "slack-app-full-relay-answer"
+        )
         from posthog.models.integration import Integration
 
         from products.slack_app.backend.models import SlackThreadTaskMapping
