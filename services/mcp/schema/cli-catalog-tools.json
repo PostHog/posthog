@@ -3778,7 +3778,7 @@
             "list": false,
             "filter": {
                 "kind": "pick",
-                "fields": ["hog_function_ids"],
+                "fields": ["id", "hog_function_ids"],
                 "selectable": false
             },
             "stripNulls": false,

@@ -1,7 +1,7 @@
 import copy
 import json
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
@@ -202,6 +202,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertCreateRefused,
+    StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.delivery import delivery_test_destination_ids
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -1814,6 +1815,24 @@ class AlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertCreatedDestinationResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The new destination's ID, the `id` that listing the alert's destinations shows. Delete the "
+            "destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, "
+            "in which case `hog_function_ids` identifies the destination."
+        ),
+    )
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text=(
+            "HogFunction IDs of the new destination. Empty when the alerts platform checks the alert, since the "
+            "platform sends the destination's message itself until someone customizes it."
+        ),
+    )
+
+
 class AlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1827,7 +1846,10 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-        help_text="Destination IDs from the destinations list, to delete with their HogFunctions.",
+        help_text=(
+            "Destination IDs from the destinations list or from creating the destination, to delete with their "
+            "HogFunctions."
+        ),
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -2721,10 +2743,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=AlertCreateDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Send this alert to a Slack channel as well as by email. The workspace must already be "
-            "connected to the project. The returned IDs identify the destination."
+            "connected to the project. The returned `id` identifies the destination."
         ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", pagination_class=None)
@@ -2733,12 +2755,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         responses={200: AlertDestinationListItemSerializer(many=True)},
@@ -2787,10 +2804,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=AlertCreateUrlDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. "
-            "The returned IDs identify the destination."
+            "The returned `id` identifies the destination."
         ),
     )
     @action(
@@ -2804,19 +2821,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertCreateUrlDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         request=AlertCreatePagerDutyDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. "
-            "Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination."
+            "Only an alert whose pagerduty_available is true can take one. The returned `id` identifies the destination."
         ),
     )
     # The routing key is a target the caller supplies, so an alert-only token cannot add one. A sandboxed agent
@@ -2836,12 +2848,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not alert.platform_owned:
             raise ValidationError({"type": "PagerDuty isn't available for this alert yet."})
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         parameters=[AlertPagerDutyAvailabilityQuerySerializer],
@@ -2859,14 +2866,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(AlertPagerDutyAvailabilitySerializer({"available": available}).data)
 
-    def _create_destination(
-        self,
-        request: Request,
-        alert: AlertConfiguration,
-        data: AlertDestinationData,
-        configs: Sequence[AlertDestinationConfig],
-    ) -> Response:
+    def _create_destination(self, request: Request, alert: AlertConfiguration, data: AlertDestinationData) -> Response:
         user = cast(User, request.user)
+
+        def record(hog_function_ids: tuple[uuid.UUID, ...]) -> StoredAlertDestination | None:
+            return record_source_destination(
+                team_id=alert.team_id,
+                public_id=alert.id,
+                data=data,
+                event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
+                hog_function_ids=hog_function_ids,
+                hog_function_groups=list_alert_destination_groups(
+                    team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+                ),
+            )
+
+        hog_function_ids: tuple[uuid.UUID, ...] = ()
         try:
             with transaction.atomic():
                 # Counted under the alert's lock, so two adds at once cannot both pass the cap: its insight row when it
@@ -2883,26 +2898,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     raise ValidationError(
                         f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
                     )
-                hog_function_ids = create_alert_destination_hog_functions(
-                    list(configs),
-                    team_id=alert.team_id,
-                    created_by_id=user.id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                )
-                # The HogFunctions send while they exist. Rollback to the insight stack reads only them.
-                record_source_destination(
-                    team_id=alert.team_id,
-                    public_id=alert.id,
-                    data=data,
-                    event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
-                    hog_function_ids=hog_function_ids,
-                    hog_function_groups=list_alert_destination_groups(
+                # A platform alert's destination gets HogFunctions only once someone customizes its message.
+                stored = record(()) if alert.platform_owned else None
+                # Only the platform sends a row, so an alert it doesn't check sends through HogFunctions.
+                if stored is None:
+                    hog_function_ids = create_alert_destination_hog_functions(
+                        _insight_destination_configs(alert.id, alert.name, data),
                         team_id=alert.team_id,
+                        created_by_id=user.id,
                         alert_id=str(alert.id),
                         allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                    ),
-                )
+                    )
+                    stored = record(hog_function_ids)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
@@ -2912,7 +2919,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             actor_id=user.id,
             was_impersonated=is_impersonated(request),
             action="created",
-            destination_types=dict.fromkeys(hog_function_ids, data["type"]),
+            # A destination with no HogFunctions is logged by its row's id.
+            destination_types=dict.fromkeys(
+                hog_function_ids or ([stored.id] if stored is not None else []), data["type"]
+            ),
         )
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
@@ -2924,7 +2934,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "type": _analytics_destination_type(data["type"]),
             },
         )
-        response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
+        response = AlertCreatedDestinationResponseSerializer(
+            {"id": stored.id if stored is not None else None, "hog_function_ids": list(hog_function_ids)}
+        )
         return Response(response.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -2987,7 +2999,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             properties={
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
-                "count": len(hog_function_ids) + len(remaining),
+                "count": len(logged),
                 "team_id": alert.team_id,
                 # One destination is removed per request from the alert page; a mixed request names no type.
                 "type": _analytics_destination_type(types.pop()) if len(types := set(logged.values())) == 1 else None,
