@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live' | 'snapshots'
 
 interface BucketSpec {
     capacity: number
@@ -37,6 +37,12 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     live: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 900, windowMs: HOUR_MS },
+    ],
+    // Snapshot block reads for the WebView replay player: 25% of the server's per-user limit (200/min, 3,000/h), so a
+    // feed of moments, at two or three requests a card, never starves the session screen's `replay` buckets.
+    snapshots: [
+        { capacity: 50, windowMs: MINUTE_MS },
+        { capacity: 750, windowMs: HOUR_MS },
     ],
 }
 

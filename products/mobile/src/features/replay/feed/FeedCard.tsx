@@ -26,6 +26,7 @@ import { useFrameUrl } from '../hooks'
 import type { SessionSummary } from '../replayModel'
 import { countryFlag, formatOffset } from '../sessionAdapters'
 import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from '../video/videoTime'
+import { ReplayWebView } from '../web/ReplayWebView'
 import { FeedRail } from './FeedRail'
 import { FeedScrubber, type ScrubberTick } from './FeedScrubber'
 import {
@@ -48,12 +49,13 @@ import {
     HOLD_SPEED,
     type Moment,
 } from './feedModel'
+import type { FeedPlayer, PoolPlayer } from './feedPlayer'
 import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
 import { type LadderState, RenderLadder } from './RenderLadder'
 import { startRender, useRenderQueue } from './renderQueue'
 import { UpNextCard } from './UpNextCard'
 import { useFeedTimeline } from './useFeed'
-import type { PoolPlayer, PoolSource } from './usePlayerPool'
+import type { PoolSource } from './usePlayerPool'
 
 /** A card renders only after this long on screen, or on a tap of Play, so a swipe past never spends the video cap. */
 export const DWELL_MS = 1500
@@ -62,6 +64,9 @@ const JUMP_SECONDS = 10
 
 export interface FeedCardHandle {
     seekToSession: (seconds: number) => void
+    hold: (on: boolean) => void
+    togglePause: () => void
+    stepMoment: (direction: 1 | -1) => void
 }
 
 interface FeedCardProps {
@@ -73,6 +78,8 @@ interface FeedCardProps {
     active: boolean
     near: boolean
     pool: PoolPlayer | null
+    /** Plays the recording's snapshots in a WebView: no render, no export. */
+    webPlayer: boolean
     unit: FeedUnit
     source: FeedSource
     settings: FeedSettings
@@ -137,6 +144,7 @@ function FeedCardBody({
     active,
     near,
     pool,
+    webPlayer,
     unit,
     source,
     settings,
@@ -197,7 +205,7 @@ function FeedCardBody({
     // Attaching a video that exists or is rendering costs nothing, so neighbours do it before they are on screen.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the spec, which the ref holds.
     useEffect(() => {
-        if (near && !recording.ongoing) {
+        if (near && !recording.ongoing && !webPlayer) {
             startRender({
                 spec: specRef.current,
                 known: item.exports,
@@ -206,30 +214,46 @@ function FeedCardBody({
                 viewport: viewportRef.current,
             })
         }
-    }, [near, key, recording.ongoing, item.exports])
+    }, [near, key, recording.ongoing, item.exports, webPlayer])
 
     const canRender = !recording.ongoing && limitMessage === null && (spec.kind === 'full' || timeline !== null)
-    const requestRender = useCallback((trigger: 'dwell' | 'tap'): void => {
-        startRender({ spec: specRef.current, known: null, allowCreate: true, trigger, viewport: viewportRef.current })
-    }, [])
+    const requestRender = useCallback(
+        (trigger: 'dwell' | 'tap'): void => {
+            if (!webPlayer) {
+                startRender({
+                    spec: specRef.current,
+                    known: null,
+                    allowCreate: true,
+                    trigger,
+                    viewport: viewportRef.current,
+                })
+            }
+        },
+        [webPlayer]
+    )
     useEffect(() => {
-        if (!active || job !== null || !canRender) {
+        if (webPlayer || !active || job !== null || !canRender) {
             return undefined
         }
         const timer = setTimeout(() => requestRender('dwell'), DWELL_MS)
         return () => clearTimeout(timer)
-    }, [active, job, canRender, requestRender])
+    }, [webPlayer, active, job, canRender, requestRender])
 
     const ready = job?.state.status === 'ready' ? job.state : null
-    const sourceKey = ready ? `${key}#${ready.exportId}` : null
+    const sourceKey = webPlayer ? `web:${sessionId}` : ready ? `${key}#${ready.exportId}` : null
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key names the source; the object is new each render.
     useEffect(() => {
-        onSource(index, ready && sourceKey ? { key: sourceKey, source: ready.source } : null)
-    }, [index, sourceKey, onSource])
+        if (!webPlayer) {
+            onSource(index, ready && sourceKey ? { key: sourceKey, source: ready.source } : null)
+        }
+    }, [index, sourceKey, onSource, webPlayer])
     useEffect(() => () => onSource(index, null), [index, onSource])
 
     const loaded = pool !== null && pool.key === sourceKey && pool.loaded
-    const player = loaded ? pool.player : null
+    const player: FeedPlayer | null = loaded ? pool.player : null
+    const video = loaded && pool.kind === 'video' ? pool.player : null
+    const web = loaded && pool.kind === 'web' ? pool.player : null
+    const [webError, setWebError] = useState<string | null>(null)
     const context = ready?.context
     const contextRef = useRef(context)
     contextRef.current = context
@@ -315,6 +339,29 @@ function FeedCardBody({
     }, [player, settings.speed])
 
     const startKey = `${unit}:${moment.key}:${unit === 'session' ? startSeconds : ''}`
+    // A WebView player loads only the blocks it needs, so it learns the window before the first seek reaches it.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the window; the rest are read through refs.
+    useEffect(() => {
+        web?.prepare(
+            overrideStart.current ?? startSeconds,
+            unit === 'moment' ? domain.end : null,
+            active && !pausedRef.current
+        )
+    }, [web, startKey])
+    useEffect(() => {
+        if (!web) {
+            return undefined
+        }
+        setWebError(null)
+        const frame = web.onFirstFrame(() => setFirstFrame(true))
+        const status = web.addListener('statusChange', () =>
+            setWebError(web.status === 'error' ? (web.errorMessage ?? "Couldn't play this recording.") : null)
+        )
+        return () => {
+            frame.remove()
+            status.remove()
+        }
+    }, [web])
     // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the start; the rest are read through refs.
     useEffect(() => {
         if (!player) {
@@ -621,7 +668,12 @@ function FeedCardBody({
         if (!active) {
             return undefined
         }
-        registerHandle(index, { seekToSession: seekFromInfo })
+        registerHandle(index, {
+            seekToSession: seekFromInfo,
+            hold: (on) => handlers.current?.hold(on),
+            togglePause: () => handlers.current?.togglePause(),
+            stepMoment: (direction) => handlers.current?.stepMoment(direction),
+        })
         return () => registerHandle(index, null)
     }, [active, index, registerHandle, seekFromInfo])
 
@@ -642,6 +694,8 @@ function FeedCardBody({
     let ladder: LadderState | null = null
     if (recording.ongoing) {
         ladder = { kind: 'recording', shownSeconds: durationSeconds }
+    } else if (webPlayer) {
+        ladder = webError ? { kind: 'failed', message: webError } : null
     } else if (!loaded || !firstFrame) {
         const state = job?.state
         if (state?.status === 'preparing') {
@@ -762,9 +816,10 @@ function FeedCardBody({
                         framed && styles.framedPhone,
                     ]}
                 >
-                    {player ? (
+                    {web ? <ReplayWebView player={web} style={StyleSheet.absoluteFill} /> : null}
+                    {video ? (
                         <VideoView
-                            player={player}
+                            player={video}
                             style={StyleSheet.absoluteFill}
                             nativeControls={false}
                             contentFit={bleed ? 'cover' : 'contain'}
@@ -810,7 +865,7 @@ function FeedCardBody({
                     <RenderLadder
                         state={ladder}
                         onPlay={() => requestRender('tap')}
-                        onRetry={() => requestRender('tap')}
+                        onRetry={() => (webPlayer ? web?.restart() : requestRender('tap'))}
                         onOpenWeb={() => onOpenWeb(item, startSeconds)}
                         onCheckAgain={onRecheck}
                         nextReady={

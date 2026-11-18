@@ -20,6 +20,9 @@ google-services.json
 .argent/*
 !.argent/flows/
 
+# Built by `node common/replay-headless/build-phone.mjs` from the shared replay sources; Metro inlines it as a string.
+src/features/replay/web/phonePlayer.generated.js
+
 # Copied from canvaskit-wasm by `pnpm web` (setup-skia-web); Expo web serves it from the site root.
 public/canvaskit.wasm
 

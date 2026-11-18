@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ReplayVideoSource } from '@/api/replayVideo'
 
+import type { PoolPlayer } from './feedPlayer'
+
 export interface PoolSource {
     key: string
     source: ReplayVideoSource
@@ -25,12 +27,6 @@ function setUp(player: VideoPlayer): void {
 
 function toVideoSource(source: ReplayVideoSource): VideoSource {
     return source.headers ? { uri: source.uri, headers: source.headers } : { uri: source.uri }
-}
-
-export interface PoolPlayer {
-    player: VideoPlayer
-    key: string
-    loaded: boolean
 }
 
 export function usePlayerPool(
@@ -93,6 +89,7 @@ export function usePlayerPool(
             next.forEach((slot, position) => {
                 if (slot.index !== null && slot.key !== null) {
                     map.set(slot.index, {
+                        kind: 'video',
                         player: players[position] as VideoPlayer,
                         key: slot.key,
                         loaded: slot.loaded,

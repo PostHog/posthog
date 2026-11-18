@@ -12,6 +12,7 @@ import { recordingView, summaryState } from '../sessionAdapters'
 import { feedTimeline, hasReadyVideo } from './feedAdapters'
 import { fetchFeedEvents, fetchFeedObservations, fetchFeedRecordings } from './feedApi'
 import type { FeedItem, FeedSource, FeedTimeline } from './feedModel'
+import { FEED_PLAYER_KIND } from './feedPlayerKind'
 
 async function scoped<T>(load: () => Promise<T>): Promise<T> {
     try {
@@ -38,6 +39,9 @@ function keepsOngoing(source: FeedSource): boolean {
     return source === 'rage' || source === 'errors'
 }
 
+// The WebView player plays without a video, so it never reads the exports list.
+const VIDEO_PLAYER = FEED_PLAYER_KIND === 'video'
+
 export function useFeed(source: FeedSource): Feed {
     const { scope, ready } = useReplayContext()
     const queryClient = useQueryClient()
@@ -56,7 +60,7 @@ export function useFeed(source: FeedSource): Feed {
     const exports = useQuery({
         queryKey: [...base, 'exports'],
         queryFn: ({ signal }) => listRecentReplayVideoExports(signal),
-        enabled: ready,
+        enabled: ready && VIDEO_PLAYER,
         retry: false,
         staleTime: 30_000,
     })
@@ -77,7 +81,7 @@ export function useFeed(source: FeedSource): Feed {
     // The order is fixed per page the first time the page and the exports are both known, so items never move while
     // someone watches. Ready items go first within their page.
     const frozen = useRef(new Map<string, { order: string[]; ready: Set<string> }>())
-    const exportsKnown = exports.isSuccess || exports.isError
+    const exportsKnown = !VIDEO_PLAYER || exports.isSuccess || exports.isError
     // biome-ignore lint/correctness/useExhaustiveDependencies: observation pages change when their version does.
     const items = useMemo((): FeedItem[] | undefined => {
         if (!recordings.data || !exportsKnown) {
@@ -143,7 +147,7 @@ export function useFeed(source: FeedSource): Feed {
                 data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data
             )
             frozen.current.clear()
-            await Promise.all([refetchRecordings(), refetchExports()])
+            await Promise.all([refetchRecordings(), VIDEO_PLAYER ? refetchExports() : undefined])
         } finally {
             setRefreshing(false)
         }

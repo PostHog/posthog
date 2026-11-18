@@ -34,13 +34,17 @@ import {
     trackFeedUnitChanged,
 } from './feedAnalytics'
 import type { FeedItem, FeedSettings, FeedSource, FeedTimeline, FeedUnit } from './feedModel'
+import { FEED_PLAYER_KIND } from './feedPlayerKind'
 import { useFeedSettings } from './feedSettingsStore'
 import { feedColors } from './feedStyle'
 import { readyJobFor, useRenderQueue } from './renderQueue'
 import { useFeed } from './useFeed'
 import { type PoolSource, usePlayerPool } from './usePlayerPool'
+import { useWebPlayerPool } from './useWebPlayerPool'
 
 const READY_LOOKAHEAD = 3
+const WEB_PLAYER = FEED_PLAYER_KIND === 'web'
+const NO_SOURCES: ReadonlyMap<number, PoolSource> = new Map()
 
 export function ReplayFeedScreen(): ReactElement {
     return (
@@ -95,7 +99,9 @@ function FeedContent(): ReactElement {
             return map
         })
     }, [])
-    const pool = usePlayerPool(sources, current)
+    const videoPool = usePlayerPool(WEB_PLAYER ? NO_SOURCES : sources, current)
+    const webPool = useWebPlayerPool(items ?? null, current, WEB_PLAYER)
+    const pool = WEB_PLAYER ? webPool : videoPool
 
     const handles = useRef(new Map<number, FeedCardHandle>())
     const registerHandle = useCallback((index: number, handle: FeedCardHandle | null): void => {
@@ -125,7 +131,9 @@ function FeedContent(): ReactElement {
 
     const isReady = useCallback(
         (item: FeedItem): boolean =>
-            hasReadyVideo(item.exports) || readyJobFor(jobs, item.recording.sessionId) !== null,
+            WEB_PLAYER
+                ? !item.recording.ongoing
+                : hasReadyVideo(item.exports) || readyJobFor(jobs, item.recording.sessionId) !== null,
         [jobs]
     )
     const advanceTarget = useCallback(
@@ -159,6 +167,29 @@ function FeedContent(): ReactElement {
         },
         [advanceTarget, items, scrollTo]
     )
+
+    useEffect(() => {
+        if (__DEV__) {
+            ;(
+                globalThis as {
+                    __replayFeed?: {
+                        scrollTo: (index: number) => void
+                        jump: (index: number) => void
+                        current: number
+                        card: () => FeedCardHandle | null
+                    }
+                }
+            ).__replayFeed = {
+                scrollTo,
+                jump: (index: number) => {
+                    listRef.current?.scrollToOffset({ offset: index * (size?.height ?? 0), animated: false })
+                    setCurrent(index)
+                },
+                current,
+                card: () => handles.current.get(current) ?? null,
+            }
+        }
+    }, [scrollTo, current, size])
 
     const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 70 }).current
     const onViewableItemsChanged = useRef(
@@ -257,6 +288,7 @@ function FeedContent(): ReactElement {
                 active={focused && index === current}
                 near={Math.abs(index - current) <= 2}
                 pool={pool.get(index) ?? null}
+                webPlayer={WEB_PLAYER}
                 unit={unit}
                 source={source}
                 settings={settings}
