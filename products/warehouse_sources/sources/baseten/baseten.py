@@ -1,10 +1,16 @@
+import datetime
 import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.sources.baseten.settings import BASETEN_ENDPOINTS, BasetenEndpointConfig
+from products.warehouse_sources.sources.baseten.settings import (
+    BASETEN_ENDPOINTS,
+    BILLING_USAGE_EARLIEST_DATE,
+    BILLING_USAGE_WINDOW_DAYS,
+    BasetenEndpointConfig,
+)
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     ClientConfig,
@@ -37,6 +43,8 @@ class BasetenResumeConfig:
     parent_id: str | None = None
     # Framework fan-out checkpoint: {"completed": [child_path, ...], "current": ..., "child_state": ...}.
     fanout_state: dict[str, Any] | None = None
+    # Start date (ISO 8601) of the next billing usage window to fetch.
+    window_start: str | None = None
 
 
 class BasetenCursorPaginator(BasePaginator):
@@ -86,6 +94,107 @@ class BasetenCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+class BasetenUsageWindowPaginator(BasePaginator):
+    """Walk the billing usage summary in [start_date, end_date) windows from the earliest queryable
+    date up to the end of today (UTC). The API normalizes both bounds to midnight UTC and caps a
+    range at 31 days, so consecutive windows never overlap."""
+
+    def __init__(self, today: datetime.date) -> None:
+        super().__init__()
+        self._end_limit = today + datetime.timedelta(days=1)
+        self._window_start = BILLING_USAGE_EARLIEST_DATE
+
+    def _window_end(self) -> datetime.date:
+        return min(self._window_start + datetime.timedelta(days=BILLING_USAGE_WINDOW_DAYS), self._end_limit)
+
+    def _inject(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["start_date"] = f"{self._window_start.isoformat()}T00:00:00Z"
+        request.params["end_date"] = f"{self._window_end().isoformat()}T00:00:00Z"
+
+    def init_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        next_start = self._window_end()
+        if next_start >= self._end_limit:
+            self._has_next_page = False
+        else:
+            self._window_start = next_start
+            self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"window_start": self._window_start.isoformat()} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        window_start = state.get("window_start")
+        if not window_start:
+            return
+        resumed = datetime.date.fromisoformat(window_start)
+        # A state saved on an earlier day can point past today's limit only if the clock moved
+        # backwards; start over rather than send an inverted range.
+        if BILLING_USAGE_EARLIEST_DATE <= resumed < self._end_limit:
+            self._window_start = resumed
+
+
+# (usage type, summary key) for each product section of the usage summary.
+_USAGE_SECTIONS = (
+    ("dedicated", "dedicated_usage"),
+    ("training", "training_usage"),
+    ("model_apis", "model_apis_usage"),
+)
+
+
+def _usage_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Explode a usage summary into one row per usage type, billable resource (or Model API model)
+    and day. Section totals are not kept: they are sums of these daily rows."""
+    rows: list[dict[str, Any]] = []
+    for usage_type, key in _USAGE_SECTIONS:
+        section = summary.get(key)
+        if not isinstance(section, dict):
+            continue
+        for item in section.get("breakdown") or []:
+            if not isinstance(item, dict):
+                continue
+            resource = item.get("billable_resource") if isinstance(item.get("billable_resource"), dict) else None
+            resource_id = resource.get("id") if resource is not None else item.get("model_name")
+            if not resource_id:
+                continue
+            for day in item.get("daily") or []:
+                if not isinstance(day, dict) or not day.get("date"):
+                    continue
+                rows.append(
+                    {
+                        **day,
+                        "usage_type": usage_type,
+                        "resource_id": resource_id,
+                        "billable_resource": resource,
+                        "model_name": item.get("model_name") or (resource or {}).get("model_name"),
+                        "model_family": item.get("model_family"),
+                    }
+                )
+    return rows
+
+
+def _to_epoch_millis(value: Any) -> Optional[int]:
+    if isinstance(value, str):
+        try:
+            value = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=datetime.UTC)
+        return int(value.timestamp() * 1000)
+    if isinstance(value, datetime.date):
+        return int(datetime.datetime.combine(value, datetime.time.min, tzinfo=datetime.UTC).timestamp() * 1000)
+    return None
+
+
 def _client_config(api_key: str) -> ClientConfig:
     # Auth (Bearer) goes through the framework auth config so the key is redacted from logs and
     # captured samples; only the non-secret Accept header is set here.
@@ -130,6 +239,7 @@ def _build_flat_resource(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
+    start_epoch_millis: Optional[int] = None,
 ) -> Resource:
     """Top-level endpoint: either a single unpaginated request or cursor+limit pagination."""
     endpoint: Endpoint = {
@@ -138,12 +248,15 @@ def _build_flat_resource(
         # on success); an empty array is a legit zero-row response either way.
         "data_selector": config.data_key,
     }
+    params: dict[str, Any] = dict(config.params)
+    if start_epoch_millis is not None:
+        params["start_epoch_millis"] = start_epoch_millis
 
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
     initial_paginator_state: Optional[dict[str, Any]] = None
 
     if config.paginated:
-        endpoint["params"] = {"limit": PAGE_SIZE}
+        params["limit"] = PAGE_SIZE
         endpoint["paginator"] = BasetenCursorPaginator()
 
         if resumable_source_manager.can_resume():
@@ -163,6 +276,9 @@ def _build_flat_resource(
     else:
         endpoint["paginator"] = SinglePagePaginator()
 
+    if params:
+        endpoint["params"] = params
+
     resource_config: EndpointResource = {"name": config.name, "endpoint": endpoint}
     if config.flatten_key:
         resource_config["data_map"] = _flatten_map(config.flatten_key)
@@ -174,6 +290,41 @@ def _build_flat_resource(
         job_id,
         None,
         resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _build_usage_resource(
+    api_key: str,
+    config: BasetenEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
+) -> Resource:
+    """Billing usage: one request per date window, each summary exploded into daily rows."""
+    endpoint: Endpoint = {
+        "path": config.path,
+        "paginator": BasetenUsageWindowPaginator(datetime.datetime.now(datetime.UTC).date()),
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.window_start is not None:
+            initial_paginator_state = {"window_start": resume.window_start}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("window_start"):
+            resumable_source_manager.save_state(BasetenResumeConfig(window_start=state["window_start"]))
+
+    resource_config: EndpointResource = {"name": config.name, "endpoint": endpoint, "data_map": _usage_rows}
+    rest_config: RESTAPIConfig = {"client": _client_config(api_key), "resources": [resource_config]}
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
 
@@ -274,19 +425,32 @@ def baseten_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BasetenResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = BASETEN_ENDPOINTS[endpoint]
 
     if config.fan_out_parent:
         resource = _build_fan_out_resource(api_key, config, team_id, job_id, resumable_source_manager)
+    elif config.mode == "usage_windows":
+        resource = _build_usage_resource(api_key, config, team_id, job_id, resumable_source_manager)
     else:
-        resource = _build_flat_resource(api_key, config, team_id, job_id, resumable_source_manager)
+        start_epoch_millis = (
+            _to_epoch_millis(db_incremental_field_last_value)
+            if config.incremental_field and should_use_incremental_field
+            else None
+        )
+        resource = _build_flat_resource(
+            api_key, config, team_id, job_id, resumable_source_manager, start_epoch_millis=start_epoch_millis
+        )
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        sort_mode="asc",
+        # The audit log pages through an opaque cursor whose ordering the docs leave open, so an
+        # incremental read does not promise ascending rows.
+        sort_mode=None if config.incremental_field else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

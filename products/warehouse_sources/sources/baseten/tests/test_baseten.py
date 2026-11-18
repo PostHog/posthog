@@ -1,6 +1,8 @@
+import datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.baseten._config import BasetenSourceConfig
 from products.warehouse_sources.sources.baseten.baseten import BasetenResumeConfig, validate_credentials
@@ -76,6 +78,149 @@ class TestCursorPagination:
 
         assert result.raised is None
         assert result.params("cursor") == [None]
+
+
+class TestAuditLogs:
+    @pytest.mark.parametrize(
+        "incremental,last_value,expected_start",
+        [
+            pytest.param(False, None, None, id="full_refresh"),
+            pytest.param(True, None, None, id="first_incremental_run"),
+            pytest.param(
+                True, datetime.datetime(2026, 3, 1, 12, 0, tzinfo=datetime.UTC), "1772366400000", id="datetime"
+            ),
+            pytest.param(True, datetime.datetime(2026, 3, 1, 12, 0), "1772366400000", id="naive_datetime"),
+            pytest.param(True, "2026-03-01T12:00:00Z", "1772366400000", id="iso_string"),
+            pytest.param(True, datetime.date(2026, 3, 1), "1772323200000", id="date"),
+            pytest.param(True, "not-a-date", None, id="unparseable_string"),
+        ],
+    )
+    def test_request_shaping(self, incremental: bool, last_value: Any, expected_start: str | None) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [
+                _page({"items": [{"id": "a1"}], "pagination": {"has_more": True, "cursor": "c1"}}),
+                _page({"items": [{"id": "a2"}], "pagination": {"has_more": False}}),
+            ],
+            incremental_field="created" if incremental else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "a1"}, {"id": "a2"}]
+        assert result.paths == ["/v1/audit_logs", "/v1/audit_logs"]
+        assert result.params("start_epoch_millis") == [expected_start, expected_start]
+        assert result.params("direction") == ["ASC", "ASC"]
+        assert result.params("cursor") == [None, "c1"]
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+
+def _usage_summary(day: str) -> dict[str, Any]:
+    return {
+        "dedicated_usage": {
+            "subtotal": "12.50",
+            "breakdown": [
+                {
+                    "billable_resource": {"id": "dep1", "kind": "MODEL_DEPLOYMENT", "model_name": "whisper"},
+                    "daily": [{"date": day, "subtotal": "12.50", "minutes": 30, "inference_requests": 7}],
+                },
+                # A breakdown item with no daily entries yields nothing.
+                {"billable_resource": {"id": "dep2"}, "daily": []},
+                # An item without a resource id cannot be keyed and is dropped.
+                {"billable_resource": {"name": "orphan"}, "daily": [{"date": day, "subtotal": "1"}]},
+            ],
+        },
+        "training_usage": None,
+        "model_apis_usage": {
+            "breakdown": [
+                {
+                    "model_name": "llama-example",
+                    "model_family": "llama",
+                    "daily": [{"date": day, "subtotal": "0.10", "input_tokens": 100}, {"subtotal": "9"}],
+                }
+            ]
+        },
+    }
+
+
+def _usage_rows_for(day: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": day,
+            "subtotal": "12.50",
+            "minutes": 30,
+            "inference_requests": 7,
+            "usage_type": "dedicated",
+            "resource_id": "dep1",
+            "billable_resource": {"id": "dep1", "kind": "MODEL_DEPLOYMENT", "model_name": "whisper"},
+            "model_name": "whisper",
+            "model_family": None,
+        },
+        {
+            "date": day,
+            "subtotal": "0.10",
+            "input_tokens": 100,
+            "usage_type": "model_apis",
+            "resource_id": "llama-example",
+            "billable_resource": None,
+            "model_name": "llama-example",
+            "model_family": "llama",
+        },
+    ]
+
+
+class TestBillingUsage:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-03-05T15:00:00Z", tick=False):
+            yield
+
+    def test_walks_windows_to_end_of_today_and_explodes_rows(self) -> None:
+        result = _driver().run(
+            "billing_usage",
+            [
+                _page(_usage_summary("2026-01-02")),
+                _page(_usage_summary("2026-02-10")),
+                _page({"dedicated_usage": None, "training_usage": None, "model_apis_usage": None}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/billing/usage_summary"] * 3
+        assert result.params("start_date") == [
+            "2026-01-01T00:00:00Z",
+            "2026-01-31T00:00:00Z",
+            "2026-03-02T00:00:00Z",
+        ]
+        # The last window stops at the exclusive end of today (UTC), so today's partial usage is read.
+        assert result.params("end_date") == [
+            "2026-01-31T00:00:00Z",
+            "2026-03-02T00:00:00Z",
+            "2026-03-06T00:00:00Z",
+        ]
+        assert result.rows == _usage_rows_for("2026-01-02") + _usage_rows_for("2026-02-10")
+        assert result.saved_states == [
+            BasetenResumeConfig(window_start="2026-01-31"),
+            BasetenResumeConfig(window_start="2026-03-02"),
+        ]
+
+    @pytest.mark.parametrize(
+        "window_start,expected_first_start",
+        [
+            pytest.param("2026-03-02", ["2026-03-02T00:00:00Z"], id="resumes_at_saved_window"),
+            # A saved window past today's limit cannot be sent; the walk starts over.
+            pytest.param("2026-03-10", ["2026-01-01T00:00:00Z"], id="ignores_window_past_today"),
+        ],
+    )
+    def test_resume(self, window_start: str, expected_first_start: list[str]) -> None:
+        result = _driver().run(
+            "billing_usage",
+            [_page({})],
+            resume_state=BasetenResumeConfig(window_start=window_start),
+        )
+
+        assert result.params("start_date")[:1] == expected_first_start
 
 
 class TestFanOut:
@@ -178,12 +323,20 @@ class TestValidateCredentials:
 
 
 class TestSourceResponseShape:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        # One billing usage window, so a single scripted response ends the walk.
+        with time_machine.travel("2026-01-10T00:00:00Z", tick=False):
+            yield
+
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_partition_and_primary_keys_match_config(self, endpoint: str) -> None:
         config = BASETEN_ENDPOINTS[endpoint]
         if config.fan_out_parent:
             parent_config = BASETEN_ENDPOINTS[config.fan_out_parent]
             script = [_page({parent_config.data_key: []})]
+        elif config.mode == "usage_windows":
+            script = [_page({})]
         else:
             script = [_page({config.data_key: []})]
 
