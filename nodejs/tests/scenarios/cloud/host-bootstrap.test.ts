@@ -29,6 +29,7 @@ describe('host boot', () => {
         SCENARIO_EVIDENCE_BUCKET: BUCKET,
         SCENARIO_BOOTSTRAP_LOG: path.join(dir, 'bootstrap.log'),
         SCENARIO_HOST_ROOT: path.join(dir, 'host'),
+        SCENARIO_HOSTS_FILE: path.join(dir, 'hosts'),
     })
 
     const poweredOff = (): boolean => existsSync(path.join(dir, 'powered-off'))
@@ -101,7 +102,7 @@ describe('host boot', () => {
             'if [ "$1" = --version ]; then echo "aws-cli/2.22.0 Python/3.12.6 Linux/6.8.0 exe/x86_64"; exit 0; fi\nexit 1'
         )
 
-        spawnSync('bash', [BOOTSTRAP], { env: { ...env(), SCENARIO_HOSTS_FILE: hosts }, encoding: 'utf8' })
+        spawnSync('bash', [BOOTSTRAP], { env: env(), encoding: 'utf8' })
 
         const addressOf = (name: string): string[] =>
             readFileSync(hosts, 'utf8')
