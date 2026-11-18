@@ -157,6 +157,10 @@ _ISSUER_POLICY = f"attestations:\n  - name: proof\n    issuer: {_ISSUER}\n"
         pytest.param("attestations:\n  - issuer: ../outside.yml\n", (), id="escapes-the-tree"),
         pytest.param("attestations:\n  - issuer: /etc/passwd\n", (), id="absolute"),
         pytest.param("attestations:\n  - issuer: tools/proof/\n", (), id="a-directory"),
+        # The worker writes the manifest into the tree its engine subprocess imports modules from.
+        pytest.param("attestations:\n  - issuer: tools/proof/argparse.py\n", (), id="not-yaml"),
+        pytest.param("attestations:\n  - issuer: tools/pr-approval-agent/x.yml\n", (), id="beside-the-engine"),
+        pytest.param("attestations:\n  - issuer: tools/owners/owners_yaml/x.yml\n", (), id="beside-owners"),
     ],
 )
 def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, expected: tuple[str, ...]) -> None:
