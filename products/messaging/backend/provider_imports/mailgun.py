@@ -836,8 +836,10 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
                 status="created" if result.created else "skipped",
                 url="/workflows/opt-outs",
                 notes=(
-                    f"Members on this list in Mailgun: {members}. Import Contacts to make them people and fill a cohort "
-                    "with this list.",
+                    f"Members on this list in Mailgun: {members}."
+                    if "contacts" in context.steps
+                    else f"Members on this list in Mailgun: {members}. Import Contacts to make them people and fill a "
+                    "cohort with this list.",
                     "Sending to the list address, who can post to it, and where replies go don't carry over.",
                 ),
             ),
