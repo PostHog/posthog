@@ -9,6 +9,7 @@ prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
 root=${SCENARIO_HOST_ROOT:-/opt/scenario}
 input=$root/input
 evidence=$root/evidence
+process_logs=${SCENARIO_PROCESS_LOGS:-$repo/.posthog/.generated/logs}
 export XDG_CACHE_HOME=$root/cache
 export SCENARIO_RUN_MANIFEST="$input/manifest.json"
 code=$INVALID
@@ -26,6 +27,11 @@ upload_evidence() {
     for log in "$XDG_CACHE_HOME"/posthog-scenarios/*.log; do
         if [ -f "$log" ]; then
             cp "$log" "$evidence/" || return 1
+        fi
+    done
+    for log in "$process_logs"/*.log; do
+        if [ -f "$log" ]; then
+            mkdir -p "$evidence/processes" && tail -n 2000 "$log" >"$evidence/processes/${log##*/}" || return 1
         fi
     done
     for run in "$XDG_CACHE_HOME"/posthog-scenarios/*-*-*-*-*/; do

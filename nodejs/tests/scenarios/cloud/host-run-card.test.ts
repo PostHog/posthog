@@ -43,6 +43,8 @@ mkdir -p "$run" "$state/edge-ca"
 printf '%s' "$SCENARIO_POOLER_URLS" >"$state/pooler-urls"
 echo '{"phase":"drive"}' >"$run/result.json"
 echo 'hogli up exited 1' >"$state/hogli.log"
+mkdir -p "$SCENARIO_PROCESS_LOGS"
+seq 2500 | sed 's/^/Compiling crate /' >"$SCENARIO_PROCESS_LOGS/capture.log"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
@@ -92,6 +94,7 @@ describe('host-run-card.sh', () => {
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
+                SCENARIO_PROCESS_LOGS: path.join(dir, 'processes'),
                 FAKE_S3: path.join(dir, 's3'),
                 ...env,
             },
@@ -128,6 +131,10 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('evidence/hogli.log')) && readFileSync(s3('evidence/hogli.log'), 'utf8')).toBe(
             uploaded && 'hogli up exited 1\n'
         )
+        const processLog = existsSync(s3('evidence/processes/capture.log'))
+            ? readFileSync(s3('evidence/processes/capture.log'), 'utf8').split('\n')
+            : []
+        expect([processLog[0], processLog.length]).toEqual(uploaded ? ['Compiling crate 501', 2001] : [undefined, 0])
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 
