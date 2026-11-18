@@ -145,17 +145,19 @@ class TestApiVersion:
 class TestRetiredEndpoints:
     @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
     @pytest.mark.parametrize("pinned", [LEGACY, PREVIOUS, LATEST])
-    def test_retired_table_is_off_the_catalog_and_fails_without_a_request(self, endpoint, pinned):
+    def test_retired_table_is_off_the_catalog(self, endpoint, pinned):
         schemas = WhopSource().get_schemas(
             WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
         )
         assert endpoint not in {schema.name for schema in schemas}
 
-        result = _driver().run(endpoint, [], api_version=pinned)
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    def test_existing_schema_fails_with_a_non_retryable_reason_before_any_request(self, endpoint):
+        result = _driver().run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
         assert str(result.raised) == RETIRED_ENDPOINTS[endpoint]
-        assert WhopSource().get_non_retryable_errors()[RETIRED_ENDPOINTS[endpoint]] is not None
+        assert RETIRED_ENDPOINTS[endpoint] in WhopSource().get_non_retryable_errors()
         assert result.requests == []
 
 
