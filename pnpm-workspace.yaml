@@ -54,6 +54,9 @@ fetchRetries: 3
 # Fix React versions across the monorepo.
 overrides:
     axios: ^1.15.0
+    # Clipboard parsing fix (GHSA-c8x8-7fp4-3x9w); the TipTap editors paste html.
+    prosemirror-view: '>=1.42.3'
+    prosemirror-model: '>=1.25.12'
     '@modelcontextprotocol/sdk': ^1.29.0
     '@types/react': 18.3.31
     '@types/react-dom': 18.3.7
