@@ -111,7 +111,7 @@ function buildLanes(env) {
         fullMatrixWorkflows.has(workflowFile)
             ? [
                   { workflowFile, label: SCHEDULED_LANE_LABEL, runsFileKey: 'schedule-core-only' },
-                  { workflowFile, label: FULL_MATRIX_LANE_LABEL, runsFileKey: 'schedule-full' },
+                  { workflowFile, label: FULL_MATRIX_LANE_LABEL, runsFileKey: 'schedule-full', hoursPerTick: 3 },
               ]
             : [{ workflowFile, label: SCHEDULED_LANE_LABEL, runsFileKey: 'schedule' }]
     )
@@ -122,9 +122,11 @@ function buildLanes(env) {
             maxLagMinutes: SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES,
             // Own thresholds: at one run per cron tick, the push streak threshold of 5 needs five
             // hours to trip, while the push wall-clock arm pages on a single flaky run held for one
-            // tick. Both scheduled arms need more than one red tick behind them.
+            // tick. Both scheduled arms need more than one red tick behind them, so the wall-clock
+            // threshold scales with a lane's tick length.
             streakThreshold: parseInt(env.SCHEDULED_FAILURE_STREAK_THRESHOLD || '2', 10),
-            minutesThreshold: parseInt(env.SCHEDULED_FAILURE_MINUTES_THRESHOLD || '150', 10),
+            minutesThreshold:
+                parseInt(env.SCHEDULED_FAILURE_MINUTES_THRESHOLD || '150', 10) * (source.hoursPerTick || 1),
             // A cron keeps firing through a quiet weekend, so this lane's run streak needs the same
             // activity gate the wall-clock arm has, because otherwise it pages with nobody pushing.
             countNeedsActivity: true,

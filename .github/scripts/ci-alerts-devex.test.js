@@ -886,7 +886,7 @@ describe('ci-alerts-devex', () => {
     }
 
     // (Core-only conclusions, full-matrix conclusions) → the lanes on the anchor.
-    for (const [scenario, { coreOnly, full }, expected] of [
+    for (const [scenario, { coreOnly, full, nowMins = 0 }, expected] of [
         [
             'a red full matrix pages while the Core-only runs between stay green',
             { coreOnly: ['success', 'success'], full: ['failure', 'failure'] },
@@ -896,6 +896,11 @@ describe('ci-alerts-devex', () => {
             'a red Core-only lane pages under the scheduled name',
             { coreOnly: ['failure', 'failure'], full: ['success'] },
             { action: 'create', blocking: ['Backend CI (scheduled)'] },
+        ],
+        [
+            'one red full run held until the next full run does not page',
+            { coreOnly: ['success'], full: ['failure', 'success'], nowMins: 200 },
+            { action: 'none', blocking: [] },
         ],
     ]) {
         it(`split scheduled lanes read from Depot CI: ${scenario}`, async (t) => {
@@ -909,9 +914,10 @@ describe('ci-alerts-devex', () => {
             }
             const github = laneGithub(
                 { 'ci-frontend.yml:push': runs('Frontend CI', ['success']) },
-                pushAt(minutes(-3).toISOString())
+                pushAt(minutes(nowMins - 3).toISOString())
             )
             const { slack, outputs } = await run(github, {
+                now: minutes(nowMins),
                 env: {
                     GATING_WORKFLOWS: 'ci-frontend.yml',
                     SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml',
