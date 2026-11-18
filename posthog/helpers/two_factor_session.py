@@ -364,6 +364,9 @@ class CodeBasedVerifier:
         grant_key = f"idp_login_identity_grant:{user.pk}:{identity}"
         try:
             client = get_client()
+            attempts = client.get(self._attempts_redis_key(f"idp:{identity}"))
+            if attempts is not None and int(attempts) >= CODE_MAX_ATTEMPTS:
+                return False
             grant = client.get(grant_key)
             if grant is not None:
                 return grant in ("granted", b"granted")
@@ -508,7 +511,7 @@ class CodeBasedVerifier:
         if user_id is None:
             return None
         identity = self.get_pending_identity(request)
-        return f"idp:{user_id}:{identity}" if identity else str(user_id)
+        return f"idp:{identity}" if identity else str(user_id)
 
     def check_code(self, request: HttpRequest, user: User, code: str) -> bool:
         issued_at = self.get_pending_code_based_verification_issued_at(request)

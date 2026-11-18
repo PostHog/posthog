@@ -344,7 +344,7 @@ def _send_login_code(
 
         if not identity:
             return False
-        decision = consume(f"idp_login_code_identity:{user.pk}:{identity}", Budget(burst=1, per_hour=60))
+        decision = consume(f"idp_login_code_identity:{identity}", Budget(burst=1, per_hour=60))
         if not isinstance(decision, BucketDecision):
             logger.warning("idp_login_code_rate_limit_unavailable", user_id=user.pk)
             return False

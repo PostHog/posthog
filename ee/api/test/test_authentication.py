@@ -652,6 +652,32 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @pytest.mark.disable_mock_code_based_verifier
+    def test_an_unlinked_subject_cannot_renew_its_budget_by_targeting_another_account(self) -> None:
+        self.user.email = "first@example.com"
+        self.user.save()
+        other = User.objects.create_and_join(
+            organization=self.organization, email="second@example.com", first_name="Second", password=None
+        )
+        self.client.logout()
+        with enable_code_sending() as sent, time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+            self._complete_oidc_login(self.user.email, sub="moving-subject")
+            wrong = "000000" if sent.call_args.args[1] != "000000" else "111111"
+            for _ in range(5):
+                self.assertEqual(
+                    self.client.post("/api/login/code-based-verification/", {"code": wrong}).status_code, 400
+                )
+            self.client = APIClient()
+            clock.shift(datetime.timedelta(seconds=61))
+            response = self._complete_oidc_login(other.email, sub="moving-subject")
+            self.assertNotIn("code_verification_pending=1", response["Location"])
+            self.assertEqual(sent.call_count, 1)
+            clock.shift(datetime.timedelta(seconds=IDP_AUTHENTICATION_TTL_SECONDS))
+            self.client = APIClient()
+            response = self._complete_oidc_login(other.email, sub="moving-subject")
+            self.assertIn("code_verification_pending=1", response["Location"])
+        self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=other).exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
     def test_idp_verification_leaves_the_new_device_alert_to_the_queued_worker(self) -> None:
         self.user.email = "member@example.com"
         self.user.save()
