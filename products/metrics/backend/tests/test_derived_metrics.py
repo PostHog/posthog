@@ -234,16 +234,28 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == {"jobs": 1}
 
-    def test_span_attribute_group_by_and_filter(self) -> None:
+    @parameterized.expand(
+        [
+            ("span_attribute", "http.route", ("service.name", FilterOp.NEQ, "worker"), {"/a": 4, "/b": 1, "": 1}),
+            # A service without server spans counts its root spans, so its requests group as "internal".
+            ("span_kind", "span.kind", None, {"server": 6, "internal": 2}),
+            ("span_status", "service.name", ("span.status_code", FilterOp.EQ, "error"), {"web": 1, "worker": 1}),
+        ]
+    )
+    def test_span_group_by_and_filter(
+        self,
+        _name: str,
+        group_key: str,
+        span_filter: tuple[str, FilterOp, str] | None,
+        expected: dict[str, float],
+    ) -> None:
+        filters = (
+            () if span_filter is None else (MetricFilter(key=span_filter[0], op=span_filter[1], value=span_filter[2]),)
+        )
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
-            series = self._run(
-                REQUESTS,
-                MetricAggregation.SUM,
-                group_by=("http.route",),
-                filters=(MetricFilter(key="service.name", op=FilterOp.NEQ, value="worker"),),
-            )
+            series = self._run(REQUESTS, MetricAggregation.SUM, group_by=(group_key,), filters=filters)
 
-        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1, "": 1}
+        assert _by_label(series, group_key) == expected
 
     def test_log_records_per_severity(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):

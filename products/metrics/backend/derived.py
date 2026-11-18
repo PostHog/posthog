@@ -167,6 +167,16 @@ _COLUMN_KEYS: dict[DerivedSource, dict[str, str]] = {
     DerivedSource.LOGS: {"severity_text": "severity_text"},
 }
 
+# Span columns that store an OTel enum as an int. Grouping and filtering use the enum's name,
+# so `span.kind = server` matches and a chart legend reads "server", not "2".
+_ENUM_COLUMN_KEYS: dict[DerivedSource, dict[str, tuple[str, tuple[str, ...]]]] = {
+    DerivedSource.SPANS: {
+        "span.kind": ("kind", ("unspecified", "internal", "server", "client", "producer", "consumer")),
+        "span.status_code": ("status_code", ("unset", "ok", "error")),
+    },
+    DerivedSource.LOGS: {},
+}
+
 # The viewer sends NONE for a counter that the user has not aggregated yet. A derived counter has one
 # value per bucket, so NONE gives the same count as SUM.
 _COUNTER_AGGREGATIONS = frozenset(
@@ -407,6 +417,17 @@ class DerivedMetricQueryRunner:
         column = _COLUMN_KEYS[self.metric.source].get(name)
         if column is not None:
             return ast.Field(chain=[column])
+        enum_column = _ENUM_COLUMN_KEYS[self.metric.source].get(name)
+        if enum_column is not None:
+            column, labels = enum_column
+            return parse_expr(
+                "transform({column}, {codes}, {labels}, toString({column}))",
+                placeholders={
+                    "column": ast.Field(chain=[column]),
+                    "codes": ast.Array(exprs=[ast.Constant(value=code) for code in range(len(labels))]),
+                    "labels": ast.Array(exprs=[ast.Constant(value=label) for label in labels]),
+                },
+            )
         return attribute_field(name, scope=scope)
 
     def _value_expr(self) -> ast.Expr:
