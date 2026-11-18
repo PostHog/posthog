@@ -34,10 +34,11 @@ async function hogliExit(
     hogli: Hogli,
     args: string[],
     logFile: string,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
 ): Promise<number | null> {
     const log = openSync(logFile, 'a')
-    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log] })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], signal })
     closeSync(log)
     return await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject)
@@ -45,8 +46,14 @@ async function hogliExit(
     })
 }
 
-async function runHogli(hogli: Hogli, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
-    const code = await hogliExit(hogli, args, logFile, env)
+async function runHogli(
+    hogli: Hogli,
+    args: string[],
+    logFile: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    const code = await hogliExit(hogli, args, logFile, env, signal)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
@@ -60,11 +67,16 @@ const STACK_UNITS = {
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
-export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+export async function startStack(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv)
+    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
     }
@@ -72,13 +84,18 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
-    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv)
-    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv)
+    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
 }
 
-export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+export async function syncTemplates(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env, signal)
 }
 
 export async function withPostgres<T>(
