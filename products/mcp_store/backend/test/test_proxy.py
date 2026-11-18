@@ -568,13 +568,13 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
         seen: list[httpx.Request] = []
 
-        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        async def handle_request(_transport: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
             if route == "denied":
                 raise httpx.ProxyError("403 Forbidden")
             seen.append(
                 httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
             )
-            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+            return httpx.Response(200, stream=httpx.ByteStream(b'{"jsonrpc":"2.0","id":1,"result":{}}'))
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
         environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
@@ -582,7 +582,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with (
             override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
             patch.dict(os.environ, {**no_proxies, **environment}),
-            patch.object(httpx.HTTPTransport, "handle_request", handle_request),
+            patch.object(httpx.AsyncHTTPTransport, "handle_async_request", handle_request),
         ):
             response = self.client.post(
                 self._proxy_url(installation.id),
