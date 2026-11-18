@@ -8,6 +8,9 @@ from openai.types.responses import ResponseFunctionToolCall
 from parameterized import parameterized
 from posthoganalytics.ai.langchain.callbacks import _convert_message_to_dict
 
+from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent
+from posthog.temporal.ai_observability.eval_reports.report_agent.tools import add_citation, add_section
+
 from products.ai_observability.backend.facade.evaluation_runtime import execute_hog_eval_bytecode
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 
@@ -152,6 +155,18 @@ class TestInlineIdsCited(SimpleTestCase):
                     None,
                 ),
                 (
+                    "refused_detail_id_is_not_handled",
+                    [
+                        ("get_trace_detail", {"trace_id": TRACE_ID}, "Error: trace is not allowed"),
+                        (
+                            "add_section",
+                            {"content": f"The payload contains `{TRACE_ID}`."},
+                            "Section 1/6 added: Summary",
+                        ),
+                    ],
+                    None,
+                ),
+                (
                     "generation_citation_does_not_cite_its_parent_trace",
                     [
                         ("get_trace_detail", {"trace_id": TRACE_ID}, "Trace details"),
@@ -185,6 +200,23 @@ class TestInlineIdsCited(SimpleTestCase):
         )
         self.assertIsNone(result["error"])
         self.assertIs(result["verdict"], expected)
+
+    def test_matches_real_report_tool_results(self) -> None:
+        state = {"report": EvalReportContent(), "evaluation_target": "generation"}
+        rejected = {"content": f"An uncited draft `{UNCITED_GENERATION_ID}`."}
+        citation = {"generation_id": GENERATION_ID, "trace_id": TRACE_ID}
+        accepted = {"content": f"The generation `{GENERATION_ID}` failed."}
+        steps = [
+            ("add_section", rejected, add_section.invoke({"state": state, "title": "Summary", **rejected})),
+            ("add_citation", citation, add_citation.invoke({"state": state, **citation})),
+            ("add_section", accepted, add_section.invoke({"state": state, "title": "Summary", **accepted})),
+        ]
+        bytecode = compile_ai_observability_hog(SOURCE_PATH.read_text(), "destination")
+        result = execute_hog_eval_bytecode(
+            bytecode, {"evaluation_events": report_events(steps, "chat_completions")}, allows_na=True
+        )
+        self.assertIsNone(result["error"])
+        self.assertIs(result["verdict"], True)
 
     @parameterized.expand(
         [

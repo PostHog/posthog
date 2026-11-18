@@ -338,11 +338,11 @@ Backfilled results use the original generation's timestamp.
 Removing a numeric or categorical evaluation's passing rule stops new report generation and scheduled delivery.
 Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
 
-The report citation check in `posthog/temporal/ai_observability/eval_reports/inline_ids_cited.hog` scores accepted sections against successful citations.
-It checks IDs inspected by the report tools or cited successfully; unrelated payload UUIDs do not require citations.
+The report citation check in `posthog/temporal/ai_observability/eval_reports/inline_ids_cited.hog` is a canary for the report's citation guard.
+It scores accepted sections against successful citations and IDs from successful detail requests; rejected drafts, refused requests, and unrelated payload UUIDs do not fail it.
 It supports Chat Completions, native Responses outputs, and LangChain callback captures.
 Callback results without IDs must form a complete, ordered batch; ambiguous batches remain unscored.
-Saved evaluations do not load this file automatically. Apply approved source through the evaluation editor.
+Saved evaluations do not load this file automatically. Apply approved source through the evaluation editor or API.
 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
