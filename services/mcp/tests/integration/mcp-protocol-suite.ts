@@ -1378,10 +1378,10 @@ export function defineCatalogFilterTests(
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
             // `always_available` utility tools (e.g. agent-feedback, gated by its
-            // own feature flag) bypass feature filtering by design, so an unknown
-            // feature yields only those — assert no feature-gated tool leaked,
-            // rather than a hard-empty list.
-            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            // own feature flag) and the tools-mode `learn` tool bypass feature
+            // filtering by design, so an unknown feature yields only those — assert
+            // no feature-gated tool leaked, rather than a hard-empty list.
+            const featureGated = tools.filter((t) => !['agent-feedback', 'learn'].includes(t.name))
             expect(featureGated).toHaveLength(0)
         })
 

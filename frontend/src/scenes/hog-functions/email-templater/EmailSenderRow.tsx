@@ -112,8 +112,8 @@ export function EmailSenderRow(): JSX.Element {
                 />
                 {notes.length > 0 ? (
                     <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        {notes.map((note) => (
-                            <span key={note} className="min-w-0 truncate">
+                        {notes.map((note, index) => (
+                            <span key={index} className="min-w-0 truncate">
                                 {note}
                             </span>
                         ))}
