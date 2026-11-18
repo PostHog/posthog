@@ -1,8 +1,10 @@
 import re
 import json
 import hashlib
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -27,6 +29,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
+from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
@@ -37,7 +40,12 @@ from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes, has_pending_registered_writers
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
+from products.mcp_analytics.backend.models import (
+    MCPAnalyticsSubmission,
+    MCPCustomHarness,
+    MCPIntentWriteBarrier,
+    MCPSession,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -790,6 +798,72 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
             result = api.generate_intent_digest(self.team)
 
         assert result.digest == "Fresh."
+
+
+class TestErasureFencedCacheFills(APIBaseTest):
+    """A result read while an erasure froze the project must not be cached past the erasure."""
+
+    def _reopen(self) -> None:
+        # What a completed erasure leaves behind: writes admitted again, generation still bumped.
+        with team_scope(self.team.pk, canonical=True):
+            MCPIntentWriteBarrier.objects.filter(team_id=self.team.pk).update(invalidation_id=None, frozen_at=None)
+
+    @parameterized.expand([("sessions_list",), ("intent_digest",), ("activity_overview",)])
+    def test_fill_computed_during_an_erasure_is_not_served_afterwards(self, entrypoint: str) -> None:
+        cache.clear()
+        operation = uuid4()
+        calls: list[int] = []
+
+        def freeze_while_reading(value: object) -> Callable[..., object]:
+            def read(*_args: object, **_kwargs: object) -> object:
+                calls.append(1)
+                if len(calls) == 1:
+                    freeze_writes(self.team, invalidation_id=operation)
+                return value
+
+            return read
+
+        if entrypoint == "sessions_list":
+            source = patch.object(
+                logic, "_query_mcp_sessions", side_effect=freeze_while_reading(SimpleNamespace(results=[1]))
+            )
+
+            def call() -> object:
+                return api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        elif entrypoint == "intent_digest":
+            # The digest reads intents before its cache lookup, so the LLM call is what a cache hit skips.
+            self.enterContext(
+                patch.object(
+                    intent_generation,
+                    "fetch_recent_project_intents",
+                    return_value=[("check the signups funnel", "query_run")],
+                )
+            )
+            parsed = intent_generation.IntentThemesSchema(summary="Signup funnel checks.", themes=[])
+            source = patch.object(
+                intent_generation, "summarize_project_intents", side_effect=freeze_while_reading(parsed)
+            )
+
+            def call() -> object:
+                return api.generate_intent_digest(self.team)
+
+        else:
+            source = patch.object(
+                logic,
+                "_query_activity_overview",
+                side_effect=freeze_while_reading(SimpleNamespace(stats=SimpleNamespace(total_calls=1))),
+            )
+
+            def call() -> object:
+                return api.get_activity_overview(self.team)
+
+        with source:
+            call()
+            self._reopen()
+            call()
+
+        assert len(calls) == 2
 
 
 class TestResolveIntentThemes(SimpleTestCase):
