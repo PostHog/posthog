@@ -77,8 +77,8 @@ def merge_append_only(
         lines = "\n".join(f"  {key}: {old!r} -> {new!r}" for key, (old, new) in sorted(changed.items()))
         raise ChangedFrozenValueError(
             f"The generation changes committed {name}, which integration rows store:\n{lines}\n"
-            "Keep the old value in the source class, or write a data migration for the stored rows and "
-            "rerun with --allow-changed-defaults."
+            "Keep the old value in the source class. If the change is necessary, write a data migration for the "
+            "stored rows, then run `python manage.py generate_source_field_classification --allow-changed-defaults`."
         )
     return dict(sorted({**committed, **computed}.items()))
 

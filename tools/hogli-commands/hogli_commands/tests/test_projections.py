@@ -93,6 +93,14 @@ class TestProjectionRunner:
         runner.write(PROJECTION)
         assert (tmp_path / "out/first.generated.ts").read_text() == "// formatted\nfirst\n"
 
+    def test_a_renderer_that_refuses_reports_its_reason_without_writing(self, tmp_path: Path) -> None:
+        refusing = 'def render():\n    raise ValueError("Stripe: stripe -> stripe-test")\n'
+        runner = _runner(tmp_path, renderer=refusing)
+
+        with pytest.raises(click.ClickException, match="fake: Stripe: stripe -> stripe-test"):
+            runner.write(PROJECTION)
+        assert not (tmp_path / "out").exists()
+
     def test_renderer_outputs_must_match_the_registry(self, tmp_path: Path) -> None:
         undeclared = RENDERER.replace('"out/second.json": "{}"', '"out/other.json": "{}"')
         runner = _runner(tmp_path, renderer=undeclared)

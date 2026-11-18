@@ -11,13 +11,14 @@ write a renderer module next to the data, register it here, and run
 fails on a ``*.generated.*`` file that no entry and no known pipeline produces.
 
 A renderer is a Python file with a ``render()`` function that returns the full text of
-each output, keyed by its repo-relative path. It never writes files and never parses
+each output, keyed by its repo-relative path. It raises ``ValueError`` to refuse a render,
+and the runner reports the message and writes nothing. It never writes files and never parses
 arguments; this module does both, so ``--check`` and the write path cannot disagree.
 
 A renderer returns valid source and leaves the style to the formatter of the workspace
 that owns the output: ruff for Python, oxfmt at the repo root, and Biome under
 ``products/desktop``, ``products/mobile`` and ``packages/agent``. The runner formats every
-output before it compares or writes, so a generated file looks like the code around it
+output that one of them reads before it compares or writes, so a generated file looks like the code around it
 and no formatter needs an exemption for it.
 """
 
@@ -145,6 +146,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=(
             "products/warehouse_sources/sources/*",
             "products/warehouse_sources/backend/temporal/data_imports/sources/*",
+            "products/warehouse_sources/backend/facade/*",
         ),
         outputs=(
             "products/warehouse_sources/backend/facade/credential_kinds.py",
@@ -318,7 +320,10 @@ class ProjectionRunner:
         if projection.django:
             _setup_django()
         render: Callable[[], dict[str, str]] = runpy.run_path(str(self.repo_root / projection.renderer))["render"]
-        rendered = render()
+        try:
+            rendered = render()
+        except ValueError as error:
+            raise click.ClickException(f"{projection.name}: {error}") from error
         if set(rendered) != set(projection.outputs):
             raise click.ClickException(
                 f"{projection.renderer} rendered {sorted(rendered)}, but the registry declares "
