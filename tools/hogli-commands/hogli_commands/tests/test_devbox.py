@@ -4291,6 +4291,8 @@ class TestDevboxShare:
         calls: list[str] = []
 
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "gh" in command:
+                return subprocess.CompletedProcess([], 1, "", "You are not logged into any GitHub hosts.")
             if "devbox-secrets" in command[-1]:
                 return subprocess.CompletedProcess([], 0, "No secrets lent to this box.\n", "")
             if "logout" in command[-1]:
@@ -4344,6 +4346,8 @@ class TestDevboxShare:
         status_commands: list[str] = []
 
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "gh" in command:
+                return subprocess.CompletedProcess([], 1, "", "You are not logged into any GitHub hosts.")
             if "devbox-secrets" in command[-1]:
                 return subprocess.CompletedProcess([], 127, "", "devbox-secrets: command not found")
             if "logout" in command[-1]:
@@ -4370,6 +4374,54 @@ class TestDevboxShare:
         assert result.exit_code == expected_exit, result.output
         assert calls == expected_calls
         assert status_commands == ["env -u CLAUDE_CODE_OAUTH_TOKEN claude auth status --json"]
+
+    @pytest.mark.parametrize(
+        "status_exit, status_stderr, interactive, logout_exit, expected_calls, expected_output",
+        [
+            (0, "", True, 0, ["gh-logout", "share"], "Logged out of the GitHub CLI"),
+            (0, "", False, 0, [], "Run `hogli devbox:gh:logout` first"),
+            (0, "", True, 1, ["gh-logout"], "wasn't shared"),
+            (1, "The token in hosts.yml is invalid.", True, 0, [], "--keep-gh-login"),
+        ],
+        ids=["logs_out_first", "no_terminal_refuses", "failed_logout_blocks_share", "unknown_login_refuses"],
+    )
+    def test_share_handles_a_gh_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        status_exit: int,
+        status_stderr: str,
+        interactive: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            assert command[:5] == ["env", "-u", "GH_TOKEN", "-u", "GITHUB_TOKEN"]
+            if "logout" in command:
+                calls.append("gh-logout")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            return subprocess.CompletedProcess([], status_exit, "Logged in to github.com account jane\n", status_stderr)
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_refuse_to_share_lent_secrets", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
+
+        assert (result.exit_code == 0) == ("share" in expected_calls), result.output
+        assert calls == expected_calls
+        assert expected_output in result.output
 
     def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}

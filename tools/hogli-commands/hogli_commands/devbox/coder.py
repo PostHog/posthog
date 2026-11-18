@@ -1226,6 +1226,8 @@ def print_setup_summary() -> None:
     click.echo("Show saved configuration: hogli devbox:config:show")
     click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
+    click.echo("GitHub CLI on a running box:  hogli devbox:gh:login")
+    click.echo()
     click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
     click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 

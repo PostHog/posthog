@@ -234,11 +234,30 @@ The push adds a note to the box's `~/.claude/CLAUDE.md` so agents there know to 
 Anything running as you on the box can read them while they're lent, so lend keys with spending limits.
 Push refuses a box that is shared, and `devbox:share` refuses while secrets are lent.
 
+## GitHub on a devbox
+
+By default, git on a box uses Coder's GitHub app. It reaches only the repositories where a GitHub org admin installed that app, and only in SSH sessions, which get it through `GIT_ASKPASS`. `gh` doesn't use it.
+
+To use `gh`, log it in on the box:
+
+```bash
+hogli devbox:gh:login     # gh prints a code to enter at https://github.com/login/device
+hogli devbox:gh:status    # account and scopes, token masked
+hogli devbox:gh:logout    # delete the login from the box
+```
+
+Login also runs `gh auth setup-git`, so git uses the same login. git and `gh` then reach every repository your GitHub account can, in every process on the box, including Herdr tabs and agents that outlive the SSH connection that started them.
+After a logout, git falls back to Coder's app.
+
+The token stays on the box's disk until you log out or destroy the box. People you share the box with can read it, so `devbox:share` offers to log out first.
+Logging out deletes only the box's copy. To revoke the token, remove GitHub CLI under Settings > Applications on github.com, which also logs `gh` out on your other computers.
+A `GH_TOKEN` Coder user secret takes priority over the login for `gh`.
+
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - SSH to a stopped devbox fails with "workspace must be started" instead of starting it. Run `hogli devbox:start` first. Tools that reconnect in the background, such as Herdr and editors, would otherwise queue a new build on every retry.
-- Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
+- Git inside the workspace uses HTTPS, through Coder external auth or `hogli devbox:gh:login`. Don't set up SSH Git inside the workspace. See [GitHub on a devbox](#github-on-a-devbox).
 - Claude Code logs in on each box with `hogli devbox:claude:login`. The optional `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret (requires Coder 2.33+) overrides that login on every box. See [Claude Code on a devbox](#claude-code-on-a-devbox).
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.

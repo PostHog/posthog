@@ -1850,6 +1850,72 @@ def _refuse_to_share_lent_secrets(name: str) -> None:
     _fail("Couldn't check the devbox for lent secrets. Run the command again.")
 
 
+_GH_AUTH_TIMEOUT = 60
+_KEEP_GH_LOGIN_HINT = "Run `hogli devbox:gh:status` to see why, or pass --keep-gh-login to share anyway."
+
+
+def remote_gh_auth(*args: str) -> list[str]:
+    # A GH_TOKEN or GITHUB_TOKEN env var, such as a Coder user secret, hides the login stored on the box
+    # from `gh auth status`, and `gh auth login` refuses to run while one is set.
+    return ["env", "-u", "GH_TOKEN", "-u", "GITHUB_TOKEN", "gh", "auth", *args, "--hostname", "github.com"]
+
+
+def read_gh_login(name: str) -> bool | None:
+    """Return whether the box stores a GitHub CLI login, or ``None`` when the box doesn't say."""
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_gh_auth("status"), timeout=_GH_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == 0:
+        return True
+    if "not logged into any" in result.stdout + result.stderr:
+        return False
+    # Also a stored token that GitHub rejects: it is still on the box's disk.
+    return None
+
+
+def logout_gh(name: str) -> bool:
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_gh_auth("logout"), timeout=_GH_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the GitHub CLI on the box before sharing it, unless told to keep the login.
+
+    gh keeps its token in a file on the box, and people the box is shared with get a shell as the owner.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's GitHub CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-gh-login to share anyway."
+        )
+    logged_in = read_gh_login(name)
+    if logged_in is None:
+        _fail(f"Couldn't check the box's GitHub CLI login. {_KEEP_GH_LOGIN_HINT}")
+    if not logged_in:
+        return
+    click.echo(
+        click.style("The box is logged in to the GitHub CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the GitHub CLI. Run `hogli devbox:gh:logout` first, "
+            "or pass --keep-gh-login to share anyway."
+        )
+    if not click.confirm("Log out of the GitHub CLI on the box before sharing?", default=True):
+        return
+    if not logout_gh(name):
+        _fail("Couldn't log out of the GitHub CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the GitHub CLI on the box.")
+
+
 def _logout_claude_before_destroy(name: str) -> None:
     """Run `claude auth logout` before destroy deletes the disk.
 
@@ -1878,12 +1944,19 @@ def _logout_claude_before_destroy(name: str) -> None:
     is_flag=True,
     help="Share without checking for or logging out a Claude Code login on the box",
 )
+@click.option(
+    "--keep-gh-login",
+    "keep_gh_login",
+    is_flag=True,
+    help="Share without checking for or logging out a GitHub CLI login on the box",
+)
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
     role: str,
     list_sharing: bool,
     keep_claude_login: bool,
+    keep_gh_login: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
@@ -1906,6 +1979,8 @@ def devbox_share(
     # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
     if get_workspace_status(ws) not in ("stopped", "starting", "pending", "deleted", "deleting"):
         _refuse_to_share_lent_secrets(name)
+    # After the refusals, so the owner isn't logged out of gh for a share that then fails.
+    _warn_about_gh_login_before_sharing(name, ws, keep_login=keep_gh_login)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 

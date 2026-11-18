@@ -247,6 +247,15 @@ devbox:
     devbox:secrets:clear:
         click: hogli_commands.devbox.secrets_lend:devbox_secrets_clear
         description: Remove lent secrets from your devbox now
+    devbox:gh:login:
+        click: hogli_commands.devbox.gh_login:devbox_gh_login
+        description: Log the GitHub CLI in on your devbox, for gh and git
+    devbox:gh:status:
+        click: hogli_commands.devbox.gh_login:devbox_gh_status
+        description: Show which GitHub account the GitHub CLI on your devbox uses
+    devbox:gh:logout:
+        click: hogli_commands.devbox.gh_login:devbox_gh_logout
+        description: Log the GitHub CLI out on your devbox
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration
