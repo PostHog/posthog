@@ -652,17 +652,9 @@ jobs:
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
-            - name: Full source checkout
-              if: matrix.browser != 'chromium'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-
             - name: Sparse source checkout
-              if: matrix.browser == 'chromium'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
+              with: &storybook-runner-checkout
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   sparse-checkout-cone-mode: false
@@ -683,6 +675,7 @@ jobs:
                       /frontend/snapshots.yml
                       /patches/
                       /.github/actions/trunk-quarantine-gate/
+                      /.github/scripts/verify-storybook-new-stories.sh
                       /.github/scripts/trunk-codeowners.sh
                       /packages/owners-yaml/
                       /bin/fix-rdkafka-paths
@@ -1024,6 +1017,218 @@ jobs:
               shell: bash
               run: exit 1
 
+    checkout-benchmark:
+        name: Checkout benchmark - ${{ matrix.browser }} ${{ matrix.checkout }} (${{ matrix.shard }}/${{ matrix.shard_count }})
+        runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
+        needs: [changes, build-storybook, vr-setup, select-stories]
+        # A status function is required because select-stories is skipped on forced-full
+        # PRs and master pushes. !cancelled() rather than always() so a superseded run's
+        # browser shards stop promptly instead of running the full 30-minute matrix.
+        if: >-
+            !cancelled()
+            && needs.changes.outputs.frontend == 'true'
+            && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
+        # Healthy shards finish well under 15 minutes; the cap exists so a wedged shard fails fast.
+        timeout-minutes: 30
+        container:
+            image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
+        strategy:
+            fail-fast: false
+            # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+            # are tuned for runner CPU — consult #team-devex before changing.
+            # PRs may use chromium shards running only affected story files.
+            # Forced-full PRs, merge-queue runs and master pushes fall back to
+            # changes.outputs.matrix (full chromium); the nightly run uses it for webkit and firefox.
+            matrix:
+                browser: [firefox, webkit]
+                checkout: [full, sparse]
+                shard: [1, 2, 3, 4, 5, 6, 7, 8]
+                shard_count: [8]
+        env:
+            NODE_OPTIONS: --max-old-space-size=16384
+            OPT_OUT_CAPTURE: 1
+            JEST_JUNIT_SUITE_NAME: '{filepath}'
+        steps:
+            - name: Full source checkout
+              if: matrix.checkout == 'full'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+            - name: Sparse source checkout
+              if: matrix.checkout == 'sparse'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with: *storybook-runner-checkout
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              id: pnpm-restore
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
+
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            # Inside the playwright container pnpm keeps its store on the workspace mount.
+            # actions/cache keys an entry on key plus path, so this is a separate entry
+            # from the one pnpm-store-cache.yml writes, and one shard saves it.
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            # The container's cache path and recorded checkout path differ from the host.
+            # Each runner provider needs a master shard to seed its separate cache.
+            - name: Save pnpm lockfile verdict
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && steps.pnpm-cache.outputs.path != '' && steps.pnpm-verdict.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
+            - name: Download Storybook build artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+
+            - name: Serve Storybook in the background
+              # http-server and wait-on are devDependencies of @posthog/storybook.
+              # Run via `pnpm --filter` so pnpm resolves them from common/storybook/node_modules/.bin
+              # (no global install) and cd's into the package — `dist` is relative to common/storybook.
+              run: |
+                  retries=5
+                  max_timeout=30000
+                  pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
+                  server_pid=$!
+                  echo "Started http-server with PID: $server_pid"
+
+                  while [ $retries -gt 0 ]; do
+                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}ms)..."
+                      if pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
+                          echo "✅ Storybook is available at http://127.0.0.1:6006"
+                          break
+                      fi
+                      retries=$((retries-1))
+                      if [ $retries -gt 0 ]; then
+                          echo "⚠️ Failed to connect to Storybook, retrying... ($retries retries left)"
+                          # Check if server is still running
+                          if ! kill -0 $server_pid 2>/dev/null; then
+                              echo "❌ http-server process is no longer running, restarting it..."
+                              pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
+                              server_pid=$!
+                              echo "Restarted http-server with PID: $server_pid"
+                          fi
+                      fi
+                  done
+
+                  if [ $retries -eq 0 ]; then
+                      echo "❌ Failed to serve Storybook after all retries"
+                      # Try to get some diagnostic information
+                      echo "Checking port 6006 status:"
+                      netstat -tuln | grep 6006 || echo "Port 6006 is not in use"
+                      echo "Checking http-server process:"
+                      ps aux | grep http-server || echo "No http-server process found"
+                      echo "Checking Storybook dist directory:"
+                      ls -la common/storybook/dist || echo "Storybook dist directory not found"
+                      exit 1
+                  fi
+
+            # Wipe committed PNGs so each shard only has freshly captured screenshots.
+            # Prevents stale hashes from winning the race in VR's get_or_create.
+            - name: Clean snapshot directory
+              run: find frontend/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
+            # Capture-only: VR is the gate for visual changes, jest just captures screenshots
+            - name: Run @storybook/test-runner
+              id: test-runner
+              # continue-on-error so the quarantine gate below is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              shell: bash
+              env:
+                  HOME: /root
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
+                  MODE: full
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json }}
+              run: |
+                  if [ "$MODE" = "selective" ]; then
+                      # test-storybook is jest-based; positional path args filter the run to
+                      # only those story files before Jest distributes them across shards.
+                      affected_files_path=$(mktemp)
+                      node -e 'for (const file of JSON.parse(process.env.AFFECTED_FILES_JSON)) process.stdout.write(`${file}\0`)' > "$affected_files_path"
+                      mapfile -d '' -t AFFECTED_FILES < "$affected_files_path"
+                      rm "$affected_files_path"
+                      if [ "${#AFFECTED_FILES[@]}" -eq 0 ]; then
+                          echo "::error::Selective mode did not provide affected story files"
+                          exit 1
+                      fi
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- "${AFFECTED_FILES[@]}"
+                  else
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  fi
+
+            - name: Upload benchmark results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: benchmark-${{ matrix.browser }}-${{ matrix.checkout }}-${{ matrix.shard }}
+                  path: common/storybook/junit.xml
+                  if-no-files-found: error
+                  retention-days: 1
+
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots and webkit-only breaks before they land on master.
     flake-verification:
@@ -1047,9 +1252,7 @@ jobs:
             OPT_OUT_CAPTURE: 1
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+              with: *storybook-runner-checkout
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -1144,7 +1347,7 @@ jobs:
                       || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
                   MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
                   [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
-                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                  git fetch --no-tags --depth=1 --filter=blob:none "https://github.com/$REPO" "$MERGE_BASE" \
                       || skip "Could not fetch merge base $MERGE_BASE"
                   echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
                   .github/scripts/verify-storybook-new-stories.sh "$MERGE_BASE" 3
