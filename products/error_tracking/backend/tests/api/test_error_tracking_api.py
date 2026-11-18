@@ -988,6 +988,22 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("release_retrieve", "get", "releases/not-a-uuid"),
+            ("release_update", "patch", "releases/not-a-uuid"),
+            ("release_delete", "delete", "releases/not-a-uuid"),
+            ("stack_frame_retrieve", "get", "stack_frames/not-a-uuid"),
+            ("symbol_set_retrieve", "get", "symbol_sets/not-a-uuid"),
+            ("symbol_set_delete", "delete", "symbol_sets/not-a-uuid"),
+            ("symbol_set_download", "get", "symbol_sets/not-a-uuid/download"),
+        ]
+    )
+    def test_detail_routes_return_404_for_malformed_id(self, _name: str, method: str, path: str) -> None:
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{path}")
+
+        assert response.status_code == 404, response.content
+
+    @parameterized.expand(
+        [
             ("active", "resolved", "$error_tracking_issue_resolved", "Resolved", "Active"),
             ("active", "suppressed", "$error_tracking_issue_suppressed", "Suppressed", "Active"),
             ("resolved", "active", "$error_tracking_issue_reopened", "Active", "Resolved"),
@@ -1613,10 +1629,11 @@ class TestErrorTracking(APIBaseTest):
         self.assertGreaterEqual(response.json()["deleted"], 1)
         self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
 
-    def test_bulk_delete_requires_ids(self) -> None:
+    @parameterized.expand([("missing_ids", {}), ("malformed_id", {"ids": ["not-a-uuid"]})])
+    def test_bulk_delete_rejects_invalid_ids(self, _name: str, data: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
-            data={},
+            data=data,
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

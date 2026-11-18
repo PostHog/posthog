@@ -12,6 +12,7 @@ import itertools
 from collections import Counter
 from collections.abc import Iterator
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import OperationalError, transaction
@@ -31,6 +32,7 @@ from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from posthog.uuidt import UUIDT
 
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 
 logger = structlog.get_logger(__name__)
@@ -495,27 +497,31 @@ def list_symbol_sets(
 
 
 def get_symbol_set(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet | None:
-    return ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=symbol_set_id).select_related("release").first()
+    parsed_id = parse_uuid(symbol_set_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=parsed_id).select_related("release").first()
 
 
 def _get_or_raise(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet:
-    symbol_set = (
-        ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=symbol_set_id).select_related("release").first()
-    )
+    symbol_set = get_symbol_set(team_id, symbol_set_id)
     if symbol_set is None:
         raise SymbolSetNotFoundError
     return symbol_set
 
 
 def delete_symbol_set(team_id: int, symbol_set_id: str) -> bool:
-    symbol_set = ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=symbol_set_id).first()
+    parsed_id = parse_uuid(symbol_set_id)
+    if parsed_id is None:
+        return False
+    symbol_set = ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=parsed_id).first()
     if symbol_set is None:
         return False
     symbol_set.delete()
     return True
 
 
-def bulk_delete_symbol_sets(team_id: int, ids: list[str]) -> int:
+def bulk_delete_symbol_sets(team_id: int, ids: list[UUID]) -> int:
     deleted_count, _ = ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id__in=ids).delete()
     return deleted_count
 
