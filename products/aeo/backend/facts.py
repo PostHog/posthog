@@ -84,8 +84,9 @@ def write_facts(checks: list[AEOCitationCheck]) -> None:
 
 
 def has_checks_without_facts(team_id: int) -> bool:
-    """Whether the team has a check from before the fact rows existed. The backfill writes oldest
-    first, so the oldest check that cites anything tells."""
+    """Whether the team has a check from before the fact rows existed. The backfill writes the newest
+    check first and the oldest last, so the oldest check that cites anything has rows only once the
+    backfill reached the end."""
     team_id = resolve_effective_team_id(team_id)
     oldest = (
         AEOCitationCheck.objects.for_team(team_id, canonical=True)
@@ -107,15 +108,16 @@ def backfill_facts(team_id: int) -> int:
     checks = (
         AEOCitationCheck.objects.for_team(team_id, canonical=True)
         .only("id", "team_id", "created_at", "cited_urls", "top_cited_domains", "search_queries")
-        .order_by("created_at", "id")
+        .order_by("-created_at", "-id")
     )
     read = 0
     last: AEOCitationCheck | None = None
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
-    # They follow (created_at, id), which the team's window index serves.
+    # They follow (created_at, id) from the newest check down, which the team's window index serves. The
+    # oldest check comes last, so `has_checks_without_facts` stays true after a pass that stopped early.
     while page := list(
         (
-            checks.filter(Q(created_at__gt=last.created_at) | Q(created_at=last.created_at, id__gt=last.id))
+            checks.filter(Q(created_at__lt=last.created_at) | Q(created_at=last.created_at, id__lt=last.id))
             if last
             else checks
         )[:BACKFILL_BATCH_SIZE]

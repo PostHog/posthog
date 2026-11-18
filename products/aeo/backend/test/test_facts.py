@@ -2,6 +2,9 @@ import uuid
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.core.management import call_command
 
 from parameterized import parameterized
 
@@ -77,6 +80,33 @@ class TestCheckFacts(BaseTest):
         backfill_facts(self.team.id)
 
         assert (before, has_checks_without_facts(self.team.id)) == (True, False)
+
+    def test_a_backfill_that_stopped_early_still_leaves_checks_without_facts(self) -> None:
+        self._check(cited_urls=["https://example.com/old"])
+        self._check(cited_urls=["https://example.com/new"])
+        pages = iter([write_facts])
+
+        def write_one_page_then_stop(checks: list[AEOCitationCheck]) -> None:
+            next(pages, self.fail)(checks)
+
+        with (
+            patch("products.aeo.backend.facts.BACKFILL_BATCH_SIZE", 1),
+            patch("products.aeo.backend.facts.write_facts", write_one_page_then_stop),
+            self.assertRaises(AssertionError),
+        ):
+            backfill_facts(self.team.id)
+
+        assert list(AEOCheckCitation.objects.for_team(self.team.id).values_list("url", flat=True)) == [
+            "https://example.com/new"
+        ]
+        assert has_checks_without_facts(self.team.id)
+
+    def test_the_backfill_command_writes_the_rows_of_every_team_with_checks(self) -> None:
+        self._check(cited_urls=["https://example.com/a"])
+
+        call_command("backfill_aeo_check_facts")
+
+        assert AEOCheckCitation.objects.for_team(self.team.id).count() == 1
 
     def test_backfill_from_a_child_environment_reads_the_checks_of_its_parent(self) -> None:
         self._check(cited_urls=["https://example.com/a"])
