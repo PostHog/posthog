@@ -2809,15 +2809,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             204: OpenApiResponse(description="Heartbeat recorded"),
             404: OpenApiResponse(description="Run not found"),
-            409: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="The run is not a live local run"
-            ),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run cannot take heartbeats"),
         },
         summary="Record a local run heartbeat",
         description=(
             "Tell the server that a local run is still alive. The client that drives a local run calls "
-            "this about once a minute while it holds the run open. Cloud runs report their own "
-            "heartbeats, so this endpoint refuses them."
+            "this about once a minute while it holds the run open. A heartbeat reopens a local run that "
+            "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
+            "them, along with failed and cancelled runs and runs of a finished task."
         ),
     )
     @action(
@@ -2834,7 +2833,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome == "not_live_local":
             return Response(
                 TaskRunErrorResponseSerializer(
-                    {"error": "Heartbeats are only for a local run that has not finished"}
+                    {"error": "This run can no longer take heartbeats. Start a new run to keep working."}
                 ).data,
                 status=status.HTTP_409_CONFLICT,
             )
