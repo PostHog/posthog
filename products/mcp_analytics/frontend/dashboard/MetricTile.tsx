@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
 import {
@@ -27,6 +27,9 @@ export interface MetricTileProps {
     formatValue: (n: number) => string
     theme: ChartTheme
     loading: boolean
+    // Whether `value` holds loaded data rather than a fallback. A loading tile without one shows a skeleton;
+    // with one it keeps the value and fades it while the refresh is in flight.
+    hasValue: boolean
     failed?: boolean
     onRetry?: () => void
     data?: number[]
@@ -54,6 +57,7 @@ export function MetricTile({
     formatValue,
     theme,
     loading,
+    hasValue,
     failed = false,
     onRetry,
     data,
@@ -69,14 +73,7 @@ export function MetricTile({
     sparklineDashedFromIndex,
     className,
 }: MetricTileProps): JSX.Element {
-    const settled = !loading && !failed
-    const [hasShownValue, setHasShownValue] = useState(settled)
-    useEffect(() => {
-        if (settled) {
-            setHasShownValue(true)
-        }
-    }, [settled])
-    const showSkeleton = loading && !hasShownValue
+    const showSkeleton = loading && !hasValue
     const hasSparkline = data != null && data.length > 0
     const flush = sparklineHeight != null || (!showSkeleton && !failed && hasSparkline)
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.

@@ -20,6 +20,7 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    hasValue: boolean
     failed?: boolean
     onRetry?: () => void
     summaryLabel: string
@@ -75,6 +76,7 @@ function KPITile({
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                hasValue={tile.hasValue}
                 failed={tile.failed}
                 onRetry={tile.onRetry}
                 value={metric.value}
@@ -105,6 +107,8 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisLoaded,
+    usersLoaded,
     kpisFailed,
     usersFailed,
     onRetryKpis,
@@ -118,6 +122,8 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    kpisLoaded: boolean
+    usersLoaded: boolean
     kpisFailed?: boolean
     usersFailed?: boolean
     onRetryKpis?: () => void
@@ -146,6 +152,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
+            hasValue: kpisLoaded && usersLoaded,
             failed: kpisFailed || usersFailed,
             onRetry: () =>
                 retryFailedSources([
@@ -162,6 +169,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
@@ -174,6 +182,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
@@ -186,6 +195,7 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Overall',
@@ -198,6 +208,7 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
+            hasValue: kpisLoaded && usersLoaded,
             failed: kpisFailed || usersFailed,
             onRetry: () =>
                 retryFailedSources([
@@ -216,6 +227,7 @@ export function KpiTiles({
                       format: formatNumber,
                       color: theme.colors[6],
                       loading: false,
+                      hasValue: true,
                       summaryLabel: 'Total',
                       trend: false,
                       // Clusters come from the latest clustering snapshot across all sessions, so
