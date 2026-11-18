@@ -65,7 +65,7 @@ from products.signals.backend.personal_ranking.logic import (
     input_parts,
 )
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
-from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
+from products.signals.backend.personal_ranking.validation import MalformedRankingError, cap, validate_ranking
 from products.signals.backend.personal_ranking_tasks import (
     build_lock_key,
     build_personal_inbox_ranking,
@@ -218,9 +218,22 @@ class TestValidateRanking(SimpleTestCase):
             ("c4", "later", "model"),
         ]
         assert result.counts.tier_corrections == 2
+        assert result.counts.reasons_cut == 1
         assert result.entries[0].reason == "r" * 19 + "…"
         assert [entry.next_step for entry in result.entries] == ["open the PR…", "look", None, None]
         assert result.entries[3].reason == "model c4"
+
+    @parameterized.expand(
+        [
+            ("fits", "Near your flag work", "Near your flag work", 20),
+            ("mid_word", "Breaks the checkout funnel", "Breaks the…"),
+            ("at_a_space", "Breaks the checkout funnel", "Breaks the checkout…", 20),
+            ("after_punctuation", "Checkout, funnel and flags", "Checkout…"),
+            ("one_long_word", "r" * 30, "r" * 14 + "…"),
+        ]
+    )
+    def test_cap_cuts_at_a_word_boundary(self, _name: str, text: str, expected: str, limit: int = 15) -> None:
+        assert cap(text, limit) == expected
 
     @parameterized.expand(
         [
@@ -384,7 +397,7 @@ class TestInputParts(SimpleTestCase):
             input_hash(
                 candidates, config=config, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
             )
-            == "9fd317c4f9be057d443190b2b97bc2608552333a6e816da77c07db2867b275e1"
+            == "61ca7a345f363b93b18359ec68ad052fe0a72b9864ed0bca593573dce55d2637"
         )
 
     @parameterized.expand(
@@ -542,10 +555,21 @@ class TestPrompt(SimpleTestCase):
         assert "p" * 100 in message and "p" * 101 not in message
         assert "- Checkout (mode build, strength strong, last seen 2026-10-29)" in message
 
-    def test_system_prompt_states_the_tier_and_reason_caps(self) -> None:
+    @parameterized.expand(
+        [
+            ("without_inbox_activity", 0, "the focus and this candidate's own block"),
+            ("with_inbox_activity", 20, "the focus, the recent inbox activity and this candidate's own block"),
+        ]
+    )
+    def test_system_prompt_states_the_tier_and_reason_rules(
+        self, _name: str, inbox_activity_lines: int, reason_sources: str
+    ) -> None:
         prompt = system_prompt(
             PersonalRankingConfig(
-                top_max=3, worth_a_look_max=7, reason_limits=ReasonLimits(top=90, worth_a_look=60, later=30)
+                top_max=3,
+                worth_a_look_max=7,
+                reason_limits=ReasonLimits(top=90, worth_a_look=60, later=30),
+                inbox_activity_lines=inbox_activity_lines,
             ),
             limit=25,
         )
@@ -553,6 +577,9 @@ class TestPrompt(SimpleTestCase):
         assert '"top" for at most 3 reports' in prompt
         assert '"worth_a_look" for at most 7 other' in prompt
         assert 'At most 90 characters for "top", 60 for "worth_a_look", 30 for "later".' in prompt
+        assert f"Use only facts from the person block, {reason_sources}." in prompt
+        # The reason rules forbid claims, so no example reason may cite one.
+        assert "you claimed" not in prompt
 
 
 class TestConfig(SimpleTestCase):
