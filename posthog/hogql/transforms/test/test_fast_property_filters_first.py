@@ -25,7 +25,9 @@ class _MarkerOrder(TraversingVisitor):
 
 
 class TestFastPropertyFiltersFirst(SimpleTestCase):
-    def _filter_order(self, where: str, *, native: bool = True, numeric_properties: tuple[str, ...] = ()) -> list[str]:
+    def _filter_order(
+        self, where: str, *, native: bool = True, table: str = "events", numeric_properties: tuple[str, ...] = ()
+    ) -> list[str]:
         metadata = PropertyMetadata(event_properties={name: {"type": "Numeric"} for name in numeric_properties})
         context = HogQLContext(
             use_new_events_schema=native,
@@ -35,7 +37,7 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
         )
         context.property_swapper = PropertySwapper("UTC", metadata.event_properties, {}, {}, context, False)
         prepared = prepare_ast_for_printing(
-            parse_select(f"SELECT count() FROM events WHERE {where}"), context, "clickhouse"
+            parse_select(f"SELECT count() FROM {table} WHERE {where}"), context, "clickhouse"
         )
         assert isinstance(prepared, ast.SelectQuery)
         assert prepared.where is not None
@@ -76,6 +78,16 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
         )
         assert order == ["seven", "deep"]
 
-    def test_the_legacy_table_keeps_the_written_order(self) -> None:
-        order = self._filter_order("properties.query.kind = 'deep' AND properties.query_type = 'fast'", native=False)
+    @parameterized.expand(
+        [
+            ("legacy_events_table", False, "events"),
+            ("text_properties_on_another_table", True, "posthog.ai_events"),
+        ]
+    )
+    def test_a_property_outside_a_native_json_column_keeps_the_written_order(
+        self, _name: str, native: bool, table: str
+    ) -> None:
+        order = self._filter_order(
+            "properties.query.kind = 'deep' AND properties.query_type = 'fast'", native=native, table=table
+        )
         assert order == ["deep", "fast"]

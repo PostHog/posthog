@@ -464,7 +464,7 @@ def prepare_ast_for_printing(
         if context.uses_new_events_schema():
             # Before property resolution, while a property read is still a PropertyAccess that carries its key path.
             with context.timings.measure("fast_property_filters_first"):
-                node = put_fast_property_filters_first(node)
+                node = put_fast_property_filters_first(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
             # Deferred to break the module-level cycle cpr → printer.base → printer package init →
