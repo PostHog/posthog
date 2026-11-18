@@ -114,6 +114,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "aws-cost-anomaly-detection": "credentials",
     "aws-cost-explorer": "credentials",
     "aws-documentdb": "credentials",
+    "aws-end-user-messaging": "credentials",
     "aws-glue-data-catalog": "credentials",
     "aws-guardduty": "credentials",
     "aws-health": "credentials",

@@ -113,6 +113,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "AwsCostAnomalyDetection": "aws-cost-anomaly-detection",
     "AwsCostExplorer": "aws-cost-explorer",
     "AwsDocumentDB": "aws-documentdb",
+    "AwsEndUserMessaging": "aws-end-user-messaging",
     "AwsGlueDataCatalog": "aws-glue-data-catalog",
     "AwsGuardduty": "aws-guardduty",
     "AwsHealth": "aws-health",
