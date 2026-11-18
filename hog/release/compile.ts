@@ -22,7 +22,7 @@ const { values } = parseArgs({
 })
 
 if (!existsSync(MCP_LIBRARY)) {
-    console.error(`Missing ${MCP_LIBRARY}. Run \`pnpm --filter @posthog/hog build:mcp\` first.`)
+    console.error(`Missing ${MCP_LIBRARY}. Run \`pnpm --filter hog build:mcp\` first.`)
     process.exit(1)
 }
 

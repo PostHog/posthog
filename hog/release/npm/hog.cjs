@@ -96,7 +96,7 @@ function main() {
     if (!binary) {
         fail(
             `the package ${packageName}, which holds the hog binary for this machine, isn't installed. ` +
-                'Your package manager may have skipped optional dependencies. Reinstall @posthog/hog without ' +
+                'Your package manager may have skipped optional dependencies. Reinstall the hog package without ' +
                 '--no-optional or --omit=optional.'
         )
     }

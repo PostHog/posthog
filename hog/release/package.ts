@@ -86,7 +86,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 const NPM_README = (name: string): string =>
-    `# ${name}\n\nhog, the PostHog command line. Install it with \`npm install -g @posthog/hog\`.\n\n` +
+    `# ${name}\n\nhog, the PostHog command line. Install it with \`npm install -g hog\`.\n\n` +
     'See https://github.com/PostHog/posthog/tree/master/hog for the commands.\n'
 
 async function npmPackage(folder: string, packageJson: PackageJson, files: [string, string][]): Promise<void> {

@@ -789,7 +789,7 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter='@posthog/hog...' install --frozen-lockfile
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
                   # The installed packages are compiled into the signed binary, so they come from the
                   # registry, checked against the lockfile, and not from a cache other jobs can write.
                   cache: 'false'
