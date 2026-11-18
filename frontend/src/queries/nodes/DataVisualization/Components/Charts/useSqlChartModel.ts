@@ -14,6 +14,7 @@ import {
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -64,6 +65,8 @@ export function useSqlChartModel<
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+    const dataTheme = useMemo(() => getTheme(undefined), [getTheme])
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
@@ -82,9 +85,10 @@ export function useSqlChartModel<
                 xData?.data ?? [],
                 visualizationType,
                 chartSettings,
-                theme.colors
+                theme.colors,
+                dataTheme
             ),
-        [ySeriesData, xData, visualizationType, chartSettings, theme.colors]
+        [ySeriesData, xData, visualizationType, chartSettings, theme.colors, dataTheme]
     )
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })

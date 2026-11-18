@@ -19,7 +19,9 @@ import {
 } from '@posthog/quill-charts'
 
 import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
+import type { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -262,7 +264,8 @@ export function withCategoryBarColors(
     labels: string[],
     visualizationType: ChartDisplayType,
     chartSettings: ChartSettings,
-    colors: string[]
+    colors: string[],
+    dataTheme: DataColorTheme | null
 ): Series<SqlLineSeriesMeta>[] {
     if (
         !chartSettings.colorBarsByCategory ||
@@ -276,9 +279,12 @@ export function withCategoryBarColors(
     const bars = labels.map((value) => {
         const key = String(value)
         if (!colorByCategory.has(key)) {
+            const customization = chartSettings.resultCustomizations?.[key]
+            const presetColor =
+                customization?.color && dataTheme ? getColorFromToken(dataTheme, customization.color) : undefined
             colorByCategory.set(
                 key,
-                chartSettings.resultCustomizations?.[key]?.customColor ?? colors[colorByCategory.size % colors.length]
+                customization?.customColor ?? presetColor ?? colors[colorByCategory.size % colors.length]
             )
         }
         return { color: colorByCategory.get(key) }

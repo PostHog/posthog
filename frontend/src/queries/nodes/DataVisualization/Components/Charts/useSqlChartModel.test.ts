@@ -1,5 +1,6 @@
-import { renderHook } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 
+import { useMocks } from '~/mocks/jest'
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -7,6 +8,17 @@ import { ChartDisplayType } from '~/types'
 import type { SqlChartProps } from './SqlChart'
 import { buildBarValueChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
+
+beforeEach(() => {
+    useMocks({
+        get: {
+            '/api/projects/:team_id/data_color_themes/': [
+                200,
+                [{ id: 1, is_global: true, colors: ['#abcdef', '#fedcba'] }],
+            ],
+        },
+    })
+})
 
 it('keeps off-scale reference lines when horizontal bars have a partial shared domain', () => {
     initKeaTests()
@@ -47,14 +59,19 @@ it('keeps off-scale reference lines when horizontal bars have a partial shared d
 
 it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue])(
     'colors categories without splitting the series in %s',
-    (visualizationType) => {
+    async (visualizationType) => {
         initKeaTests()
         const props = {
             visualizationType,
             chartSettings: {
                 colorBarsByCategory: true as boolean,
                 resultCustomizations: {
-                    B: { customColor: '#123456', assignmentBy: ResultCustomizationBy.Value as const },
+                    A: { color: 'preset-2', assignmentBy: ResultCustomizationBy.Value as const },
+                    B: {
+                        color: 'preset-2',
+                        customColor: '#123456',
+                        assignmentBy: ResultCustomizationBy.Value as const,
+                    },
                 },
             },
             xData: {
@@ -85,9 +102,10 @@ it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue])(
             { initialProps: { chartSettings: props.chartSettings, yData: props.yData } }
         )
         expect(result.current?.series).toHaveLength(1)
+        await waitFor(() => expect(result.current?.series[0].bars?.[0].color).toBe('#fedcba'))
         const bars = result.current?.series[0].bars
         expect(bars).toHaveLength(3)
-        expect(bars?.[0].color).toBe(result.current?.theme.colors[0])
+        expect(bars?.[0].color).toBe('#fedcba')
         expect(bars?.[1].color).toBe('#123456')
         expect(bars?.[2].color).toBe(bars?.[0].color)
         expect(result.current?.series[0].data).toEqual([10, 20, 30])
