@@ -192,6 +192,10 @@ def _normalize_and_compile(team_id: int, filters: dict) -> _CompiledRuleFilters:
         bytecode = compile_filter_bytecode(team_id, normalized)
     except (ErrorTrackingInvalidBytecodeError, BaseHogQLError, ValueError) as err:
         raise IssueTagRuleFiltersError(str(err)) from err
+    except (AssertionError, TypeError) as err:
+        # The compiler asserts on some operator and value pairs that the filter schema accepts, such as a date
+        # operator with a number, and those assertions carry no message.
+        raise IssueTagRuleFiltersError("A filter's operator does not work with its value.") from err
     # The tagger disables a rule above this limit, so reject it here instead.
     if len(bytecode) > MAX_SEVERITY_RULE_BYTECODE_OPS:
         raise IssueTagRuleFiltersError(

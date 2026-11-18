@@ -91,6 +91,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("no_filters", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
             ("empty_property_key", _event_filter("", "4", operator="icontains")),
             ("empty_filter_beside_an_event_filter", {"type": "OR", "values": [{}, ENTERPRISE_PLAN]}),
+            ("date_operator_with_a_number", _event_filter("plan", 5, operator="is_date_exact")),
         ]
     )
     def test_create_and_edit_reject_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:
