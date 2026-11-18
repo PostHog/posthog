@@ -202,8 +202,9 @@ class Settings(BaseSettings):
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
-    # Sends AI content in full instead of truncated with media redacted. Since posthoganalytics 8
-    # AI events always go to /i/v1/ai/events; this no longer chooses the capture lane.
+    # Has no effect on what the gateway sends. The gateway captures with `capture_ai`, which sends
+    # AI content as given to /i/v1/ai/events, and posthoganalytics 8 reads the matching client
+    # setting (`enable_full_ai_capture`) only in its provider wrappers.
     posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True

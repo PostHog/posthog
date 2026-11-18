@@ -463,8 +463,8 @@ class PostHogCallback(InstrumentedCallback):
             max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
             capture_ai_timeout=POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS,
             enable_local_evaluation=False,
-            # AI events always go to /i/v1/ai/events; this only controls whether
-            # content is sent in full or truncated with media redacted.
+            # Only the SDK's provider wrappers read this setting. `capture_ai` sends
+            # the content as given, so it does not change what the gateway sends.
             enable_full_ai_capture=self._ai_lane_capture,
         )
         try:
