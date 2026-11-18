@@ -1,6 +1,9 @@
+from uuid import UUID
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -56,7 +59,12 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     )
     def list(self, request, *args, **kwargs):
         issue_ids_param = request.query_params.get("issue_ids")
-        issue_ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
+        try:
+            issue_ids = (
+                [UUID(uid.strip()) for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
+            )
+        except ValueError as error:
+            raise ValidationError({"issue_ids": "Provide comma-separated valid issue UUIDs."}) from error
         date_from = request.query_params.get("date_from")
         date_to = request.query_params.get("date_to")
         order_by = request.query_params.get("order_by")

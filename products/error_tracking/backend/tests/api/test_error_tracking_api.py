@@ -55,6 +55,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueTag,
     ErrorTrackingRelease,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
@@ -710,16 +711,22 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
-    def test_issue_bulk_rejects_deprecated_status(self):
+    @parameterized.expand(
+        [
+            ("archived_status", "archived", []),
+            ("pending_release_status", "pending_release", []),
+            ("malformed_id", "resolved", ["not-a-uuid"]),
+        ]
+    )
+    def test_issue_bulk_rejects_invalid_input(self, _name: str, bulk_status: str, extra_ids: list[str]) -> None:
         issue = self.create_issue()
 
-        for deprecated_status in ("archived", "pending_release"):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-                data={"ids": [issue.id], "action": "set_status", "status": deprecated_status},
-            )
-            assert response.status_code == 400, response.json()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={"ids": [str(issue.id), *extra_ids], "action": "set_status", "status": bulk_status},
+        )
 
+        assert response.status_code == 400, response.json()
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
@@ -894,6 +901,24 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    def test_spike_events_issue_ids_filter(self) -> None:
+        issue = self.create_issue(["fingerprint_one"])
+        for spiking_issue in (issue, self.create_issue(["fingerprint_two"])):
+            ErrorTrackingSpikeEvent.objects.create(
+                team=self.team,
+                issue=spiking_issue,
+                detected_at=timezone.now(),
+                computed_baseline=1.0,
+                current_bucket_value=10,
+            )
+        url = f"/api/projects/{self.team.id}/error_tracking/spike_events"
+
+        valid = self.client.get(url, data={"issue_ids": str(issue.id)})
+        malformed = self.client.get(url, data={"issue_ids": f"{issue.id},not-a-uuid"})
+
+        assert [row["issue"]["id"] for row in valid.json()["results"]] == [str(issue.id)]
+        assert (malformed.status_code, malformed.json()["attr"]) == (400, "issue_ids"), malformed.content
 
     @parameterized.expand(SUMMARY_STATES)
     def test_issue_summary_status(

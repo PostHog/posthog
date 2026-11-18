@@ -69,7 +69,7 @@ class TestIssueChangeRecording(BaseTest):
 
         bulk_update_issues(
             self.team.id,
-            [str(issue.id) for issue in issues],
+            [issue.id for issue in issues],
             action="set_status",
             status="suppressed",
             assignee=None,

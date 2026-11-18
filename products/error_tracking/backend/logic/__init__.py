@@ -289,7 +289,7 @@ def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> Error
 
 def list_spike_events(
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
