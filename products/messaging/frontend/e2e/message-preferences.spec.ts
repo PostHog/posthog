@@ -189,41 +189,62 @@ test.describe('Message preferences page', () => {
         }
     })
 
-    test('a refused save turns the switch back', async ({ browser, page, playwrightSetup }) => {
-        const { path, productNewsId } = await createPreferencesPage(page, playwrightSetup)
-        const { context, recipientPage, productNews, allMarketing, offNote, status } = await openAsRecipient(
-            browser,
-            path
+    test('a refused all marketing save turns all marketing back on and keeps the topic choices', async ({
+        browser,
+        page,
+        playwrightSetup,
+    }) => {
+        const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
+            page,
+            playwrightSetup
         )
+        const { context, recipientPage, productNews, eventInvites, allMarketing, offNote, status } =
+            await openAsRecipient(browser, path)
 
         try {
-            await test.step('a refused all marketing save turns all marketing back on', async () => {
-                await recipientPage.route(
-                    UPDATE_URL,
-                    (route) => route.fulfill({ status: 500, json: { error: 'All marketing save refused' } }),
-                    { times: 1 }
-                )
-                await allMarketing.click()
-                await expect(recipientPage.getByText('All marketing save refused')).toBeVisible()
-                await expect(allMarketing).toBeChecked()
-                await expect(status('$all')).toHaveText('Subscribed')
-                await expect(offNote).toBeHidden()
-                await expect(productNews).toBeChecked()
-                await expect(productNews).toBeEnabled()
-            })
+            await eventInvites.click()
+            await expect(status(eventInvitesId)).toHaveText('Not subscribed')
 
-            await test.step('a refused topic save turns the topic back on', async () => {
-                await recipientPage.route(
-                    UPDATE_URL,
-                    (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
-                    { times: 1 }
-                )
-                await productNews.click()
-                await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
-                await expect(productNews).toBeChecked()
-                await expect(productNews).toBeEnabled()
-                await expect(status(productNewsId)).toHaveText('Subscribed')
-            })
+            await recipientPage.route(
+                UPDATE_URL,
+                (route) => route.fulfill({ status: 500, json: { error: 'All marketing save refused' } }),
+                { times: 1 }
+            )
+            await allMarketing.click()
+            await expect(recipientPage.getByText('All marketing save refused')).toBeVisible()
+            await expect(allMarketing).toBeChecked()
+            await expect(status('$all')).toHaveText('Subscribed')
+            await expect(offNote).toBeHidden()
+            await expect(productNews).toBeChecked()
+            await expect(productNews).toBeEnabled()
+            await expect(eventInvites).not.toBeChecked()
+            await expect(eventInvites).toBeEnabled()
+
+            await productNews.click()
+            await expect(status(productNewsId)).toHaveText('Not subscribed')
+            await expect
+                .poll(() => storedPreferences())
+                .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
+        } finally {
+            await context.close()
+        }
+    })
+
+    test('a refused topic save turns the topic back on', async ({ browser, page, playwrightSetup }) => {
+        const { path, productNewsId } = await createPreferencesPage(page, playwrightSetup)
+        const { context, recipientPage, productNews, status } = await openAsRecipient(browser, path)
+
+        try {
+            await recipientPage.route(
+                UPDATE_URL,
+                (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
+                { times: 1 }
+            )
+            await productNews.click()
+            await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
+            await expect(productNews).toBeChecked()
+            await expect(productNews).toBeEnabled()
+            await expect(status(productNewsId)).toHaveText('Subscribed')
         } finally {
             await context.close()
         }
