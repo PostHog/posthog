@@ -125,8 +125,10 @@ export interface servicePageLogicValues {
     latencyPercentiles: LatencyPercentiles
     operationNames: string[]
     rawLatencyHeatmap: LatencyHeatmapRow[]
+    rawLatencyHeatmapFailed: boolean
     rawLatencyHeatmapLoading: boolean
     requestsSeries: RequestsSeries | null
+    requestsSeriesFailed: boolean
     requestsSeriesLoading: boolean
     scope: ServiceScope
     scopeFilters: ServiceSpanFilter[]
@@ -138,6 +140,7 @@ export interface servicePageLogicValues {
     servicesHealthFailed: boolean
     servicesHealthLoading: boolean
     statusCodeErrors: StatusCodeErrors[]
+    statusCodeErrorsFailed: boolean
     statusCodeErrorsLoading: boolean
     timeRange: TimeRange
     topErrors: TopError[]
@@ -224,7 +227,7 @@ export interface servicePageLogicActions {
     fetchScopeOptionsSuccess: (
         scopeOptions: {
             environmentKeys: {
-                key: 'deployment.environment' | 'deployment.environment.name' | 'env'
+                key: 'deployment.environment' | 'deployment.environment.name' | 'env' | 'k8s.cluster.name'
                 values: string[]
             }[]
             versions: string[]
@@ -233,7 +236,7 @@ export interface servicePageLogicActions {
     ) => {
         scopeOptions: {
             environmentKeys: {
-                key: 'deployment.environment' | 'deployment.environment.name' | 'env'
+                key: 'deployment.environment' | 'deployment.environment.name' | 'env' | 'k8s.cluster.name'
                 values: string[]
             }[]
             versions: string[]
@@ -595,6 +598,30 @@ export const servicePageLogic = kea<servicePageLogicType>([
                 fetchErrorSpans: () => false,
                 fetchErrorSpansSuccess: () => false,
                 fetchErrorSpansFailure: () => true,
+            },
+        ],
+        statusCodeErrorsFailed: [
+            false,
+            {
+                fetchStatusCodeErrors: () => false,
+                fetchStatusCodeErrorsSuccess: () => false,
+                fetchStatusCodeErrorsFailure: () => true,
+            },
+        ],
+        requestsSeriesFailed: [
+            false,
+            {
+                fetchRequestsSeries: () => false,
+                fetchRequestsSeriesSuccess: () => false,
+                fetchRequestsSeriesFailure: () => true,
+            },
+        ],
+        rawLatencyHeatmapFailed: [
+            false,
+            {
+                fetchLatencyHeatmap: () => false,
+                fetchLatencyHeatmapSuccess: () => false,
+                fetchLatencyHeatmapFailure: () => true,
             },
         ],
     }),

@@ -46,6 +46,16 @@ function StatBlock({ label, value }: { label: string; value: string }): JSX.Elem
     )
 }
 
+function ChartLoadError({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div className="h-48 flex items-center">
+            <LemonBanner type="error" className="w-full" action={{ children: 'Retry', onClick: () => onRetry() }}>
+                Couldn't load this chart.
+            </LemonBanner>
+        </div>
+    )
+}
+
 function ServiceTableOfContents(): JSX.Element {
     return (
         <nav
@@ -82,16 +92,27 @@ export function ServicePageScene(): JSX.Element {
         endpointsHealthFailed,
         requestsSeries,
         requestsSeriesLoading,
+        requestsSeriesFailed,
         latencyHeatmapData,
         latencyPercentiles,
         rawLatencyHeatmapLoading,
+        rawLatencyHeatmapFailed,
         topErrors,
         errorSpans,
         errorSpansLoading,
         errorSpansFailed,
         statusCodeErrors,
+        statusCodeErrorsLoading,
+        statusCodeErrorsFailed,
     } = useValues(servicePageLogic)
-    const { fetchServicesHealth, fetchEndpointsHealth, fetchErrorSpans } = useActions(servicePageLogic)
+    const {
+        fetchServicesHealth,
+        fetchEndpointsHealth,
+        fetchRequestsSeries,
+        fetchLatencyHeatmap,
+        fetchStatusCodeErrors,
+        fetchErrorSpans,
+    } = useActions(servicePageLogic)
 
     if (!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]) {
         return <NotFound object="page" />
@@ -192,15 +213,23 @@ export function ServicePageScene(): JSX.Element {
                         <div className="grid grid-cols-1 @min-[64rem]/main-content:grid-cols-2 gap-4">
                             <div className="flex flex-col gap-1">
                                 <span className="text-sm font-semibold">Requests and errors</span>
-                                <ServiceRequestsChart data={requestsSeries} loading={requestsSeriesLoading} />
+                                {requestsSeriesFailed && !requestsSeriesLoading ? (
+                                    <ChartLoadError onRetry={() => fetchRequestsSeries()} />
+                                ) : (
+                                    <ServiceRequestsChart data={requestsSeries} loading={requestsSeriesLoading} />
+                                )}
                             </div>
                             <div className="flex flex-col gap-1">
                                 <span className="text-sm font-semibold">Latency</span>
-                                <ServiceLatencyChart
-                                    timeBuckets={latencyHeatmapData.timeBuckets}
-                                    percentiles={latencyPercentiles}
-                                    loading={rawLatencyHeatmapLoading}
-                                />
+                                {rawLatencyHeatmapFailed && !rawLatencyHeatmapLoading ? (
+                                    <ChartLoadError onRetry={() => fetchLatencyHeatmap()} />
+                                ) : (
+                                    <ServiceLatencyChart
+                                        timeBuckets={latencyHeatmapData.timeBuckets}
+                                        percentiles={latencyPercentiles}
+                                        loading={rawLatencyHeatmapLoading}
+                                    />
+                                )}
                                 <span className="text-xs text-muted">
                                     Each point is the top of the latency bucket the percentile falls in.
                                 </span>
@@ -229,12 +258,19 @@ export function ServicePageScene(): JSX.Element {
                     <ServiceSection id="errors" title="Errors">
                         <ServiceTopErrors
                             topErrors={topErrors}
-                            topErrorsLoading={errorSpansLoading}
+                            topErrorsLoading={errorSpansLoading || statusCodeErrorsLoading}
                             sampleSize={errorSpans.length}
                             sampleLimit={ERROR_SAMPLE_LIMIT}
                             statusCodeErrors={statusCodeErrors}
-                            failed={errorSpansFailed}
-                            onRetry={() => fetchErrorSpans()}
+                            failed={errorSpansFailed || statusCodeErrorsFailed}
+                            onRetry={() => {
+                                if (errorSpansFailed) {
+                                    fetchErrorSpans()
+                                }
+                                if (statusCodeErrorsFailed) {
+                                    fetchStatusCodeErrors()
+                                }
+                            }}
                         />
                     </ServiceSection>
                 </div>

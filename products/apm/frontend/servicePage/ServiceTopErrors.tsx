@@ -18,7 +18,7 @@ export interface ServiceTopErrorsProps {
     sampleSize: number
     sampleLimit: number
     statusCodeErrors: StatusCodeErrors[]
-    /** The last error-span fetch failed, so the table would show stale or missing rows as current. */
+    /** The last error-span or status-code fetch failed, so the section would show stale or missing rows as current. */
     failed: boolean
     onRetry: () => void
 }

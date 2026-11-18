@@ -1,6 +1,15 @@
+import { PropertyOperator } from '~/types'
+
 import type { Span } from 'products/tracing/frontend/types'
 
-import { latencyPercentileSeries, mergeRequestsSeries, spanErrorMessage, topErrorMessages } from './servicePage'
+import {
+    ENVIRONMENT_KEYS,
+    latencyPercentileSeries,
+    mergeRequestsSeries,
+    serviceScopeFilters,
+    spanErrorMessage,
+    topErrorMessages,
+} from './servicePage'
 
 const errorSpan = (n: number, attributes: Record<string, string>): Span => ({
     uuid: `uuid-${n}`,
@@ -21,6 +30,13 @@ const errorSpan = (n: number, attributes: Record<string, string>): Span => ({
 })
 
 describe('servicePage', () => {
+    it('narrows the default environment to spans without any environment key', () => {
+        const filters = serviceScopeFilters({ environment: 'default', version: null, operation: null }, null)
+        expect(filters.map(({ key, operator }) => [key, operator])).toEqual(
+            ENVIRONMENT_KEYS.map((key) => [key, PropertyOperator.IsNotSet])
+        )
+    })
+
     it('reads each percentile off the bucket where the cumulative count crosses it', () => {
         const percentiles = latencyPercentileSeries({
             timeBuckets: ['t0', 't1'],
