@@ -319,6 +319,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   `reauth=<account key>` starts the form on that account's host, says which account signs in again, and drops the self-hosted switch and Create an account.
   "Your browser is still signed in to PostHog as …" replaces the error box when the browser returned an account already on the phone, with Open PostHog in the browser and Try again.
   After a private browser session (iOS), the box says "You signed in as …, and that account is already on this phone." and offers only Try again.
+  After a shared browser session that asked for the server's account chooser (Android), the box says to try again and choose "Use a different account", and offers only Try again.
   After an expiry of a stored account the page is the session-ended card: the account (`AccountIdentity`, large), "Your session ended", Sign in again, "Or switch to" with the other accounts, and Sign out of this account, which confirms in the card.
 - **Settings**: minimal, built from the same tokens. The large title scrolls with the content.
   A centered title fades into the navigation row as the large title scrolls out, using the shared page-title pattern.

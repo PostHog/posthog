@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { scopeGroupsStartOpen } from 'lib/oauthScopeRows'
@@ -610,6 +611,71 @@ describe('oauthAuthorizeLogic', () => {
             } finally {
                 window.POSTHOG_APP_CONTEXT = original
             }
+        })
+    })
+
+    describe('account selection', () => {
+        const CONTINUE_PATH = '/oauth/authorize/?client_id=abc&state=%7B%22a%22%3A%22b%2Bc%22%7D&prompt=consent'
+
+        beforeEach(() => {
+            jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                oauth_account_selection: { continue_path: CONTINUE_PATH },
+            } as AppContext
+            router.actions.push('/')
+            logic.unmount()
+            logic = oauthAuthorizeLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('shows the chooser without loading the consent screen data', async () => {
+            await expectLogic(logic).clearHistory()
+            await expectLogic(logic, () => {
+                router.actions.push('/oauth/authorize', { client_id: 'abc', prompt: 'select_account' })
+            })
+                .toDispatchActions(['loadOAuthApplication'])
+                .toNotHaveDispatchedActions(['loadAllTeams', 'setScopes'])
+            expect(logic.values.accountSelection?.continue_path).toBe(CONTINUE_PATH)
+        })
+
+        it('continues as the current account by loading the request without the chooser', () => {
+            const originalLocation = window.location
+            const replace = jest.fn()
+            Object.defineProperty(window, 'location', { value: { ...originalLocation, replace }, configurable: true })
+            try {
+                logic.actions.chooseAccount('current_account')
+            } finally {
+                Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+            }
+
+            expect(replace).toHaveBeenCalledWith(CONTINUE_PATH)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'oauth_account_selection_chosen',
+                expect.objectContaining({ choice: 'current_account' }),
+                { send_instantly: true }
+            )
+        })
+
+        it('signs out through the logout form, which returns to the request without the chooser', () => {
+            // The real logout listener submits a <form>, which jsdom doesn't implement
+            const submit = jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => undefined)
+
+            logic.actions.chooseAccount('different_account')
+
+            const submitted = submit.mock.contexts[0] as HTMLFormElement | undefined
+            expect(submitted?.getAttribute('action')).toBe('/logout')
+            expect(submitted?.getAttribute('method')).toBe('POST')
+            expect((submitted?.elements.namedItem('next') as HTMLInputElement | null)?.value).toBe(CONTINUE_PATH)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'oauth_account_selection_chosen',
+                expect.objectContaining({ choice: 'different_account' }),
+                { send_instantly: true }
+            )
         })
     })
 

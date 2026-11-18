@@ -7,6 +7,7 @@ so they are built here rather than separately.
 from oauth2_provider.models import AbstractApplication
 
 from posthog.api import id_jag
+from posthog.api.oauth.account_selection import SELECT_ACCOUNT
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
@@ -55,6 +56,7 @@ def _shared_metadata(base_url: str) -> Document:
         "token_endpoint_auth_methods_supported": SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS,
         # The `enforce_supported_code_challenge_method` constraint rejects `plain`.
         "code_challenge_methods_supported": ["S256"],
+        "prompt_values_supported": [SELECT_ACCOUNT],
         "service_documentation": SERVICE_DOCUMENTATION,
     }
 

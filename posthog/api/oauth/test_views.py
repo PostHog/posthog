@@ -206,12 +206,23 @@ class TestOAuthAPI(APIBaseTest):
     def get_basic_auth_header(self, client_id: str, client_secret: str) -> str:
         return f"Basic {base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()}"
 
-    def test_authorize_redirects_to_login_if_not_authenticated(self):
+    @parameterized.expand(
+        [
+            ("without_prompt", "", None),
+            ("select_account_alone", "&prompt=select_account", None),
+            ("select_account_with_consent", "&prompt=select_account+consent", "consent"),
+        ]
+    )
+    def test_authorize_redirects_to_login_if_not_authenticated(self, _name, prompt_param, expected_prompt):
         self.client.logout()
 
-        response = self.client.get(self.base_authorization_url)
+        response = self.client.get(self.base_authorization_url + prompt_param)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn(f"/login?next=/oauth/authorize/", response["Location"])
+        next_url = urlparse(parse_qs(urlparse(response["Location"]).query)["next"][0])
+        next_params = parse_qs(next_url.query)
+        self.assertEqual(next_params.pop("prompt", None), [expected_prompt] if expected_prompt else None)
+        self.assertEqual(next_params, parse_qs(urlparse(self.base_authorization_url).query))
 
         cookie = response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]
         self.assertEqual(cookie["max-age"], PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS)
@@ -844,17 +855,99 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
 
-    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+    @parameterized.expand(
+        [
+            ("none_alone", "none", "login_required"),
+            ("none_with_select_account", "none select_account", "invalid_request"),
+        ]
+    )
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self, _name, prompt, expected_error):
         # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
         # with a spec-compliant error, never a token and never a 500. On the GET validate path
         # oauthlib hasn't attached the user yet, so it rejects at the first gate with
         # `login_required` (a missing validate_silent_login override used to crash here instead).
-        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+        url = f"{self.base_authorization_url}&scope=openid&{urlencode({'prompt': prompt})}"
 
         response = self.client.get(url)
 
         self.assertLess(response.status_code, 500)
-        self.assertIn("error=login_required", response.headers["Location"])
+        self.assertIn(f"error={expected_error}", response.headers["Location"])
+
+    @parameterized.expand(
+        [
+            ("select_account_alone", "select_account", None),
+            ("select_account_with_consent", "consent select_account", "consent"),
+        ]
+    )
+    def test_select_account_shows_the_chooser_and_its_continue_path_authorizes_once(
+        self, _name, prompt, expected_prompt
+    ):
+        first_party_app = OAuthApplication.objects.create(
+            name="First Party App",
+            client_id="first_party_client_id",
+            client_secret="first_party_client_secret",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+        )
+        params = {
+            "client_id": first_party_app.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid email",
+            "state": '{"flow":"a+b c/d"}',
+            "nonce": "n-0S6_WzA2Mj",
+        }
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            chooser = self.client.get(f"/oauth/authorize/?{urlencode({**params, 'prompt': prompt})}")
+
+        self.assertEqual(chooser.status_code, status.HTTP_200_OK)
+        self.assertFalse(OAuthGrant.objects.filter(application=first_party_app).exists())
+        chooser_events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertEqual(chooser_events.count("oauth_account_selection_shown"), 1)
+        self.assertNotIn("oauth_authorization_requested", chooser_events)
+        connection = PendingOAuthConnection.from_cookie_value(chooser.cookies[PENDING_OAUTH_CONNECTION_COOKIE].value)
+        assert connection is not None
+        self.assertEqual(connection.client_id, first_party_app.client_id)
+        continue_path = chooser.context["posthog_app_context"]["oauth_account_selection"]["continue_path"]
+        continue_url = urlparse(continue_path)
+        self.assertEqual(continue_url.path, "/oauth/authorize/")
+        expected_params = {**params, **({"prompt": expected_prompt} if expected_prompt else {})}
+        self.assertEqual(parse_qs(continue_url.query), {key: [value] for key, value in expected_params.items()})
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            granted = self.client.get(continue_path)
+
+        self.assertEqual(granted.status_code, status.HTTP_302_FOUND)
+        redirect_params = parse_qs(urlparse(granted["Location"]).query)
+        self.assertEqual(redirect_params["state"], [params["state"]])
+        grant = OAuthGrant.objects.get(code=redirect_params["code"][0])
+        self.assertEqual((grant.code_challenge, grant.nonce), (self.code_challenge, params["nonce"]))
+        continue_events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertEqual(continue_events.count("oauth_authorization_requested"), 1)
+        self.assertNotIn("oauth_account_selection_shown", continue_events)
+
+    @parameterized.expand(
+        [
+            ("none_beside_it", "none select_account"),
+            ("login_beside_it", "login select_account"),
+            ("a_longer_value", "select_accounts"),
+        ]
+    )
+    def test_prompt_without_a_usable_select_account_keeps_the_consent_screen(self, _name, prompt):
+        response = self.client.get(f"{self.base_authorization_url}&{urlencode({'prompt': prompt})}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        app_context = response.context["posthog_app_context"]
+        self.assertNotIn("oauth_account_selection", app_context)
+        self.assertIn("oauth_scope_resolution", app_context)
 
     # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
     # requests before validate_silent_login runs, so the validator's False branch can't
@@ -6170,6 +6263,7 @@ class TestOpenIDProviderMetadata(SimpleTestCase):
         self.assertEqual(metadata["response_types_supported"], ["code"])
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertEqual(metadata["id_token_signing_alg_values_supported"], ["RS256"])
+        self.assertEqual(metadata["prompt_values_supported"], ["select_account"])
 
     def test_agrees_with_the_authorization_server_document(self):
         oidc = openid_provider_metadata("https://us.posthog.com")

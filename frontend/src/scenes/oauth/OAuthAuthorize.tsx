@@ -22,6 +22,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
+import { OAuthAuthorizeAccountSelection } from './OAuthAuthorizeAccountSelection'
 import { OAuthAuthorizeEmaIssuer } from './OAuthAuthorizeEmaIssuer'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
@@ -107,6 +108,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         newOrganizationLoading,
         selectedOrganization,
         emaIssuerConsent,
+        accountSelection,
         user,
     } = useValues(oauthAuthorizeLogic)
     const {
@@ -193,6 +195,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                     title="No application found"
                     description="The application requesting access to your data does not exist."
                 />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
+    if (accountSelection) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeAccountSelection />
             </OAuthAuthorizeLayout>
         )
     }

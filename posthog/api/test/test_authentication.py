@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
@@ -994,10 +995,21 @@ class TestLogoutRedirect(APIBaseTest):
         expected = settings.LOGIN_URL if error_code is None else f"{settings.LOGIN_URL}?error_code={error_code}"
         self.assertEqual(response["Location"], expected)
 
-    def test_logout_forwards_safe_next_param(self):
-        response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
+    @parameterized.expand(
+        [
+            ("a_path", "/settings/user-notifications"),
+            (
+                "an_oauth_request_after_the_account_chooser",
+                "/oauth/authorize/?client_id=abc&state=%7B%22a%22%3A%22b%2Bc+d%22%7D&prompt=consent",
+            ),
+        ]
+    )
+    def test_logout_forwards_safe_next_param(self, _name, next_url):
+        response = self.client.post("/logout", {"next": next_url}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
+        location = urlparse(response["Location"])
+        self.assertEqual(location.path, "/login")
+        self.assertEqual(parse_qs(location.query), {"next": [next_url]})
 
     @parameterized.expand(
         [

@@ -848,7 +848,11 @@ export const useAuthStore = create<AuthState>()(
                     }))
                     track('mobile_signed_in', { method, region })
                     if (!existing) {
-                        track('mobile_account_added', { account_count: get().accounts.length, region })
+                        track('mobile_account_added', {
+                            account_count: get().accounts.length,
+                            region,
+                            select_account: browser.selectAccount,
+                        })
                     }
                     if (slot.replaced && !sameCredentials(slot.replaced.tokens, tokens)) {
                         revokeStored(slot.replaced)
@@ -1038,7 +1042,7 @@ export const useAuthStore = create<AuthState>()(
                         null,
                         intent,
                         undefined,
-                        { privateSession: false },
+                        { privateSession: false, selectAccount: false },
                         { kept: false }
                     )
                 },
