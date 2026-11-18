@@ -31,7 +31,7 @@ const errorSpan = (n: number, attributes: Record<string, string>): Span => ({
 
 describe('servicePage', () => {
     it('narrows the default environment to spans without any environment key', () => {
-        const filters = serviceScopeFilters({ environment: 'default', version: null, operation: null }, null)
+        const filters = serviceScopeFilters({ environment: '', version: null, operation: null }, null)
         expect(filters.map(({ key, operator }) => [key, operator])).toEqual(
             ENVIRONMENT_KEYS.map((key) => [key, PropertyOperator.IsNotSet])
         )

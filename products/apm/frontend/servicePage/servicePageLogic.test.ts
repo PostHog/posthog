@@ -80,6 +80,7 @@ describe('servicePageLogic', () => {
             { range: '-24h', environment: 'prod', version: '1.0', operation: 'GET /a' },
         ],
         ['values the router would read as a number or a boolean', '2024', { environment: 'true', version: '10' }],
+        ['the unset environment, which is not the same as all environments', 'checkout', { environment: '' }],
     ])('a service link round-trips through the page URL for %s', (_, serviceName, params) => {
         router.actions.push(urls.applicationObservabilityService(serviceName, params))
 

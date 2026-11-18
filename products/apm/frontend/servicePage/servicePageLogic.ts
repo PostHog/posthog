@@ -42,6 +42,7 @@ import {
     latencyPercentileSeries,
     mergeRequestsSeries,
     mergeStatusCodeErrors,
+    readEnvironmentParam,
     readScopeParam,
     scopeParamValue,
     serviceScopeFilters,
@@ -98,7 +99,7 @@ export function servicePageStateFromUrl(searchParams: Record<string, unknown>): 
     return {
         timeRange: isTimeRange(searchParams.range) ? searchParams.range : DEFAULT_TIME_RANGE,
         scope: {
-            environment: readScopeParam(searchParams.environment),
+            environment: readEnvironmentParam(searchParams.environment),
             version: readScopeParam(searchParams.version),
             operation: readScopeParam(searchParams.operation),
         },
@@ -117,7 +118,7 @@ export interface servicePageLogicValues {
     endpointsHealthFailed: boolean
     endpointsHealthLoading: boolean
     environmentKey: string | null
-    environments: string[]
+    environments: (string | null)[]
     errorSpans: Span[]
     errorSpansFailed: boolean
     errorSpansLoading: boolean
@@ -302,7 +303,7 @@ export interface servicePageLogicMeta {
         environmentKey: (scope: ServiceScope, scopeOptions: ServiceScopeOptions) => string | null
         scopeFilters: (scope: ServiceScope, environmentKey: string | null) => ServiceSpanFilter[]
         service: (servicesHealth: ServicesHealthResponseApi | null, arg: any) => ServiceHealthApi | null
-        environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
+        environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null, arg: any) => EndpointHealthApi[]
         operationNames: (endpoints: EndpointHealthApi[]) => string[]
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
@@ -420,7 +421,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
                             String(values.currentTeamId),
                             {
                                 ...healthWindow(values.timeRange),
-                                ...(values.scope.environment ? { environment: values.scope.environment } : {}),
+                                ...(values.scope.environment !== null ? { environment: values.scope.environment } : {}),
                             },
                             { signal }
                         ),
@@ -443,7 +444,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
                             String(values.currentTeamId),
                             {
                                 ...healthWindow(values.timeRange),
-                                ...(values.scope.environment ? { environment: values.scope.environment } : {}),
+                                ...(values.scope.environment !== null ? { environment: values.scope.environment } : {}),
                                 service: props.serviceName,
                             },
                             { signal }
@@ -650,7 +651,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
         ],
         environments: [
             (s) => [s.servicesHealth],
-            (servicesHealth: ServicesHealthResponseApi | null): string[] => servicesHealth?.environments ?? [],
+            (servicesHealth: ServicesHealthResponseApi | null): (string | null)[] => servicesHealth?.environments ?? [],
         ],
         // The endpoints table lists every endpoint, so the operation selector doesn't narrow it.
         endpoints: [
@@ -724,7 +725,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
             }
             for (const field of ['environment', 'version', 'operation'] as const) {
                 const value = values.scope[field]
-                if (value) {
+                if (value || (field === 'environment' && value === '')) {
                     params[field] = scopeParamValue(value)
                 }
             }

@@ -23,13 +23,6 @@ export const ENVIRONMENT_KEYS = [
 ] as const
 export const VERSION_KEY = 'service.version'
 
-// What the health API calls spans that carry no environment attribute.
-export const DEFAULT_ENVIRONMENT = 'default'
-
-export function environmentLabel(environment: string): string {
-    return environment === DEFAULT_ENVIRONMENT ? '(no environment)' : environment
-}
-
 // HTTP status lives under the current semconv key or the older one, depending on the SDK.
 export const HTTP_STATUS_KEYS = ['http.response.status_code', 'http.status_code'] as const
 
@@ -66,6 +59,11 @@ export function readScopeParam(value: unknown): string | null {
     return typeof value === 'string' && value !== '' ? value : null
 }
 
+/** Like `readScopeParam`, but keeps `environment=` as the empty string, the unset environment. */
+export function readEnvironmentParam(value: unknown): string | null {
+    return value === '' ? '' : readScopeParam(value)
+}
+
 /** A flat span filter, the shape the span endpoints accept for `filterGroup`. */
 export interface ServiceSpanFilter {
     key: string
@@ -76,7 +74,7 @@ export interface ServiceSpanFilter {
 
 /**
  * The flat filters for a scope. `envKey` is the resource attribute the picked environment lives
- * under, or null when no span carries it as written (the health API's `default` environment). Pass `includeOperation: false` for views that list every operation, so the table
+ * under, or null when no span carries it as written (such as the unset environment). Pass `includeOperation: false` for views that list every operation, so the table
  * of endpoints doesn't collapse to the one picked in the operation selector.
  */
 export function serviceScopeFilters(
@@ -92,8 +90,8 @@ export function serviceScopeFilters(
             operator: PropertyOperator.Exact,
             value: [scope.environment],
         })
-    } else if (scope.environment === DEFAULT_ENVIRONMENT) {
-        // The health API's `default` is spans with none of the keys, so match those, not every span.
+    } else if (scope.environment === '') {
+        // The unset environment is spans with none of the keys, so match those, not every span.
         for (const key of ENVIRONMENT_KEYS) {
             filters.push({ key, type: PropertyFilterType.SpanResourceAttribute, operator: PropertyOperator.IsNotSet })
         }
