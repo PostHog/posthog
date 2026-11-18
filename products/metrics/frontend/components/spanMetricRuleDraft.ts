@@ -31,8 +31,22 @@ const SPAN_STATUS_CODES: Record<string, string> = { unset: '0', ok: '1', error: 
 const SERVER_KIND = SPAN_KIND_CODES.server
 const ERROR_STATUS = SPAN_STATUS_CODES.error
 
-// Keys a derived span series reads from the resource attributes when no scope is given.
-const RESOURCE_KEYS = new Set(['deployment.environment', 'deployment.environment.name', 'service.version', 'env'])
+// A derived span series reads an unscoped key from the resource attributes first, then the span
+// attributes. A rule reads one map, so it picks the resource map for OTel resource namespaces.
+const RESOURCE_KEYS = new Set(['env'])
+const RESOURCE_KEY_PREFIXES = [
+    'cloud.',
+    'container.',
+    'deployment.',
+    'device.',
+    'faas.',
+    'host.',
+    'k8s.',
+    'os.',
+    'process.',
+    'service.',
+    'telemetry.',
+]
 
 // Mirrors MAX_METRIC_RULE_GROUP_BY_KEYS in products/logs/backend/models.py.
 const MAX_RULE_GROUP_BY_KEYS = 5
@@ -44,16 +58,23 @@ const OP_TO_OPERATOR: Record<NonNullable<_MetricFilterApi['op']>, string> = {
     not_regex: 'not_regex',
 }
 
-interface RuleFilter {
+export interface RuleFilter {
     key: string
     operator: string
-    value: string
+    value?: string
     type: 'span_attribute' | 'span_resource_attribute'
 }
+
+// Columns every span has, so a negative filter on them never meets a missing value.
+const COLUMN_KEYS = new Set(['kind', 'status_code', 'service_name', 'name'])
 
 /** A metric rule built from one derived span query, plus what the rule cannot carry over. */
 export interface SpanMetricRuleDraft {
     rule: Pick<LogsMetricRuleApi, 'name' | 'metric_name' | 'source' | 'value_attribute' | 'filter_group' | 'group_by'>
+    /** The filters the rule applies, all of which must match. */
+    filters: RuleFilter[]
+    /** True when a filter compares text, which the rule does without regard to case. */
+    ignoresCase: boolean
     /** Filters the rule cannot express, shown as a warning. */
     droppedFilters: string[]
     /** Group-by keys the rule cannot express, shown as a warning. */
@@ -63,7 +84,9 @@ export interface SpanMetricRuleDraft {
 }
 
 const isResourceKey = (filter: Pick<_MetricFilterApi, 'key' | 'scope'>): boolean =>
-    filter.scope === 'resource' || (filter.scope !== 'attribute' && RESOURCE_KEYS.has(filter.key))
+    filter.scope === 'resource' ||
+    (filter.scope !== 'attribute' &&
+        (RESOURCE_KEYS.has(filter.key) || RESOURCE_KEY_PREFIXES.some((prefix) => filter.key.startsWith(prefix))))
 
 const isKindKey = (key: string): boolean => key === 'span.kind' || key === 'kind'
 const isStatusKey = (key: string): boolean => key === 'span.status_code' || key === 'status_code'
@@ -107,6 +130,16 @@ function toRuleGroupByKey(key: string): string {
         return 'status_code'
     }
     return isResourceKey({ key }) ? `resource_attributes.${key}` : `attributes.${key}`
+}
+
+// The chart reads a missing attribute as an empty string, so `!=` and `!~` count spans without it.
+// The rule never matches a missing value, so those filters also accept an unset attribute.
+function toFilterGroupValue(filter: RuleFilter): RuleFilter | { type: 'OR'; values: RuleFilter[] } {
+    const negative = filter.operator === 'is_not' || filter.operator === 'not_regex'
+    if (!negative || COLUMN_KEYS.has(filter.key)) {
+        return filter
+    }
+    return { type: 'OR', values: [filter, { key: filter.key, operator: 'is_not_set', type: filter.type }] }
 }
 
 const sanitizeMetricNamePart = (part: string): string =>
@@ -162,9 +195,14 @@ export function buildSpanMetricRuleDraft(
             metric_name: ['spans', serviceName, suffix].filter(Boolean).join('.'),
             source: 'spans',
             value_attribute: metricName === DERIVED_SPAN_DURATION ? 'duration_ms' : null,
-            filter_group: { type: 'AND', values: [{ type: 'AND', values: ruleFilters }] },
+            // The API rejects an empty group, and no filter_group matches every span.
+            filter_group: ruleFilters.length
+                ? { type: 'AND', values: [{ type: 'AND', values: ruleFilters.map(toFilterGroupValue) }] }
+                : null,
             group_by: keptGroupBy,
         },
+        filters: ruleFilters,
+        ignoresCase: ruleFilters.some((filter) => filter.key !== 'kind' && filter.key !== 'status_code'),
         droppedFilters,
         droppedGroupByKeys: groupByKeys.slice(MAX_RULE_GROUP_BY_KEYS),
         addsServerFilter,

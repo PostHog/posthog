@@ -56,19 +56,44 @@ describe('save a span query as a metric', () => {
                 { key: 'deployment.environment', op: 'neq', value: 'staging' },
                 { key: 'http.route', op: 'regex', value: '^/api' },
             ],
-            ['span.name', 'service.version']
+            ['span.name', 'service.version', 'k8s.namespace.name', 'http.route']
         )
 
-        // A span.kind filter in the query replaces the server-span default.
+        // A span.kind filter in the query replaces the server-span default. A negative filter
+        // also accepts spans without the attribute, as the chart does.
+        const environment = { key: 'deployment.environment', operator: 'is_not', value: 'staging' }
         expect(leaves(draft)).toEqual([
             { key: 'kind', operator: 'exact', value: '3', type: 'span_attribute' },
-            { key: 'deployment.environment', operator: 'is_not', value: 'staging', type: 'span_resource_attribute' },
+            {
+                type: 'OR',
+                values: [
+                    { ...environment, type: 'span_resource_attribute' },
+                    { key: 'deployment.environment', operator: 'is_not_set', type: 'span_resource_attribute' },
+                ],
+            },
             { key: 'http.route', operator: 'regex', value: '^/api', type: 'span_attribute' },
         ])
         expect(draft?.addsServerFilter).toBe(false)
+        expect(draft?.ignoresCase).toBe(true)
         expect(draft?.droppedFilters).toEqual(['span.status_code regex error|unset'])
-        expect(draft?.rule.group_by).toEqual(['name', 'resource_attributes.service.version'])
+        expect(draft?.rule.group_by).toEqual([
+            'name',
+            'resource_attributes.service.version',
+            'resource_attributes.k8s.namespace.name',
+            'attributes.http.route',
+        ])
         expect(draft?.rule.metric_name).toEqual('spans.requests')
+    })
+
+    it('omits the filter group when every filter is dropped', () => {
+        const draft = buildSpanMetricRuleDraft(
+            DERIVED_SPAN_REQUESTS,
+            [{ key: 'span.kind', op: 'regex', value: 'serv' }],
+            []
+        )
+
+        expect(draft?.rule.filter_group).toBeNull()
+        expect(draft?.droppedFilters).toEqual(['span.kind regex serv'])
     })
 
     it.each([['posthog.derived.spans.apdex'], ['posthog.derived.logs.records'], ['http_requests_total']])(
@@ -111,6 +136,36 @@ describe('save a span query as a metric', () => {
             },
         ])
         expect(logic.values.draft).toBeNull()
+        logic.unmount()
+    })
+
+    it('keeps a reopened modal open when an earlier save finishes', async () => {
+        let finishSave: () => void = () => {}
+        useMocks({
+            get: { '/api/projects/:team_id/logs/metric_rules/': { results: [] } },
+            post: {
+                '/api/projects/:team_id/logs/metric_rules/': () =>
+                    new Promise((resolve) => {
+                        finishSave = () => resolve([201, { id: 'rule-1' }])
+                    }),
+            },
+        })
+        initKeaTests()
+        const logic = saveSpanMetricLogic()
+        logic.mount()
+        const draft = buildSpanMetricRuleDraft(DERIVED_SPAN_REQUESTS, [], [])!
+
+        logic.actions.openSaveSpanMetric(draft)
+        logic.actions.submitSpanMetric()
+        logic.actions.closeSaveSpanMetric()
+        logic.actions.openSaveSpanMetric(draft)
+        logic.actions.setMetricName('second.requests')
+        await expectLogic(logic).delay(0)
+        finishSave()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.draft).toBe(draft)
+        expect(logic.values.metricName).toEqual('second.requests')
         logic.unmount()
     })
 

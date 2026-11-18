@@ -5,18 +5,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon
 import { saveSpanMetricLogic } from './saveSpanMetricLogic'
 import type { SpanMetricRuleDraft } from './spanMetricRuleDraft'
 
-interface RuleFilterLeaf {
-    key: string
-    operator: string
-    value: string
-}
-
 const OPERATOR_LABELS: Record<string, string> = { exact: '=', is_not: '!=', regex: '=~', not_regex: '!~' }
-
-function ruleFilterLeaves(draft: SpanMetricRuleDraft): RuleFilterLeaf[] {
-    const outer = draft.rule.filter_group as { values?: { values?: RuleFilterLeaf[] }[] } | null | undefined
-    return outer?.values?.[0]?.values ?? []
-}
 
 function whatItRecords(draft: SpanMetricRuleDraft): string {
     if (draft.rule.value_attribute === 'duration_ms') {
@@ -32,7 +21,7 @@ export function SaveSpanMetricModal(): JSX.Element | null {
     if (!draft) {
         return null
     }
-    const filters = ruleFilterLeaves(draft)
+    const filters = draft.filters
     const dropped = [...draft.droppedFilters, ...draft.droppedGroupByKeys]
 
     return (
@@ -93,6 +82,12 @@ export function SaveSpanMetricModal(): JSX.Element | null {
                     <LemonBanner type="info">
                         Only server spans count (kind 2). The chart also counts root spans for services that have no
                         server spans, so for those services the saved metric can be lower.
+                    </LemonBanner>
+                ) : null}
+                {draft.ignoresCase ? (
+                    <LemonBanner type="info">
+                        The saved metric matches filter values without regard to case, so <code>API</code> and{' '}
+                        <code>api</code> count together.
                     </LemonBanner>
                 ) : null}
                 {dropped.length ? (
