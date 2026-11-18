@@ -121,6 +121,41 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact?.sent).toBe(4)
     })
 
+    it('waits for a running query, then asks once for the latest period and event', async () => {
+        initKeaTests(true, ENVIRONMENT)
+        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        let finishRunningQuery: () => void = () => {}
+        answer = new Promise((resolve) => {
+            finishRunningQuery = () => resolve([200, WITHOUT_EVENT])
+        })
+        const requested = new Promise<void>((resolve) => (onRequest = resolve))
+        logic.actions.setDays(7)
+        await requested
+
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        try {
+            logic.actions.setDays(1)
+            await jest.advanceTimersByTimeAsync(500)
+            logic.actions.setEvent('plan upgraded')
+            await jest.advanceTimersByTimeAsync(500)
+            expect(requestedParams).toHaveLength(2)
+
+            answer = [200, { ...IMPACT, sent: 4 }]
+            finishRunningQuery()
+            await jest.advanceTimersByTimeAsync(500)
+        } finally {
+            jest.useRealTimers()
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedParams).toHaveLength(3)
+        expect(requestedParams[2].get('event')).toBe('plan upgraded')
+        expect(Math.round(dayjs().diff(dayjs(requestedParams[2].get('date_from')), 'hour', true))).toBe(24)
+        expect(logic.values.impact?.sent).toBe(4)
+    })
+
     it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
         // Jest gives each test file its own copy of process.env, so the time zone has to change on Node's process.
         const nodeProcess = runInThisContext('process') as NodeJS.Process

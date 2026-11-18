@@ -140,7 +140,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         impact: [
             null as TransactionalEmailImpactApi | null,
             {
@@ -149,15 +149,26 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                         return null
                     }
                     await breakpoint(100)
+                    // Each query holds one of the organization's query slots until it finishes, even after
+                    // the tab stops wanting its answer, so a newer change waits instead of running beside it.
+                    while (cache.runningQuery) {
+                        await cache.runningQuery.catch(() => null)
+                        breakpoint()
+                    }
+                    const query = transactionalEmailLogImpactRetrieve(String(values.currentTeamId), {
+                        workflow_id: props.workflowId,
+                        event: values.event ?? undefined,
+                        date_from: dayjs()
+                            .subtract(values.days * 24, 'hour')
+                            .toISOString(),
+                    })
+                    cache.runningQuery = query
                     try {
-                        return await transactionalEmailLogImpactRetrieve(String(values.currentTeamId), {
-                            workflow_id: props.workflowId,
-                            event: values.event ?? undefined,
-                            date_from: dayjs()
-                                .subtract(values.days * 24, 'hour')
-                                .toISOString(),
-                        })
+                        return await query
                     } finally {
+                        if (cache.runningQuery === query) {
+                            cache.runningQuery = null
+                        }
                         breakpoint()
                     }
                 },
