@@ -126,6 +126,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (context?.dataTableRenderPlainText) {
+        return value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)
     } else if (columnFormat === 'mcp_harness' && typeof value === 'string') {
         return <HarnessLabel category={value} />
     } else if (queryContextColumnName && queryContextColumn?.render) {
