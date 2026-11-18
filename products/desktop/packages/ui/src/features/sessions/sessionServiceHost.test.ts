@@ -10868,7 +10868,7 @@ describe("SessionService", () => {
       );
       const beatsAtFailure =
         mockAuthenticatedClient.heartbeatTaskRun.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(180_000);
+      await vi.advanceTimersByTimeAsync(900_000);
       expect(mockAuthenticatedClient.heartbeatTaskRun).toHaveBeenCalledTimes(
         beatsAtFailure,
       );
