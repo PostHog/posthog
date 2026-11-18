@@ -105,8 +105,8 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     """
     if scanner.scanner_type != ScannerType.EXPERIMENT:
         return None
-    scope = scanner.experiment_scope()
-    experiment_id = (scope or {}).get("experiment_id")
+    experiment_scope = scanner.experiment_scope()
+    experiment_id = (experiment_scope or {}).get("experiment_id")
     if experiment_id is None:
         return None
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
