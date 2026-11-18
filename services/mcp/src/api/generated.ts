@@ -39188,6 +39188,65 @@ export namespace Schemas {
       push_count: number;
     }
 
+    /**
+     * * `service` - Service
+     * * `database` - Database
+     * * `queue` - Queue
+     * * `external` - External
+     */
+    export type DependencyKindEnum = typeof DependencyKindEnum[keyof typeof DependencyKindEnum];
+
+
+    export const DependencyKindEnum = {
+      Service: 'service',
+      Database: 'database',
+      Queue: 'queue',
+      External: 'external',
+    } as const;
+
+    export interface DependencyEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service, or for an inferred dependency the peer service, database, queue or host it names. */
+      callee: string;
+      /** True when the callee sends no spans and is named by the caller's client span attributes. */
+      inferred: boolean;
+      /** What the callee is.
+       *
+       * * `service` - Service
+       * * `database` - Database
+       * * `queue` - Queue
+       * * `external` - External */
+      kind: DependencyKindEnum;
+      /** Calls from the caller into the callee in the window. */
+      requests: number;
+      /** Calls with an error status, on the caller's client span when it has one. */
+      error_count: number;
+      /**
+         * 95th percentile call duration in ms, on the caller's client span when it has one.
+         * @nullable
+         */
+      p95_ms: number | null;
+    }
+
+    export interface DependenciesResponse {
+      /** One edge per caller and callee, most requests first. */
+      edges: DependencyEdge[];
+      /** True when more edges matched than the response holds. */
+      truncated: boolean;
+      /** The environment the edges were computed for. */
+      environment: string;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -135259,6 +135318,29 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmDependenciesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only edges where this service is the caller or the callee.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
     };
 
     export type ApmEndpointsListParams = {
