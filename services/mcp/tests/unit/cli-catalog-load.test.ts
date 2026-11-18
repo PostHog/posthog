@@ -5,7 +5,7 @@ import { loadCatalog } from '@/cli/catalog/load'
 import { createApiToolLibrary } from '@/cli/library'
 
 const TOOL = 'annotations-list'
-const HOOKED_TOOL = 'create-feature-flag'
+const HOOKED_TOOL = 'delete-feature-flag'
 
 function catalogWith(change: (entry: Record<string, any>) => void, name = TOOL): Record<string, any> {
     const catalog = structuredClone(buildCliCatalog('test-build')) as Record<string, any>
