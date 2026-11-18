@@ -94,6 +94,9 @@ MAX_RECURRING_EXCLUSIONS = 500
 # two ways. Much tighter than DEFAULT_DISTANCE_THRESHOLD: merging hides entries,
 # so only near-paraphrases should join.
 RECURRING_MERGE_DISTANCE = 0.2
+# The merge is optional, so it gives up well inside the compute activity budget
+# when the embedding worker stalls instead of failing the whole recompute.
+RECURRING_MERGE_TIMEOUT_SECONDS = 60
 MAX_SAMPLE_VARIANTS = 5
 
 # Mirrors the capture-side clip in services/mcp (MAX_CAPTURED_DESCRIPTION_LENGTH);
@@ -632,12 +635,15 @@ async def merge_reworded_recurring(
     Greedy, most common first: a text joins the first group whose leading wording is
     within ``max_distance`` (cosine) of it, otherwise it starts a group. Comparing to the
     leader only stops near-matches chaining into unrelated texts. Falls back to the
-    exact-text list when embedding fails, so a worker outage never fails the recompute.
+    exact-text list when embedding fails or runs past ``RECURRING_MERGE_TIMEOUT_SECONDS``, so a
+    worker outage never fails the recompute.
     """
     if len(recurring) < 2:
         return recurring
     try:
-        embeddings, valid = await embed_texts_async(team, [r.intent_text for r in recurring])
+        embeddings, valid = await asyncio.wait_for(
+            embed_texts_async(team, [r.intent_text for r in recurring]), timeout=RECURRING_MERGE_TIMEOUT_SECONDS
+        )
     except Exception:
         logger.warning("mcpa.intent_clustering.recurring_merge_unavailable", team_id=team.id, exc_info=True)
         return recurring

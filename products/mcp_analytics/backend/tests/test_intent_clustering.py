@@ -1679,16 +1679,22 @@ class TestMergeRewordedRecurring:
 
         assert len(intent_clustering._serialize_recurring(entries)) == intent_clustering.MAX_RECURRING_INTENTS
 
-    def test_embedding_failure_falls_back_to_exact_text_entries(self) -> None:
+    @parameterized.expand([("worker_error", True), ("worker_hangs", False)])
+    def test_embedding_failure_falls_back_to_exact_text_entries(self, _name: str, raises: bool) -> None:
         recurring = [
             RecurringIntent(intent_text=text, session_count=10, call_count=1, error_count=0)
             for text in _SCOUT_WORDINGS[:2]
         ]
 
-        async def boom(*args: Any, **kwargs: Any) -> Any:
-            raise RuntimeError("embedding worker down")
+        async def failing_embed(*args: Any, **kwargs: Any) -> Any:
+            if raises:
+                raise RuntimeError("embedding worker down")
+            await asyncio.Event().wait()
 
-        with patch.object(intent_clustering, "embed_texts_async", boom):
+        with (
+            patch.object(intent_clustering, "embed_texts_async", failing_embed),
+            patch.object(intent_clustering, "RECURRING_MERGE_TIMEOUT_SECONDS", 0.01),
+        ):
             merged = asyncio.run(merge_reworded_recurring(_TEAM, recurring))
 
         assert merged == recurring
