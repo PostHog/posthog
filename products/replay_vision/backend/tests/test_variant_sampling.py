@@ -4,12 +4,12 @@ from unittest.mock import patch
 
 from posthog.hogql import ast
 
-from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     SAMPLE_RATE_PRECISION,
     variant_sampling_predicate,
 )
 from products.replay_vision.backend.queries.variant_sampling import plan_variant_sampling
+from products.replay_vision.backend.scope.experiment import ExperimentScope, ExperimentScopeSettings
 
 
 class TestPlanVariantSampling:
@@ -118,7 +118,7 @@ class TestVariantSamplingPredicate:
 
 
 class TestVariantSamplingPlanForScope(BaseTest):
-    def _plan(self, *, scanner_type=ScannerType.EXPERIMENT, scope, counts):
+    def _plan(self, *, scope, counts, scanner_config=None):
         from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 
         with patch(
@@ -127,30 +127,42 @@ class TestVariantSamplingPlanForScope(BaseTest):
         ):
             return variant_sampling_plan_for_scope(
                 self.team,
-                scanner_type=scanner_type,
                 scope=scope,
-                scanner_config={"prompt": "p"},
+                scanner_config=scanner_config if scanner_config is not None else {"prompt": "p"},
                 sampling_rate=0.1,
                 user=self.user,
             )
 
-    def test_a_singular_legacy_variant_scope_watches_one_arm_and_gets_no_plan(self) -> None:
-        # A legacy column scope narrows with `variant` (singular). Reading only `variants` would
-        # treat it as "every variant" and balance a population the exposure join already narrowed.
+    def _scope(self, **settings) -> ExperimentScope:
+        return ExperimentScope(ExperimentScopeSettings(**settings))
+
+    def test_a_scope_watching_one_arm_gets_no_plan(self) -> None:
+        # Balancing spreads a budget across arms, so one watched arm has nothing to spread.
+        # `scope_for` has already folded a legacy singular `variant` into this one-item list.
         counts = {"control": 60.0, "test": 40.0}
 
-        singular = self._plan(scope={"experiment_id": 42, "variant": "test"}, counts=counts)
-        assert singular is None
+        one_arm = self._plan(scope=self._scope(experiment_id=42, variants=["test"]), counts=counts)
+        assert one_arm is None
 
-        both = self._plan(scope={"experiment_id": 42, "variants": ["control", "test"]}, counts=counts)
+        both = self._plan(scope=self._scope(experiment_id=42, variants=["control", "test"]), counts=counts)
         assert both is not None and set(both.rates) == {"control", "test"}
 
-    def test_only_the_experiment_type_balances(self) -> None:
-        # A legacy scanner targeting an experiment through the column has no `balance_variants`
-        # key; defaulting it on would switch its sampling behavior on deploy.
+    def test_a_scanner_of_any_type_balances_when_its_scope_names_an_experiment(self) -> None:
+        # The plan is judged on the scope, not the scanner type. Before, a non-experiment type
+        # returned None here, so a scope-based scanner silently kept plain sampling.
         plan = self._plan(
-            scanner_type=ScannerType.MONITOR,
-            scope={"experiment_id": 42, "variants": ["control", "test"]},
+            scope=self._scope(experiment_id=42, variants=["control", "test"]),
             counts={"control": 60.0, "test": 40.0},
+        )
+        assert plan is not None and set(plan.rates) == {"control", "test"}
+
+    def test_no_scope_gets_no_plan(self) -> None:
+        assert self._plan(scope=None, counts={"control": 60.0, "test": 40.0}) is None
+
+    def test_balancing_turned_off_in_the_config_gets_no_plan(self) -> None:
+        plan = self._plan(
+            scope=self._scope(experiment_id=42, variants=["control", "test"]),
+            counts={"control": 60.0, "test": 40.0},
+            scanner_config={"prompt": "p", "balance_variants": False},
         )
         assert plan is None

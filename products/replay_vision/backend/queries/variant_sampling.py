@@ -15,6 +15,7 @@ variant is sampled whole and stays thin.
 """
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -29,8 +30,10 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
+if TYPE_CHECKING:
+    from products.replay_vision.backend.scope.experiment import ExperimentScope
+
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.replay_vision.backend.models.replay_scanner import ScannerType
 
 logger = structlog.get_logger(__name__)
 
@@ -105,32 +108,32 @@ def plan_variant_sampling(
 def variant_sampling_plan_for_scope(
     team: Team,
     *,
-    scanner_type: str,
-    scope: dict | None,
+    scope: "ExperimentScope | None",
     scanner_config: dict | None,
     sampling_rate: float,
     user: User | None,
     scanner_id: str | None = None,
 ) -> VariantSamplingPlan | None:
-    """The plan for an experiment scanner (or its frozen snapshot), from the window's exposure counts.
+    """The plan for a scanner watching an experiment (or its frozen snapshot), from the window's
+    exposure counts.
 
-    None when the scanner is not the experiment type (legacy column-targeted scanners keep plain
-    sampling — flipping their behavior on deploy is not this function's call), balancing is off,
-    only one variant is watched, or the population can't be counted (the caller then falls back to
-    plain sampling; the scan itself stays the loud path for an unresolvable experiment).
+    None when the scanner watches no experiment, balancing is off, only one variant is watched, or
+    the population can't be counted (the caller then falls back to plain sampling; the scan itself
+    stays the loud path for an unresolvable experiment).
+
+    Judged on the scope rather than the scanner type, so a scanner narrowed only by the `scope`
+    column is balanced too. That also ends the carve-out legacy column-targeted scanners had: they
+    now balance where before they kept plain sampling.
     """
-    if scanner_type != ScannerType.EXPERIMENT:
+    if scope is None:
         return None
-    experiment_id = (scope or {}).get("experiment_id")
-    if experiment_id is None:
-        return None
+    experiment_id = scope.settings.experiment_id
     config = scanner_config if isinstance(scanner_config, dict) else {}
     if config.get("balance_variants") is False:
         return None
-    assert scope is not None
-    # A legacy column scope narrows with the singular `variant`; treating it as "every variant"
-    # would balance a population the exposure join has already narrowed to one arm.
-    selected = scope.get("variants") or ([scope["variant"]] if scope.get("variant") else None)
+    # `scope_for` has already folded a legacy singular `variant` into a one-item list, so an
+    # unset `variants` here means every variant rather than an unread narrowing.
+    selected = scope.settings.variants
     counts = _variant_exposure_counts(
         team, experiment_id=experiment_id, selected=selected, user=user, scanner_id=scanner_id
     )
