@@ -40,6 +40,10 @@ PERSONAS_PAGE_SIZE = 100
 # default is 25).
 EVALS_PAGE_SIZE = 100
 
+# Documented maximum page size of GET /v1/agent-testing/runs, /v1/widget/{id}/threads,
+# /v1/audit-logs and /v1/knowledge.
+MAX_PAGE_SIZE = 100
+
 
 @dataclasses.dataclass(frozen=True)
 class BlandAIResumeConfig:
@@ -136,6 +140,7 @@ SINGLE_PAGE_ENDPOINTS: dict[str, tuple[str, TJsonPath]] = {
     "inbound_numbers": ("v1/inbound", "inbound_numbers"),
     "voices": ("v1/voices", "voices"),
     "web_agents": ("v1/agents", "agents"),
+    "agent_test_scenarios": ("v1/agent-testing/scenarios", "scenarios"),
 }
 
 # Endpoints that list calls and hydrate each one, keyed to the per-call path and the selector that
@@ -299,6 +304,102 @@ def _evals_resource(
         initial_paginator_state=resume.fanout_state if resume is not None else None,
     )
     return next(r for r in resources if r.name == "eval_call_results")
+
+
+def _adopt_parent_widget_id(row: dict[str, Any]) -> dict[str, Any]:
+    row["widget_id"] = row.pop("_widgets_id")
+    return row
+
+
+def _widget_threads_resource(
+    rest_config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(BlandAIResumeConfig(fanout_state=state))
+
+    rest_config["resources"] = [
+        {
+            "name": "widgets",
+            "endpoint": {
+                "path": "v1/widgets",
+                "data_selector": "data",
+                "paginator": SinglePagePaginator(),
+            },
+        },
+        {
+            "name": "widget_threads",
+            "include_from_parent": ["id"],
+            "data_map": _adopt_parent_widget_id,
+            "endpoint": {
+                "path": "v1/widget/{widget_id}/threads",
+                "params": {
+                    "widget_id": {"type": "resolve", "resource": "widgets", "field": "id"},
+                    "limit": MAX_PAGE_SIZE,
+                },
+                "data_selector": "data.threads",
+                # `data.total` counts threads, not pages, so pagination stops on the first empty page.
+                "paginator": PageNumberPaginator(base_page=1, page_param="page"),
+            },
+        },
+    ]
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None else None,
+    )
+    return next(r for r in resources if r.name == "widget_threads")
+
+
+def _audit_logs_resource(
+    rest_config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None:
+        created_after = resume.start_date
+    else:
+        created_after = _format_start_date(db_incremental_field_last_value) if should_use_incremental_field else None
+
+    params: dict[str, Any] = {"page_size": MAX_PAGE_SIZE}
+    if created_after:
+        params["created_after"] = created_after
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(BlandAIResumeConfig(page=int(state["page"]), start_date=created_after))
+
+    rest_config["resources"] = [
+        {
+            "name": "audit_logs",
+            "endpoint": {
+                "path": "v1/audit-logs",
+                "params": params,
+                "data_selector": "data.events",
+                "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="data.total_pages"),
+            },
+        }
+    ]
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"page": resume.page} if resume is not None and resume.page is not None else None,
+    )
 
 
 def _adopt_parent_conversation_fields(row: dict[str, Any]) -> dict[str, Any]:
@@ -468,6 +569,48 @@ def bland_ai_source(
             }
         ]
         resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "knowledge_bases":
+        rest_config["resources"] = [
+            {
+                "name": "knowledge_bases",
+                "endpoint": {
+                    "path": "v1/knowledge",
+                    "params": {"limit": MAX_PAGE_SIZE},
+                    "data_selector": "data.kbs",
+                    # `data.total` counts items, not pages, so pagination stops on the first empty page.
+                    "paginator": PageNumberPaginator(base_page=1, page_param="page"),
+                },
+            }
+        ]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "agent_test_runs":
+        rest_config["resources"] = [
+            {
+                "name": "agent_test_runs",
+                "endpoint": {
+                    "path": "v1/agent-testing/runs",
+                    "data_selector": "runs",
+                    "paginator": OffsetPaginator(
+                        limit=MAX_PAGE_SIZE,
+                        offset_param="offset",
+                        limit_param="limit",
+                        total_path="total_count",
+                    ),
+                },
+            }
+        ]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "widget_threads":
+        resource = _widget_threads_resource(rest_config, team_id, job_id, resumable_source_manager)
+    elif endpoint == "audit_logs":
+        resource = _audit_logs_resource(
+            rest_config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     elif endpoint == "pathway_versions":
         resource = _pathway_versions_resource(rest_config, team_id, job_id, resumable_source_manager)
     elif endpoint in ("eval_runs", "eval_call_results"):
@@ -564,7 +707,8 @@ def bland_ai_source(
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         # Call endpoints request `ascending=true&sort_by=created_at` and the SMS endpoints
-        # `sortBy=created_at&sortDir=asc`; the other endpoints are full-refresh-only tables, so
-        # the value never drives a watermark for them.
-        sort_mode="asc",
+        # `sortBy=created_at&sortDir=asc`. Audit logs always arrive newest first, with no sort
+        # parameter. The other endpoints are full-refresh-only tables, so the value never drives a
+        # watermark for them.
+        sort_mode=None if endpoint == "audit_logs" else "asc",
     )

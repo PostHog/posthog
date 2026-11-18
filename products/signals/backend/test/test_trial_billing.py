@@ -52,6 +52,8 @@ class TestTrialBilling(SimpleTestCase):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=license),
             patch("ee.billing.billing_manager.get_cached_instance_license", return_value=license),
+            # The billing token reads the partner lock from Postgres, and this test class has no database.
+            patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None),
             patch("ee.billing.billing_manager.http_session.get", side_effect=responses) as get,
         ):
             assert not paid_trial_continuation_authorized(team)

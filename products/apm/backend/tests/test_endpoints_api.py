@@ -56,6 +56,7 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _list(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(URL.format(self.team.id), query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -97,6 +98,15 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("eu-only", {r["service_name"] for r in self._list()["results"]})
         staging = self._list(environment="staging")["results"]
         self.assertEqual([(r["service_name"], r["endpoint"]) for r in staging], [("eu-only", "GET /eu")])
+
+    def test_no_environment_lists_endpoints_from_every_environment(self) -> None:
+        everything = self._list(environment=None)
+        self.assertIsNone(everything["environment"])
+        prod_and_staging = self._list()["results"] + self._list(environment="staging")["results"]
+        self.assertEqual(
+            sorted((r["service_name"], r["endpoint"], r["health"]["span_count"]) for r in everything["results"]),
+            sorted((r["service_name"], r["endpoint"], r["health"]["span_count"]) for r in prod_and_staging),
+        )
 
     def test_rejects_a_window_over_seven_days(self) -> None:
         with patch(FLAG_PATCH, return_value=True):
