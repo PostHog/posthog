@@ -334,6 +334,11 @@ class TestAbuseRules(SimpleTestCase):
                         "a_line_comment_in_a_liquid_block",
                         "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
                     ),
+                    (
+                        "a_comment_block_in_a_liquid_block",
+                        "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
+                    ),
+                    ("bounds_past_float_precision", "{{ (-1000000000000000000..-999999999999999872) | size }}"),
                     ("html_encoded_quotes", "{{ (&quot;1&quot;..&quot;20000&quot;) | size }}"),
                     ("encoded_spaces", "{{%20(1%20..%2020000)%20|%20size%20}}"),
                     ("unicode_escapes", "{{ ('1'..'\\u0032\\u0030\\u0030\\u0030\\u0030') | size }}"),
@@ -347,6 +352,10 @@ class TestAbuseRules(SimpleTestCase):
                     ("in_a_comment_block", "{% comment %}{{ (1..20000) | size }}{% endcomment %}"),
                     ("in_a_raw_block", "{%- raw -%}{% for i in (1..20000) %}{% endfor %}{% endraw %}"),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
+                    (
+                        "in_a_comment_block_in_a_liquid_block",
+                        "{% liquid\n  comment\n  assign xs = (1..20000)\n  endcomment\n  echo 1\n%}",
+                    ),
                     ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]

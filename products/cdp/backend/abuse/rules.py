@@ -266,7 +266,10 @@ class _LiquidRange:
 
     @property
     def length(self) -> float:
-        # LiquidJS builds the list from `low` while the value stays below `high + 1`.
+        # LiquidJS adds 1 to `low` while the value stays below `high + 1`. Past 2**53 the addition no longer changes a
+        # float, so the loop never ends.
+        if math.isfinite(self.low) and self.low + 1 == self.low and self.low < self.high + 1:
+            return math.inf
         return self.high - self.low + 1
 
 
@@ -356,10 +359,24 @@ def _liquid_tags(template: str) -> Iterator[str]:
             position = closing_end + 2
             continue
         if name == "liquid":
-            # Each line of a `{% liquid %}` block is a statement, and a line that starts with `#` is a comment.
-            yield from (line for line in tag.splitlines() if not line.strip().startswith("#"))
+            yield from _liquid_block_statements(tag)
             continue
         yield tag
+
+
+def _liquid_block_statements(tag: str) -> Iterator[str]:
+    """Each statement of a `{% liquid %}` block is one line. Comment lines and the inside of comment and raw blocks
+    are left out."""
+    block_end: str | None = None
+    for line in tag.splitlines():
+        words = line.split(maxsplit=1)
+        name = words[0] if words else ""
+        if block_end is not None:
+            block_end = None if name == block_end else block_end
+        elif name in _LIQUID_BLOCK_ENDS:
+            block_end = f"end{name}"
+        elif not name.startswith("#"):
+            yield line
 
 
 def _output_tag_end(template: str, start: int) -> int:
