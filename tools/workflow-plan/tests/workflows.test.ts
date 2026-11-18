@@ -580,6 +580,28 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    ...[
+        { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
+        {
+            name: 'draft PR labeled run-ci-backend',
+            github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
+            runs: true,
+        },
+        { name: 'unlabeled ready PR', github: pullRequest(), runs: false },
+        { name: 'merge queue labeled run-ci-backend', github: mergeQueue({ labels: ['run-ci-backend'] }), runs: false },
+        { name: 'master push', github: push(), runs: false },
+        { name: 'hourly schedule', github: schedule(), runs: false },
+    ].map(({ name, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'django_tests',
+        step: 'full-run-label-token',
+        scenario: {
+            name,
+            github,
+            steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors },
+        },
+        runs,
+    })),
 ]
 
 const namedJobs = (file: string): Set<string> =>

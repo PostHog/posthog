@@ -460,6 +460,12 @@ It takes effect on the next push, or when the PR is marked ready for review. An 
 git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 ```
 
+`run-ci-backend` buys one full run, not one per push.
+The `Django Tests Pass on Depot` gate removes the label once a run with it completes, and later pushes select tests again.
+A run that is superseded, or that cancels itself on a deterministic failure, keeps the label for the next run.
+Add the label again for another full run.
+A `labeled` event is not a usable one-shot signal here, for the reasons below.
+
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
 Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
