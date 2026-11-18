@@ -115,6 +115,7 @@ export const DISPLAY_OPTIONS = [
             { value: 'center', label: 'Inside' },
         ],
     },
+    { name: 'valueLabelColors', label: 'Value colors', group: 'display', advanced: true, control: 'custom' },
     { name: 'valueLabelBackground', label: 'Value background', group: 'display', advanced: true, control: 'checkbox' },
     {
         name: 'valueLabelFontSize',

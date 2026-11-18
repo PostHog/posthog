@@ -19,6 +19,7 @@ import { displayLogic, type displayLogicType } from '../displayLogic'
 import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { SqlValueLabelColors } from './SqlValueLabelColors'
 
 interface SqlDisplayContext
     extends
@@ -146,6 +147,14 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries && !c.isLineChart,
         value: (c) => c.chartSettings.valueLabelPosition ?? 'end',
         onChange: (valueLabelPosition, c) => c.updateChartSettings({ valueLabelPosition }),
+    },
+    valueLabelColors: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
+        changedCount: (c) =>
+            Number(!!c.chartSettings.valueLabelColor) + Number(!!c.chartSettings.valueLabelBackgroundColor),
+        render: (c) => (
+            <SqlValueLabelColors chartSettings={c.chartSettings} updateChartSettings={c.updateChartSettings} />
+        ),
     },
     valueLabelBackground: {
         showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
