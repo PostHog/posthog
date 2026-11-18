@@ -581,7 +581,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             )
         ]
         if table is FLAG_EVALUATIONS_LIST_TABLE:
-            # flag_evaluations has a bloom filter index on distinct_id. That index cannot answer a hashed comparison.
+            # flag_evaluations has a bloom filter index on distinct_id.
+            # ClickHouse cannot use that index to skip granules for a hashed comparison.
             where_exprs.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["distinct_id"]),

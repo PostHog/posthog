@@ -244,15 +244,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
         )
 
-        # flag_evaluations can answer only a plain distinct_id comparison from its bloom filter index
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        flag_calls_query = EventsQuery(
-            kind="EventsQuery", select=["*"], event="$feature_flag_called", personId=str(person.pk), orderBy=[]
-        )
-        with self.capture_select_queries() as queries:
-            EventsQueryRunner(query=flag_calls_query, team=self.team).calculate()
-        self.assertTrue(any("in(flag_evaluations.distinct_id, tuple('id1', 'id2'))" in q for q in queries), queries)
-
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
@@ -1669,6 +1660,37 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert sorted(row[0] for row in response.results) == ["first-retained-day-user", "recent-user"]
+
+    def test_flag_evaluations_person_filter_matches_each_of_the_persons_distinct_ids(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        _create_person(team_id=self.team.pk, distinct_ids=["id1", "id2"])
+        flush_persons_and_events()
+        person = get_person_by_distinct_id(self.team.pk, "id1")
+        assert person is not None
+        self._insert_flag_evaluation("id1", person.uuid)
+        self._insert_flag_evaluation("id2", person.uuid)
+        self._insert_flag_evaluation("someone-else", uuid.uuid4())
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["distinct_id"],
+                event="$feature_flag_called",
+                personId=str(person.pk),
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert sorted(row[0] for row in response.results) == ["id1", "id2"]
+        page_queries = [sql for sql in queries if re.search(r"\bFROM\s+flag_evaluations\b", sql)]
+        assert len(page_queries) == 1
+        assert (
+            "in(cityHash64(flag_evaluations.distinct_id), tuple(cityHash64('id1'), cityHash64('id2')))"
+            in page_queries[0]
+        )
+        assert "in(flag_evaluations.distinct_id, tuple('id1', 'id2'))" in page_queries[0]
 
     @snapshot_clickhouse_queries
     def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):
