@@ -50,7 +50,6 @@ class TestMarkOrganizationsDeleted(BaseTest):
         return_value=MagicMock(status_code=404, json=MagicMock(return_value={"detail": "not found"})),
     )
     def test_raises_when_billing_does_not_confirm(self, post_mock):
-        # A 404 means the endpoint is not deployed; the caller must not read it as a delivered notice.
         with self.assertRaises(Exception):
             BillingManager(self.license).mark_organizations_deleted(["org-1"])
 

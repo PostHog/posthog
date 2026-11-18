@@ -135,9 +135,7 @@ def delete_organization(request: HttpRequest, obj: Model, form: forms.Form | Non
     if settings.DISABLE_BULK_DELETES:
         messages.error(request, "Bulk deletes are paused during a database migration. Try again later.")
         return HttpResponse(status=503)
-    # The same check as the organization API's delete. Deleting the organization would leave its
-    # subscription billing with nobody to see it, and cancelling is a money decision (final invoice,
-    # usage, credits) that staff make in billing, so this refuses instead of cancelling.
+    # Refuse rather than cancel: cancelling settles a final invoice, usage and credits, which staff decide in billing.
     from ee.billing.billing_manager import organization_has_active_subscription
 
     try:

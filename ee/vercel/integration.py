@@ -244,9 +244,7 @@ class VercelIntegration:
                 installation_id=installation_id,
                 organization_id=organization_id,
             )
-            # The failed authorize may still have started a subscription in billing, for example when
-            # the request timed out. Marking the organization deleted there refuses a late subscribe and
-            # lets billing's assertion flag a subscription that already exists.
+            # A timed-out authorize may still have started a subscription in billing.
             try:
                 from ee.billing.billing_manager import notify_billing_organization_deleted  # noqa: PLC0415
 

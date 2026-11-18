@@ -259,10 +259,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
-        # Tell billing first. The members are locked out, but a card check they started can still
-        # finish and subscribe the organization; once billing has the notice it refuses. Best-effort:
-        # if billing stays unreachable the deletion goes ahead without it. Gated with `patched` so
-        # in-flight deletions from before this deploy replay cleanly.
+        # First, because a card check started before the lockout can still finish and subscribe the org.
         if temporalio.workflow.patched("notify-billing-organization-deleted"):
             try:
                 await temporalio.workflow.execute_activity(

@@ -742,8 +742,6 @@ class TestVercelIntegration(TestCase):
     def test_billing_failure_tells_billing_the_cleaned_up_organization_is_gone(
         self, mock_license, mock_billing, mock_report, _is_cloud, _billing_license
     ):
-        # A timed-out authorize can still have started a subscription in billing. Marking the org
-        # deleted there stops a late subscribe and lets billing's assertion flag one that exists.
         claims = self._create_user_claims("vercel_user_cleanup")
         claims.installation_id = self.NEW_INSTALLATION_ID
         mock_license.return_value = Mock()

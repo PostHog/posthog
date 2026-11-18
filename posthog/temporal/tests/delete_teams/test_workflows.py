@@ -223,7 +223,6 @@ async def test_organization_workflow_deletes_record_then_emails():
 
 
 async def test_billing_notice_failure_does_not_block_organization_deletion():
-    # The notice is best-effort: billing being down must not stall a deletion the user asked for.
     attempts: list[str] = []
     calls: list[str] = []
 
@@ -382,8 +381,7 @@ async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
                 )
 
     assert len(attempts) > 1  # durably retried until the test-only execution timeout
-    # Only the billing notice, which deletes nothing, ran before; the pointer-destroying cascade never started.
-    assert calls == ["notify_billing_organization_deleted_activity"]
+    assert calls == ["notify_billing_organization_deleted_activity"]  # the notice deletes nothing
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():
