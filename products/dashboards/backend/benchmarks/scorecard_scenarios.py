@@ -72,9 +72,9 @@ from products.dashboards.backend.benchmarks.dashboard_load_harness import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet
+from products.dashboards.backend.test.benchmark_fixtures import create_insight_tiles
 from products.dashboards.backend.widgets import logs_list
 from products.logs.backend.facade.queries import LogsQueryRunner
-from products.product_analytics.backend.facade.models import Insight
 
 DASHBOARD_V2_FLAG = "dashboard-v2"
 # Flags a scenario needs on in both arms, so that only `dashboard-v2` differs between them.
@@ -262,16 +262,11 @@ def _metrics_query(i: int) -> MetricsQuery:
 
 
 def _insight_tiles(tenant: Tenant, dashboard: Dashboard, count: int, offset: int = 0) -> list[DashboardTile]:
-    tiles = []
-    for i in range(offset, offset + count):
-        insight = Insight.objects.create(
-            team=tenant.team,
-            name=f"bench {i}",
-            created_by=tenant.user,
-            query={"kind": "InsightVizNode", "source": _trends_query(i).model_dump(exclude_none=True)},
-        )
-        tiles.append(DashboardTile.objects.create(dashboard=dashboard, insight=insight))
-    return tiles
+    queries = [
+        (f"bench {i}", {"kind": "InsightVizNode", "source": _trends_query(i).model_dump(exclude_none=True)})
+        for i in range(offset, offset + count)
+    ]
+    return create_insight_tiles(tenant.team, tenant.user, dashboard, queries)
 
 
 @contextmanager
