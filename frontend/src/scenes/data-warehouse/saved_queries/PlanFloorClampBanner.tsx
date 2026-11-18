@@ -29,6 +29,7 @@ export interface PlanFloorClampBannerProps {
     previousSeconds: number | null
     planFloorSeconds: number
     at: string
+    className?: string
 }
 
 export function PlanFloorClampBanner({
@@ -37,10 +38,12 @@ export function PlanFloorClampBanner({
     previousSeconds,
     planFloorSeconds,
     at,
+    className,
 }: PlanFloorClampBannerProps): JSX.Element {
     return (
         <LemonBanner
             type="info"
+            className={className}
             dismissKey={`plan-floor-clamp-${subjectId}-${at}`}
             action={{
                 children: 'Upgrade plan',

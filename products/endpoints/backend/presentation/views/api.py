@@ -17,7 +17,7 @@ from functools import cached_property
 from typing import Literal, cast
 from uuid import UUID
 
-from django.db.models import Count, F, Prefetch
+from django.db.models import Count, F, Prefetch, prefetch_related_objects
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -428,6 +428,10 @@ class EndpointViewSet(
         else:
             endpoint = obj
             version = self._current_version(endpoint)
+        if version.saved_query_id is not None and not hasattr(
+            version.saved_query, EndpointVersion.FREQUENCY_NODES_ATTR
+        ):
+            prefetch_related_objects([version], EndpointVersion.frequency_nodes_prefetch())
 
         versions_count = (
             obj.endpoint_versions_count

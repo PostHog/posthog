@@ -119,86 +119,137 @@ export function EndpointConfiguration(): JSX.Element {
     const breakdownProperties = extractBreakdownPropertyNames(currentQuery)
 
     return (
-        <div className="flex flex-col gap-4">
-            {planClamp && (
-                <PlanFloorClampBanner
-                    subject="endpoint"
-                    subjectId={viewingVersion?.version_id ?? endpoint.current_version_id}
-                    previousSeconds={planClamp.previous_data_freshness_seconds}
-                    planFloorSeconds={planClamp.plan_floor_seconds}
-                    at={planClamp.at}
+        <div className="flex gap-6">
+            {/* Left column — settings (fixed width) */}
+            <div className="w-120 shrink-0">
+                {planClamp && (
+                    <PlanFloorClampBanner
+                        className="mb-4"
+                        subject="endpoint"
+                        subjectId={viewingVersion?.version_id ?? endpoint.current_version_id}
+                        previousSeconds={planClamp.previous_data_freshness_seconds}
+                        planFloorSeconds={planClamp.plan_floor_seconds}
+                        at={planClamp.at}
+                    />
+                )}
+                <LemonCollapse
+                    multiple
+                    activeKeys={leftActiveKeys}
+                    onChange={setLeftActiveKeys}
+                    panels={[
+                        {
+                            key: 'materialization',
+                            header: (
+                                <div className="flex items-center gap-2">
+                                    <IconDatabase className="text-lg" />
+                                    <span>Materialization</span>
+                                    <Tooltip title="We run your query on a schedule and store results in a table. When you execute this endpoint, we read from that stored table instead of running the full query again. You'll get results much faster, but data is only as fresh as the last time materialization ran.">
+                                        <IconInfo className="text-lg text-secondary" />
+                                    </Tooltip>
+                                </div>
+                            ),
+                            content: <MaterializationContent />,
+                        },
+                        {
+                            key: 'data-freshness',
+                            header: (
+                                <div className="flex items-center gap-2">
+                                    <IconClock className="text-lg" />
+                                    <span>Data freshness</span>
+                                    <Tooltip title="Controls how long results are cached and how often materialized endpoints refresh.">
+                                        <IconInfo className="text-lg text-secondary" />
+                                    </Tooltip>
+                                </div>
+                            ),
+                            content: (
+                                <div className="flex flex-col gap-4 max-w-md p-1">
+                                    <p className="text-sm text-secondary m-0">
+                                        Choose how fresh the returned data should be. Shorter periods serve fresher
+                                        data, but consume more compute.
+                                    </p>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Endpoint}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSelect
+                                            value={effectiveDataFreshness}
+                                            onChange={setDataFreshness}
+                                            options={dataFreshnessOptions}
+                                        />
+                                    </AccessControlAction>
+                                </div>
+                            ),
+                        },
+                        ...(breakdownProperties.length > 0
+                            ? [
+                                  {
+                                      key: 'variables',
+                                      header: (
+                                          <div className="flex items-center gap-2">
+                                              <IconBrackets className="text-lg" />
+                                              <span>Variables</span>
+                                              <Tooltip title="Required variables must be passed on every execution. Optional ones may be omitted; the response aggregates across every value.">
+                                                  <IconInfo className="text-lg text-secondary" />
+                                              </Tooltip>
+                                          </div>
+                                      ),
+                                      content: (
+                                          <BreakdownRequirementContent
+                                              breakdownProperties={breakdownProperties}
+                                              optionalBreakdownProperties={optionalBreakdownProperties}
+                                              onToggle={toggleBreakdownOptional}
+                                          />
+                                      ),
+                                  },
+                              ]
+                            : []),
+                    ]}
                 />
-            )}
-            <div className="flex gap-6">
-                {/* Left column — settings (fixed width) */}
-                <div className="w-120 shrink-0">
+            </div>
+
+            {/* Right column — query previews, visible when materialization is expanded and enabled */}
+            {materializationExpanded && isMaterialized && (
+                <div className="flex-1 min-w-0">
                     <LemonCollapse
                         multiple
-                        activeKeys={leftActiveKeys}
-                        onChange={setLeftActiveKeys}
+                        defaultActiveKeys={['materialized-query']}
                         panels={[
                             {
-                                key: 'materialization',
-                                header: (
-                                    <div className="flex items-center gap-2">
-                                        <IconDatabase className="text-lg" />
-                                        <span>Materialization</span>
-                                        <Tooltip title="We run your query on a schedule and store results in a table. When you execute this endpoint, we read from that stored table instead of running the full query again. You'll get results much faster, but data is only as fresh as the last time materialization ran.">
-                                            <IconInfo className="text-lg text-secondary" />
-                                        </Tooltip>
-                                    </div>
-                                ),
-                                content: <MaterializationContent />,
-                            },
-                            {
-                                key: 'data-freshness',
-                                header: (
-                                    <div className="flex items-center gap-2">
-                                        <IconClock className="text-lg" />
-                                        <span>Data freshness</span>
-                                        <Tooltip title="Controls how long results are cached and how often materialized endpoints refresh.">
-                                            <IconInfo className="text-lg text-secondary" />
-                                        </Tooltip>
-                                    </div>
-                                ),
+                                key: 'materialized-query',
+                                header: 'Query we materialize',
                                 content: (
-                                    <div className="flex flex-col gap-4 max-w-md p-1">
-                                        <p className="text-sm text-secondary m-0">
-                                            Choose how fresh the returned data should be. Shorter periods serve fresher
-                                            data, but consume more compute.
-                                        </p>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Endpoint}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonSelect
-                                                value={effectiveDataFreshness}
-                                                onChange={setDataFreshness}
-                                                options={dataFreshnessOptions}
+                                    <div className="p-1">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <p className="text-sm text-secondary m-0">
+                                                This is the query we run on a schedule and materialize results in S3.
+                                                Variables are removed and their columns are added to the output columns.
+                                            </p>
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconRefresh />}
+                                                onClick={() => loadMaterializationPreview()}
+                                                loading={materializationPreviewLoading}
+                                                tooltip="Refresh preview"
                                             />
-                                        </AccessControlAction>
+                                        </div>
+                                        {materializationPreviewLoading && !materializationPreview && (
+                                            <LemonSkeleton className="h-24 w-full" />
+                                        )}
+                                        {materializationPreview?.transformed_query && (
+                                            <CodeSnippet language={Language.SQL} wrap>
+                                                {materializationPreview.transformed_query}
+                                            </CodeSnippet>
+                                        )}
                                     </div>
                                 ),
                             },
-                            ...(breakdownProperties.length > 0
+                            ...(materializationPreview?.execution_query
                                 ? [
                                       {
-                                          key: 'variables',
-                                          header: (
-                                              <div className="flex items-center gap-2">
-                                                  <IconBrackets className="text-lg" />
-                                                  <span>Variables</span>
-                                                  <Tooltip title="Required variables must be passed on every execution. Optional ones may be omitted; the response aggregates across every value.">
-                                                      <IconInfo className="text-lg text-secondary" />
-                                                  </Tooltip>
-                                              </div>
-                                          ),
+                                          key: 'execution-query',
+                                          header: 'Query we run',
                                           content: (
-                                              <BreakdownRequirementContent
-                                                  breakdownProperties={breakdownProperties}
-                                                  optionalBreakdownProperties={optionalBreakdownProperties}
-                                                  onToggle={toggleBreakdownOptional}
-                                              />
+                                              <ExecutionQueryPanel materializationPreview={materializationPreview} />
                                           ),
                                       },
                                   ]
@@ -206,62 +257,7 @@ export function EndpointConfiguration(): JSX.Element {
                         ]}
                     />
                 </div>
-
-                {/* Right column — query previews, visible when materialization is expanded and enabled */}
-                {materializationExpanded && isMaterialized && (
-                    <div className="flex-1 min-w-0">
-                        <LemonCollapse
-                            multiple
-                            defaultActiveKeys={['materialized-query']}
-                            panels={[
-                                {
-                                    key: 'materialized-query',
-                                    header: 'Query we materialize',
-                                    content: (
-                                        <div className="p-1">
-                                            <div className="flex items-center justify-between mb-4">
-                                                <p className="text-sm text-secondary m-0">
-                                                    This is the query we run on a schedule and materialize results in
-                                                    S3. Variables are removed and their columns are added to the output
-                                                    columns.
-                                                </p>
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    icon={<IconRefresh />}
-                                                    onClick={() => loadMaterializationPreview()}
-                                                    loading={materializationPreviewLoading}
-                                                    tooltip="Refresh preview"
-                                                />
-                                            </div>
-                                            {materializationPreviewLoading && !materializationPreview && (
-                                                <LemonSkeleton className="h-24 w-full" />
-                                            )}
-                                            {materializationPreview?.transformed_query && (
-                                                <CodeSnippet language={Language.SQL} wrap>
-                                                    {materializationPreview.transformed_query}
-                                                </CodeSnippet>
-                                            )}
-                                        </div>
-                                    ),
-                                },
-                                ...(materializationPreview?.execution_query
-                                    ? [
-                                          {
-                                              key: 'execution-query',
-                                              header: 'Query we run',
-                                              content: (
-                                                  <ExecutionQueryPanel
-                                                      materializationPreview={materializationPreview}
-                                                  />
-                                              ),
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
-                    </div>
-                )}
-            </div>
+            )}
         </div>
     )
 }

@@ -164,9 +164,7 @@ def node_states_by_saved_query(
                 engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
                 for engine, marker in merged_suspension_state(nodes).items()
             },
-            plan_clamp=next(
-                (clamp for node in nodes if (clamp := get_plan_floor_clamp(node.properties)) is not None), None
-            ),
+            plan_clamp=plan_floor_clamp_from_properties(node.properties for node in nodes),
         )
         for query_id, nodes in nodes_by_query.items()
     }
@@ -226,9 +224,13 @@ def get_plan_floor_clamp(properties: Mapping[str, Any] | None) -> PlanFloorClamp
     )
 
 
+def plan_floor_clamp_from_properties(properties: Iterable[Mapping[str, Any] | None]) -> PlanFloorClamp | None:
+    return next((clamp for props in properties if (clamp := get_plan_floor_clamp(props)) is not None), None)
+
+
 def get_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> PlanFloorClamp | None:
     nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
-    return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node.properties)) is not None), None)
+    return plan_floor_clamp_from_properties(node.properties for node in nodes)
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:

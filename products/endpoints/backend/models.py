@@ -25,8 +25,8 @@ from posthog.schema_enums import ProductKey
 from products.data_modeling.backend.facade.api import (
     declared_targets_by_saved_query,
     get_declared_target,
-    get_plan_floor_clamp,
     get_plan_floor_clamp_by_saved_query,
+    plan_floor_clamp_from_properties,
 )
 
 if TYPE_CHECKING:
@@ -337,20 +337,18 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
         if nodes is None:
             return get_plan_floor_clamp_by_saved_query(self.team_id or self.endpoint.team_id, self.saved_query_id)
-        return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node.properties)) is not None), None)
-
-    def _target_seconds_before_plan_floor_clamp(self) -> int | None:
-        clamp = self.plan_floor_clamp
-        if clamp is None or clamp.previous_target is None:
-            return None
-        return int(clamp.previous_target.total_seconds())
+        return plan_floor_clamp_from_properties(node.properties for node in nodes)
 
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
             return
         if cache_ttl_seconds is None:
-            cache_ttl_seconds = self._target_seconds_before_plan_floor_clamp() or self.data_freshness_seconds
+            clamp = self.plan_floor_clamp
+            previous_target = clamp.previous_target if clamp is not None else None
+            cache_ttl_seconds = (
+                int(previous_target.total_seconds()) if previous_target is not None else self.data_freshness_seconds
+            )
         self.cache_ttl_seconds = cache_ttl_seconds
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
