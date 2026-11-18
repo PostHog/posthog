@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag,
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
@@ -36,7 +37,11 @@ export function CIMDVerificationTokens(): JSX.Element {
         setBindUrl,
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
+    const { preflight } = useValues(preflightLogic)
     const hasUnboundToken = tokens.some((token) => !token.cimd_url)
+    // One metadata document serves every region and carries one token, so one instance issues every token.
+    const tokenIssuerUrl = preflight?.cimd_verification_token_issuer_url
+    const tokenIssuerHost = tokenIssuerUrl ? new URL(tokenIssuerUrl).host : null
 
     return (
         <div className="space-y-4">
@@ -54,8 +59,24 @@ export function CIMDVerificationTokens(): JSX.Element {
                 for the metadata format.
             </p>
 
+            {tokenIssuerHost && (
+                <LemonBanner type="warning">
+                    Verification tokens are created in another PostHog region. Create the token from your organization
+                    at{' '}
+                    <Link to={`${tokenIssuerUrl}/settings/organization-cimd-verification-tokens`} target="_blank">
+                        {tokenIssuerHost}
+                    </Link>
+                    . Your metadata document carries one token for every region.
+                </LemonBanner>
+            )}
+
             <div className="flex justify-end">
-                <LemonButton type="primary" onClick={showCreateDialog} data-attr="create-cimd-verification-token">
+                <LemonButton
+                    type="primary"
+                    onClick={showCreateDialog}
+                    data-attr="create-cimd-verification-token"
+                    disabledReason={tokenIssuerUrl ? `Create verification tokens at ${tokenIssuerHost}` : undefined}
+                >
                     Create verification token
                 </LemonButton>
             </div>
@@ -71,7 +92,11 @@ export function CIMDVerificationTokens(): JSX.Element {
                 <div className="border border-dashed rounded-lg p-8 text-center">
                     <IconKey className="text-4xl text-secondary mx-auto mb-3" />
                     <h3 className="text-base font-semibold mb-1">No verification tokens</h3>
-                    <p className="text-secondary">Create one to link a CIMD partner app to this organization.</p>
+                    <p className="text-secondary">
+                        {tokenIssuerUrl
+                            ? `Create a token at ${tokenIssuerHost} to link a CIMD partner app.`
+                            : 'Create one to link a CIMD partner app to this organization.'}
+                    </p>
                 </div>
             ) : (
                 <LemonTable

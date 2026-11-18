@@ -476,7 +476,7 @@ def openai_source(
 
     client_config: ClientConfig = {
         "base_url": OPENAI_BASE_URL,
-        "headers": _headers(),
+        "headers": {**_headers(), **config.extra_headers},
         "auth": {"type": "bearer", "token": token},
     }
 
