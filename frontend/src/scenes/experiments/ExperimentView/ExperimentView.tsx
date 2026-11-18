@@ -30,6 +30,7 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
+import { QuillRecalculationStatus } from '../MetricsView/shared/QuillRecalculationStatus'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { ClassicExposures } from './ClassicExposures'
@@ -91,7 +92,12 @@ const MetricsTab = (): JSX.Element => {
                 </div>
             )}
 
-            {hasMetrics && <RecalculationStatus experiment={experiment} />}
+            {hasMetrics &&
+                (todayRailNav && resultsRedesign ? (
+                    <QuillRecalculationStatus experiment={experiment} className="mb-2" />
+                ) : (
+                    <RecalculationStatus experiment={experiment} />
+                ))}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
