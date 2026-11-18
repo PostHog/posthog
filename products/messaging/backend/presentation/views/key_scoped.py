@@ -12,9 +12,11 @@ from products.messaging.backend.presentation.views.topic_preferences import Topi
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
 
 
-# Each view takes its project from the authenticated user, and a project secret API key's user is pinned to the
-# key's project. Any credential that carries a real user would resolve to the project that user last opened, so these
-# views refuse every other credential.
+# These paths carry no project id, so each view sets `param_derived_from_user_current_team`, which makes the routing
+# mixin read the team from `request.user.team`. Despite the name, that is not a mutable current project here: a project
+# secret API key authenticates as a synthetic user whose team is fixed to the key's own project. A credential with a
+# real user would resolve to the project that user last opened, the same problem as `@current`, so these views refuse
+# every credential except a project secret API key.
 class ProjectSecretAPIKeyOnly(BasePermission):
     message = "This endpoint accepts project secret API keys only."
 
