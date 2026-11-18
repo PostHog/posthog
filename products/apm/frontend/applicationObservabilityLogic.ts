@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, decodeParams, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, decodeParams, router, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -519,8 +519,13 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             setTab: toUrl,
             setEndpointsService: toUrl,
             showServiceEndpoints: toUrl,
-            // Replaces the history entry, so Back skips each keystroke.
-            setSearch: () => [...toUrl(), undefined, { replace: true }],
+            // Replaces the history entry, so Back skips each keystroke. Keeps the table's
+            // `order` param, which LemonTable owns and `toUrl` doesn't know about.
+            setSearch: () => {
+                const [path, params] = toUrl()
+                const order = router.values.searchParams.order
+                return [path, order != null ? { ...params, order } : params, undefined, { replace: true }]
+            },
             setPaused: toUrl,
         }
     }),
