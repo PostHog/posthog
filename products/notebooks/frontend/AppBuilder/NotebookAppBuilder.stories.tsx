@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import {
     appBuilderDemoCells,
@@ -132,10 +132,10 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/file_system/home_folder': { id: 'home-folder', path: 'Home' },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/markdown_save': async ({ request }) => {
-                    const body = (await request.json()) as { markdown: string }
+                    const body = (await request.json()) as { content: typeof notebook.content }
                     saved = {
                         ...saved,
-                        content: buildMarkdownNotebookContent(body.markdown),
+                        content: body.content,
                         version: saved.version + 1,
                     }
                     return [200, saved]
@@ -192,16 +192,18 @@ export const Published: Story = {
         await waitFor(() =>
             expect(app.queryByText('Inputs changed. Run all to update the charts and calculated values.')).toBeNull()
         )
-        await waitFor(() =>
-            expect(saved.content).toEqual(
-                expect.objectContaining({
-                    content: expect.arrayContaining([
-                        expect.objectContaining({
-                            attrs: expect.objectContaining({ markdown: expect.stringContaining('1-growth-table') }),
-                        }),
-                    ]),
-                })
-            )
+        await waitFor(
+            () =>
+                expect(saved.content).toEqual(
+                    expect.objectContaining({
+                        content: expect.arrayContaining([
+                            expect.objectContaining({
+                                attrs: expect.objectContaining({ markdown: expect.stringContaining('1-growth-table') }),
+                            }),
+                        ]),
+                    })
+                ),
+            { timeout: 10000 }
         )
     },
 }
@@ -211,7 +213,7 @@ export const Notebook: Story = {
         const canvas = within(canvasElement)
         await waitFor(() => expect(canvas.getByLabelText('Notebook options')).toBeVisible(), { timeout: 60000 })
         expect(canvas.queryByText('App builder')).not.toBeInTheDocument()
-        fireEvent.click(canvas.getByLabelText('Notebook options'))
+        await userEvent.click(canvas.getByLabelText('Notebook options'))
         const menu = within(document.body)
         fireEvent.click(await menu.findByText('App builder'))
         await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible())
@@ -227,7 +229,8 @@ export const FlagDisabled: Story = {
         const canvas = within(canvasElement)
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
-        fireEvent.click(canvas.getByLabelText('Notebook options'))
+        await userEvent.click(canvas.getByLabelText('Notebook options'))
+        await waitFor(() => expect(within(document.body).getByText('Duplicate', { exact: true })).toBeVisible())
         expect(within(document.body).queryByText('App builder')).not.toBeInTheDocument()
         router.actions.push(urls.notebook(SHORT_ID), { view: 'app' })
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible())

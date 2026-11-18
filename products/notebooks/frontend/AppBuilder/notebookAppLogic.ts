@@ -32,7 +32,12 @@ import type { NotebookBlockNode } from '../../../../frontend/src/lib/components/
 import type { NotebookVariable } from '../../../../frontend/src/scenes/notebooks/Notebook/notebookVariables'
 import type { NotebookType } from '../../../../frontend/src/scenes/notebooks/types'
 import { notebooksPartialUpdate, notebooksRetrieve } from '../generated/api'
-import type { NotebookApi, NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
+import type {
+    NotebookApi,
+    NotebookAppBlockApi,
+    NotebookAppLayoutApi,
+    NotebookRunStatusResponseApi,
+} from '../generated/api.schemas'
 import type { NotebookAppBlockKindEnumApi } from '../generated/api.schemas'
 import {
     appCellTitle,
@@ -86,8 +91,17 @@ export interface notebookAppLogicActions {
     clearNodeStale: (nodeId: string) => {
         nodeId: string
     } // notebookNodeStalenessLogic
-    runFinished: (run: import('../generated/api.schemas').NotebookRunStatusResponseApi) => {
-        run: import('../generated/api.schemas').NotebookRunStatusResponseApi
+    nodeRunFinished: (
+        nodeId: string,
+        status: import('scenes/notebooks/Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus,
+        content: null | import('lib/components/RichContentEditor/types').JSONContent
+    ) => {
+        content: null | import('lib/components/RichContentEditor/types').JSONContent
+        nodeId: string
+        status: import('scenes/notebooks/Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus
+    } // notebookNodeStalenessLogic
+    runFinished: (run: NotebookRunStatusResponseApi) => {
+        run: NotebookRunStatusResponseApi
     } // notebookRunLogic
     startRun: () => {
         value: true
@@ -142,6 +156,9 @@ export interface notebookAppLogicActions {
     }
     openSource: (nodeId: string) => {
         nodeId: string
+    }
+    reconcileCompletedRun: (run: NotebookRunStatusResponseApi) => {
+        run: NotebookRunStatusResponseApi
     }
     redo: () => {
         value: true
@@ -260,12 +277,13 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
         ],
         actions: [
             notebookNodeStalenessLogic({ shortId }),
-            ['adoptChainRun', 'clearNodeStale'],
+            ['adoptChainRun', 'clearNodeStale', 'nodeRunFinished'],
             notebookRunLogic({ shortId }),
             ['startRun', 'runFinished'],
         ],
     })),
     actions({
+        reconcileCompletedRun: (run: NotebookRunStatusResponseApi) => ({ run }),
         refreshFromAgent: true,
         setAgentUpdatePending: (pending: boolean) => ({ pending }),
         changeLayout: (layout: NotebookAppLayoutApi) => ({ layout }),
@@ -420,9 +438,38 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
     listeners(({ values, actions, props, cache }) => ({
         startRun: () => {
             cache.runVariables = JSON.stringify(values.variables)
+            cache.completedRun = null
+            cache.runSources = new Map(
+                values.cells.map((cell) => [cell.id, cell.type === 'component' ? cell.props.code : undefined])
+            )
         },
         runFinished: ({ run }) => {
-            if (cache.runVariables === JSON.stringify(values.variables)) {
+            cache.completedRun = run
+            actions.reconcileCompletedRun(run)
+        },
+        nodeRunFinished: ({ nodeId, status }) => {
+            const run = cache.completedRun as NotebookRunStatusResponseApi | null
+            const source = values.cells.find((cell) => cell.id === nodeId)
+            if (
+                status === 'done' &&
+                source?.type === 'component' &&
+                run?.cells.some((cell) => cell.node_id === nodeId && cell.run_id === source.props.runId)
+            ) {
+                actions.reconcileCompletedRun(run)
+            }
+        },
+        reconcileCompletedRun: ({ run }) => {
+            if (
+                cache.runVariables === JSON.stringify(values.variables) &&
+                run.cells.every((cell) => {
+                    const source = values.cells.find((source) => source.id === cell.node_id)
+                    return (
+                        source?.type === 'component' &&
+                        source.props.runId === cell.run_id &&
+                        source.props.code === cache.runSources?.get(cell.node_id)
+                    )
+                })
+            ) {
                 for (const cell of run.cells) {
                     if (cell.status === 'done') {
                         actions.clearNodeStale(cell.node_id)
