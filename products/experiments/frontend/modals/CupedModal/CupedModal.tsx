@@ -1,65 +1,34 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from 'scenes/experiments/ExperimentView/cuped'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { CupedSelection } from 'scenes/experiments/ExperimentView/cuped'
 
-import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { teamDefaultOptions } from 'products/experiments/frontend/modals/StatsMethodModal/useStatsMethodModal'
+
+import { QuillCupedModal } from './QuillCupedModal'
+import { CUPED_HELP, CUPED_LOOKBACK_HELP, useCupedModal } from './useCupedModal'
 
 export function CupedModal(): JSX.Element {
-    const { experiment, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
-    const { experimentsConfig } = useValues(experimentsConfigLogic)
-    const { closeCupedModal } = useActions(modalsLogic)
-    const { isCupedModalOpen } = useValues(modalsLogic)
-    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
-
-    const selection = getCupedSelection(experiment.stats_config?.cuped)
-    const teamDefaultEnabled = experimentsConfig?.default_cuped_enabled ?? false
-    const teamDefaultLookbackDays = experimentsConfig?.default_cuped_lookback_days ?? null
-    const lookbackDays = resolveCupedLookbackDays(
-        experiment.stats_config?.cuped,
-        teamDefaultLookbackDays,
-        DEFAULT_LOOKBACK_DAYS
-    )
-
-    const onClose = (): void => {
-        restoreUnmodifiedExperiment()
-        closeCupedModal()
+    const model = useCupedModal()
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav && resultsRedesign) {
+        return <QuillCupedModal model={model} />
     }
-
-    const updateSelection = (next: CupedSelection): void => {
-        if (next === 'default') {
-            // Drop the cuped key entirely so the team default applies at evaluation time.
-            const { cuped: _cuped, ...restStatsConfig } = experiment.stats_config ?? {}
-            setExperiment({ stats_config: restStatsConfig })
-            return
-        }
-        setExperiment({
-            stats_config: {
-                ...experiment.stats_config,
-                cuped: {
-                    ...experiment.stats_config?.cuped,
-                    enabled: next === 'enabled',
-                },
-            },
-        })
-    }
-
-    const updateLookbackDays = (lookback_days: number): void => {
-        setExperiment({
-            stats_config: {
-                ...experiment.stats_config,
-                cuped: {
-                    ...experiment.stats_config?.cuped,
-                    lookback_days,
-                },
-            },
-        })
-    }
+    const {
+        experiment,
+        experimentUpdateLoading,
+        updateExperimentSettings,
+        isCupedModalOpen,
+        savingReason,
+        selection,
+        teamDefaultEnabled,
+        lookbackDays,
+        onClose,
+        updateSelection,
+        updateLookbackDays,
+    } = model
 
     return (
         <LemonModal
@@ -85,24 +54,14 @@ export function CupedModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-4">
-                <p className="text-secondary m-0">
-                    Use pre-experiment data to detect significant effects faster. Currently supported for mean and
-                    funnel metrics.
-                </p>
+                <p className="text-secondary m-0">{CUPED_HELP}</p>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>CUPED</LemonLabel>
                     <LemonSelect<CupedSelection>
                         value={selection}
                         onChange={updateSelection}
                         disabledReason={savingReason}
-                        options={[
-                            {
-                                value: 'default',
-                                label: `Use team default (${teamDefaultEnabled ? 'Enabled' : 'Disabled'})`,
-                            },
-                            { value: 'enabled', label: 'Enabled' },
-                            { value: 'disabled', label: 'Disabled' },
-                        ]}
+                        options={teamDefaultOptions(teamDefaultEnabled)}
                     />
                 </div>
                 {selection === 'enabled' && (
@@ -126,10 +85,7 @@ export function CupedModal(): JSX.Element {
                             }}
                             className="w-32"
                         />
-                        <p className="text-xs text-secondary m-0">
-                            Number of days before the experiment start to use as the pre-experiment window. Must be
-                            between {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS} days.
-                        </p>
+                        <p className="text-xs text-secondary m-0">{CUPED_LOOKBACK_HELP}</p>
                     </div>
                 )}
             </div>

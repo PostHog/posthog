@@ -2,6 +2,21 @@ import { ExperimentStatsMethod } from '~/types'
 
 import { SelectableCard } from './SelectableCard'
 
+export const STATS_METHOD_OPTIONS = [
+    {
+        value: ExperimentStatsMethod.Bayesian,
+        title: 'Bayesian',
+        description:
+            'Gives you a clear win probability, showing how likely one variant is to be better than another. Great for product engineers new to experimentation.',
+    },
+    {
+        value: ExperimentStatsMethod.Frequentist,
+        title: 'Frequentist',
+        description:
+            'Uses p-values to determine statistical significance. Often preferred by data scientists and teams experienced with traditional A/B testing.',
+    },
+]
+
 export interface StatsMethodSelectorProps {
     value: ExperimentStatsMethod
     onChange: (method: ExperimentStatsMethod) => void
@@ -23,14 +38,14 @@ export function StatsMethodSelector({
         <div className="flex gap-4 max-w-[800px]">
             <SelectableCard
                 title="Bayesian"
-                description="Gives you a clear win probability, showing how likely one variant is to be better than another. Great for product engineers new to experimentation."
+                description={STATS_METHOD_OPTIONS[0].description}
                 selected={value === ExperimentStatsMethod.Bayesian}
                 onClick={() => !isDisabled && onChange(ExperimentStatsMethod.Bayesian)}
                 {...disabledProps}
             />
             <SelectableCard
                 title="Frequentist"
-                description="Uses p-values to determine statistical significance. Often preferred by data scientists and teams experienced with traditional A/B testing."
+                description={STATS_METHOD_OPTIONS[1].description}
                 selected={value === ExperimentStatsMethod.Frequentist}
                 onClick={() => !isDisabled && onChange(ExperimentStatsMethod.Frequentist)}
                 {...disabledProps}

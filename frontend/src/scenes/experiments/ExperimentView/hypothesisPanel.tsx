@@ -116,7 +116,14 @@ export function useHypothesisPanel(): HypothesisPanel {
     }
 }
 
-export function HypothesisModals(): JSX.Element {
+/** The hypothesis being edited in the modal, reset to the saved one whenever that changes. */
+export function useHypothesisDescriptionDraft(): {
+    isOpen: boolean
+    close: () => void
+    draft: string
+    setDraft: (value: string) => void
+    save: () => void
+} {
     const { experiment } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
@@ -127,6 +134,27 @@ export function HypothesisModals(): JSX.Element {
     useEffect(() => {
         setTempDescription(experiment.description || '')
     }, [experiment.description])
+
+    return {
+        isOpen: isDescriptionModalOpen,
+        close: closeDescriptionModal,
+        draft: tempDescription,
+        setDraft: setTempDescription,
+        save: () => {
+            updateExperiment({ description: tempDescription })
+            closeDescriptionModal()
+        },
+    }
+}
+
+export function HypothesisModals(): JSX.Element {
+    const {
+        isOpen: isDescriptionModalOpen,
+        close: closeDescriptionModal,
+        draft: tempDescription,
+        setDraft: setTempDescription,
+        save,
+    } = useHypothesisDescriptionDraft()
 
     return (
         <>
@@ -141,13 +169,7 @@ export function HypothesisModals(): JSX.Element {
                         <LemonButton type="secondary" onClick={closeDescriptionModal}>
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                updateExperiment({ description: tempDescription })
-                                closeDescriptionModal()
-                            }}
-                        >
+                        <LemonButton type="primary" onClick={save}>
                             Save
                         </LemonButton>
                     </div>

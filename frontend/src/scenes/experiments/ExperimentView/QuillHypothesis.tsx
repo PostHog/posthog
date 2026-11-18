@@ -30,10 +30,10 @@ import {
     CUPED_DEFAULT_SETTINGS_URL,
     CUPED_HELP,
     HYPOTHESIS_PLACEHOLDER,
-    HypothesisModals,
     useHypothesisPanel,
 } from './hypothesisPanel'
 import { QuillHelpTooltip, QuillSectionHeading } from './QuillCardParts'
+import { QuillHypothesisModals } from './QuillHypothesisModals'
 
 function SettingRow({
     label,
@@ -244,7 +244,7 @@ export function QuillHypothesis(): JSX.Element {
                 </div>
             </CardContent>
 
-            <HypothesisModals />
+            <QuillHypothesisModals />
             <QuillTagsDialog
                 open={tagsOpen}
                 name={panel.name}
