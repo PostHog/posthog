@@ -1941,8 +1941,8 @@ tools:
             the deadline, ask the customer to let you know when it finishes.
 
             completed_at confirms setup only. For error triage, search inbox-reports-list using specific issue or error
-            terms and limit=3. Read relevant reports and work logs, check freshness and linked PR status, then investigate
-            the remaining gaps. If there is no relevant match, continue the original investigation.
+            terms and limit=3. Read relevant reports and work logs, check freshness and linked PR status, then
+            investigate the remaining gaps. If there is no relevant match, continue the original investigation.
         response:
             include:
                 - completed_at
