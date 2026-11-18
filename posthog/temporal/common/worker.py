@@ -219,149 +219,7 @@ def with_declared_histograms(core_buckets: dict[str, list[float]]) -> dict[str, 
     return declared | core_buckets
 
 
-@frozen
-class ActivityWorkerConfig:
-    task_queue: str
-    activities: collections.abc.Sequence[typing.Callable]
-    max_concurrent_activities: int
-
-
-@dataclass(frozen=False)
-class ManagedWorker:
-    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
-
-    worker: Worker
-    metrics_server: CombinedMetricsServer | None = None
-    activity_workers: tuple[Worker, ...] = ()
-
-    async def run(self) -> None:
-        if self.metrics_server:
-            await self.metrics_server.start()
-        if not self.activity_workers:
-            await self.worker.run()
-            return
-        # A failed poller must stop its siblings so the pod restarts with all queues served.
-        async with asyncio.TaskGroup() as group:
-            for worker in (self.worker, *self.activity_workers):
-                group.create_task(worker.run())
-
-    def is_shutdown(self) -> bool:
-        return all(worker.is_shutdown for worker in (self.worker, *self.activity_workers))
-
-    async def shutdown(self) -> None:
-        await asyncio.gather(*(worker.shutdown() for worker in (self.worker, *self.activity_workers)))
-        if self.metrics_server:
-            await self.metrics_server.stop()
-        shutdown_asyncify_executor()
-
-
-DEFAULT_MAX_CONCURRENT_TASKS = 50
-
-
-def max_heartbeat_throttle_interval() -> dt.timedelta:
-    """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
-    return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
-
-
-def build_poller_autoscaling(
-    task_type: str, minimum: int | None, maximum: int | None
-) -> PollerBehaviorAutoscaling | None:
-    """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
-    if maximum is None:
-        if minimum is not None:
-            logger.warning(
-                "poller_autoscaling_minimum_ignored",
-                task_type=task_type,
-                minimum=minimum,
-                reason="maximum is not set, so the SDK default poller behavior is used",
-            )
-        return None
-    effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
-    if effective_minimum < 1:
-        raise ValueError(f"{task_type} poller autoscaling minimum must be at least 1, got {effective_minimum}")
-    if maximum < effective_minimum:
-        raise ValueError(
-            f"{task_type} poller autoscaling maximum ({maximum}) must be at least the minimum ({effective_minimum})"
-        )
-    return PollerBehaviorAutoscaling(minimum=effective_minimum, maximum=maximum, initial=effective_minimum)
-
-
-async def create_worker(
-    host: str,
-    port: int,
-    metrics_port: int,
-    namespace: str,
-    task_queue: str,
-    workflows: collections.abc.Sequence[type],
-    activities: collections.abc.Sequence[typing.Callable],
-    server_root_ca_cert: str | None = None,
-    client_cert: str | None = None,
-    client_key: str | None = None,
-    graceful_shutdown_timeout: dt.timedelta | None = None,
-    max_concurrent_workflow_tasks: int | None = None,
-    max_concurrent_activities: int | None = None,
-    metric_prefix: str | None = None,
-    use_pydantic_converter: bool = False,
-    target_memory_usage: float | None = None,
-    target_cpu_usage: float | None = None,
-    activity_ramp_throttle: dt.timedelta | None = None,
-    enable_combined_metrics_server: bool = True,
-    enable_open_telemetry_plugin: bool = False,
-    activity_worker_configs: collections.abc.Sequence[ActivityWorkerConfig] = (),
-) -> ManagedWorker:
-    """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
-
-    Arguments:
-        host: The Temporal Server host.
-        port: The Temporal Server port.
-        metrics_port: Port used to serve Prometheus metrics.
-        namespace: The Temporal namespace to connect to.
-        task_queue: The task queue the worker will listen on.
-        workflows: Workflows the worker is configured to run.
-        activities: Activities the worker is configured to run.
-        server_root_ca_cert: Root CA to validate the server certificate against.
-        client_cert: Client certificate for TLS.
-        client_key: Client private key for TLS.
-        graceful_shutdown_timeout: Time to wait (in seconds) for graceful shutdown.
-            By default we will wait 5 minutes. This should be always less than any
-            timeouts used by deployment orchestrators.
-        max_concurrent_workflow_tasks: Maximum number of concurrent workflow tasks
-            the worker can handle. Defaults to 50.
-        max_concurrent_activities: Maximum number of concurrent activity tasks the
-            worker can handle. Defaults to 50.
-        metric_prefix: Prefix to apply to metrics emitted by this worker, if
-            left unset (`None`) Temporal will default to "temporal_".
-        use_pydantic_converter: Flag to enable Pydantic data converter
-        target_memory_usage: Fraction of available memory to use, between 0.0 and 1.0.
-            If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
-        target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
-            Defaults to 1.0. Only takes effect if target_memory_usage is set.
-        activity_ramp_throttle: Minimum interval between two activity slot issues.
-            Defaults to the SDK value of 50 ms. Only takes effect if target_memory_usage is set.
-        enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
-            Set to False to disable the metrics server (useful when it causes GIL contention issues).
-        enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
-        activity_worker_configs: Additional activity queues with independent fixed concurrency limits,
-            sharing this process, client, metrics server, and shutdown lifecycle.
-    """
-
-    metrics_server: CombinedMetricsServer | None = None
-
-    if enable_combined_metrics_server:
-        # Use an internal port for Temporal SDK metrics, which the combined metrics server
-        # will fetch from and merge with prometheus_client metrics on the main metrics port.
-        temporal_metrics_port = get_free_port()
-        temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
-
-        metrics_server = CombinedMetricsServer(
-            port=metrics_port,
-            temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-            registry=REGISTRY,
-        )
-    else:
-        # Expose Temporal SDK metrics directly on the public metrics port.
-        temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
-
+def histogram_buckets_for_queue(task_queue: str) -> dict[str, list[float]]:
     histogram_bucket_overrides: dict[str, list[float]] = (
         dict(
             zip(
@@ -506,7 +364,153 @@ async def create_worker(
                 itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
-    histogram_bucket_overrides = with_declared_histograms(histogram_bucket_overrides)
+    return with_declared_histograms(histogram_bucket_overrides)
+
+
+@frozen
+class ActivityWorkerConfig:
+    task_queue: str
+    activities: collections.abc.Sequence[typing.Callable]
+    max_concurrent_activities: int
+
+
+@dataclass(frozen=False)
+class ManagedWorker:
+    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
+
+    worker: Worker
+    metrics_server: CombinedMetricsServer | None = None
+    activity_workers: tuple[Worker, ...] = ()
+
+    async def run(self) -> None:
+        if self.metrics_server:
+            await self.metrics_server.start()
+        if not self.activity_workers:
+            await self.worker.run()
+            return
+        # A failed poller must stop its siblings so the pod restarts with all queues served.
+        async with asyncio.TaskGroup() as group:
+            for worker in (self.worker, *self.activity_workers):
+                group.create_task(worker.run())
+
+    def is_shutdown(self) -> bool:
+        return all(worker.is_shutdown for worker in (self.worker, *self.activity_workers))
+
+    async def shutdown(self) -> None:
+        await asyncio.gather(*(worker.shutdown() for worker in (self.worker, *self.activity_workers)))
+        if self.metrics_server:
+            await self.metrics_server.stop()
+        shutdown_asyncify_executor()
+
+
+DEFAULT_MAX_CONCURRENT_TASKS = 50
+
+
+def max_heartbeat_throttle_interval() -> dt.timedelta:
+    """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
+    return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
+
+
+def build_poller_autoscaling(
+    task_type: str, minimum: int | None, maximum: int | None
+) -> PollerBehaviorAutoscaling | None:
+    """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
+    if maximum is None:
+        if minimum is not None:
+            logger.warning(
+                "poller_autoscaling_minimum_ignored",
+                task_type=task_type,
+                minimum=minimum,
+                reason="maximum is not set, so the SDK default poller behavior is used",
+            )
+        return None
+    effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
+    if effective_minimum < 1:
+        raise ValueError(f"{task_type} poller autoscaling minimum must be at least 1, got {effective_minimum}")
+    if maximum < effective_minimum:
+        raise ValueError(
+            f"{task_type} poller autoscaling maximum ({maximum}) must be at least the minimum ({effective_minimum})"
+        )
+    return PollerBehaviorAutoscaling(minimum=effective_minimum, maximum=maximum, initial=effective_minimum)
+
+
+async def create_worker(
+    host: str,
+    port: int,
+    metrics_port: int,
+    namespace: str,
+    task_queue: str,
+    workflows: collections.abc.Sequence[type],
+    activities: collections.abc.Sequence[typing.Callable],
+    server_root_ca_cert: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    graceful_shutdown_timeout: dt.timedelta | None = None,
+    max_concurrent_workflow_tasks: int | None = None,
+    max_concurrent_activities: int | None = None,
+    metric_prefix: str | None = None,
+    use_pydantic_converter: bool = False,
+    target_memory_usage: float | None = None,
+    target_cpu_usage: float | None = None,
+    activity_ramp_throttle: dt.timedelta | None = None,
+    enable_combined_metrics_server: bool = True,
+    enable_open_telemetry_plugin: bool = False,
+    activity_worker_configs: collections.abc.Sequence[ActivityWorkerConfig] = (),
+) -> ManagedWorker:
+    """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
+
+    Arguments:
+        host: The Temporal Server host.
+        port: The Temporal Server port.
+        metrics_port: Port used to serve Prometheus metrics.
+        namespace: The Temporal namespace to connect to.
+        task_queue: The task queue the worker will listen on.
+        workflows: Workflows the worker is configured to run.
+        activities: Activities the worker is configured to run.
+        server_root_ca_cert: Root CA to validate the server certificate against.
+        client_cert: Client certificate for TLS.
+        client_key: Client private key for TLS.
+        graceful_shutdown_timeout: Time to wait (in seconds) for graceful shutdown.
+            By default we will wait 5 minutes. This should be always less than any
+            timeouts used by deployment orchestrators.
+        max_concurrent_workflow_tasks: Maximum number of concurrent workflow tasks
+            the worker can handle. Defaults to 50.
+        max_concurrent_activities: Maximum number of concurrent activity tasks the
+            worker can handle. Defaults to 50.
+        metric_prefix: Prefix to apply to metrics emitted by this worker, if
+            left unset (`None`) Temporal will default to "temporal_".
+        use_pydantic_converter: Flag to enable Pydantic data converter
+        target_memory_usage: Fraction of available memory to use, between 0.0 and 1.0.
+            If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
+        target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
+            Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        activity_ramp_throttle: Minimum interval between two activity slot issues.
+            Defaults to the SDK value of 50 ms. Only takes effect if target_memory_usage is set.
+        enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
+            Set to False to disable the metrics server (useful when it causes GIL contention issues).
+        enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
+        activity_worker_configs: Additional activity queues with independent fixed concurrency limits,
+            sharing this process, client, metrics server, and shutdown lifecycle.
+    """
+
+    metrics_server: CombinedMetricsServer | None = None
+
+    if enable_combined_metrics_server:
+        # Use an internal port for Temporal SDK metrics, which the combined metrics server
+        # will fetch from and merge with prometheus_client metrics on the main metrics port.
+        temporal_metrics_port = get_free_port()
+        temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
+
+        metrics_server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
+            registry=REGISTRY,
+        )
+    else:
+        # Expose Temporal SDK metrics directly on the public metrics port.
+        temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
+
+    histogram_bucket_overrides = histogram_buckets_for_queue(task_queue)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
