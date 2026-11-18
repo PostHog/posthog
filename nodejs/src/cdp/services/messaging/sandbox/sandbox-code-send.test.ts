@@ -451,7 +451,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(metricNames(results)).toContain('email_sandbox_blocked')
-        expect(runLogs(results)).toContainEqual(expect.stringContaining(`didn't send the email (skipped): ${reason}`))
+        expect(runLogs(results)).toContainEqual(
+            expect.stringContaining(`The PostHog test sender didn't send the email (skipped): ${reason}`)
+        )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
     })
 
@@ -465,7 +467,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(runLogs(results)).toContainEqual(
-            expect.stringContaining("didn't send the email (skipped): sending_disabled")
+            expect.stringContaining("The PostHog test sender didn't send the email (skipped): sending_disabled")
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason: 'sending_disabled' }])
     })
