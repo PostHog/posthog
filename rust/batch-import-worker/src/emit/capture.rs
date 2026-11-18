@@ -7,9 +7,10 @@ use std::{
 
 use anyhow::Error;
 use async_trait::async_trait;
+use common_posthog::capture_outcomes::{event_outcome, request_outcome, EventOutcome};
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
-use posthog::{Client, Error as PosthogError, Event};
+use posthog::{CaptureSummary, Client, Error as PosthogError, Event};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -167,18 +168,24 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 
         for batch in batches {
             let batch_count = batch.len();
-            if let Err(e) = self.client.capture_batch_immediate(batch, true).await {
-                // The worker is the only place that sees per-event loss attributed to a
-                // reason: capture counts requests, not events, and a failed import sub-batch
-                // can carry thousands of events. `reason` lets alerting exclude expected
-                // quota (402) drops and act on transport/server/bad_request failures.
-                let reason = failure_reason(&e);
-                counter!("capture_batch_events_total", "outcome" => "failure", "reason" => reason)
-                    .increment(batch_count as u64);
-                counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
-                    .increment(1);
-                return Err(Error::msg(format!("capture batch failed: {e}")));
-            }
+            let e = match self.client.capture_batch_immediate(batch, true).await {
+                Ok(summary) => {
+                    record_summary(&summary);
+                    continue;
+                }
+                Err(e) => e,
+            };
+            record_request_failure(&e);
+            // The worker is the only place that sees per-event loss attributed to a
+            // reason: capture counts requests, not events, and a failed import sub-batch
+            // can carry thousands of events. `reason` lets alerting exclude expected
+            // quota (402) drops and act on transport/server/bad_request failures.
+            let reason = failure_reason(&e);
+            counter!("capture_batch_events_total", "outcome" => "failure", "reason" => reason)
+                .increment(batch_count as u64);
+            counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
+                .increment(1);
+            return Err(Error::msg(format!("capture batch failed: {e}")));
         }
 
         // Count success once per fully-committed chunk. A mid-chunk failure rolls the offset
@@ -210,6 +217,62 @@ fn failure_reason(err: &PosthogError) -> &'static str {
         PosthogError::Serialization(_) => "serialization", // local encode failure
         _ => "other",
     }
+}
+
+/// One count per event in a 2xx response, labeled `result`, `class` and `detail`.
+const EVENT_RESULTS: &str = "capture_batch_event_results_total";
+
+/// One count per sub-batch request, labeled `outcome`, `status` and `error`.
+const REQUEST_RESULTS: &str = "capture_batch_request_results_total";
+
+fn record_summary(summary: &CaptureSummary) {
+    let results = summary.event_results();
+    let mut duplicate_copies = 0usize;
+    for result in results.values() {
+        count_event(event_outcome(result), 1);
+        let copies = result.duplicates_dropped.unwrap_or(0) as usize;
+        if copies > 0 {
+            count_event(EventOutcome::DUPLICATE_COPY, copies);
+            duplicate_copies += copies;
+        }
+    }
+    let unaccounted = summary
+        .submitted()
+        .saturating_sub(results.len() + duplicate_copies);
+    if unaccounted > 0 {
+        count_event(EventOutcome::UNACCOUNTED, unaccounted);
+    }
+
+    let outcome = if summary.all_persisted() {
+        "all_persisted"
+    } else if summary.not_persisted() >= summary.submitted() {
+        "none_persisted"
+    } else {
+        "partial"
+    };
+    counter!(REQUEST_RESULTS, "outcome" => outcome, "status" => "200", "error" => "none")
+        .increment(1);
+}
+
+fn record_request_failure(err: &PosthogError) {
+    let outcome = request_outcome(err);
+    counter!(
+        REQUEST_RESULTS,
+        "outcome" => "failed",
+        "status" => outcome.status,
+        "error" => outcome.error,
+    )
+    .increment(1);
+}
+
+fn count_event(outcome: EventOutcome, events: usize) {
+    counter!(
+        EVENT_RESULTS,
+        "result" => outcome.result,
+        "class" => outcome.class,
+        "detail" => outcome.detail,
+    )
+    .increment(events as u64);
 }
 
 fn get_min_txn_duration(send_rate: u64, count: usize) -> Duration {
@@ -941,6 +1004,18 @@ mod tests {
             ),
             None
         );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_request_results_total",
+                &[
+                    ("outcome", "failed"),
+                    ("status", "400"),
+                    ("error", "bad_request")
+                ]
+            ),
+            Some(1)
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -981,6 +1056,110 @@ mod tests {
                 &[("outcome", "failure"), ("reason", "bad_request")]
             ),
             None
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_request_results_total",
+                &[
+                    ("outcome", "failed"),
+                    ("status", "402"),
+                    ("error", "billing_limit_exceeded")
+                ]
+            ),
+            Some(1)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn per_event_results_in_a_2xx_are_counted_by_detail_without_failing_the_chunk() {
+        let uuids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
+        let events: Vec<Event> = uuids
+            .iter()
+            .map(|uuid| {
+                let mut event = Event::new("test", "user1");
+                event.set_uuid(*uuid);
+                event
+            })
+            .collect();
+        // uuids[4] is missing from the response, so it counts as unaccounted.
+        let body = serde_json::json!({ "results": {
+            uuids[0].to_string(): { "result": "ok" },
+            uuids[1].to_string(): { "result": "drop", "details": "invalid_options" },
+            uuids[2].to_string(): { "result": "warning", "details": "person_processing_disabled" },
+            uuids[3].to_string(): { "result": "retry", "details": "not_persisted" },
+        }})
+        .to_string();
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .with_status(200)
+            .with_body(body)
+            .create();
+
+        let snap = counters_after(|| async {
+            let client = make_client(&server.url()).await;
+            let txn = Box::new(CaptureTransaction {
+                client: &client,
+                send_rate: 10_000,
+                start: Instant::now(),
+                events: Mutex::new(events),
+                seen_uuids: Mutex::new(HashSet::new()),
+            });
+            assert!(
+                txn.commit_write().await.is_ok(),
+                "this PR only observes per-event results; it does not change what commits"
+            );
+        })
+        .await;
+
+        let event = |labels: &[(&str, &str)]| {
+            counter_value(&snap, "capture_batch_event_results_total", labels)
+        };
+        assert_eq!(
+            event(&[("result", "ok"), ("class", "none"), ("detail", "none")]),
+            Some(1)
+        );
+        assert_eq!(
+            event(&[
+                ("result", "drop"),
+                ("class", "validation"),
+                ("detail", "invalid_options")
+            ]),
+            Some(1)
+        );
+        assert_eq!(
+            event(&[
+                ("result", "warning"),
+                ("class", "warning"),
+                ("detail", "person_processing_disabled")
+            ]),
+            Some(1)
+        );
+        assert_eq!(
+            event(&[
+                ("result", "retry"),
+                ("class", "retry"),
+                ("detail", "not_persisted")
+            ]),
+            Some(1)
+        );
+        assert_eq!(
+            event(&[
+                ("result", "unaccounted"),
+                ("class", "other"),
+                ("detail", "none")
+            ]),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_request_results_total",
+                &[("outcome", "partial"), ("status", "200"), ("error", "none")]
+            ),
+            Some(1)
         );
     }
 

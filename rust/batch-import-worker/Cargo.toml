@@ -50,6 +50,7 @@ url = { workspace = true }
 urlencoding = "2.1"
 moka = { workspace = true }
 posthog = { workspace = true }
+common-posthog = { path = "../common/posthog" }
 
 [dev-dependencies]
 common-dns = { path = "../common/dns", features = ["test-util"] }
