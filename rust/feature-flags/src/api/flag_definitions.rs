@@ -1,4 +1,5 @@
 use crate::api::api_key_usage::ApiKeyKind;
+use crate::utils::token_log::loggable_token;
 use crate::{
     api::{
         auth,
@@ -255,7 +256,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = ?params.token,
+        token = ?params.token.as_deref().map(loggable_token),
         "Processing flag definitions request"
     );
 

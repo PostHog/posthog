@@ -112,7 +112,7 @@ function TrackLanesContent({
                     <ReleaseRolloutBar
                         steps={steps}
                         scale={scale}
-                        color={STAGE_COLOR[row.stage]}
+                        color={STAGE_COLOR.flag}
                         top={26}
                         height={20}
                         stickyOffset={stickyOffset}
@@ -158,7 +158,7 @@ function TrackLanesContent({
                     <ReleaseTrackLane
                         key={lane.key}
                         lane={lane}
-                        color={STAGE_COLOR[row.stage]}
+                        color={STAGE_COLOR.flag}
                         scale={scale}
                         stickyOffset={stickyOffset}
                     />

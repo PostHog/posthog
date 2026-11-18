@@ -46,7 +46,11 @@ class TestAgentEgressRegistrationAPI(BaseTest):
         self.client = APIClient()
         task = Task.objects.create(team=self.team, title="Synthetic egress task", created_by=self.user)
         self.task_run = TaskRun.objects.create(
-            id=UUID(registration["run_id"]), task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS
+            id=UUID(registration["run_id"]),
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-api", "sandbox_backend": "modal"},
         )
         self.execution_id = UUID(registration["execution_id"])
         self.registry = AgentEgressRegistry(region=registration["region"])
@@ -57,6 +61,7 @@ class TestAgentEgressRegistrationAPI(BaseTest):
             actor_id=self.user.id,
             authority=registration["authority"],
             relay_key_sha256=registration["relay_key_sha256"],
+            sandbox_id="sb-api",
         )
         self.url = (
             f"/api/projects/{self.team.id}/internal/agent_egress/runs/{self.task_run.id}/executions/{self.execution_id}"
@@ -111,11 +116,21 @@ class TestAgentEgressRegistrationAPI(BaseTest):
         other_team = Team.objects.create(organization=self.organization)
         self.assertEqual(self.client.get(self.url, headers=self._headers(team_id=other_team.id)).status_code, 401)
 
+    def test_lookup_refuses_a_registration_after_the_sandbox_changes(self) -> None:
+        TaskRun.update_state_atomic(self.task_run.id, updates={"sandbox_id": "sb-replacement"})
+        response = self.client.get(self.url, headers=self._headers())
+        self.assertEqual(response.status_code, 404)
+
     def test_child_environment_keeps_registration_and_capability_team(self) -> None:
         child = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
         sibling = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
         task = Task.objects.create(team=child, title="Child environment run", created_by=self.user)
-        task_run = TaskRun.objects.create(task=task, team=child, status=TaskRun.Status.IN_PROGRESS)
+        task_run = TaskRun.objects.create(
+            task=task,
+            team=child,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-child", "sandbox_backend": "modal"},
+        )
         execution_id = uuid4()
         registration = self.registry.register(
             team_id=child.id,
@@ -124,6 +139,7 @@ class TestAgentEgressRegistrationAPI(BaseTest):
             actor_id=self.user.id,
             authority="child-run.egress.example.com",
             relay_key_sha256=self.registration.relay_key_sha256,
+            sandbox_id="sb-child",
         )
         url = f"/api/projects/{child.id}/internal/agent_egress/runs/{task_run.id}/executions/{execution_id}"
         response = self.client.get(
