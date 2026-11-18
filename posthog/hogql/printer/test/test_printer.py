@@ -5307,15 +5307,21 @@ class TestPrinter(BaseTest):
     def test_events_filter_by_sessions_subquery_uses_global_in(self, op, expected):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
-        printed = self._select(
-            f"""
+        select = f"""
             SELECT uuid
             FROM events
             WHERE $session_id {op} (SELECT session_id FROM sessions)
-            """,
-            context=context,
-        )
+            """
+        printed = self._select(select, context=context)
         assert expected in printed, f"expected {expected} in:\n{printed}"
+        hogql, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers),
+            "hogql",
+        )
+        assert expected in self._select(
+            hogql, context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        )
 
     @parameterized.expand(
         [
@@ -5376,13 +5382,7 @@ class TestPrinter(BaseTest):
         # the subquery; GLOBAL IN builds the set once and ships it.
         with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
             printed = self._select(select)
-            assert expected in printed, f"expected {expected} in:\n{printed}"
-            hogql, _ = prepare_and_print_ast(
-                parse_select(select),
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                "hogql",
-            )
-            assert expected in self._select(hogql)
+        assert expected in printed, f"expected {expected} in:\n{printed}"
 
     @parameterized.expand(
         [

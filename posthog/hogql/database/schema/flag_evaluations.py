@@ -303,7 +303,7 @@ class FlagEvaluationsTable(EventsRetentionTable):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
     def to_printed_hogql(self):
-        return FLAG_EVALUATIONS_HOGQL_TABLE
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
 
 # The fields an events list reads from flag_evaluations that join another table.

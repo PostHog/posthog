@@ -347,20 +347,53 @@ def queried_access_controlled_resources(
 
 
 def _contains_insight_selection(value) -> bool:
+    if isinstance(value, BaseModel):
+        value = value.__dict__
+    if isinstance(value, (list, tuple)):
+        return any(_contains_insight_selection(field) for field in value)
+    if not isinstance(value, dict):
+        return False
+
+    expressions = []
+    if value.get("kind") == "HogQLQuery":
+        expressions.append(value.get("query"))
+    if value.get("type") == "hogql":
+        expressions.extend(value.get(field) for field in ("key", "property"))
+    if value.get("breakdown_type") == "hogql":
+        expressions.append(value.get("breakdown"))
+    # These query fields contain expressions; property values and request metadata are literals.
+    expressions.extend(
+        value.get(field)
+        for field in (
+            "select",
+            "orderBy",
+            "groupBy",
+            "where",
+            "having",
+            "filterExpression",
+            "metrics",
+            "formula",
+            "math_hogql",
+            "pathsHogQLExpression",
+            "funnelAggregateByHogQL",
+            "hogql",
+        )
+    )
+    return any(_hogql_contains_insight_selection(expr) for expr in expressions) or any(
+        _contains_insight_selection(field) for name, field in value.items() if name not in ("tags", "name", "value")
+    )
+
+
+def _hogql_contains_insight_selection(value) -> bool:
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select  # noqa: PLC0415
 
-    if isinstance(value, BaseModel):
-        return any(_contains_insight_selection(field) for field in value.__dict__.values())
-    if isinstance(value, dict):
-        return any(_contains_insight_selection(field) for field in value.values())
     if isinstance(value, (list, tuple)):
-        return any(_contains_insight_selection(field) for field in value)
+        return any(_hogql_contains_insight_selection(field) for field in value)
     if not isinstance(value, str) or "(" not in value:
         return False
-    # HogQL can appear in filters, formulas, ordering, and nested query nodes. Parse all call-bearing
-    # strings so quoted function names use the same decoding as execution. Unknown syntax fails closed.
+    # Quoted function names use the same decoding as execution. Unknown syntax fails closed.
     for parser in (parse_expr, parse_select, parse_order_expr):
         try:
             return InsightSelectionFinder(parser(value)).found

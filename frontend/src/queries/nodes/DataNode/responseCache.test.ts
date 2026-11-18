@@ -3,6 +3,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     MAX_RETAINED_RESPONSE_LENGTH,
+    forgetRetainedResponsesForNode,
     getInflightResponse,
     getRetainedResponse,
     reclaimReleasedQuery,
@@ -12,6 +13,33 @@ import {
 } from './responseCache'
 
 beforeEach(() => initKeaTests())
+
+test('invalidates an unmounted node without letting its old request restore stale results', async () => {
+    const keyFor = (key: string): string =>
+        responseCacheKey(
+            { key, query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }, retainResponseOnUnmount: true },
+            1,
+            1
+        )!
+    const key = keyFor('refreshed')
+    const otherKey = keyFor('other')
+    retainResponse(key, { results: [[1]] })
+    retainResponse(otherKey, { results: [[2]] })
+    let finish!: (response: { results: number[][] }) => void
+    const promise = new Promise<{ results: number[][] }>((resolve) => {
+        finish = resolve
+    })
+    const query = trackInflightResponse(key, promise, { queryId: 'pending', abort: () => {}, abandon: () => {} })
+    query.release()
+
+    forgetRetainedResponsesForNode('refreshed')
+    expect(getRetainedResponse(key)).toBeNull()
+    expect(getInflightResponse(key)).toBeNull()
+    expect(getRetainedResponse(otherKey)).toEqual({ results: [[2]] })
+    finish({ results: [[3]] })
+    await promise
+    expect(getRetainedResponse(key)).toBeNull()
+})
 
 test('isolates retained results by user and project and clones mutable data', () => {
     const props = {

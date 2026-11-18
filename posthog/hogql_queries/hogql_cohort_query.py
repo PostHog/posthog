@@ -36,8 +36,9 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
+from posthog.hogql.functions.insight_selection import InsightSelectionFinder
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
@@ -315,7 +316,10 @@ class HogQLCohortQuery:
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
-        return self._get_conditions()
+        query = self._get_conditions()
+        if InsightSelectionFinder(query).found:
+            raise QueryError("Cohort definitions cannot contain insight selections")
+        return query
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
         return prepare_and_print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)[0]

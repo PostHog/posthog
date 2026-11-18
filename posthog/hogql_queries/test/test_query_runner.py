@@ -2087,10 +2087,16 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
-    def test_default_denied_resource_partitions_cache_without_access_control(self):
-        self.organization.available_product_features = []
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_default_denied_resource_partitions_cache(self, access_control, unknown_resources):
+        if not access_control:
+            self.organization.available_product_features = []
         self.organization.save()
-        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests"}
+        query = {
+            "kind": "HogQLQuery",
+            "query": "select (" if unknown_resources else "select * from system.data_deletion_requests",
+            "tags": {"name": "("},
+        }
 
         member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 

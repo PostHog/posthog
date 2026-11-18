@@ -51,7 +51,7 @@ export function DashboardResultInsight({
                 loadQueue,
                 insightProps: {
                     ...insightProps,
-                    retainResponseOnUnmount: true,
+                    retainResponseOnUnmount: !!filtered,
                     ...(filtered ? { doNotLoad: false, setQuery: undefined, dashboardId: undefined } : {}),
                     dashboardItemId: filtered ? getDashboardResultItemId(dashboardId, tileId) : insight.short_id,
                     cachedInsight: filtered ? metadata : insight,

@@ -166,8 +166,24 @@ class TestQueriedAccessControlledResources(BaseTest):
         query = HogQLQuery(query="select * from public.users", connectionId="00000000-0000-0000-0000-000000000001")
         assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
-    def test_structured_query_reads_no_system_table(self):
-        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+    @parameterized.expand(
+        [
+            ("plain", {}),
+            (
+                "regex",
+                {
+                    "properties": [
+                        {"type": "event", "key": "$pathname", "operator": "regex", "value": "^/checkout(/.*)?$"}
+                    ]
+                },
+            ),
+            ("metadata", {"tags": {"name": "("}}),
+        ]
+    )
+    def test_structured_query_reads_no_system_table(self, _name, fields):
+        query = TrendsQuery.model_validate(
+            {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], **fields}
+        )
         assert queried_access_controlled_resources(query, self.team) == set()
 
     def test_accounts_table_query_partitions_on_account_access(self):

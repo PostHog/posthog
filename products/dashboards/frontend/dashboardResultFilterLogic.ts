@@ -18,6 +18,7 @@ import { router, urlToAction } from 'kea-router'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { forgetRetainedResponsesForNode } from '~/queries/nodes/DataNode/responseCache'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { DashboardTile } from '~/types'
 
@@ -49,9 +50,9 @@ function refreshDashboardResultTargets(
         if (!target || !oldTile || tile.insight?.last_refresh === oldTile.insight?.last_refresh) {
             continue
         }
-        const logic = dataNodeLogic.findMounted({
-            key: insightVizDataNodeKey({ dashboardItemId: getDashboardResultItemId(dashboardId, tile.id) }),
-        })
+        const key = insightVizDataNodeKey({ dashboardItemId: getDashboardResultItemId(dashboardId, tile.id) })
+        forgetRetainedResponsesForNode(key)
+        const logic = dataNodeLogic.findMounted({ key })
         if (logic && deepEqual(logic.props.query, target.source)) {
             logic.actions.loadData('force_blocking')
         }

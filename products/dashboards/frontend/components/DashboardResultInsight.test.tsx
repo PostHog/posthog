@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cloneElement } from 'react'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard/InsightCard'
 
@@ -77,7 +78,7 @@ describe('dashboard result insight execution', () => {
                     }}
                 />
             )
-            const rendered = render(card)
+            let rendered = render(card)
             await screen.findByText('160')
             expect(requests).toHaveLength(0)
             act(() =>
@@ -101,7 +102,7 @@ describe('dashboard result insight execution', () => {
             })
             expect(requests[0].filters_override).toBeUndefined()
             rendered.unmount()
-            render(card)
+            rendered = render(card)
             await screen.findByText('42')
             expect(requests).toHaveLength(1)
             act(() => {
@@ -112,9 +113,23 @@ describe('dashboard result insight execution', () => {
             })
             await screen.findByText('84')
             expect(requests[1]).toMatchObject({ refresh: 'force_blocking', query: requests[0].query })
+            rendered.unmount()
+            act(() => {
+                dashboardResultFilterLogic({
+                    dashboardId: 777,
+                    tiles: [source, { ...tile, insight: { ...insight, last_refresh: '2026-01-01T00:02:00Z' } }],
+                })
+            })
+            rendered = render(card)
+            await screen.findByText('126')
+            expect(requests).toHaveLength(3)
             act(() => logic.actions.setSelection(null))
             await waitFor(() => expect(screen.getByText('160')).toBeInTheDocument())
             expect(insight.result).toEqual(result(160))
+            rendered.unmount()
+            render(cloneElement(card, { insight: { ...insight, result: result(320) } }))
+            await screen.findByText('320')
+            expect(requests).toHaveLength(3)
         } finally {
             unmount()
         }
