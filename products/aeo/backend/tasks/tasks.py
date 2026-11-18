@@ -38,6 +38,7 @@ from products.aeo.backend.facade.contracts import (
     SetupRequest,
 )
 from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
+from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -144,6 +145,12 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
+        return
+    # Checks recorded before the stored flag or the fact rows existed would read as empty. The
+    # reconcile fills both and then starts this task again, so a deploy needs no manual backfill.
+    unfilled = AEOCitationCheck.objects.for_team(team.id).filter(prompt_branded__isnull=True)
+    if unfilled.exists() or has_checks_without_facts(team.id):
+        recompute_aeo_own_citations_task.delay(team.id)
         return
     refresh_stored_results(team.id, timezone_name=team.timezone)
 
