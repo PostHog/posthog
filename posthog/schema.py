@@ -36496,6 +36496,7 @@ class FunnelsFilter(BaseModel):
             " funnels."
         ),
     )
+    showSummaryOnDashboards: bool | None = False
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
