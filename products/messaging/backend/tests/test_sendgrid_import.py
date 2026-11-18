@@ -6,7 +6,9 @@ from urllib.parse import urlparse
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 import requests
 from parameterized import parameterized
@@ -32,6 +34,7 @@ from products.messaging.backend.provider_imports.sendgrid import (
     SendGridImportProvider,
     missing_scopes,
 )
+from products.messaging.backend.services.imported_data import carry_opt_outs
 from products.messaging.backend.services.sendgrid_client import SendGridClient, _seconds_until_reset
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_sendgrid import (
@@ -167,6 +170,17 @@ class TestSendGridImport(BaseTest):
         names = set(MessageCategory.objects.filter(team_id=self.team.id).values_list("name", flat=True))
         assert names == {"Product updates", "Événements 🎉", "Empty group"}
         assert any("default group" in warning for warning in run.progress["suppression_groups"]["warnings"])
+
+    def test_finding_every_spelling_of_an_address_has_an_index(self) -> None:
+        with CaptureQueriesContext(connection) as queries:
+            carry_opt_outs(self.team.id, ["Mixed.Case@Example.com"], self.user.id)
+
+        lookup = next(query["sql"] for query in queries if "LOWER(" in query["sql"])
+        assert 'LOWER("posthog_messagerecipientpreference"."identifier")' in lookup
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE tablename = 'posthog_messagerecipientpreference'")
+            definitions = [row[0] for row in cursor.fetchall()]
+        assert any("(team_id, lower((identifier)::text))" in definition for definition in definitions)
 
     def test_a_sender_on_a_verified_domain_is_ready(self) -> None:
         IntegrationManager.email.credentials.create(
