@@ -31,6 +31,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyValue,
     DataType,
     DisplayType,
+    TargetType,
 )
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
@@ -400,34 +401,37 @@ class CustomPropertyValueHistoryRow:
     is_current: bool
 
 
+HISTORY_ENTRY_LIMIT = 1000
+
+
 def list_custom_property_value_history(
     *, team_id: int, account_id: str | UUID, definition_id: str | UUID, since: datetime | None = None
 ) -> list[CustomPropertyValueHistoryRow]:
-    """Every value the account has held for the definition, oldest first. With `since`, only the
-    values held from then on, starting with the one in place at `since`.
+    """Every value the account has held for an account definition, oldest first, capped to the
+    `HISTORY_ENTRY_LIMIT` most recent. With `since`, only the values held from then on, starting with
+    the one in place at `since`.
 
     Setting the same value again stores a new row, so a run of equal values collapses into its
     first row. A clear stores no time, so a cleared value reads as held until the next value is
     set, and a value cleared last has no `replaced_at`.
     """
     try:
-        definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+        definition = CustomPropertyDefinition.objects.for_team(team_id).get(
+            id=definition_id, target_type=TargetType.ACCOUNT
+        )
     except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError) as exc:
         raise CustomPropertyDefinitionNotFound(definition_id) from exc
     values = CustomPropertyValue.objects.for_team(team_id).filter(account_id=account_id, definition=definition)
     if since is None:
-        rows = list(values.order_by("created_at", "id"))
+        entries = _list_value_run_starts(values, definition, HISTORY_ENTRY_LIMIT)
     else:
-        rows = _list_run_held_before(values.filter(created_at__lt=since), definition)
-        rows += values.filter(created_at__gte=since).order_by("created_at", "id")
-    entries: list[CustomPropertyValue] = []
-    for row in rows:
-        row.definition = definition
-        if not entries or stored_value_of(entries[-1]) != stored_value_of(row):
-            entries.append(row)
-    if since is not None and len(entries) > 1 and entries[1].created_at <= since:
-        entries.pop(0)
-    has_current = bool(rows) and not rows[-1].is_deleted
+        held_at_since = _list_value_run_starts(values.filter(created_at__lt=since), definition, 1)
+        entries = _list_value_run_starts(values.filter(created_at__gte=since), definition, HISTORY_ENTRY_LIMIT)
+        if held_at_since and entries and stored_value_of(entries[0]) == stored_value_of(held_at_since[0]):
+            entries[0] = held_at_since[0]
+        elif held_at_since and not (entries and entries[0].created_at <= since):
+            entries = held_at_since + entries
+    has_current = values.filter(is_deleted=False).exists()
     return [
         CustomPropertyValueHistoryRow(
             row=row,
@@ -438,15 +442,22 @@ def list_custom_property_value_history(
     ]
 
 
-def _list_run_held_before(values: QuerySet[CustomPropertyValue], definition: CustomPropertyDefinition) -> list:
-    """The first row of the latest run of equal values, so its `set_at` matches the full history."""
-    run_start: CustomPropertyValue | None = None
+def _list_value_run_starts(
+    values: QuerySet[CustomPropertyValue], definition: CustomPropertyDefinition, limit: int
+) -> list[CustomPropertyValue]:
+    """The first row of each of the `limit` latest runs of equal values, oldest first. Rows stream
+    newest first and only run starts are kept, so repeated writes of one value cost no memory."""
+    starts: list[CustomPropertyValue] = []
     for row in values.order_by("-created_at", "-id").iterator(chunk_size=50):
         row.definition = definition
-        if run_start is not None and stored_value_of(row) != stored_value_of(run_start):
+        if starts and stored_value_of(row) == stored_value_of(starts[-1]):
+            starts[-1] = row
+            continue
+        if len(starts) == limit:
             break
-        run_start = row
-    return [run_start] if run_start else []
+        starts.append(row)
+    starts.reverse()
+    return starts
 
 
 VALUE_SUGGESTIONS_LIMIT = 50

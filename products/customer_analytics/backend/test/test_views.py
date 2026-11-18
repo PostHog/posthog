@@ -2611,8 +2611,12 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         )
         self.assertEqual([e["set_at"] for e in history[1:]], [e["replaced_at"] for e in history[:-1]])
         self.assertIsNone(history[-1]["replaced_at"])
-        unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(uuid4())})
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
+        group_def = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", target_type=TargetType.GROUP.value, group_type_index=0
+        )
+        for definition_id in (uuid4(), group_def.id):
+            unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(definition_id)})
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
 
     @parameterized.expand(
         [
@@ -2623,6 +2627,7 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
                 [("enterprise", "2024-01-10"), ("growth", "2024-02-01")],
             ),
             ("replacement_exactly_at_since", "2024-02-01", [("growth", "2024-02-01")]),
+            ("current_value_set_before_since", "2024-03-01", [("growth", "2024-02-01")]),
         ]
     )
     def test_history_since_starts_with_the_value_held_on_that_date(
@@ -2641,7 +2646,9 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": since})
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in response.json()])
+        history = response.json()
+        self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in history])
+        self.assertEqual([False] * (len(history) - 1) + [True], [e["is_current"] for e in history])
 
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
