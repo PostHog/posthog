@@ -15726,6 +15726,11 @@ export namespace Schemas {
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
+    export interface AlertTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
+    }
+
     export interface AmazonCloudwatchIncidentSignalExtra {
       alarm_name: string | null;
       alarm_kind: string | null;
@@ -39439,6 +39444,50 @@ export namespace Schemas {
     export interface DestinationConnectionTestResponse {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
+    }
+
+    export interface DestinationDeliveryFailure {
+      /** ID of the sync run that could not deliver to this destination. */
+      job_id: string;
+      /** ID of the source the run belongs to. */
+      source_id: string;
+      /** Name of the source: its prefix, if any, and its type. */
+      source_name: string;
+      /** Type of the source, for example `Stripe` or `MetaAds`. */
+      source_type: string;
+      /**
+         * ID of the table the run synced.
+         * @nullable
+         */
+      schema_id: string | null;
+      /**
+         * Name of the table the run synced.
+         * @nullable
+         */
+      schema_name: string | null;
+      /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+      error: string;
+      /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+      is_configuration_error: boolean;
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run stopped.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * ID that the run's log lines carry, to find the logs of this run.
+         * @nullable
+         */
+      workflow_run_id: string | null;
+    }
+
+    export interface DestinationDeliveryFailuresResponse {
+      /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+      results: DestinationDeliveryFailure[];
+      /** How many days back the runs go. */
+      window_days: number;
     }
 
     export interface DetectableEffectCheckpoint {
@@ -107546,6 +107595,38 @@ export namespace Schemas {
     }
 
     /**
+     * * `serving` - Serving
+     * * `setting_up` - Setting up
+     * * `available` - Available
+     * * `not_open` - Not open
+     * * `refused` - Refused
+     * * `failed` - Failed
+     */
+    export type RealtimeCohortsJoinStateEnum = typeof RealtimeCohortsJoinStateEnum[keyof typeof RealtimeCohortsJoinStateEnum];
+
+
+    export const RealtimeCohortsJoinStateEnum = {
+      Serving: 'serving',
+      SettingUp: 'setting_up',
+      Available: 'available',
+      NotOpen: 'not_open',
+      Refused: 'refused',
+      Failed: 'failed',
+    } as const;
+
+    export interface RealtimeCohortsJoinState {
+      /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+       *
+       * * `serving` - Serving
+       * * `setting_up` - Setting up
+       * * `available` - Available
+       * * `not_open` - Not open
+       * * `refused` - Refused
+       * * `failed` - Failed */
+      state: RealtimeCohortsJoinStateEnum;
+    }
+
+    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
@@ -118654,6 +118735,114 @@ export namespace Schemas {
       results: SourceFilterCatalog[];
     }
 
+    /**
+     * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
+     */
+    export type SourceFilterPreviewRecordFieldValues = {[key: string]: string | number | string[] | null};
+
+    export interface SourceFilterPreviewRecord {
+      /** The record's id in the source. */
+      id: string;
+      /**
+         * Short identifier people use for the record.
+         * @nullable
+         */
+      identifier: string | null;
+      /**
+         * The record's title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Link to the record in the source.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When the record was created, as emission reads it.
+         * @nullable
+         */
+      created_at: string | null;
+      /** True when a field the expression uses holds a value that cannot be read, so the record never passes. */
+      malformed: boolean;
+      /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
+      field_values: SourceFilterPreviewRecordFieldValues;
+    }
+
+    export interface SourceFilterPreviewRequest {
+      /**
+         * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_product: string;
+      /**
+         * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_type: string;
+      /**
+         * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+         * @maxLength 16384
+         */
+      expression: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed
+     */
+    export type SourceFilterPreviewStatusEnum = typeof SourceFilterPreviewStatusEnum[keyof typeof SourceFilterPreviewStatusEnum];
+
+
+    export const SourceFilterPreviewStatusEnum = {
+      Ok: 'ok',
+      InvalidExpression: 'invalid_expression',
+      NotConnected: 'not_connected',
+      NotSynced: 'not_synced',
+      AccessDenied: 'access_denied',
+      IncompatibleTable: 'incompatible_table',
+      QueryFailed: 'query_failed',
+    } as const;
+
+    export interface SourceFilterPreviewResponse {
+      /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
+       *
+       * * `ok` - ok
+       * * `invalid_expression` - invalid_expression
+       * * `not_connected` - not_connected
+       * * `not_synced` - not_synced
+       * * `access_denied` - access_denied
+       * * `incompatible_table` - incompatible_table
+       * * `query_failed` - query_failed */
+      status: SourceFilterPreviewStatusEnum;
+      /**
+         * Why the status is not `ok`, when there is a reason.
+         * @nullable
+         */
+      error: string | null;
+      /** Catalog version the expression was checked against. */
+      catalog_version: number;
+      /** The preview reads records created in this many past days. */
+      lookback_days: number;
+      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      total_count: number;
+      /** Records in the window that pass the filter. */
+      passing_count: number;
+      /** Records in the window that the filter excludes. */
+      excluded_count: number;
+      /** Excluded records that hold a value the filter cannot read. Included in `excluded_count`. */
+      malformed_count: number;
+      /** The newest records that pass the filter, at most 10. */
+      passing: SourceFilterPreviewRecord[];
+      /** The newest records that the filter excludes, at most 10. */
+      excluded: SourceFilterPreviewRecord[];
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -119388,6 +119577,11 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       outcome: SignalReportCheckOutcomeEnum;
+    }
+
+    export interface SubscriptionTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
     }
 
     export type SubscriptionWriteContextsItem = {
