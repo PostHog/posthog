@@ -15,13 +15,7 @@ const PERSON_ID = '741cc6c0-7c48-55f2-9b58-1b648a381c9e'
 
 const FLAG_CALL_COLUMNS = (createInitialFlagCallsPayload(PERSON_ID).source as { select: string[] }).select
 
-const FLAG_CALLS: {
-    flag: string
-    response: boolean | string
-    url: string | null
-    lib: string
-    timestamp: string
-}[] = [
+const FLAG_CALLS = [
     {
         flag: 'new-onboarding-flow',
         response: 'test',
