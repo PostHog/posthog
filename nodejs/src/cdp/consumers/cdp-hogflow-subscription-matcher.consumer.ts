@@ -69,8 +69,10 @@ import { counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 const startAtLatest = START_AT_LATEST
 
 // How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
-// goal flow was already paused waits at most this long to be admitted.
-const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 30_000
+// goal flow was already paused waits at most this long to be admitted. Each refresh reads every
+// watcher row, and every pod runs it, so a short interval costs the database more than the lookups do.
+// A flow change admits its team for an hour on its own, which covers that case well inside this.
+const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 // Covers how long a worker can keep running a flow version after it was replaced.
 const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
 
