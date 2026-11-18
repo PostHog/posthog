@@ -23,9 +23,23 @@ tools:
             idempotent: true
         title: Get clustering config
         description: >
-            Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New
-            scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing
-            automation.
+            Retrieve the team's clustering opt-in status and event-filter configuration. Clustering is off by default.
+            Enable it with llma-clustering-config-set-enabled before expecting automatic runs. New scheduled clustering
+            should usually use clustering jobs, but this remains useful when auditing existing automation.
+    llma-clustering-config-set-enabled:
+        operation: llm_analytics_clustering_config_set_enabled_create
+        enabled: true
+        scopes:
+            - ai_observability_clusters:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Enable or disable clustering
+        description: >
+            Enable or disable automated clustering for the current project. Enabling requires organization AI data
+            processing consent. Enabled jobs run on the existing schedule. Disabling prevents future processing and
+            keeps historical results.
     llma-clustering-config-set-event-filters:
         operation: llm_analytics_clustering_config_set_event_filters_create
         enabled: true
