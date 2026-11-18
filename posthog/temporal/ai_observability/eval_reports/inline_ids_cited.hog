@@ -23,7 +23,7 @@ fun message_calls(message) {
     if (typeof(message) != 'object') { return calls }
     if (message.type == 'function_call') {
         if (typeof(message.call_id) == 'string' and message.call_id != '') {
-            // boffin: Responses call_id links tool results; id identifies the output item.
+            // Responses call_id links tool results; id identifies the output item.
             calls := arrayPushBack(calls, {'id': message.call_id, 'function': {'name': message.name, 'arguments': message.arguments}})
         }
     } else if (typeof(message.tool_calls) == 'array') {
@@ -57,7 +57,7 @@ fun output_calls(value) {
 }
 
 fun callback_results(results, calls, contents) {
-    // boffin: LangGraph merges results in call order, so only complete callback batches recover missing IDs.
+    // LangGraph merges results in call order, so only complete callback batches recover missing IDs.
     if (length(calls) == 0 or length(calls) != length(contents)) { return results }
     let ids := []
     for (let t, call in calls) {
@@ -140,7 +140,7 @@ for (let i, item in evaluation_events) {
                     } else {
                         cited := remember(cited, args.trace_id)
                     }
-                // boffin: Rejected sections never reach the report, so they cannot fail its citation check.
+                // Rejected sections never reach the report, so they cannot fail its citation check.
                 } else if (name == 'add_section' and match(result, '^Section [0-9]+/[0-9]+ added:')
                     and typeof(args.content) == 'string') {
                     sections := arrayPushBack(sections, args.content)
