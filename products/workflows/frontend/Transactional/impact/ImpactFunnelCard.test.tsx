@@ -85,27 +85,41 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByTestId('email-impact-bar-delivered')).not.toBeInTheDocument()
     })
 
-    it('says no click was recorded, and still compares delivered sends, when every click went untracked', async () => {
-        answer = [
-            200,
-            {
-                ...IMPACT,
-                opened: 0,
-                clicked: 0,
-                not_clicked: 9,
-                untracked: 10,
-                after_click: { sends: 0, converted: 0 },
-                without_click: { sends: 9, converted: 3 },
-            },
-        ]
-        renderCard()
-        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+    it.each([
+        [
+            'every click went untracked',
+            { opened: 0, clicked: 0, untracked: 10 },
+            'No clicks were recorded in this period.',
+            '',
+        ],
+        [
+            'no clicked send could be followed',
+            { clicked: 2 },
+            'PostHog followed none of the clicked sends.',
+            ' Counted over 0 of 2 clicked sends: PostHog follows the sends that name a person, and only the most recent ones on a busy email.',
+        ],
+    ])(
+        'says why no click is compared, and still compares delivered sends, when %s',
+        async (_, counts, reason, note) => {
+            answer = [
+                200,
+                {
+                    ...IMPACT,
+                    not_clicked: 9,
+                    ...counts,
+                    after_click: { sends: 0, converted: 0 },
+                    without_click: { sends: 9, converted: 3 },
+                },
+            ]
+            renderCard()
+            emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
 
-        const lift = (await screen.findByText('No clicks were recorded in this period.')).closest('p')
-        expect(lift).toHaveTextContent(
-            '33.3% of delivered sends with no recorded click were followed by plan upgraded within 7 days of the send.'
-        )
-    })
+            const lift = (await screen.findByText(reason)).closest('p')
+            expect(lift).toHaveTextContent(
+                `${reason} 33.3% of delivered sends with no recorded click were followed by plan upgraded within 7 days of the send.${note}`
+            )
+        }
+    )
 
     it('shows a failed load once, in the card, and loads the funnel on Try again', async () => {
         answer = [500, { detail: 'Server error' }]

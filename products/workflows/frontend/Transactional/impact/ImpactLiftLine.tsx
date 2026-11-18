@@ -76,7 +76,7 @@ function NoClickToFollow({ clicks }: { clicks: number }): JSX.Element {
             <span>
                 {clicks === 0
                     ? 'No clicks were recorded in this period.'
-                    : "None of the clicks name a person, so PostHog can't follow them."}
+                    : 'PostHog followed none of the clicked sends.'}
             </span>{' '}
         </>
     )
