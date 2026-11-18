@@ -377,8 +377,6 @@ def _export_rendered_asset(
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
-            if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
-                validate_dashboard_pdf(exported_asset.dashboard)
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
             wait_for_css_selector = (
@@ -848,6 +846,8 @@ def export_image(
                 if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
+                if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
+                    validate_dashboard_pdf(exported_asset.dashboard)
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,

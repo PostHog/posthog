@@ -36,7 +36,7 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
@@ -131,7 +131,7 @@ class TestImageExporter(APIBaseTest):
             image_exporter._export_rendered_asset(exported_asset)
 
     @parameterized.expand([(100000, 1), (10, 21)])
-    def test_pdf_rejects_oversized_layout_before_opening_browser(
+    def test_pdf_rejects_oversized_layout_before_querying_or_opening_browser(
         self, mock_remove: Any, mock_file: Any, mock_screenshot: Any, height: int, tile_count: int
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team)
@@ -140,7 +140,7 @@ class TestImageExporter(APIBaseTest):
                 DashboardTile(
                     dashboard=dashboard,
                     team=self.team,
-                    text=Text.objects.create(team=self.team, body="Example tile"),
+                    insight=Insight.objects.create(team=self.team, query=self.exported_asset.insight.query),
                     layouts={"sm": {"h": height}},
                 )
                 for _ in range(tile_count)
@@ -150,8 +150,14 @@ class TestImageExporter(APIBaseTest):
             team=self.team, dashboard=dashboard, export_format=ExportedAsset.ExportFormat.PDF
         )
 
-        with self.assertRaises(InvalidExportContext):
-            image_exporter._export_rendered_asset(asset)
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight",
+                side_effect=RuntimeError("An oversized export must not query insights"),
+            ),
+            self.assertRaises(InvalidExportContext),
+        ):
+            image_exporter.export_image(asset)
 
         mock_screenshot.assert_not_called()
 

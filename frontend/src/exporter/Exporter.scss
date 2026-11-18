@@ -97,11 +97,17 @@ html.export-type-embed {
             flex-shrink: 0;
             width: 100% !important;
             max-height: calc(210mm - 2rem);
-            overflow: hidden;
+            margin-top: 1rem !important;
+            overflow: visible;
             transition: none !important;
             transform: none !important;
             break-inside: avoid;
             content-visibility: visible;
+        }
+
+        .InsightCard__viz,
+        .DashboardTileCard__body {
+            overflow: hidden;
         }
     }
 }
